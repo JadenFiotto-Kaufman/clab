@@ -1,7 +1,5 @@
 {
-  "header": {
-    "description": "The PCA control: the interchange DAS fits a rotation for, run through the top-4 principal directions of the residual stream instead — a basis loaded from what pca_harvest.json wrote, never trained. It keeps das_apply.json's name, `rot`, so the two documents differ only in what that featurizer is. What a trained rotation has to beat."
-  },
+  "description": "The PCA control: the interchange DAS fits a rotation for, run through the top-4 principal directions of the residual stream instead — a basis loaded from what pca_harvest.json wrote, never trained. It keeps das_apply.json's name, `rot`, so the two documents differ only in what that featurizer is. What a trained rotation has to beat.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -9,49 +7,36 @@
   },
   "data": {"test": {"path": "weekdays/data#test"}},
   "sites": {
-    "target": {"component": "block_output", "layers": 0},
-    "head": {"component": "lm_head"}
+    "target": {"component": "layer_output", "layers": 0},
+    "head": {"component": "lm_head_output"}
   },
-  "featurizers": {
-    "rot": {"kind": "pca", "k": 4, "file_path": "documents/artifacts/pca.safetensors"}
-  },
+  "featurizers": {"rot": {"kind": "pca", "k": 4, "file_path": "documents/artifacts/pca.safetensors"}},
   "steps": {
     "counterfactual": {
       "kind": "forward",
-      "data": "test",
-      "field": "counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": -1, "featurizer": "rot"}}
+      "input": "test.counterfactual_inputs[0]",
+      "reads": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "rot"}]}}
     },
     "patched": {
       "kind": "forward",
-      "data": "test",
-      "field": "input",
-      "interventions": {
-        "writes": {
-          "patch": {
-            "site": "target",
-            "pos": -1,
-            "mechanism": "swap",
-            "operand": "counterfactual.v_cf",
-            "featurizer": "rot"
-          }
+      "input": "test.input",
+      "writes": {
+        "patch": {
+          "site": "target",
+          "pos": -1,
+          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "rot"}]
         }
       },
       "reads": {"logits": {"site": "head", "pos": -1}}
     },
     "iia": {
-      "kind": "metric",
-      "metric": "logit_diff",
+      "kind": "op",
+      "op": "logit_diff",
       "of": "patched.logits",
       "a": "test.cf_answer",
       "b": "test.base_answer"
     },
-    "ce": {
-      "kind": "metric",
-      "metric": "cross_entropy",
-      "of": "patched.logits",
-      "target": "test.cf_answer"
-    },
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "test.cf_answer"},
     "saves": {"iia": "iia.json", "ce": "ce.json"}
   }
 }

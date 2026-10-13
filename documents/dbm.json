@@ -1,7 +1,5 @@
 {
-  "header": {
-    "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer, one more objective term and an anneal. The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept."
-  },
+  "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer, one more objective term and an anneal. The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -9,20 +7,22 @@
   },
   "data": {"train": {"path": "weekdays/data#train"}, "test": {"path": "weekdays/data#test"}},
   "sites": {
-    "target": {"component": "block_output", "layers": 0},
-    "head": {"component": "lm_head"}
+    "target": {"component": "layer_output", "layers": 0},
+    "head": {"component": "lm_head_output"}
   },
-  "featurizers": {"mask": {"kind": "gate"}},
+  "featurizers": {"mask": {"kind": "gate", "temperature": {"start": 1.0, "end": 0.05}}},
   "interventions": {
-    "cf_read": {"reads": {"v_cf": {"site": "target", "pos": -1, "featurizer": "fit.mask"}}},
+    "cf_read": {
+      "reads": {
+        "v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.mask"}]}
+      }
+    },
     "dbm": {
       "writes": {
         "patch": {
           "site": "target",
           "pos": -1,
-          "mechanism": "swap",
-          "operand": "counterfactual.v_cf",
-          "featurizer": "fit.mask"
+          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "fit.mask"}]
         }
       },
       "reads": {"logits": {"site": "head", "pos": -1}}
@@ -32,8 +32,7 @@
     "fit": {
       "kind": "fit",
       "train": ["mask"],
-      "objective": [[1.0, "ce"], [{"sweep": [0.0001, 0.002, 0.01, 0.05]}, "mask.mask"]],
-      "anneal": {"mask": {"start": 1.0, "end": 0.05}},
+      "objective": {"ce": 1.0, "mask.mask": {"sweep": [0.0001, 0.002, 0.01, 0.05]}},
       "epochs": 20,
       "batch_size": 16,
       "seed": 0,
@@ -43,46 +42,35 @@
       "steps": {
         "counterfactual": {
           "kind": "forward",
-          "data": "train",
-          "field": "counterfactual_inputs[0]",
+          "input": "train.counterfactual_inputs[0]",
           "interventions": "cf_read"
         },
-        "patched": {"kind": "forward", "data": "train", "field": "input", "interventions": "dbm"},
+        "patched": {"kind": "forward", "input": "train.input", "interventions": "dbm"},
         "iia": {
-          "kind": "metric",
-          "metric": "logit_diff",
+          "kind": "op",
+          "op": "logit_diff",
           "of": "patched.logits",
           "a": "train.cf_answer",
           "b": "train.base_answer"
         },
         "ce": {
-          "kind": "metric",
-          "metric": "cross_entropy",
+          "kind": "op",
+          "op": "cross_entropy",
           "of": "patched.logits",
           "target": "train.cf_answer"
         }
       }
     },
-    "counterfactual": {
-      "kind": "forward",
-      "data": "train",
-      "field": "counterfactual_inputs[0]",
-      "interventions": "cf_read"
-    },
-    "patched": {"kind": "forward", "data": "train", "field": "input", "interventions": "dbm"},
+    "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": "cf_read"},
+    "patched": {"kind": "forward", "input": "train.input", "interventions": "dbm"},
     "iia": {
-      "kind": "metric",
-      "metric": "logit_diff",
+      "kind": "op",
+      "op": "logit_diff",
       "of": "patched.logits",
       "a": "train.cf_answer",
       "b": "train.base_answer"
     },
-    "ce": {
-      "kind": "metric",
-      "metric": "cross_entropy",
-      "of": "patched.logits",
-      "target": "train.cf_answer"
-    },
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"},
     "saves": {
       "fit.iia": "held_out_iia.json",
       "iia": "iia.json",
