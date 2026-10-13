@@ -2,9 +2,10 @@
 
 You are building, from scratch, a small library that runs interpretability
 experiments on transformer language models from declarative JSON documents.
-You have: this charter, the documents, their datasets, an environment, and a
-cheat-sheet for the model-access library you will build on. Nothing else
-exists. Design everything yourself.
+You have: this charter, the documents, their datasets, an environment, a
+cheat-sheet for the model-access library you will build on, and the owner's
+instructions. Nothing else exists. Where this charter is silent, the owner's
+instructions win; where both are silent, design it yourself.
 
 ## What it does
 
@@ -15,12 +16,16 @@ internals, metrics, optimization of small trainable modules), and what to
 save. Your library reads a document, runs it end to end, and writes the
 results to disk in a form a person can read and a script can consume.
 
-**The documents are fixed.** They are the product surface: every one of the
-31 must run as-is, unmodified. Where a document's meaning is ambiguous, you
-decide what it means, implement that consistently, and write your reading
-down; your implementation is the semantics. Study the corpus carefully before
-designing — the documents reference each other's ideas (shared datasets,
-recurring field shapes) and the format is smaller than it first looks.
+**The format is general-purpose by intent; the 31 documents are its fixed
+corpus.** The goal is a JSON format expressive enough to specify the vast
+majority of interpretability experiments without becoming verbose — leave off
+any flexibility that would cost real complexity. Formalize and generalize the
+format however you judge best, but every one of the 31 must run as-is,
+unmodified, forever. Where a document's meaning is ambiguous, you decide what
+it means, implement that consistently, and write your reading down; your
+implementation is the semantics. Study the corpus carefully before designing
+— the documents reference each other's ideas (shared datasets, recurring
+field shapes) and the format is smaller than it first looks.
 
 ## Laws
 
@@ -51,6 +56,34 @@ redesign.
    the server has the same package installed at the same version; code
    resolves by import. Never register your package (or nnterp) for by-value
    shipping.
+
+## Structure the owner has fixed
+
+These are the owner's decisions, not yours to relitigate (details and
+anything unstated are yours):
+
+- A document's root declares the model environment (checkpoint, revision,
+  dtype, the kwargs that matter) and may declare named, reusable definitions
+  — sites/locations, interventions — that steps reference by name; the same
+  things may also be written inline in a step where they are used once.
+- The format is engine-agnostic: any engine built to run interp workflows
+  could ingest one of these documents. clab ships two — nnterp (primary) and
+  plain-pytorch hooks (the extensibility proof) — and both conform to a small
+  protocol: `engine.execute(plan, **kwargs)` as the single entry point, with
+  `.forward`, `.generate` and the like taking intervention data.
+- A shared, reusable `steps.py` walks a document's steps (a loop with a
+  dispatch on step type: forward, generate, train, ...) assuming only that
+  protocol. Both shipped engines use it; a future engine may ignore it
+  entirely and handle the step types itself — keep it possible.
+- Sibling steps share state keyed by the names of things, so a later step can
+  reference an earlier step's values without saving them to disk. That state
+  is pure data and tensors (laws 2 and 3 apply to it; it must survive a
+  remote session).
+- Generic logic for loading data, batching, and targeting token positions
+  lives outside the engines; engines expose the primitives it needs to stay
+  generic.
+- A root `address.py` is the standard vocabulary of the locations clab
+  allows.
 
 ## A hint, not a law
 
