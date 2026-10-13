@@ -369,6 +369,20 @@ where it is used once.
 - **`pos`:** an int, or the one dict grammar of DESIGN.md §5. The int
   shorthand is the one deliberate shorthand.
 
+### Discoverability
+
+The code is the spec. Every extensible thing is a dict of plain functions
+whose signature is its contract: ops, step kinds, components, featurizer
+kinds. A function registers itself under its own name through its decorator
+(`@op` adds the axis declaration and the registration in one line; there is
+no hand-maintained `OPS = {...}` dict). From those dicts and signatures:
+compile binds arguments with `inspect.signature` and names the valid choices
+in every error; `clab describe [ops|steps|components|featurizers|pos]`
+prints the tables by introspection; `clab describe --markdown` generates
+`FORMAT.md`, committed, with a test that fails when the committed copy
+differs from the generated one; `clab schema` (M2) emits a JSON Schema from
+the same source. No pydantic.
+
 ### API
 
 - `clab.run(path, engine="nnterp", out=None, batch_size=8, remote=False) -> plan`
