@@ -2,9 +2,10 @@
 
 You are building, from scratch, a small library that runs interpretability
 experiments on transformer language models from declarative JSON documents.
-You have: this charter, the documents, their datasets, an environment, a
-cheat-sheet for the model-access library you will build on, and the owner's
-instructions. Nothing else exists. Precedence: the owner's instructions win
+You have: this charter, `PLAN.md` (the owner's ratified plan: decisions,
+the reading of the corpus, the expected architecture and the milestones), the
+documents, their datasets, an environment, a cheat-sheet for the model-access
+library you will build on, and the owner's instructions. Nothing else exists. Precedence: the owner's instructions win
 over this charter wherever they disagree; the charter wins over your own
 judgment; where both are silent, design it yourself.
 
@@ -42,13 +43,15 @@ redesign.
    tuples, dicts — plus result slots that fill in when it runs. It has no
    methods that execute anything. A compiled document must pickle, print, and
    mean the same thing wherever it lands.
-3. **No code that runs inside a traced block may reference a client-side
-   object.** Module-level functions taking plain arguments only — no bound
-   methods, no closures over your objects, no bare tokenizer. (nnsight ships
-   every name a block closes over, by value, to wherever the block runs; a
-   closed-over object is a silent wrong-object bug on a server.) The model's
-   own tokenizer is reached *through the model* inside the session, never
-   closed over.
+3. **Inside a session, the engine and its model are the only client-side
+   objects.** Code that runs inside the session may reference the engine
+   instance (`engine`, `engine.model`, `engine.forward`) and the plan; it
+   may not close over anything else client-side: no loaded datasets, no
+   separately-constructed tokenizer, no open files, no helper objects. The
+   engine holds nothing but its model and its configuration. Everything else
+   is module-level functions over plain data. (nnsight ships every name a
+   block closes over, by value, to wherever the block runs.) The model's own
+   tokenizer is reached through the model inside the session.
 4. **The client never decides anything from a tensor.** If a decision depends
    on a value the model produces (which token position matches a piece of
    text, which rows qualify, a dynamic shape), the document's specification of
@@ -85,6 +88,12 @@ anything unstated are yours):
   generic.
 - A root `address.py` is the standard vocabulary of the locations clab
   allows.
+- The result of a run is the filled plan: every step's result slots filled
+  in place, swept steps as lists of points. `nnsight.save(plan)` at the end
+  of the session is the only thing that comes home. `saves` names which
+  values are kept in the plan; the rest are ephemeral cross-step state.
+- The output of a run is a directory: the plan written out as its own
+  hierarchy, with a manifest at the root.
 
 ## A hint, not a law
 
@@ -134,6 +143,9 @@ place. How you draw that line is yours.
   PR's description; something like "one intervention document end to end" is
   the right size for the first.
 - Commit messages are one plain declarative sentence.
+- Design and code are done by agents briefed from this charter and
+  `PLAN.md`. An agent proposes format changes in its PR description with
+  before/after JSON; none lands without the owner's ratification.
 - `pyproject.toml` is scaffolded (editable nnsight/nnterp checkouts and one
   version override — leave those alone; add your own dependencies as needed).
   Tests run offline: the checkpoints the documents pin are already cached
