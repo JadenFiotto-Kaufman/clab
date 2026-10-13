@@ -22,8 +22,10 @@ results to disk in a form a person can read and a script can consume.
 corpus.** The goal is a JSON format expressive enough to specify the vast
 majority of interpretability experiments without becoming verbose — leave off
 any flexibility that would cost real complexity. Formalize and generalize the
-format however you judge best, but every one of the 31 must run as-is,
-unmodified, forever. Where a document's meaning is ambiguous, you decide what
+format however you judge best. The corpus is migrated once, in M1, to the
+format's canonical spelling (PLAN.md §10 records it); from then on it is
+fixed and every document runs unchanged. The format has exactly one spelling
+for each thing — no aliases, no legacy forms. Where a document's meaning is ambiguous, you decide what
 it means, implement that consistently, and write your reading down; your
 implementation is the semantics. Study the corpus carefully before designing
 — the documents reference each other's ideas (shared datasets, recurring
@@ -92,8 +94,8 @@ anything unstated are yours):
   in place, swept steps as lists of points. `nnsight.save(plan)` at the end
   of the session is the only thing that comes home. `saves` names which
   values are kept in the plan; the rest are ephemeral cross-step state.
-- The output of a run is a directory: the plan written out as its own
-  hierarchy, with a manifest at the root.
+- The output of a run is a directory: each saved value at the path its
+  document gives, and a manifest at the root that mirrors the plan.
 
 ## A hint, not a law
 

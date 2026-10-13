@@ -271,3 +271,121 @@ green; both engines agree numerically where both serve; snapshots checked in.
    directory).
 3. The output hierarchy in §5.
 4. The M0 design PR as a no-code PR.
+
+## 10. Ratified after the M0 review (2026-10-13)
+
+The owner read DESIGN.md and ratified it with the changes below. Where this
+section and DESIGN.md or §5 above disagree, this section wins. M1 is built
+from DESIGN.md as amended here.
+
+### DESIGN.md §12 — all ten defaults accepted
+
+1. Un-swept steps run once and are shared across points.
+2. Bundle tensors a document names by `file_path` travel inside the plan
+   (input files only).
+3. M4 commits a seeded generator for `documents/artifacts/sae.safetensors`
+   and the file it writes.
+4. Gate: θ₀ = +1 on every unit; temperature linear over epochs; the best
+   epoch's featurizer is restored.
+5. Two documents run into one `--out` share it; the second manifest replaces
+   the first.
+6. M5 runs against a self-hosted NDIF with clab and nnterp installed.
+7. Early stopping is judged on the training data in scoring mode; the eval
+   substitution runs once, after the fit.
+8. Sweeps: none under `description` or `model`, none on a data `path` or a
+   `file_path`, none on a name or a kind; everything else may sweep.
+9. In the generated frame an ambiguous variable match is reported per row as
+   `alignment_ambiguous`; in the prompt frame it stays refused.
+10. Output layout: files at the paths `saves` gives, the plan's hierarchy in
+    `manifest.json` (charter reworded accordingly).
+
+### One spelling per thing; the corpus is migrated
+
+The format has exactly one spelling for each thing. No alias table exists in
+`compile`. The 31 documents are rewritten once, in M1, into the canonical
+spelling (a mechanical migration, reviewed as a diff in the M1 PR); from then
+on the corpus is fixed. The one deliberate two-way pattern is *reuse vs
+inline*: a thing declared at the root (`sites`, `interventions`,
+`featurizers`) is referenced by name, or the same thing is written inline
+where it is used once.
+
+### The canonical format
+
+- **Root:** `description`, `model`, `data`, `sites`, `interventions`,
+  `featurizers`, `steps`. (`header` is gone.)
+- **Step kinds:** `forward`, `generate`, `fit`, `op` — plus the reserved
+  `saves` entry of `steps`, unchanged (dict `name -> file` or list of names).
+  `metric` and `reduce` are gone: both are `op`. `generate` stays its own
+  kind (nnsight's `generate` is its own method); it may share helpers with
+  `forward`.
+- **Ops are the one computation vocabulary**, in `ops.py`, each a plain
+  function with a declared signature and declared axis behaviour. The same
+  ops run in three places: as a step (`{"kind": "op", "op": "mean", "of":
+  "harvest.acts"}`), inside a read (`"ops": [...]`, applied to the gathered
+  value before the name binds), inside a write (`"ops": [...]`, applied to the
+  live value at the site; the result is written). "Mechanism" no longer
+  exists: `swap`, `add` (with `scale`), `renormalize`, `scale`, `project_out`
+  are ops. `readout` (the logit lens; the one op that takes the engine) and
+  `encode` (into a featurizer's space) are ops. Metrics (`match`,
+  `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `kl`, `js`,
+  `top_k`) and reductions (`mean`, `pca`, `sub`, `add`, `normalize`) are ops.
+  `mean` takes `over` (default: every axis but the feature axes).
+- **The one in-forward rule:** an op inside a read or write sees one batch,
+  so it must act per example; an op that aggregates over `rows` is refused
+  there by name ("make it a step after the forward"). Each op declares its
+  axis behaviour so compile can check this from the plan alone.
+- **`featurizer` (and `features`) are arguments on any op** in a read or
+  write: the op runs on the value's coordinates in that space and the delta is
+  written back (DESIGN.md §9's delta rule, now for every op). `view: logits`
+  is gone (`[{"op": "readout"}]`); `featurizer:` on a read is gone
+  (`[{"op": "encode", "featurizer": F}]`).
+- **A forward's input:** `"input": "pairs.counterfactual_inputs[0]"` (the
+  thing.member syntax). `data` + `field` are gone.
+- **Writes and reads sit directly on the step** (`"writes": {...}`,
+  `"reads": {...}`). `"interventions": "das"` or `["steer", "restore"]` pulls
+  a named root bundle into the step; the inline `interventions: {writes,
+  reads}` form is gone.
+- **Component names are nnterp's**: `layer_output`, `layer_input`,
+  `attention_output`, `attention_probabilities`, `attention_queries`,
+  `attention_keys`, `attention_values`, `attention_scores`,
+  `attention_head_outputs`, `attention_premix`, `mlp_activation`,
+  `mlp_neurons`, `mlp_output`, `lm_head_output`, `logits`, `token_embeddings`,
+  `final_norm_output`, and the norm boundaries; DESIGN.md §4's table is
+  re-keyed on them. The corpus's `block_output`, `attention_probs`,
+  `attention_query`, `attention_z`, `lm_head` are migrated.
+- **`fit`:** `train`, `objective` as a dict `{"ce": 1.0, "mask.mask":
+  {"sweep": [...]}}`, `epochs`, `batch_size`, `seed`, `optimizer`,
+  `early_stop`, `eval`, `steps`. `anneal` is gone: a gate declares its own
+  schedule, `{"kind": "gate", "temperature": {"start": 1.0, "end": 0.05}}`.
+- **Names and scoping (DESIGN.md §6, confirmed):** values are produced in
+  document order and referenced only after they exist; a fit's body sees every
+  root value produced before the fit; nothing leaves the body except through
+  `fit.<member>`: `fit.<featurizer>`, `fit.<body metric>` (eval run, after
+  training), `fit.<body step>.<read>`, and `fit.history.<metric>` (the
+  per-epoch scoring values, `[epochs]`), which is added.
+- **`saves`** is declared only at the root of `steps`, never inside a body;
+  inner values are named through the owning step.
+- **`data`** may hold inline rows beside `path`: `{"rows": [...]}`.
+- **`pos`:** an int, or the one dict grammar of DESIGN.md §5. The int
+  shorthand is the one deliberate shorthand.
+
+### API
+
+- `clab.run(path, engine="nnterp", out=None, batch_size=8, remote=False) -> plan`
+- `clab.load(out_dir) -> plan` — the inverse of `output.write`: manifest +
+  files back into the filled plan, tensors loaded.
+- `clab.table(plan, name)` — one flat table over every point of a saved op.
+- The CLI (`clab run`) is a thin wrapper over `clab.run`.
+
+### Scope
+
+- Gradients as a readable quantity (attribution patching and the like): out
+  of scope.
+- Probes: in scope, inside the training abstraction. A `linear` featurizer
+  (`{"kind": "linear", "classes": "pairs.label"}`: `encode(h) = h @ W + b`,
+  the output axis being the column's distinct values in sorted order) trained
+  by `fit`; metrics resolve a column against the value's own vocabulary (the
+  tokenizer's for logits, the class list for probe scores), so `cross_entropy`
+  and `match` work unchanged against a label column.
+- M1 includes the corpus migration and `patching.json` end to end on both
+  engines in the canonical format.
