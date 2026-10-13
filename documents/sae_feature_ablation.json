@@ -1,0 +1,60 @@
+{
+  "header": {
+    "description": "SAE feature ablation. The residual stream at layer 0 is read through a loaded sparse autoencoder — an encoder/decoder pair with an ERROR TERM, so what the dictionary does not explain is put back exactly — and in `zeroed` one latent at a time is set to zero (`features: [j]`, swept). An ablated latent that was already zero on these prompts changes nothing, which is the point of doing this in feature space: `base.latents`, saved, says which were. The bundle here is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing."
+  },
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "fp32"
+  },
+  "data": {"prompts": {"path": "weekdays/train"}},
+  "sites": {
+    "target": {"component": "block_output", "layers": 0},
+    "head": {"component": "lm_head"}
+  },
+  "featurizers": {"dictionary": {"kind": "sae", "file_path": "documents/artifacts/sae.safetensors"}},
+  "steps": {
+    "base": {
+      "kind": "forward",
+      "data": "prompts",
+      "field": "input",
+      "reads": {"latents": {"site": "target", "pos": -1, "featurizer": "dictionary"}}
+    },
+    "zeroed": {
+      "kind": "forward",
+      "data": "prompts",
+      "field": "input",
+      "interventions": {
+        "writes": {
+          "ablate": {
+            "site": "target",
+            "pos": -1,
+            "mechanism": "swap",
+            "operand": 0.0,
+            "featurizer": "dictionary",
+            "features": {"sweep": [[0], [1], [2], [3]]}
+          }
+        }
+      },
+      "reads": {"logits": {"site": "head", "pos": -1}}
+    },
+    "logit_diff": {
+      "kind": "metric",
+      "metric": "logit_diff",
+      "of": "zeroed.logits",
+      "a": "prompts.cf_answer",
+      "b": "prompts.base_answer"
+    },
+    "p_answer": {
+      "kind": "metric",
+      "metric": "token_prob",
+      "of": "zeroed.logits",
+      "token": "prompts.cf_answer"
+    },
+    "saves": {
+      "logit_diff": "zeroed.json",
+      "p_answer": "p_answer.json",
+      "base.latents": "latents.safetensors"
+    }
+  }
+}

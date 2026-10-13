@@ -1,0 +1,56 @@
+{
+  "header": {
+    "description": "Attention knockout, and the pattern it knocks out. Under eager attention the softmax's return is a tensor: `attention_probs`, (batch, head, query, key). `clean` reads the last query position's pattern for every head, which is saved; `patched` zeroes ONE head's pattern at that position — the head then contributes nothing there — swept over heads. `attn_implementation: eager` is in the model block because sdpa never materializes the pattern."
+  },
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "fp32",
+    "attn_implementation": "eager"
+  },
+  "data": {"pairs": {"path": "weekdays/train"}},
+  "sites": {
+    "pattern": {"component": "attention_probs", "layers": 0},
+    "one_head": {
+      "component": "attention_probs",
+      "layers": 0,
+      "heads": {"sweep": [[0], [1], [2], [3]]}
+    },
+    "head": {"component": "lm_head"}
+  },
+  "steps": {
+    "clean": {
+      "kind": "forward",
+      "data": "pairs",
+      "field": "input",
+      "reads": {"pattern": {"site": "pattern", "pos": -1}}
+    },
+    "patched": {
+      "kind": "forward",
+      "data": "pairs",
+      "field": "input",
+      "interventions": {
+        "writes": {"zero": {"site": "one_head", "pos": -1, "mechanism": "swap", "operand": 0.0}}
+      },
+      "reads": {"logits": {"site": "head", "pos": -1}}
+    },
+    "iia": {
+      "kind": "metric",
+      "metric": "match",
+      "of": "patched.logits",
+      "expected": "pairs.cf_answer"
+    },
+    "logit_diff": {
+      "kind": "metric",
+      "metric": "logit_diff",
+      "of": "patched.logits",
+      "a": "pairs.cf_answer",
+      "b": "pairs.base_answer"
+    },
+    "saves": {
+      "iia": "iia.json",
+      "logit_diff": "logit_diff.json",
+      "clean.pattern": "pattern.safetensors"
+    }
+  }
+}
