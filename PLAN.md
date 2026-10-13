@@ -149,7 +149,12 @@ clab/
   address.py     the component vocabulary: name -> meaning, axis names, what
                  may narrow it (layers/heads/units/features), value kind
   positions.py   pos specs -> per-row token index tensors, resolved on the
-                 serving side from ids/offsets (law 4)
+                 serving side from ids/offsets (law 4). Note: offset mappings
+                 exist only on fast tokenizers, and some checkpoints ship only
+                 slow ones — in the future this may need the char->token
+                 alignment tracked manually (decoding growing prefixes of the
+                 ids), or dual paths: offsets when the tokenizer is fast,
+                 manual alignment when it is not.
   data.py        load data/<path>.json, #split filter, field access, chat
                  rendering, batching with left padding
   state.py       the cross-step namespace: name -> value; "thing.member"
