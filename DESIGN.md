@@ -38,12 +38,12 @@ The plan's root:
 
 | key | what it holds |
 |---|---|
-| `format` | `"clab-plan/1"` |
+| `format` | `"clab/1"`: the one format version clab writes; the manifest and every bundle header carry the same string, so a reader checks one thing |
 | `document` | `{"name", "path", "sha256"}` of the source file |
 | `model` | `{"key", "revision", "dtype", "attn_implementation"}`, with `dtype` spelled as torch spells it (`"float32"`) |
-| `data` | each dataset by name: `{"path", "split", "columns", "rows"}`. The rows are in the plan because nothing else may reach the session (law 3); they keep only the columns some step names (fields, metric arguments, variable scopes) plus `example_id` when present |
+| `data` | each dataset by name: `{"path", "split", "columns", "rows"}`. The rows are in the plan because nothing else may reach the session (law 3); they keep only the columns the document uses: every step's field column, every column a metric argument names, every column a variable scope names, the `<column>_variables` column of an indexed field when a variable scope is used on that input (`entity_patch.json` needs `counterfactual_inputs_variables`, which no step names), plus `example_id` when present |
 | `featurizers` | each declared featurizer's spec, with its `bundle` when it names a file (§9) |
-| `sweeps` | each sweep axis by its document path: `{"label", "values"}` (§7) |
+| `sweeps` | each sweep axis by its label: `{"path", "values"}` (§7) |
 | `steps` | each step by name, in document order. An entry is a step dict, or, when the step varies over a sweep, a **list of points** (§7) |
 
 `saves` does not survive as its own key: each save becomes a **result slot** on
@@ -62,7 +62,7 @@ as 5,635,429 bytes with view slots and 515,365 bytes with cloned ones.
 
 ```python
 {
-  "format": "clab-plan/1",
+  "format": "clab/1",
   "document": {"name": "patching", "path": "documents/patching.json",
                "sha256": "0fc9bf26d0d53b2e…"},
   "model": {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -92,7 +92,7 @@ as 5,635,429 bytes with view slots and 515,365 bytes with cloned ones.
   "sweeps": {},
   "steps": {
     "counterfactual": {
-      "kind": "forward", "over": [], "data": "pairs",
+      "kind": "forward", "at": {}, "data": "pairs",
       "input": {"column": "counterfactual_inputs", "index": 0, "variables": None},
       "writes": [],
       "reads": [
@@ -104,7 +104,7 @@ as 5,635,429 bytes with view slots and 515,365 bytes with cloned ones.
       "result": {},
     },
     "patched": {
-      "kind": "forward", "over": [], "data": "pairs",
+      "kind": "forward", "at": {}, "data": "pairs",
       "input": {"column": "input", "index": None, "variables": None},
       "writes": [
         {"name": "patch", "component": "block_output", "layer": 0, "select": {},
@@ -121,13 +121,13 @@ as 5,635,429 bytes with view slots and 515,365 bytes with cloned ones.
       "result": {},
     },
     "iia": {
-      "kind": "metric", "over": [], "metric": "match", "of": "patched.logits",
+      "kind": "metric", "at": {}, "metric": "match", "of": "patched.logits",
       "args": {"expected": "pairs.cf_answer"}, "token_form": "spaced",
       "dims": ["rows", "pos"],
       "result": {"iia": {"save": "iia.json", "value": None}},
     },
     "logit_diff": {
-      "kind": "metric", "over": [], "metric": "logit_diff", "of": "patched.logits",
+      "kind": "metric", "at": {}, "metric": "logit_diff", "of": "patched.logits",
       "args": {"a": "pairs.cf_answer", "b": "pairs.base_answer"}, "token_form": "spaced",
       "dims": ["rows", "pos"],
       "result": {"logit_diff": {"save": "logit_diff.json", "value": None}},
@@ -142,12 +142,21 @@ What compile did, in the order it does it:
   columns some step names;
 - inlined the site `target` and the inline site `{"component": "lm_head"}`
   into records; a site is never referenced by name after compile;
-- normalized `field: "counterfactual_inputs[0]"` to `{"column", "index"}`;
+- normalized `field: "counterfactual_inputs[0]"` to `{"column", "index",
+  "variables"}`. `variables` says where a `variable` scope finds the row's texts
+  for this input: `None` when no record of the step has a variable scope (as
+  here), else `{"column": "<column>_variables", "index": i}` for an indexed
+  field and `{"column": None, "index": None}` (the row itself) for a plain one;
+- kept every narrowing in the document's own spelling, `"select": {"heads": [0]}`
+  or `{"units": [0, 1, 2, 3]}` (empty here); binding turns it into axis indices
+  per component (§3), so the plan says what the document said;
 - normalized `pos: -1` to the one position shape (§5): `start: -1, stop: None`
   is "the last token of the scope";
 - computed `dims` — axis **names**, never sizes — from `address.py`; a read is
   laid out `(rows, pos, *the component's other axes)` (§4);
-- turned `saves` into two result slots, on the steps that make the values.
+- turned `saves` into two result slots, on the steps that make the values;
+- gave every step `"at": {}`: the step is not a sweep point (a point's `at`
+  names its coordinates, below).
 
 ### `documents/pos_sweep.json`, compiled (the parts that differ)
 
@@ -157,28 +166,26 @@ each becomes a list of points (§7 has the dependency rule).
 
 ```python
 "sweeps": {
-  "steps.patched.interventions.writes.patch.pos": {"label": "pos", "values": [-1, -2, -3]},
+  "pos": {"path": "steps.patched.interventions.writes.patch.pos", "values": [-1, -2, -3]},
 },
 "steps": {
-  "counterfactual": { …exactly as in patching… , "over": [] },
+  "counterfactual": { …exactly as in patching, "at": {} … },
   "patched": [
-    {"at": {"steps.patched.interventions.writes.patch.pos": 0},
-     "kind": "forward", "over": ["steps.patched.interventions.writes.patch.pos"],
-     "data": "pairs", "input": {"column": "input", "index": None, "variables": None},
+    {"at": {"pos": 0},
+     "kind": "forward", "data": "pairs", "input": {"column": "input", "index": None, "variables": None},
      "writes": [{"name": "patch", "component": "block_output", "layer": 0, "select": {},
                  "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
                  "mechanism": "swap", "operand": "counterfactual.v_cf", "params": {},
                  "featurizer": None, "features": None}],
      "reads": [ …logits at -1, as in patching… ],
      "result": {}},
-    {"at": {"steps.patched.interventions.writes.patch.pos": 1},
+    {"at": {"pos": 1},
      … "pos": {"frame": "prompt", "scope": None, "start": -2, "stop": -1} … },
-    {"at": {"steps.patched.interventions.writes.patch.pos": 2},
+    {"at": {"pos": 2},
      … "pos": {"frame": "prompt", "scope": None, "start": -3, "stop": -2} … },
   ],
   "iia": [
-    {"at": {"steps.patched.interventions.writes.patch.pos": 0}, "kind": "metric",
-     "over": ["steps.patched.interventions.writes.patch.pos"], "metric": "match",
+    {"at": {"pos": 0}, "kind": "metric", "metric": "match",
      "of": "patched.logits", "args": {"expected": "pairs.cf_answer"},
      "token_form": "spaced", "dims": ["rows", "pos"],
      "result": {"iia": {"save": "iia.json", "value": None}}},
@@ -188,16 +195,101 @@ each becomes a list of points (§7 has the dependency rule).
 }
 ```
 
-A point is a complete step dict plus `at`: its coordinate on each axis it
-varies over, as an index into `plan["sweeps"][axis]["values"]`. Nothing else in
-a point is special; the engine never sees `{"sweep": …}` and never sees `at`.
+A point is a complete step dict whose `at` gives its coordinate on each axis
+it varies over, as an index into `plan["sweeps"][label]["values"]`; the keys of
+`at` are the step's axes, so nothing else lists them. Nothing else in a point is
+special; the engine never sees `{"sweep": …}` and never sees `at`.
 
 `head_patching.json` shows the other case: its sweep sits on the shared site
 `target`, so `counterfactual` (which reads `target`) and `patched` (which writes
-it) both become four points on **one** axis, `sites.target.heads`, and point
+it) both become four points on **one** axis, `heads` (path `sites.target.heads`), and point
 *i* of each uses head *i*. One sweep object referenced from two places is one
 axis, which is what makes "read head *h* of the counterfactual, write it into
 head *h*" mean what `attention_pattern_patching.json` needs.
+
+### A reduce, a generate step and a fit, compiled
+
+`mean_ablation.json`'s reduce:
+
+```python
+"mean": {"kind": "reduce", "at": {}, "reduce": "mean", "of": "harvest.acts", "k": None,
+         "dims": ["hidden_size"],
+         "result": {"mean": {"save": "mean.safetensors", "value": None}}},
+```
+
+`pca_harvest.json`'s is the same with `"reduce": "pca", "k": 4, "dims":
+["hidden_size", "k"]` and its slot a bundle (§9).
+
+`generated_answer.json`'s generate step:
+
+```python
+"answer": {
+  "kind": "generate", "at": {}, "data": "prompts",
+  "input": {"column": "input", "index": None, "variables": {"column": None, "index": None}},
+  "options": {"max_new_tokens": 6, "min_new_tokens": 6, "do_sample": False},
+  "writes": [],
+  "reads": [
+    {"name": "at_said", "component": "lm_head", "layer": None, "select": {},
+     "pos": {"frame": "generated", "scope": {"variable": "said"}, "start": -1, "stop": None},
+     "featurizer": None, "view": None, "dims": ["entries", "pos", "vocab_size"]},
+    {"name": "at_stop", "component": "lm_head", "layer": None, "select": {},
+     "pos": {"frame": "generated", "scope": {"segment": "eos"}, "start": -1, "stop": None},
+     "featurizer": None, "view": None, "dims": ["entries", "pos", "vocab_size"]},
+  ],
+  "result": {},
+},
+```
+
+A generated-frame read with a scope is ragged (`entries`, with a `row` vector):
+which step it names depends on what each row said, and a row may have none.
+One with a plain index (`generate_probe.json`'s swept `index`) is rectangular,
+`["rows", "pos", "vocab_size"]`. The generate step's own value, `answer`, is
+the new ids, `dims ["rows", "new"]`.
+
+`das.json`'s fit. The body's steps live inside the fit entry, compiled exactly
+like root steps; `eval.data` stays the substitution map it is in the document;
+the slots for `fit.iia` and `fit.rot` sit on the fit entry, because the fit is
+the thing that owns those members:
+
+```python
+"data": {"train": {"path": "weekdays/data", "split": "train", "rows": [ …2 rows… ], …},
+         "test":  {"path": "weekdays/data", "split": "test",  "rows": [ …2 rows… ], …}},
+"featurizers": {"rot": {"kind": "subspace", "k": 8, "parametrization": "cayley",
+                        "seed": None, "file_path": None, "bundle": None}},
+"steps": {
+  "fit": {
+    "kind": "fit", "at": {}, "train": ["rot"], "objective": [[1.0, "ce"]],
+    "epochs": 10, "batch_size": 16, "seed": 0,
+    "optimizer": {"name": "adamw", "lr": 0.001, "weight_decay": 0.0},
+    "early_stop": {"metric": "iia", "mode": "max", "patience": 3},
+    "anneal": {},
+    "eval": {"data": {"train": "test"}},
+    "steps": {
+      "counterfactual": {"kind": "forward", "at": {}, "data": "train",
+                         "input": {"column": "counterfactual_inputs", "index": 0, "variables": None},
+                         "writes": [],
+                         "reads": [{"name": "v_cf", "component": "block_output", "layer": 0, "select": {},
+                                    "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
+                                    "featurizer": "fit.rot", "view": None,
+                                    "dims": ["rows", "pos", "features"]}],
+                         "result": {}},
+      "patched": { …the `das` intervention inlined: the swap with "featurizer": "fit.rot", the logits read… },
+      "iia": {"kind": "metric", "at": {}, "metric": "logit_diff", "of": "patched.logits",
+              "args": {"a": "train.cf_answer", "b": "train.base_answer"}, "token_form": "spaced",
+              "dims": ["rows", "pos"], "result": {}},
+      "ce": {"kind": "metric", "at": {}, "metric": "cross_entropy", "of": "patched.logits",
+             "args": {"target": "train.cf_answer"}, "token_form": "spaced",
+             "dims": ["rows", "pos"], "result": {}},
+    },
+    "result": {"fit.iia": {"save": "held_out_iia.json", "value": None},
+               "fit.rot": {"save": "rot.safetensors", "value": None}},
+  },
+  "counterfactual": { …as the body's, at the root, "result": {}… },
+  "patched": { … },
+  "iia": { …, "result": {"iia": {"save": "iia.json", "value": None}} },
+  "ce":  { …, "result": {"ce": {"save": "ce.json", "value": None}} },
+},
+```
 
 ### The filled plan
 
@@ -219,7 +311,7 @@ Other values a slot holds, by what produced them:
 | metric `top_k` | per row and position, a list of `{"token": str, "id": int, "prob": float}`, decoded inside the session |
 | a read (`clean.pattern`) | the read tensor, `dims` as compiled (`["rows", "pos", "num_heads", "key"]`) |
 | a ragged read (`harvest.acts` with `pos: {"all": true}`) | `{"values": Tensor[N, …], "row": int64 Tensor[N]}` (§5) |
-| reduce `mean` | the mean tensor (§5 says which axes it removes) |
+| reduce `mean` | the mean over rows, positions and entries: `[hidden_size]` (the read's feature axes) for a rectangular and a ragged read alike (§3, "operands") |
 | reduce `pca` | a bundle: `{"header": {...}, "tensors": {"basis": [d, k], "mean": [d]}}` |
 | a generate step's own name (`patched` in generate_probe) | int64 `[rows, max_new_tokens]`: the new tokens only |
 | a featurizer (`fit.rot`) | its bundle, `{"header", "tensors"}` (§9) |
@@ -291,7 +383,7 @@ Changes from PLAN §5, one reason each:
 | `load_rows(root: str, path: str) -> list[dict]` | `data/<path>.json`, filtered by `split` when the path has `#<split>`. Compile time. |
 | `field(row: dict, input: dict) -> str \| list[dict]` | The row's input text, or its chat messages. |
 | `variables(row: dict, input: dict) -> dict[str, str]` | The texts a `variable` scope may name for this input: `row[<column>_variables][index]` when the field is indexed, else the row itself (§5). |
-| `encode(tokenizer, inputs: list) -> dict` | Inside the session. Renders chats through the tokenizer's template, tokenizes each row with offsets and special-token masks, left-pads by hand. Returns `{"input_ids", "attention_mask", "offsets", "special", "turns", "lengths"}`. |
+| `encode(tokenizer, inputs: list, width: int) -> dict` | Inside the session. Renders chats through the tokenizer's template, tokenizes each row with offsets, marks a token special when its id is in `tokenizer.all_special_ids`, left-pads by hand to `width` (the dataset input's longest row, §3). Returns `{"input_ids", "attention_mask", "position_ids", "offsets", "special", "turns", "lengths"}`; `position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)`, which both engines pass to the model. |
 
 `positions.py`
 
@@ -320,8 +412,8 @@ Changes from PLAN §5, one reason each:
 
 | signature | contract |
 |---|---|
-| `METRICS: dict[str, Callable]` | Each `(value, args) -> Tensor` over a logits read and resolved per-row token ids. |
-| `token_ids(tokenizer, texts: list[str], form: str) -> Tensor` | Inside the session. One id per row; a text that is not one token is refused naming the row and the column. |
+| `METRICS: dict[str, Callable]` | Each `(logits, args) -> Tensor \| dict`. `logits` is `(…, pos, vocab_size)` with any leading axes (`rows`; `layers, rows`; or ragged `entries`); `args` holds tensors already aligned to those leading axes: token ids per row (indexed by `row` for a ragged value, broadcast over `layers`), or the other logits read (`kl`, `js`). Every metric returns a tensor over the leading axes and `pos`, except `top_k`, which returns `{"ids": Tensor[…, k], "probs": Tensor[…, k]}`. Metrics never see a tokenizer. |
+| `token_ids(tokenizer, texts: list[str], form: str) -> Tensor` | Inside the session. One id per row; a text that is not one token is refused naming the row and the column. `steps.py` calls it before a metric, and decodes `top_k`'s ids with `tokenizer.convert_ids_to_tokens` after one, so the slot holds strings. |
 | `mean(value) -> Tensor`, `pca(value, k: int) -> dict` | The two reduces. |
 
 `featurizers.py`
@@ -393,7 +485,10 @@ class Engine(Protocol):
   `options = {"max_new_tokens", "min_new_tokens", "do_sample"}`, applies
   prompt-frame writes on the prompt call only, and returns the new token ids
   `[rows, n]` and each read as `(steps, rows, 1, …)` over the decode steps it
-  asked for.
+  asked for. `steps.py` turns that into the layout every consumer expects: a
+  read at a fixed index *k* becomes `value[k]`, `(rows, 1, …)`; a scoped read
+  becomes `{"values": stack(value[s_r, r] for each placed row r), "row": [r…]}`,
+  `(entries, 1, …)`, where `s_r` is the step §5 resolves for row *r*.
 - **`readout(hidden)`** is the model's own unembedding of a residual-stream
   tensor (`view: logits`): nnterp's `project_on_vocab`; on hooks, the native
   final norm and `lm_head` called on the tensor.
@@ -416,10 +511,28 @@ write = {**plan_write,                          # component, layer, select, pos,
          "layer": 0,                            # always an int here; "all" was expanded
          "select": {"hidden_size": [0, 1, 2, 3]},   # narrowing as axis -> indices (heads on premix become units)
          "at": {"rows": LongTensor[R, w]},      # positions.resolve output, for this batch
-         "operand": Tensor[R, w, d] | float | None,  # the named value, sliced to this batch's rows
+         "operand": Tensor[R, w, d] | Tensor[d] | float | None,  # the named value, bound by the rule below
          "featurizer": dict | None}             # the instance, not its name
 read  = {**plan_read, "layer": 0, "select": {...}, "at": {...}, "featurizer": dict | None}
 ```
+
+`select` is bound from the document's spelling: `{"heads": [0]}` on
+`attention_premix` becomes `{"hidden_size": [0, 1, 2, 3]}` (head 0's block of
+`head_dim` units), on `attention_probs` or `attention_z` `{"num_heads": [0]}`,
+on keys and values `{"num_kv_heads": [0]}`; `{"units": […]}` becomes the
+component's feature axis (`intermediate_size` on `mlp_activation`).
+
+**Operands.** A named operand is either *row-aligned* (it has a `rows` axis:
+a read, or a metric) or not (a reduce's value, a number). Binding slices a
+row-aligned operand to the batch's rows, `[lo:lo + R]`, and passes any other
+operand whole; `interventions.edit` broadcasts an operand without a `rows` axis
+over the selection's rows and positions. So `mean` (`[hidden_size]`, §1) lands
+at any window on any row, which is what `entity_mean_ablation.json`'s header
+says ("one vector, so it lands at any window"), and `steer_renormalize.json`'s
+`direction` and `two_observes.json`'s `mean` bind the same way. Compile refuses
+a row-aligned operand whose producer ran over a different dataset from the
+consumer (row *i* would not be the same example), and preflight refuses one
+whose window width differs from the write's.
 
 The engine looks only at `component` and `layer` (to reach the value) and
 hands the rest to `interventions.edit` / `interventions.gather`. That is the
@@ -430,42 +543,65 @@ with it.**
 
 ```python
 def run(engine, plan, batch_size):
-    preflight(engine, plan)                       # tokenizes everything once; refuses by name
-    state = {}                                    # the cross-step namespace (§6); never leaves the session
+    widths = preflight(engine, plan)              # tokenizes every input once; refuses by name; per-input pad widths
+    state = {}                                    # (name, coords) -> value (§6, §7); never leaves the session
     for name, entry in plan["steps"].items():
-        for step in points(entry):
-            KINDS[step["kind"]](engine, plan, name, step, state, batch_size)   # forward/generate/metric/reduce/fit
+        for step in points(entry):                # every step has "at"; {} when it is not a point
+            KINDS[step["kind"]](engine, plan, name, step, state, Run(batch_size, widths))
             for key, slot in step["result"].items():
-                slot["value"] = finished(lookup(state, key, step["at"]))
+                slot["value"] = finished(lookup(plan, state, key, step["at"]))
 
-def forward(engine, plan, name, step, state, batch_size):
-    rows = plan["data"][step["data"]]["rows"]
+def forward(engine, plan, name, step, state, run, rows=None, grad=False):
+    rows = rows if rows is not None else plan["data"][step["data"]]["rows"]
+    width = run.widths[(step["data"], key_of(step["input"]))]
     parts = []
-    for lo in range(0, len(rows), batch_size):
-        batch = data.encode(engine.tokenizer, [data.field(r, step["input"]) for r in rows[lo:lo + batch_size]])
-        writes = [bind(w, batch, lo, state, step) for w in step["writes"]]
-        reads = [bind(r, batch, lo, state, step) for r in per_layer(step["reads"], engine.sizes())]
-        with torch.no_grad():                     # the fit loop calls forward with grad enabled instead
+    for lo in range(0, len(rows), run.batch_size):
+        chunk = rows[lo:lo + run.batch_size]
+        batch = data.encode(engine.tokenizer, [data.field(r, step["input"]) for r in chunk], width)
+        writes = [bind(plan, w, batch, chunk, lo, state, step) for w in step["writes"]]
+        reads = [bind(plan, r, batch, chunk, lo, state, step) for r in per_layer(step["reads"], engine.sizes())]
+        with torch.set_grad_enabled(grad):        # only the fit's training pass sets grad=True
             got = engine.forward(batch, writes, reads)
         parts.append(viewed(engine, got, step["reads"]))   # view: logits -> engine.readout
     for read in step["reads"]:
-        state[(name + "." + read["name"], coords(step))] = joined(parts, read)   # coords: sorted (axis, index) pairs
+        state[(name + "." + read["name"], coords(step["at"]))] = joined(parts, read)
 ```
+
+`coords(at)` is `tuple(sorted(at.items()))`; `lookup` restricts the
+consumer's `at` to the producer's axes (§7). `Run` is a two-field tuple, not a
+class with behaviour. `rows` lets the fit run the same function on a minibatch
+or on a substituted dataset (§9).
 
 **Batching and left padding.** `steps.py` cuts every dataset into consecutive
 row ranges of `batch_size` (the fit's own `batch_size` inside a fit). Every
 step over the same dataset sees the same row order, so row *i* of
-`counterfactual.v_cf` is row *i* of `patched`'s batch: an operand is sliced
-`[lo:lo + R]` before it is bound. `data.encode` pads on the left by hand (pad
-id: the tokenizer's, else its EOS, else 0) rather than through the tokenizer's
-settings, so padding does not depend on how a checkpoint ships its tokenizer
-and nothing on the serving side's tokenizer is mutated. Both engines see the
-same `input_ids` and `attention_mask`. The hooks engine also passes
-`position_ids = (mask.cumsum(-1) - 1).clamp(min=0)`, which is what nnsight
-builds: verified on a left-padded batch of the four weekday prompts, with it
-every one of the fifteen hookable components (§4) is bit-equal between the
-engines on both checkpoints; without it GPT-2's block output differs by 0.106
-and Llama's attention output differs.
+`counterfactual.v_cf` is row *i* of `patched`'s batch.
+
+`data.encode` pads on the left by hand (pad id: the tokenizer's, else its EOS,
+else 0), and every batch of one dataset input is padded to **that input's
+longest row** (computed once by preflight), not the batch's. Two reasons. A
+read with a `key` axis (`clean.pattern` in `attention_knockout.json`) then has
+the same key width in every batch and joins along `rows`; padded per batch,
+`weekdays/train` (11/9/9/9 tokens) at `--batch-size 2` would give key widths
+11 and 9 and could not be concatenated. And a row's numbers no longer depend
+on which rows share its batch. Verified on the tiny Llama with the four
+weekday prompts: padded per batch, the last-position logits at batch sizes 4
+and 2 differ by up to 6.0e-8; padded to the dataset's width, batch sizes 4 and
+2 are bit-equal, and batch size 1 still differs from 4 by up to 8.9e-8 (the
+matrix shapes change). So results are reproducible to the bit only at a fixed
+`batch_size`, and the snapshot tests pin it.
+
+Padding by hand rather than through the tokenizer's settings means padding does
+not depend on how a checkpoint ships its tokenizer, and nothing on the serving
+side's tokenizer is mutated. `data.encode` also computes `position_ids =
+(attention_mask.cumsum(-1) - 1).clamp(min=0)`, and **both engines pass them
+to the model**, so neither relies on nnsight's own heuristic for supplying
+position ids. Verified: on a left-padded batch, nnterp with these
+`position_ids` passed explicitly gives logits bit-equal to nnterp without them
+and to `AutoModelForCausalLM` with them; and with them every one of the
+fifteen hookable components (§4) is bit-equal between the engines on both
+checkpoints. Without them the plain HF forward differs (GPT-2's block output by
+0.106, Llama's attention output too).
 
 **How `generate` serves decode steps.** A read in the `generated` frame with a
 fixed index *k* asks for step *k*; a scoped one (`scope: variable` or
@@ -479,6 +615,17 @@ one step per row from the new ids (§5). Verified: inside a `remote="local"`
 session, a function opening `generate` with a step-0 write and per-step
 `lm_head` reads returned `[3, 4, 32000]`, and each step's argmax equalled the
 token generated at that step, bit-equal to `remote=False`.
+
+The hooks engine serves `generate` with `AutoModelForCausalLM.generate` and the
+same hooks as `forward`, plus a forward pre-hook on the top module that counts
+calls: call 0 is the prompt, call *k* is decode step *k*. Prompt-frame writes
+apply only while the count is 0; a generated-frame read captures, at each step
+it asked for, the value at the call's last position into a list indexed by the
+step; the ids are `generate`'s return minus the prompt. It passes the batch's
+`attention_mask` and leaves decode-step position ids to `generate`, which
+derives them from the mask (**belief**: bit-equality with the nnterp engine's
+generation is M3's to verify; if it does not hold, M3 makes the hooks engine
+refuse `generate` steps by name rather than serve different numbers).
 
 ### The same code inside a session and in plain Python
 
@@ -498,6 +645,17 @@ def execute(self, plan, *, batch_size=8, remote=False):
     steps.run(self, plan, batch_size)
     return plan
 ```
+
+**What the hooks engine imports and what it executes.** It imports `torch`,
+`transformers` and `nnterp`. nnterp (and through it nnsight) is used only to
+build a meta shell, `StandardizedTransformer(key, revision=…, dispatch=False,
+device_map=None)`, which loads no weights; from it the engine reads the sizes,
+`support()`, each component's nnterp key and `inside_forward()`, and the native
+module paths (`envoy.path`). Every forward and generation it runs is
+`AutoModelForCausalLM` with `register_forward_hook` /
+`register_forward_pre_hook`; no nnsight trace, session or envoy is ever
+executed. That is how this design reads the charter's "importing nothing from
+nnsight": nothing from nnsight *for execution*, as PLAN §1 allows.
 
 `steps.run` calls only `engine.forward`, `engine.generate`, `engine.readout`,
 `engine.sizes`, `engine.tokenizer` and torch. Inside the nnterp session, each
@@ -644,11 +802,15 @@ All of this runs in `positions.resolve`, inside the session, on the output of
 `data.encode` (law 4: which tokens a spec names is decided where the model is,
 through its own tokenizer).
 
-- **No scope (the prompt).** The row's tokens that the tokenizer does not flag
-  as special (`return_special_tokens_mask`). So `-1` is the last token of the
-  prompt and BOS is never "a token of the prompt", which is what
-  `pca_harvest.json`'s header asks (verified: 34 non-BOS tokens over the four
-  weekday prompts). Padding is never in any scope.
+- **No scope (the prompt).** The row's tokens whose id is not in
+  `tokenizer.all_special_ids`. So `-1` is the last token of the prompt and BOS
+  is never "a token of the prompt", which is what `pca_harvest.json`'s header
+  asks (verified: 34 non-BOS tokens over the four weekday prompts). The id test
+  is used, not the tokenizer's `special_tokens_mask`, because a rendered chat is
+  tokenized with `add_special_tokens=False` and its mask is then all zeros even
+  though the text holds `<s>` and `</s>` (verified on the pinned Llama: mask sum
+  0; the id test marks `<s>`, `</s>`, `<s>`; on a plain prompt both give
+  `[1, 0, …, 0]`). Padding is never in any scope.
 - **`{"variable": c}`.** The text `variables(row)[c]`: the row's own column for
   the plain input; for an indexed field (`counterfactual_inputs[0]`), the
   matching entry of `<column>_variables` (`counterfactual_inputs_variables[0]
@@ -657,7 +819,9 @@ through its own tokenizer).
   character offsets overlap its character span. Verified on the pinned Llama:
   `Thursday` is `▁Th urs day` (tokens 4–6), `Saturday`/`Friday`/`Sunday` one
   token each. Zero occurrences: the row is **missing**; two or more:
-  **ambiguous**, refused by name always (the rule `chat_turn.json` cites).
+  **ambiguous**. In the prompt frame an ambiguous row is refused by name (the
+  rule `chat_turn.json` cites; the data decides it, not the model). In the
+  generated frame it is reported, like a missing row (below; question 9).
 - **`{"segment": "role[n]"}`.** `data.encode` renders the chat through
   `tokenizer.apply_chat_template(..., tokenize=False)`, tokenizes the rendered
   text with `add_special_tokens=False` (the template already has `<s>`), and
@@ -676,6 +840,10 @@ through its own tokenizer).
   decoded continuation by `char_spans` (decoding growing prefixes of the new
   ids); `segment: eos` is the first EOS the row generated.
 
+Two combinations the grammar admits are refused at compile, naming the record:
+`segment: "role[n]"` in the generated frame (a continuation has no turns), and
+`segment: "eos"` in the prompt frame (a prompt does not stop).
+
 ### Missing rows
 
 | where | a missing row |
@@ -683,7 +851,7 @@ through its own tokenizer).
 | a prompt-frame write | refused by name: document, step, write, row, the text that is not in the prompt |
 | a prompt-frame `index`/`span` read | refused the same way (a rectangular read has no hole) |
 | a prompt-frame ragged read | contributes no entries and stays a row (`row` simply lacks it) |
-| any `generated`-frame read | a result: the row is absent from the ragged value, and every table over it reports `{"row": i, "alignment_missing": true}` |
+| any `generated`-frame read | a result: the row is absent from the ragged value, and every table over it reports `{"row": i, "alignment_missing": true}`; a row where the text occurs twice in what the model said reports `{"row": i, "alignment_ambiguous": true}` the same way (question 9) |
 
 So `generated_answer.json` comes back with two rows scored and two
 `alignment_missing` under `at_said`, and `at_stop` missing on every row (EOS is
@@ -786,16 +954,26 @@ leave the session.
 ## 7. Sweeps
 
 **Expansion is compile-time and generic.** Compile walks the document and
-treats any `{"sweep": [...]}` standing for a value as an axis, named by its
-document path (`sites.target.heads`, `featurizers.rot.seed`,
-`steps.fit.objective[1][0]`, `steps.patched.reads.logits.pos.index`). A
-sweep's `label` is the last key of its path that is not a list index (`heads`,
-`seed`, `objective`, `index`), lengthened by the key before it if two labels
-collide. The engine never sees a sweep.
+treats any `{"sweep": [...]}` standing for a value as an axis. An axis is
+named by its **label**, the last key of its document path that is not a list
+index (`sites.target.heads` → `heads`, `featurizers.rot.seed` → `seed`,
+`steps.fit.objective[1][0]` → `objective`,
+`steps.patched.reads.logits.pos.index` → `index`); `plan["sweeps"]` keeps the
+path beside the values for the manifest. Two different sweeps with one label
+are refused at compile, naming both paths: the corpus has at most one sweep
+per document, and a rename is cheaper than a naming scheme. A sweep may sit
+anywhere a value does except under `header` and `model`, and not on a name,
+a kind, a data `path` or a `file_path` (proposal 5; question 8). The engine
+never sees a sweep.
 
-**Which entries become points.** An entry's axes (`over`) are the sweeps in
-its own spec, in the sites, interventions and featurizers it uses, and the
-axes of every step whose values it references, transitively. An entry with no
+**Which entries become points.** An entry's axes are the sweeps in its own
+spec, in the sites, interventions and featurizers it uses, and the axes of
+every entry whose values it references, transitively. A reference is any
+name a record holds: an operand, a metric's `of` and arguments, a reduce's
+`of`, an objective term, **and a `featurizer` field**. The last one is what
+carries `dbm.json`'s objective sweep to its root `counterfactual` step: that
+step's only link to the fit is `"featurizer": "fit.mask"` inside the inlined
+`cf_read` intervention, so it becomes four points, one per trained mask. An entry with no
 axes is one dict. An entry with axes is the list of points over the cartesian
 product of its axes, in axis order of first appearance; each point is fully
 concrete, with `at` giving its index on each of its axes. One sweep object
@@ -812,7 +990,8 @@ not repeated. §12 asks the owner to confirm this reading; §13 explains why it
 is the charter's.
 
 **How a reference finds its point.** `state` keys are `(name, coords)`, where
-`coords` is the producer's `at` restricted to its own axes. A consumer point
+`coords` is the producer's `at` as sorted pairs (empty for an unswept
+producer). A consumer point
 at `at` looks a name up with `at` restricted to the producer's axes: unswept
 producers have the empty restriction, so every point of `patched` reads the
 one `counterfactual.v_cf`.
@@ -833,7 +1012,11 @@ same numbers as `logit_lens.json`'s two points (the M2 suite checks it).
 ## 8. Output hierarchy and manifest
 
 The output directory is `out/<document name>/` unless `--out DIR` is given,
-in which case it is `DIR` itself. Within it:
+in which case it is `DIR` itself. Both resolve against the working directory,
+as a command-line path does; a document's data paths and `file_path`s resolve
+against the corpus root (the document directory's parent). The two agree when
+`clab` runs from the corpus root, which is how the corpus's headers say to run
+it (`das.json --out documents/artifacts`). Within the output directory:
 
 - A save's filename is a path **relative to the output directory**, used as
   written: `"compare/patching/iia.json"` lands at
@@ -851,6 +1034,14 @@ in which case it is `DIR` itself. Within it:
   `.safetensors`, or a tensor as `.json`, is refused at compile (none of the
   31 does either; verified by listing every save).
 - `manifest.json` is always written at the root of the output directory.
+- Compile refuses two saves that resolve to the same file (after the
+  coordinate directories are added), and a save named `manifest.json`, naming
+  both saves.
+
+This lays files out by the paths the document gives, not as the plan's own
+step hierarchy; the step hierarchy is in the manifest. That is a deviation
+from the charter's wording, for the reasons in §13.1, and question 10 puts it
+to the owner.
 
 `two_observes.json`:
 
@@ -886,8 +1077,8 @@ A metric table:
 ```
 
 Rows carry `example_id` when the dataset has one, `layer` when the value has a
-layer axis, and `{"alignment_missing": true}` instead of `value` for a row a
-read could not place. `mean` is over the rows that have a value. A tensor file
+layer axis, and `{"alignment_missing": true}` (or `alignment_ambiguous`)
+instead of `value` for a row a read could not place. `mean` is over the rows that have a value. A tensor file
 holds its tensor under the save's name, with `dims` and `at` in the
 safetensors metadata; a bundle holds its own tensors and header (§9).
 
@@ -895,15 +1086,16 @@ The manifest:
 
 | field | content |
 |---|---|
-| `clab` | clab version, and `"plan": "clab-plan/1"` |
+| `format` | `"clab/1"`, the plan's format string |
 | `document` | path, name, sha256 |
 | `model` | the plan's model block |
 | `engine` | `"nnterp"` or `"hooks"` |
 | `remote` | `false`, `"local"` or `true` |
 | `batch_size` | as run |
-| `versions` | clab, nnsight, nnterp, transformers, torch, python |
-| `sweeps` | `[{"axis", "label", "values"}]` |
-| `steps` | the plan's `steps` with data rows replaced by their count and every slot's `value` replaced by `{"file", "kind", "dims", "shape"}`: the plan written out as its own hierarchy |
+| `versions` | the installed clab, nnsight, nnterp, transformers, torch, python |
+| `sweeps` | `[{"label", "path", "values"}]` |
+| `data` | each dataset's `{"path", "split", "columns", "n_rows"}`: the plan's `data` without its rows |
+| `steps` | the plan's `steps` as compiled, every slot's `value` replaced by `{"file", "kind", "dims", "shape"}`: the plan's hierarchy, pointing at the files |
 | `saves` | `[{"name", "step", "at", "file"}]`, in document order |
 | `started`, `seconds` | wall clock |
 
@@ -922,8 +1114,9 @@ the `featurizer` and `features` fields M4 fills.
 
 ```python
 {"kind": "subspace", "k": 8, "width": 16, "training": False,
- "theta": Tensor[16, 16],          # the Cayley parameter (requires_grad inside a fit)
- "basis": Tensor[16, 8]}           # its first k orthonormal columns, recomputed when theta moves
+ "origin": Tensor[16, 16],         # the seeded draw: a random orthogonal matrix
+ "theta": Tensor[16, 16],          # the Cayley parameter, zero at the draw (requires_grad inside a fit)
+ "basis": Tensor[16, 8]}           # (origin @ cayley(theta))[:, :k], recomputed when theta moves
 {"kind": "gate", "width": 16, "training": False, "temperature": 1.0, "theta": Tensor[16]}
 {"kind": "pca", "k": 4, "width": 16, "basis": Tensor[16, 4], "mean": Tensor[16]}
 {"kind": "sae", "width": 16, "latents": 32,
@@ -937,6 +1130,20 @@ else 0. Seeded generation on CPU is identical on both engines. No `nn.Module`:
 `featurizers.py` is functions over these dicts, and `steps.py` holds them in
 `state`.
 
+What "drawn from its seed" means, per kind:
+
+- **subspace**: `origin` is the Q of a QR decomposition of a `[width, width]`
+  standard normal drawn from the generator, with the signs of R's diagonal
+  folded into Q, which makes it uniformly (Haar) distributed over orthogonal
+  matrices; `theta` starts at zero, so `cayley(theta)` is the identity and the
+  untrained basis is `origin[:, :k]`, a uniformly random rank-k subspace.
+  That is what makes `random_subspace.json`'s three seeds a null: a Cayley
+  parameter of zero alone would be the unit basis, the same subspace for every
+  seed. Training moves `theta` and leaves `origin` fixed.
+- **gate**: `theta` starts at +1 on every unit (question 4); nothing is random.
+- **pca, sae**: never drawn; they come only from a bundle (compile refuses a
+  `pca` or `sae` featurizer without `file_path`).
+
 ### Reads and writes "in the featurizer's space"
 
 A read with `featurizer` is `encode(f, h)` of the gathered selection; a write
@@ -946,9 +1153,15 @@ back a value's own coordinates changes nothing to the bit:
 
 | kind | `encode(f, h)` | `replace(f, h, new, features)` |
 |---|---|---|
-| subspace, pca | `h @ B` | `h + (new' − h @ B) @ Bᵀ` |
+| subspace | `h @ B` | `h + (new' − h @ B) @ Bᵀ` |
+| pca | `(h − μ) @ B` | `h + (new' − (h − μ) @ B) @ Bᵀ` |
 | gate | `h` (the unit basis) | `h + m ⊙ (new − h)`, `m = σ(θ/T)` while training, `θ > 0` when scored |
 | sae | `z = relu((h − b_dec) @ W_enc + b_enc)` | `h + (z' − z) @ W_dec` |
+
+A `pca` read centres on the bundle's mean `μ`, so its coordinates are PCA
+scores as PCA defines them; for a swap the mean cancels (`new'` was centred by
+the same `μ`), so `pca_control.json`'s interchange is the same with or without
+it.
 
 `new'` and `z'` are the current coordinates with `new` written over the
 `features` subset (all of them when `features` is absent). The SAE's error term
@@ -959,36 +1172,71 @@ unchanged `h`, which is what `sae_feature_ablation.json`'s header promises.
 ### The training loop, inside the session
 
 ```python
-def fit(engine, plan, name, step, state, batch_size):
-    trained = {n: featurizers.make(spec_of(plan, n, step), width, seed) for n in step["train"]}
-    params = [p for f in trained.values() for p in featurizers.parameters(f)]
-    opt = OPTIMIZERS[step["optimizer"]["name"]](params, **rest(step["optimizer"]))  # adamw, adam, sgd
-    best, since = None, 0
+def fit(engine, plan, name, step, state, run):
+    at, sizes = step["at"], engine.sizes()
+    trained = {}
+    for f in step["train"]:                                    # declared featurizer names
+        spec = featurizer_spec(plan, f, at)                    # plan["featurizers"][f], or its point at `at`
+        width = site_width(plan, step, f, sizes)               # the feature width of the sites f is used at
+        trained[f] = featurizers.make(spec, width, seed=spec["seed"] if spec["seed"] is not None else step["seed"])
+    params = [p for inst in trained.values() for p in featurizers.parameters(inst)]
+    opt = OPTIMIZERS[step["optimizer"]["name"]](params, **without_name(step["optimizer"]))  # adamw, adam, sgd
+    datasets = {d: plan["data"][d]["rows"] for d in body_datasets(step)}
+    stop, best, since = step["early_stop"], None, 0
     for epoch in range(step["epochs"]):
-        set_temperature(trained, step["anneal"], epoch, step["epochs"])
-        for rows in minibatches(train_rows, step["batch_size"], seed, epoch):
-            body = run_body(engine, plan, step, state, rows, trained, training=True)  # grad enabled
-            loss = sum(w * objective_term(body, trained, name) for w, name in step["objective"])
+        anneal(trained, step["anneal"], epoch, step["epochs"])
+        for rows in minibatches(datasets, step["batch_size"], step["seed"], epoch):   # {dataset: row slice}
+            body = body_run(engine, plan, name, step, state, run, rows, trained, training=True)
+            loss = sum(w * objective_term(body, trained, term) for w, term in step["objective"])
             grads = torch.autograd.grad(loss, params)
-            for p, g in zip(params, grads): p.grad = g
+            for p, g in zip(params, grads):
+                p.grad = g
             opt.step(); opt.zero_grad()
-        scored = run_body(engine, plan, step, state, eval_rows, trained, training=False)  # eval.data
-        best, since = keep_best(best, since, scored, step["early_stop"], trained)
-        if since >= step["early_stop"]["patience"]: break
-    restore(trained, best)                      # the best epoch's featurizer
-    state["fit.<name>"] = trained[name] ...; state["fit.<metric>"] = scored at best
+        scored = body_run(engine, plan, name, step, state, run, datasets, trained, training=False)
+        best, since = keep_best(best, since, mean_of(scored, stop["metric"]), stop["mode"], trained)
+        if since >= stop["patience"]:
+            break
+    restore(trained, best)                                     # the best epoch's featurizer tensors
+    held_out = {step["eval"]["data"].get(d, d): plan["data"][step["eval"]["data"].get(d, d)]["rows"]
+                for d in datasets}                             # train -> test rows, under the body's names
+    scored = body_run(engine, plan, name, step, state, run, held_out, trained, training=False)
+    for f, inst in trained.items():
+        state[(name + "." + f, coords(at))] = inst
+    for metric in body_metrics(step):
+        state[(name + "." + metric, coords(at))] = scored[metric]
 ```
+
+The helpers, each a few lines in `steps.py`:
+
+- `body_run(engine, plan, name, step, state, run, rows, trained, training)`
+  walks the fit's `steps` with the same `KINDS` functions as the root, in a
+  namespace of its own that falls back to `state`, with every trained
+  featurizer bound under both its declared name and `<fit>.<name>` (§6), each
+  dataset of the body read from `rows` (a minibatch, the whole training set,
+  or the eval substitution's rows under the body's dataset names), with
+  gradients on only when `training`, and with gates soft only when `training`.
+  It returns the body namespace.
+- `objective_term(body, trained, term)`: a body metric's value averaged over
+  every axis, or, for `<featurizer>.<scalar>`, `featurizers.scalars(...)[scalar]`.
+- `keep_best` compares the epoch's score with the best so far by `mode` and
+  copies the featurizer tensors when it improves; `since` counts epochs since.
+- `minibatches` shuffles row indices per epoch with a generator seeded by
+  `seed` and the epoch, and cuts them into `batch_size` slices.
 
 - **Objective**: `[[weight, name], …]`; `name` is a body metric step (its value
   averaged over rows) or a featurizer scalar (`mask.mask`, the mean of
   `σ(θ/T)`). A swept weight makes the fit a list of points like any step.
-- **Early stop**: after each epoch the body runs on the eval substitution in
+- **Early stop**: after each epoch the body runs over the **training** data in
   scoring mode; `mode` max/min on the named metric's mean; `patience` epochs
-  without improvement end the fit; the best epoch's featurizer is kept.
+  without improvement end the fit; the best epoch's featurizer is kept. The
+  eval substitution runs **once**, after the fit, so `fit.iia` (saved as
+  `held_out_iia.json`) is not the score the model was selected on. This is the
+  default of question 7; the alternative selects on the eval split.
 - **Anneal**: `{"mask": {"start", "end"}}` sets the gate's temperature,
   linearly over epochs.
 - **`eval.data`** (`{"train": "test"}`) re-runs the body with dataset `train`
-  read as `test`; `fit.<metric>` is the body metric from that run.
+  read as `test`; `fit.<metric>` is the body metric from that run, for every
+  metric step of the body.
 - **`fit.rot`** is the trained instance; inside the body, `rot` and
   `fit.rot` are that same object (§6).
 - **Gradients**: `torch.autograd.grad(loss, params)` computes gradients for the
@@ -1012,7 +1260,7 @@ A bundle is a safetensors file: the featurizer's tensors plus a string header
 in the safetensors metadata:
 
 ```python
-{"clab": "bundle/1", "kind": "subspace", "k": "8", "parametrization": "cayley",
+{"format": "clab/1", "kind": "subspace", "k": "8", "parametrization": "cayley",
  "width": "16", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
  "model.revision": "9fb19125…", "component": "block_output", "layer": "0",
  "document": "das"}
@@ -1101,15 +1349,16 @@ installed package and the scratch scripts from outside the repo.) Also
 verified under `remote="local"`: the fit loop of §9 (bit-equal losses) and a
 `generate` with a step-0 write and per-step reads (bit-equal logits).
 
-**(b) `nnsight.save(plan)` brings a nested structure with tensors home: yes, as
-far as it can be shown without a server.** `remote="local"` cannot show it (see
-(c)), so a second scratch backend did what a server and `RemoteBackend` do
-together: serialize the session; deserialize it with the model's persistent
-objects; execute the **deserialized** tracer (nnsight's own
-`_ServerRoundTrip` test helper does this much); capture what the server's
-outermost boundary keeps; `torch.save` it (as `ResponseModel.pickle` does) and
-`torch.load` it; then push it into the caller's frame, as
-`RemoteBackend._push` does. Outcome:
+**(b) `nnsight.save(plan)` brings a nested structure with tensors home:
+shown only against a stand-in for the server, which is this design's own model
+of one, not nnsight's server code.** `remote="local"` cannot show it (see (c)).
+The stand-in is a scratch backend that does what I believe a server and
+`RemoteBackend` do together: serialize the session; deserialize it with the
+model's persistent objects; execute the **deserialized** tracer (nnsight's own
+`_ServerRoundTrip` test helper does this much); capture what that tracer's
+outermost boundary pushes; `torch.save` it (as `ResponseModel.pickle` does) and
+`torch.load` it; then mark and push it into the caller's frame, copying the two
+lines of `RemoteBackend._push`. Outcome:
 
 ```
 names that came home: ['plan']   bytes: 515365   (5635429 before slots held clones)
@@ -1119,10 +1368,20 @@ bit-equal to local iia True
 bit-equal to local patched.logits True
 ```
 
-So the server-side copy of the plan is what fills, the copy comes back whole,
-and `execute`'s `return plan` returns the copy that came home (the push writes
-`execute`'s local, on Python 3.13). This backend is about 25 lines, and M1
-puts it in the suite beside `remote="local"`.
+The scratch plan was a simplified stand-in for §1's shape (a root `saves`
+dict of slots and a `result_slots_filled` flag instead of slots on the steps);
+what it tests is the transport of nested dicts, lists and tensors, which does
+not depend on which keys the dicts have.
+
+What this shows: the deserialized tracer fills its own copy of the plan; that
+copy survives `torch.save`/`torch.load` whole; and `torch.save` of a slot that
+holds a view ships the view's whole storage, so the clone rule (§1) is needed.
+What it does not show: that a real server collects the saved names the way the
+stand-in does, and that the real `RemoteBackend._push` lands the copy in
+`execute`'s local so `return plan` returns it. In the stand-in the push did
+(Python 3.13), but that stays a **belief** until M5 runs against a server. M1
+puts the stand-in in the suite beside `remote="local"`, as a regression test
+for the serialization of the way home, labelled as what it is.
 
 **(c) What `remote="local"` does and does not exercise** (read from
 `nnsight/intervention/backends/local.py`, and confirmed by the `out is plan`
@@ -1185,7 +1444,7 @@ new spelling required.**
 
 ```json
 -1
-{"frame": "prompt", "scope": null, "index": -1}
+{"frame": "prompt", "index": -1}
 ```
 
 ```
@@ -1195,15 +1454,21 @@ pos  := int                                    # shorthand for {"index": int}
          exactly one of "index": int | "span": [int, int] | "all": true}
 ```
 
-Reason: the five forms are one shape already, and saying so makes every
+`scope` is optional, not nullable: absent means the whole prompt (or the whole
+continuation). Two combinations the grammar admits are refused at compile:
+`segment: "role[n]"`/`"role"` in the generated frame, and `segment: "eos"` in
+the prompt frame (§5).
+
+Reason: the five forms are one shape already, and saying so makes every other
 combination legal (a span inside a variable, `all` over the generated text) at
-no cost, since compile reduces every combination to `(frame, scope, start,
-stop)` (§5). Every corpus `pos` is an instance of the grammar.
+no cost, since compile reduces each to `(frame, scope, start, stop)` (§5).
+Every corpus `pos` is an instance of the grammar.
 
 ### Mine
 
-**5. A sweep may stand for any value that is not a name, a kind or a key —
-accepted, if ratified.**
+**5. A sweep may stand for any value that is not a name, a kind or a key,
+outside `header` and `model`, and not on a data `path` or a `file_path` —
+accepted, if ratified (question 8).**
 
 ```json
 {"featurizers": {"rot": {"kind": "subspace", "k": {"sweep": [2, 4, 8]}}}}
@@ -1212,8 +1477,11 @@ accepted, if ratified.**
 Reason: compile finds sweeps by walking the document, so enumerating where
 they may appear (PLAN §2 lists seven places) is more code than allowing them
 everywhere a value is; names and kinds stay unsweepable because a sweep there
-would change which code runs, not which value. The corpus's sweeps are all
-instances.
+would change which code runs, not which value. `model` stays unsweepable
+because a document has one engine and one session; data and bundle paths
+because compile reads those files, and a sweep over them would be a sweep over
+datasets, which nothing in the corpus asks for and whose row alignment is
+undefined. The corpus's sweeps are all instances.
 
 **6. Names: no dots, no reuse across steps, datasets and featurizers in one
 scope, and `saves` is not a step name — accepted.** No before/after: these
@@ -1266,7 +1534,7 @@ layers in one forward. Take it or leave it; nothing in the corpus needs it.
    another implementation, so it cannot be a target. *Default: θ₀ = +1 on every
    unit (soft mask 0.73 at T = 1, every unit kept when scored); temperature
    linear from `start` to `end` over epochs; the best epoch's featurizer is
-   restored when the fit ends.*
+   restored when the fit ends (judged as question 7 says).*
 5. **One `--out` directory for two documents.** das.json and pca_harvest.json
    both write into `documents/artifacts`; their files coexist and the second
    `manifest.json` replaces the first. *Default: allow it. Alternative: name the
@@ -1276,6 +1544,39 @@ layers in one forward. Take it or leave it; nothing in the corpus needs it.
    version, which a public NDIF deployment does not. *Default: M5 runs against a
    self-hosted NDIF (the existing bippu or hakone stacks) with clab and nnterp
    installed from the branch under test.*
+7. **Which split early stopping selects on.** `das.json` and `dbm.json` name an
+   early-stop metric and an eval substitution, not which data the stop is
+   judged on. Selecting the best epoch on the eval split (`test`) and then
+   saving that split's score as `fit.iia` (`held_out_iia.json`) reports the
+   score the model was selected on, which is optimistically biased. *Default:
+   judge early stopping on the training data in scoring mode, and run the eval
+   substitution once, after the fit (§9). Alternative: judge on the eval split,
+   as a validation set, and accept that `held_out_iia.json` is not held out.*
+8. **How far proposal 5 reaches.** "A sweep may stand for any value" would let
+   `model.revision`, `model.dtype`, `attn_implementation`, `data.path`,
+   `file_path`, `epochs` and `batch_size` sweep; a swept `model` contradicts
+   one engine and one session per document, and a swept data or bundle path
+   is a sweep over files compile must read. *Default: no sweep under `header`
+   or `model`, none on a data `path` or a `file_path`, none on a name or kind;
+   everything else (including `epochs`, `batch_size`, `lr`) may sweep.*
+9. **The model says the variable twice.** In the generated frame, `said`
+   occurring twice in what a row generated is a fact about the model's output;
+   refusing it would be an exception that depends on model output, which
+   `generated_answer.json`'s header rules out ("a reported result rather than
+   an exception that ends the run"). *Default: report it per row as
+   `alignment_ambiguous`, like `alignment_missing`. Alternative: take a fixed
+   occurrence (the first). In the prompt frame, where the data decides, an
+   ambiguous variable stays refused.*
+10. **The output layout and the charter's "the plan written out as its own
+    hierarchy".** Files are laid out by the paths the document's `saves` give
+    (plus `<label>=<value>/` per sweep coordinate), and the plan's step
+    hierarchy lives in `manifest.json`, which points at each file. Laying files
+    out as `<step>/<file>` would break `das_apply.json` and `pca_control.json`
+    (their `file_path`s name the root of `--out`) and `two_observes.json`'s
+    `compare/…` grouping (§13.1). *Default: accept the deviation explicitly, and
+    reword the charter line as "the output is a directory: each saved value at
+    the path its document gives, and a manifest at the root that mirrors the
+    plan".*
 
 ---
 
@@ -1301,12 +1602,13 @@ layers in one forward. Take it or leave it; nothing in the corpus needs it.
    ("four vectors have no rank-4 PCA; the compiler says so") does stay at
    compile when the read is rectangular, since rows × width is known from the
    data alone; for a ragged read it moves to preflight too.
-4. **The way home is more testable than §5 says.** "Only truly exercised against
-   a real server (M5)" undersells it: executing the deserialized tracer and
-   returning its saves through `torch.save`/`torch.load` and the push is a
-   25-line test backend (verified, §10b). M1 should carry it. It also found the
-   one concrete bug class a server would have shown first: a slot holding a view
-   ships its whole storage (11× here); slots hold clones.
+4. **Part of the way home can be tested before M5.** A 25-line stand-in
+   backend (§10b) runs the deserialized tracer and round-trips its result
+   through `torch.save`/`torch.load`. It is the design's model of a server, not
+   nnsight's server path, so it does not prove the return trip; it does test the
+   serialization of a filled plan, and it found that a slot holding a view ships
+   its whole storage (11× here), hence the clone rule. M1 should carry it; the
+   rest of the way home stays a belief until M5, as PLAN says.
 5. **`execute`, `forward`, `generate` "take a `batch_size`"** (§3). Only
    `execute` and `steps.run` do; `forward` and `generate` receive one batch.
    Inside a fit, the fit's own `batch_size` is the minibatch.
