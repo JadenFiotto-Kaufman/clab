@@ -4,8 +4,9 @@ You are building, from scratch, a small library that runs interpretability
 experiments on transformer language models from declarative JSON documents.
 You have: this charter, the documents, their datasets, an environment, a
 cheat-sheet for the model-access library you will build on, and the owner's
-instructions. Nothing else exists. Where this charter is silent, the owner's
-instructions win; where both are silent, design it yourself.
+instructions. Nothing else exists. Precedence: the owner's instructions win
+over this charter wherever they disagree; the charter wins over your own
+judgment; where both are silent, design it yourself.
 
 ## What it does
 
