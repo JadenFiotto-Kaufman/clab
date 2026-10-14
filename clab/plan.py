@@ -210,10 +210,14 @@ class Pos(Record):
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes; the scope is the tokens that overlap its one occurrence. `turn` is a chat turn, in call 0 only.
+    prefixes; the scope is the tokens that overlap its one occurrence among them. The prompt and the generated
+    tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
+    token is never an input to any call, so a word ending on it is `alignment_missing` (with
+    `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.
 
     **index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
-    half-open.
+    half-open. It counts over the tokens of every call the frame selected, in order: `{"frame": [0, 3],
+    "index": -1}` is one position, the last token of call 2, the same as `{"frame": 2, "index": -1}`.
 
     A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
     a span of calls, its index is an int or a span whose ends count from the same side, and it has no
@@ -297,7 +301,7 @@ class Forward(Record):
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
     template without a generation prompt, so the rendered prompt ends with the template's close of the last
     message (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and
-    `{"scope": {"segment": "user[1]"}}` names the message's own tokens.
+    `{"scope": {"turn": "user[1]"}}` names the message's own tokens.
 
     Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
     row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
