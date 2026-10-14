@@ -1,6 +1,6 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10 and §11 (through "Ratified after M2"), which win wherever they and this document disagree.** `FORMAT.md` and
+**Amended by PLAN.md §10 and §11 (through "Ratified after M3"), which win wherever they and this document disagree.** `FORMAT.md` and
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 
@@ -59,6 +59,19 @@ document in these places:
   and `text` may be lists, whose occurrences are taken together, ordered by where each ends.
 - §5: `turn` is a role (`{"turn": "user", "occurrence": 1}` the second user message); its messages are its
   occurrences, and the `role[n]` spelling is gone.
+- M4, §9: a declared featurizer is made before the run's first step (each point of it), a trained one at its
+  fit's start; ops take the instance. A subspace's bundle holds its instance's tensors, `origin` and `theta`
+  (the basis is derived), and every bundle's header adds `component`, `layer`, `width` and `document`;
+  compile checks the site at every use, and the plan keeps the header (`Featurizer.header`) so preflight can
+  check `width` against the model. A fit's body runs on its own view of the plan: preflight prepares its
+  inputs and positions over the training rows and, apart, over the eval substitution (each substituted
+  dataset's rows under the body's name for it); a minibatch is that view narrowed to some rows. The body's
+  forwards run in batches of the fit's `batch_size`. The run walks without gradients; a fit turns them on for
+  its training passes only. A body uses no root value with a row per example (it would not line up with a
+  minibatch), its datasets have as many rows as each other, and it holds no fit. The `linear` probe's scores
+  are on a `classes` axis, which metrics score as they score `vocab_size`, a column resolved against the
+  probe's class list; a probe is never written through. The hooks engine serves `fit`: gradients flow
+  through its hooks, and both engines agree to the bit (**verified**, every fit document).
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the
