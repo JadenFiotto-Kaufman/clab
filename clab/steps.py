@@ -97,7 +97,7 @@ def preflight(engine, plan: Plan) -> dict:
                                      f"it needs more than {arguments(step)['k']}")
             continue
         if step.kind == "generate":
-            generation_options(name, step.model_extra or {}, engine.generation_keys())
+            generation_options(name, step.model_extra or {})
         rows = plan.data[step.dataset].rows or []
         if step.input not in found["inputs"]:
             encoded = []
@@ -144,12 +144,10 @@ FIXED = {
 }
 
 
-def generation_options(name: str, options: dict, known: set[str]) -> None:
-    """Refuses an option the engine's `generate` does not take (`known`), and one in `FIXED` at another value."""
+def generation_options(name: str, options: dict) -> None:
+    """Refuses an option in `FIXED` at another value. Every other option is the engine's `generate`'s to
+    accept or reject, when the step runs (`generated`)."""
     for key, value in options.items():
-        if key not in known:
-            raise ValueError(f"{name}: {key!r} is not an option of the engine's generate (nor a step field: "
-                             "input, writes, reads, interventions)")
         if key in FIXED and value != FIXED[key][0]:
             raise ValueError(f"{name}: {key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
 
@@ -287,7 +285,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                    "name": f"{key}@{layer}", "layer": layer, "steps": positions.asked(positions.parse(record.pos))}
                   for key, record in later.items() for layer in layers(engine, record)]
         with torch.no_grad():
-            ids, got = engine.generate(batch, writes, reads, dict(step.model_extra or {}))
+            ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
             if "steps" in record:
                 made = range(ids.shape[1]) if record["steps"] is None else \
@@ -358,6 +356,18 @@ def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> d
     """A write's op bound to one batch, as `ops.write` runs it."""
     return {"op": o.op, "featurizer": space(o), "args": bound(engine, plan, o.op, arguments(o), state, at, rows),
             "dims": address.dims(record.site.component, None, False)}
+
+
+def generated(engine, name: str, batch: dict, writes: list[dict], reads: list[dict], options: dict):
+    """`engine.generate`, which validates its own options: an error it raises naming one of them is reported
+    as the step's, `<step>: generate rejected '<option>': <the engine's message>`."""
+    try:
+        return engine.generate(batch, writes, reads, options)
+    except (TypeError, ValueError) as e:
+        key = next((k for k in options if repr(k) in str(e)), None)
+        if key is None:
+            raise
+        raise ValueError(f"{name}: generate rejected {key!r}: {e}") from None
 
 
 def batches(engine, step, found: dict, batch_size: int):

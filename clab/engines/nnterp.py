@@ -17,7 +17,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import engine
-from .standard import SIZES, by_site, envoy, generation_keys, keep, load, nnterp_name, now, stops
+from .standard import SIZES, by_site, envoy, keep, load, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -48,9 +48,6 @@ class NnterpEngine:
     @property
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.model.tokenizer)
-
-    def generation_keys(self) -> set[str]:
-        return generation_keys()
 
     def unserved(self) -> dict:
         """Why nnterp does not serve a component on this checkpoint, from its `support()`; None where it does."""

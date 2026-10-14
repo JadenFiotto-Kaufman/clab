@@ -1,11 +1,7 @@
 """What both engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
-there, the sizes), how a model block becomes a loader call, what a HuggingFace `generate` takes and where it
-stops, and a forward's or a generation's records grouped by site and by call."""
+there, the sizes), how a model block becomes a loader call, where a HuggingFace generation stops, and a forward's or a generation's records grouped by site and by call."""
 
-import inspect
 from typing import Any, Callable, cast
-
-from transformers import GenerationConfig, GenerationMixin
 
 from ..address import COMPONENTS
 
@@ -62,12 +58,6 @@ def load(model, engine: str, call: Callable[[dict], Any]) -> Any:
             raise
         raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
 
-
-def generation_keys() -> set[str]:
-    """The keyword arguments a HuggingFace `generate` takes: its own parameters and `GenerationConfig`'s fields."""
-    generate: Any = getattr(GenerationMixin, "generate")
-    found = set(inspect.signature(generate).parameters) | set(vars(GenerationConfig()))
-    return found - {"self", "kwargs", "inputs", "_from_model_config", "transformers_version"}
 
 
 def stops(config, tokenizer) -> list[int]:

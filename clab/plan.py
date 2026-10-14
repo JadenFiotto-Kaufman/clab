@@ -316,8 +316,9 @@ class Generate(Forward):
     actually generated, up to and including the row's first EOS: the step's own `eos_token_id` when it gives
     one, else the id the engine's generation stops on (its generation config's). The step's own value is the
     new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
-    (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) and keys the engine's
-    `generate` does not take are refused before anything runs.
+    (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
+    runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
+    runs, naming the step.
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prompt
     call projects the head at the last position only and every decode step is a `[batch, 1, ...]` matmul, so

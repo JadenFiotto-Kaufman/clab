@@ -36,7 +36,7 @@ document in these places:
 - §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
   step).
 - M3, §3: `generate`'s options are not three: the step forwards every key it does not own to the engine's
-  `generate` as it is (refusing, before anything runs, a key `generate` does not take and
+  `generate` as it is, which validates them when the step runs (clab refuses, before anything runs, only
   `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache` at other than their
   defaults). A generated-frame read's value comes back as a list, one `[rows, 1, ...]` per step read. The
   hooks engine's bit-equality with the nnterp engine's generation is now **verified** (both generate

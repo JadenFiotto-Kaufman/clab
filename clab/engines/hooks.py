@@ -22,7 +22,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import engine
-from .standard import SIZES, by_site, envoy, generation_keys, keep, load, nnterp_name, now, stops
+from .standard import SIZES, by_site, envoy, keep, load, nnterp_name, now, stops
 
 
 @engine("hooks")
@@ -55,9 +55,6 @@ class HooksEngine:
     @property
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.tokenizer)
-
-    def generation_keys(self) -> set[str]:
-        return generation_keys()
 
     def unserved(self) -> dict:
         """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a

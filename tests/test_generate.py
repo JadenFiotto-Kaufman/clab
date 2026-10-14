@@ -221,7 +221,6 @@ def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     ({"num_beams": 2}, "patched: num_beams 2; it stays 1: beams change the rows each forward call sees"),
     ({"return_dict_in_generate": True}, "patched: return_dict_in_generate True; it stays False: the step's value"),
     ({"use_cache": False}, "patched: use_cache False; it stays True: without the cache a decode step recomputes"),
-    ({"max_new_toknes": 3}, "patched: 'max_new_toknes' is not an option of the engine's generate"),
 ])
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_options_a_step_cannot_forward_are_refused_before_any_forward(engines, kind, option, message):
@@ -236,6 +235,15 @@ def test_options_a_step_cannot_forward_are_refused_before_any_forward(engines, k
     finally:
         del engine.generate
     assert calls == []
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_an_option_the_engine_rejects_fails_naming_the_step(engines, kind):
+    """The engine's own `generate` validates the options it is forwarded, when the step runs."""
+    plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_toknes=3)).compile()
+    with pytest.raises(ValueError, match=r"^patched: generate rejected 'max_new_toknes': The following "
+                                         r"`model_kwargs` are not used by the model"):
+        engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
