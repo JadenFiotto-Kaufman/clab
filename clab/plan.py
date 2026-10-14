@@ -400,7 +400,8 @@ class Optimizer(Record):
 
 
 class EarlyStop(Record):
-    """End the fit after `patience` epochs without improvement of a body op's mean, scored on the training data."""
+    """End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
+    scored on the training rows after each epoch."""
     metric: str
     mode: Literal["max", "min"]
     patience: Swept[int]
@@ -412,12 +413,27 @@ class Eval(Record):
 
 
 class Fit(Record):
-    """Train the featurizers `train` names. Each epoch runs the body `steps` over minibatches of `batch_size`
-    rows and minimizes the weighted sum `objective` (`{term: weight}`; a term is a body op, averaged, or a
-    trained featurizer's scalar, `<featurizer>.<scalar>`). Inside the body a trained featurizer's name and
-    `<fit>.<featurizer>` are the one being trained. Afterwards `<fit>.<featurizer>` is the trained one,
-    `<fit>.<op>` a body op under `eval`, `<fit>.<step>.<read>` a body read, and `<fit>.history.<op>` the
-    body op's mean per epoch."""
+    """Train the featurizers `train` names, inside the run, through the frozen model.
+
+    Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
+    optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
+    `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
+    and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
+    weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
+    featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
+    model's weights are never touched. After each epoch the body runs over every training row in scoring
+    mode (gates hard, no gradients): each body op's mean is that epoch's entry of `<fit>.history.<op>`, and
+    `early_stop` is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are
+    restored, and the body runs once more, scored, under `eval`'s substitution (on the training rows without
+    one). The body's forwards run in batches of `batch_size`, whatever the run's batch size.
+
+    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
+    name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
+    is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
+    featurizer (saved as its bundle), `<fit>.<op>` a body op and `<fit>.<step>.<read>` a body read, both from
+    the eval run, and `<fit>.history.<op>` the body op's mean per epoch run, `[epochs]`. A sweep over any of
+    the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+    list of points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]
@@ -459,6 +475,8 @@ class Featurizer(Record):
     at: dict[str, int] = derived({}, AT)
     bundle: SkipJsonSchema[dict[str, Tensor] | None] = derived(
         None, "the tensors of the bundle `file_path` names, checked against its header", exclude=True)
+    header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
+                                                  "checks the model's width against")
 
     @model_validator(mode="after")
     def _fields(self):
@@ -548,7 +566,7 @@ class Plan(Record):
             for f in points(entry):
                 fields = f.model_extra or {}
                 if fields.get("file_path") is not None and f.bundle is None:
-                    f.bundle = featurizers.bundle(corpus_root(self), f.kind, fields, self.model)
+                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model)
         return self
 
     @field_serializer("document", when_used="json")
@@ -627,6 +645,11 @@ def points(entry: Any) -> list:
     return entry if isinstance(entry, list) else [entry]
 
 
+def agreeing(entry: Any, at: dict) -> Any:
+    """The point of `entry` that agrees with the point `at` on the entry's own axes."""
+    return next(p for p in points(entry) if all(at.get(k) == i for k, i in p.at.items()))
+
+
 def coordinate(plan: Plan, at: dict) -> Any:
     """A point's key in a swept result: its axis's value (a list as a tuple), or the tuple of its axes' values
     in axis order."""
@@ -641,12 +664,52 @@ def labelled(plan: Plan, at: dict, labels: bool = True) -> str:
 
 
 def dims_of(plan: Plan, name: str) -> list[str]:
-    """The axes of the value `name`: a step's value, or a step's read."""
+    """The axes of the value `name`: a step's value, a step's read, or a fit's member (a trained featurizer,
+    saved as its bundle, has none; `history.<op>` is per epoch)."""
+    return dims_in(plan.steps, name)
+
+
+def dims_in(steps: dict, name: str) -> list[str]:
     thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
+    step = points(steps[thing])[0]
+    if step.kind == "fit":
+        inner = member.partition(".")[0]
+        return [] if inner in step.train else ["epochs"] if inner == "history" else dims_in(step.steps, member)
     if member:
         return step.reads[member].dims
     return ["rows", "new"] if step.kind == "generate" else step.dims
+
+
+def walk(steps: dict, prefix: str = ""):
+    """Every step and point, a fit's body steps after the fit, each with its dotted name."""
+    for name, entry in steps.items():
+        for step in points(entry):
+            yield prefix + name, step
+            if step.kind == "fit":
+                yield from walk(step.steps, f"{prefix}{name}.")
+
+
+def declared(plan: Plan, ref: str) -> str:
+    """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
+    return ref if ref in plan.featurizers else ref.partition(".")[2]
+
+
+def kind_of(plan: Plan, ref: str) -> str:
+    """The kind of the featurizer a reference names."""
+    return points(plan.featurizers[declared(plan, ref)])[0].kind
+
+
+def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, "Op"]]]:
+    """Every op that runs in a declared featurizer's space or encodes with it, by featurizer: the record's
+    dotted name, its site, its step's point and the op."""
+    found: dict[str, list] = {}
+    for name, step in walk(plan.steps):
+        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
+            for o in record.ops:
+                if o.featurizer is not None:
+                    found.setdefault(declared(plan, o.featurizer), []).append(
+                        (f"{name}.{key}", record.site, step.at, o))
+    return found
 
 
 # -- sweeps ---------------------------------------------------------------------

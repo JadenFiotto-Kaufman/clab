@@ -20,10 +20,10 @@ SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
 UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
-# Documents whose steps a later milestone serves: featurizers and fits (M4).
-LATER = {"das", "das_apply", "dbm", "pca_control", "random_subspace", "sae_feature_ablation"}
+# Documents that train or load a featurizer, pinned in test_fit.py.
+FIT = ["das", "das_apply", "dbm", "pca_control", "random_subspace", "sae_feature_ablation"]
 GENERATE = ["generate_probe", "generated_answer"]
-FORWARD = [n for n in NAMES if n not in LATER and n not in GENERATE]
+FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
 INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
 
@@ -148,17 +148,23 @@ def engines():
 
 @pytest.fixture(scope="session")
 def corpus(tmp_path_factory) -> str:
-    """A copy of the corpus whose `documents/artifacts` holds stand-in bundles for the three documents that
-    load one, each with the header its document checks; the tensors are zeros."""
+    """A copy of the corpus whose `documents/artifacts` holds, beside the committed SAE fixture, stand-in bundles
+    for the two documents that load what another writes, each with the header its document checks; the
+    tensors are an identity rotation and a zero basis."""
     root = tmp_path_factory.mktemp("corpus")
     shutil.copytree(DOCUMENTS, root / "documents")
     os.symlink(os.path.join(ROOT, "data"), root / "data")
-    (root / "documents" / "artifacts").mkdir(exist_ok=True)
-    model = {"model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-             "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32"}
     for file, header, tensors in (
-            ("fit.rot.safetensors", {"kind": "subspace", "k": "8"}, {"basis": torch.zeros(16, 8)}),
-            ("basis.safetensors", {"kind": "pca", "k": "4"}, {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)}),
-            ("sae.safetensors", {"kind": "sae"}, {"W_enc": torch.zeros(16, 32)})):
-        save_file(tensors, str(root / "documents" / "artifacts" / file), metadata={"format": FORMAT, **model, **header})
+            ("fit.rot.safetensors", {"kind": "subspace", "k": "8", "parametrization": "cayley", "document": "das"},
+             {"origin": torch.eye(16), "theta": torch.zeros(16, 16)}),
+            ("basis.safetensors", {"kind": "pca", "k": "4", "document": "pca_harvest"},
+             {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)})):
+        save_file(tensors, str(root / "documents" / "artifacts" / file), metadata={**bundle_header(), **header})
     return str(root)
+
+
+def bundle_header(**changes: str) -> dict:
+    """The header of a bundle made on the tiny Llama at layer_output layer 0, with `changes`."""
+    return {"format": FORMAT, "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+            "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32",
+            "component": "layer_output", "layer": "0", "width": "16", **changes}

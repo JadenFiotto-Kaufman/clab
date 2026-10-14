@@ -15,6 +15,19 @@
  "featurizers": {
   "rot": {
    "kind": "subspace",
+   "header": {
+    "format": "clab/1",
+    "width": "16",
+    "kind": "subspace",
+    "layer": "0",
+    "parametrization": "cayley",
+    "document": "das",
+    "component": "layer_output",
+    "model.dtype": "float32",
+    "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "k": "8"
+   },
    "k": 8,
    "parametrization": "cayley",
    "file_path": "documents/artifacts/fit.rot.safetensors"

@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from . import address, data, featurizers, ops, positions
-from .plan import Plan, Site, arguments, corpus_root, fail, find_sweeps, space
+from .plan import Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, space, uses
 
 
 def compile(plan: Plan) -> Plan:
@@ -39,7 +39,7 @@ def compile(plan: Plan) -> Plan:
         compiled["featurizers"][name] = expand(cx, name, ("featurizers", name),
                                                lambda point, name=name: featurizer(cx, point, name))
         cx.names[name] = {"dims": [], "data": None, "kind": "featurizer"}
-        for scalar in featurizers.SCALARS.get(points_kind(plan, name), ()):
+        for scalar in featurizers.SCALARS.get(kind_of(plan, name), ()):
             cx.names[f"{name}.{scalar}"] = {"dims": [], "data": None, "kind": "scalar"}
     for name in plan.steps:
         compiled["steps"][name] = expand(cx, name, ("steps", name), lambda point, name=name: step(
@@ -53,11 +53,25 @@ def compile(plan: Plan) -> Plan:
         if name not in saveable:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
-    return Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
+    done = Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
                    "sweeps": {label: {"path": ".".join(map(str, path)), "values": values[label]}
                               for path, label in sweeps.items()},
                    "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
                                 "n_rows": len(rows[n])} for n in rows}})
+    bundled_sites(done)
+    return done
+
+
+def bundled_sites(plan: Plan) -> None:
+    """A bundle's header names the site it was made at; every site its featurizer is used at is that one."""
+    for name, records in uses(plan).items():
+        for where, site, at, _ in records:
+            f = agreeing(plan.featurizers[name], at)
+            for key, value in (("component", site.component), ("layer", str(site.layers))):
+                if f.header is not None and f.header.get(key) != value:
+                    fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
+                         f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
+                         f"{site.layers} ({where})")
 
 
 @dataclass
@@ -223,20 +237,35 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
     ragged = positions.width(pos) is None
     dims = selection = address.dims(site.component, site.layers, ragged)
     for i, o in enumerate(spec.ops):
-        at = f"{path}.ops[{i}]"
+        at, within = f"{path}.ops[{i}]", space(o)
         if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
-        if space(o) is not None:
-            featurizer_ref(cx, space(o), f"{at}.featurizer")
+        if within is not None:
+            featurizer_ref(cx, within, f"{at}.featurizer")
+            if kind_of(plan, within) == "linear":
+                fail(f"{at}.featurizer", f"{within!r} is a probe, whose space has no way back into the value; read "
+                     "its scores with encode")
         found = references(cx, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
         if write:
-            operands(at, found, selection, space(o), ragged)
-        dims = layout(at, o.op, arguments(o), dims, "write" if write else "read")
+            operands(at, found, selection, within, ragged)
+        # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
+        inner = dims[:-1] + ["features"] if within is not None else dims
+        out = layout(at, o.op, arguments(o), inner, "write" if write else "read")
+        if within is not None and out != inner:
+            fail(at, f"{o.op!r} turns {inner} into {out}; an op in a featurizer's space keeps its layout")
+        dims = dims if within is not None else axis(plan, o, out)
         if write and dims != selection:
             fail(at, f"{o.op!r} turns {selection} into {dims}; a write's ops keep the value's layout")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
     return record if write else {**record, "dims": dims}
+
+
+def axis(plan: Plan, o, dims: list[str]) -> list[str]:
+    """An encode's coordinates are on its featurizer kind's axis: `features`, or a probe's `classes`."""
+    if o.op != "encode":
+        return dims
+    return dims[:-1] + [featurizers.AXIS.get(kind_of(plan, o.featurizer), "features")]
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
@@ -302,19 +331,37 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str) -> lis
 
 
 def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+    """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
+    as many rows as each other (under `eval`'s substitution too), and a value with a row per example it uses
+    is one the body makes. It trains featurizers that have something to train, and holds no fit."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
+        if kind_of(plan, f) not in featurizers.TRAINABLE:
+            fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
+                 f"train (trainable kinds: {', '.join(featurizers.TRAINABLE)})")
     within = replace(cx, names=dict(cx.names))
     for f in spec.train:
         within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
-    body = {n: step(within, f"{path}.steps.{n}", n, s, plan) for n, s in spec.steps.items()}
+    before = len(cx.refs)
+    body = {}
+    for n, s in spec.steps.items():
+        if s.kind == "fit":
+            fail(f"{path}.steps.{n}", "a fit's body holds no fit")
+        if n in plan.data or n in plan.featurizers or "." in n:
+            fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
+                 "a root's")
+        body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
     inner = within.names
+    for ref in cx.refs[before:]:
+        if inner.get(ref) is cx.names.get(ref) and cx.names[ref]["dims"][:1] in (["rows"], ["entries"], ["layers"]):
+            fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
+                 "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
         if term not in body_ops and not (thing in spec.train and scalar in featurizers.SCALARS.get(
-                points_kind(plan, thing), ())):
+                kind_of(plan, thing), ())):
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
@@ -324,6 +371,12 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         for d in (a, b):
             if d not in cx.rows:
                 fail(f"{path}.eval.data", f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
+    swapped = spec.eval.data if spec.eval else {}
+    for side in ({}, swapped):
+        counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
+        if len(set(counts.values())) > 1:
+            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (" under eval" if side else "") +
+                 "; it runs over minibatches of the same rows of each, so they have as many")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
     for n, s in body.items():
@@ -333,11 +386,6 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         for read in s.get("reads", {}):
             cx.names[f"{name}.{n}.{read}"] = inner[f"{n}.{read}"]
     return {**spec.model_dump(exclude_defaults=True), "steps": body}
-
-
-def points_kind(plan: Plan, name: str) -> str:
-    f = plan.featurizers[name]
-    return (f[0] if isinstance(f, list) else f).kind
 
 
 # -- references --------------------------------------------------------------------------------------
@@ -429,6 +477,7 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     if fields.get("file_path") is None:
         return record
     try:
-        return {**record, "bundle": featurizers.bundle(cx.root, f.kind, fields, plan.model)}
+        tensors, header = featurizers.bundle(cx.root, f.kind, fields, plan.model)
     except ValueError as e:
         fail(f"{path}.file_path", str(e))
+    return {**record, "bundle": tensors, "header": header}

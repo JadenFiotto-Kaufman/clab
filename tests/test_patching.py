@@ -166,12 +166,6 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
     assert not keys(seen) & {"sweep", "at"}
 
 
-def test_unserved_kinds_refuse_by_name_before_anything_runs(engines):
-    plan = plan_of("das")
-    with pytest.raises(NotImplementedError, match="fit: fit steps land in M4"):
-        engines("hooks", plan.model).execute(plan)
-
-
 @pytest.mark.parametrize("name, component", [("attention_query", "attention_queries"),
                                              ("attention_knockout", "attention_probabilities"),
                                              ("attention_pattern_patching", "attention_probabilities")])

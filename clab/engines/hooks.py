@@ -104,8 +104,7 @@ class HooksEngine:
     def readout(self, hidden: Tensor) -> Tensor:
         """The final norm, then the head: the modules nnterp's names for their outputs reach."""
         norm, head = (self.model.get_submodule(path) for path in self.config["readout"])
-        with torch.no_grad():
-            return head(norm(hidden))
+        return head(norm(hidden))
 
 
 def hook(model, config: dict, component: str, layer: int | None, here: list, there: list, got: dict,

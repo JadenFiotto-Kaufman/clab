@@ -68,4 +68,6 @@ def spell(annotation: Any, names: dict | None = None) -> str:
         return f"object of {spell(args[1], names)}" if args else "object"
     if annotation is type(None):
         return "null"
+    if isinstance(annotation, type) and issubclass(annotation, dict) and hasattr(annotation, "__required_keys__"):
+        return "{" + ", ".join(f"{k}: {spell(v, names)}" for k, v in annotation.__annotations__.items()) + "}"
     return getattr(annotation, "__name__", str(annotation))

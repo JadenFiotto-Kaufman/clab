@@ -12,17 +12,15 @@ frame and never leaves the run: each value under its name, by the coordinates of
 import importlib.metadata
 import platform
 import time
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import Tensor
 
-from . import address, data, ops, positions
-from .plan import Plan, Run, arguments, coordinate, dims_of, labelled, points, space
+from . import address, data, featurizers, ops, positions
+from .plan import (Plan, Run, agreeing, arguments, coordinate, dims_of, kind_of, labelled, points, space, uses,
+                   walk)
 from .registry import registers
-
-# The step kinds and ops later milestones serve, refused before anything runs.
-LATER = {"fit": "M4", "encode": "M4"}
 
 KINDS: dict = {}
 kind = registers(KINDS)
@@ -41,20 +39,34 @@ def begin(engine, plan: Plan, batch_size: int, remote: bool | str) -> float:
 
 
 def run(engine, plan: Plan, batch_size: int) -> None:
-    """Every step and point in document order; then each saved value into `plan.results`."""
+    """Every step and point in document order, without gradients except where a fit trains; then each saved
+    value into `plan.results` (a trained featurizer as its bundle's tensors)."""
     assert plan.run is not None
     plan.run.versions = versions()
     found = preflight(engine, plan)
-    state: dict = {}
-    for name, entry in plan.steps.items():
-        for step in points(entry):
-            KINDS[step.kind](engine, plan, name, step, state, batch_size, found)
+    state = made(plan, found["widths"])
+    with torch.no_grad():
+        for name, entry in plan.steps.items():
+            for step in points(entry):
+                KINDS[step.kind](engine, plan, name, step, state, batch_size, found)
     for name in plan.saves:
         entry = plan.steps[name.partition(".")[0]]
-        plan.results[name] = ({coordinate(plan, p.at): finished(lookup(state, name, p.at)) for p in entry}
-                              if isinstance(entry, list) else finished(lookup(state, name, {})))
-    plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in found["positions"].items()}
+        plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
+                              if isinstance(entry, list) else finished(saved(plan, state, name, {})))
+    positions = dict(found["positions"])
+    for fit, by_point in found["bodies"].items():        # a body's records, as its eval run resolved them
+        for sources in by_point.values():
+            for where, resolved in sources["eval"][1]["positions"].items():
+                positions[f"{fit}.{where}"] = {**positions.get(f"{fit}.{where}", {}), **resolved}
+    plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
+
+
+def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
+    thing, _, member = name.partition(".")
+    step = points(plan.steps[thing])[0]
+    value = lookup(state, name, at)
+    return featurizers.tensors(value) if step.kind == "fit" and member in step.train else value
 
 
 def by_coordinate(plan: Plan, by_point: dict) -> Any:
@@ -65,75 +77,158 @@ def by_coordinate(plan: Plan, by_point: dict) -> Any:
 
 def preflight(engine, plan: Plan) -> dict:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
-    tokens, and returns each dataset input's encoded rows and padded width (`inputs`), every prefill
-    record's positions per row (`positions`, which the run extends with the other records'), and
-    room for what each generate step's rows said (`said`).
+    tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
+    every prefill record's positions per row (`positions`, which the run extends with the other records'),
+    room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
+    fit point the same for its body (`bodies`): over its training rows (`train`) and under its `eval`
+    substitution (`eval`), each beside the plan the body runs in, which holds the body's steps and, under
+    eval, each substituted dataset's rows under the body's name for it.
 
-    Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
-    does not serve; a layer or a `select` outside the model's sizes (on `key`, outside the input's shortest
-    row); a generate option its `generate` does not take, or one in `FIXED` at another value; a
-    position that does not fit some row's scope, or whose scope is not in a row a write or a rectangular
-    read needs; a token column that is not one token on some row; a write whose operand was selected at a
-    different width or narrowing; a write to a component with a `key` axis (the attention pattern, the
-    scores) whose operand was read on another input that does not tokenize to the same length on every row,
-    which would misalign the keys; and a `pca` over no more vectors than its `k`.
+    Refuses by name (`<step>.<record>`): a component the engine does not serve; a layer or a `select`
+    outside the model's sizes (on `key`, outside the input's shortest row); a generate option its
+    `generate` does not take, or one in `FIXED` at another value; a position that does not fit some row's
+    scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
+    one token on some row; a write whose operand was selected at a different width or narrowing; a write to
+    a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
+    input that does not tokenize to the same length on every row, which would misalign the keys; a `pca`
+    over no more vectors than its `k`; a featurizer used at two widths, at a width its bundle's header does
+    not say, or with a `select` outside its features; and a trained featurizer used at no site.
     """
-    for name, step in walk(plan.steps):
-        if step.kind not in KINDS:
-            raise NotImplementedError(f"{name}: {step.kind} steps land in {LATER[step.kind]}")
     refuse(engine, plan)
+    found = prepare(engine, plan, plan.steps, {})
+    found["widths"] = widths(engine, plan)
+    found["bodies"] = {}
+    for name, entry in plan.steps.items():
+        for step in points(entry):
+            if step.kind != "fit":
+                continue
+            within = plan.model_copy(update={"steps": {**plan.steps, **step.steps}})
+            swap = step.eval.data if step.eval else {}
+            held = within.model_copy(update={"data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
+            sources = {"train": (within, prepare(engine, within, step.steps, {}))}
+            sources["eval"] = (held, prepare(engine, held, step.steps, swap)) if swap else sources["train"]
+            for _, body in sources.values():
+                body["widths"] = found["widths"]
+            put(found["bodies"], name, step.at, sources)
+    return found
+
+
+def prepare(engine, plan: Plan, steps: dict, swap: dict) -> dict:
+    """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
+    the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
+    `{"train": "test"}` records `train.input` as `test.input`)."""
     assert plan.run is not None
-    sizes, tokenizer, special = engine.sizes(), engine.tokenizer, set(engine.tokenizer.all_special_ids)
+    sizes, tokenizer = engine.sizes(), engine.tokenizer
     found: dict = {"inputs": {}, "positions": {}, "said": {}}
     shapes: dict = {}
-    for name, step in walk(plan.steps):
-        if step.kind == "op":
-            refuse_later(name, step.op, None)
-            check_tokens(engine, plan, name, step.op, arguments(step))
-            if step.op == "pca" and step.of in found["positions"]:
-                n = sum(map(len, lookup(found["positions"], step.of, step.at)))
-                if n <= arguments(step)["k"]:
-                    raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
-                                     f"it needs more than {arguments(step)['k']}")
-            continue
-        if step.kind == "generate":
-            generation_options(name, step.model_extra or {})
-        rows = plan.data[step.dataset].rows or []
-        if step.input not in found["inputs"]:
-            encoded = []
-            for i, r in enumerate(rows):
-                try:
-                    encoded.append(data.encode(tokenizer, data.field(r, step.input)))
-                except ValueError as e:
-                    raise ValueError(f"{name}: {step.input} row {i}: {e}") from None
-            found["inputs"][step.input] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
-            plan.run.tokens[step.input] = [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
-        encoded = found["inputs"][step.input]["rows"]
-        for side in ("writes", "reads"):
-            for key, record in getattr(step, side).items():
-                where, site = f"{name}.{key}", record.site
-                if isinstance(site.layers, int) and not 0 <= site.layers < sizes["num_layers"]:
-                    raise ValueError(f"{where}: layer {site.layers}; the model has {sizes['num_layers']} layers")
-                for axis, index in (site.select or {}).items():
-                    shortest = min(len(e["ids"]) for e in encoded)
-                    size, what = (shortest, f"the {shortest} tokens of the input's shortest row") if axis == "key" \
-                        else (sizes[axis], f"the model's {sizes[axis]}")
-                    if any(not 0 <= i < size for i in index):
-                        raise ValueError(f"{where}: select {axis} {index} outside {what}")
-                for o in record.ops:
-                    refuse_later(where, o.op, space(o))
-                    check_tokens(engine, plan, where, o.op, arguments(o))
-                pos, select = positions.parse(record.pos), {axis: len(v) for axis, v in (site.select or {}).items()}
-                if positions.prefill(pos):
-                    resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
-                    put(found["positions"], where, step.at, resolved)
-                    shape = (len(resolved[0]), select)
-                else:               # resolved in the run, from what each row generates; one position a call
-                    shape = (positions.width(pos) or 1, select)
-                put(shapes, where, step.at, shape)
-                for o in record.ops if side == "writes" else []:
-                    check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
+    for name, entry in steps.items():
+        for step in points(entry):
+            if step.kind == "fit":
+                continue
+            if step.kind == "op":
+                if "classes" not in dims_of(plan, step.of):
+                    check_tokens(engine, plan, name, step.op, arguments(step))
+                if step.op == "pca" and step.of in found["positions"]:
+                    n = sum(map(len, lookup(found["positions"], step.of, step.at)))
+                    if n <= arguments(step)["k"]:
+                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
+                                         f"it needs more than {arguments(step)['k']}")
+                continue
+            if step.kind == "generate":
+                generation_options(name, step.model_extra or {})
+            rows = plan.data[step.dataset].rows or []
+            if step.input not in found["inputs"]:
+                encoded = []
+                for i, r in enumerate(rows):
+                    try:
+                        encoded.append(data.encode(tokenizer, data.field(r, step.input)))
+                    except ValueError as e:
+                        raise ValueError(f"{name}: {step.input} row {i}: {e}") from None
+                found["inputs"][step.input] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
+                dataset, _, rest = step.input.partition(".")
+                plan.run.tokens[f"{swap.get(dataset, dataset)}.{rest}"] = \
+                    [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
+            encoded = found["inputs"][step.input]["rows"]
+            for side in ("writes", "reads"):
+                for key, record in getattr(step, side).items():
+                    where, site = f"{name}.{key}", record.site
+                    if isinstance(site.layers, int) and not 0 <= site.layers < sizes["num_layers"]:
+                        raise ValueError(f"{where}: layer {site.layers}; the model has {sizes['num_layers']} layers")
+                    for axis, index in (site.select or {}).items():
+                        shortest = min(len(e["ids"]) for e in encoded)
+                        size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
+                            if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
+                        if any(not 0 <= i < size for i in index):
+                            raise ValueError(f"{where}: select {axis} {index} outside {what}")
+                    probe = False                       # past a probe's encode, a column names its classes
+                    for o in record.ops:
+                        if not probe:
+                            check_tokens(engine, plan, where, o.op, arguments(o))
+                        probe = probe or o.op == "encode" and kind_of(plan, o.featurizer or "") == "linear"
+                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in (site.select or {}).items()}
+                    if positions.prefill(pos):
+                        resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
+                        put(found["positions"], where, step.at, resolved)
+                        shape = (len(resolved[0]), select)
+                    else:               # resolved in the run, from what each row generates; one position a call
+                        shape = (positions.width(pos) or 1, select)
+                    put(shapes, where, step.at, shape)
+                    for o in record.ops if side == "writes" else []:
+                        check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
     return found
+
+
+def widths(engine, plan: Plan) -> dict[str, int]:
+    """Each featurizer's width: the size of the last axis of every site it is used at, which is one size, and
+    the width its bundle's header says. A `select` on its features stays within them, and a featurizer a fit
+    trains is used somewhere."""
+    sizes, out = engine.sizes(), {}
+    for name, used in uses(plan).items():
+        for where, site, at, o in used:
+            last = address.dims(site.component, None, False)[-1]
+            width = len((site.select or {})[last]) if last in (site.select or {}) else sizes.get(last)
+            if width is None:
+                raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
+                                 f"featurizer {name!r} needs a feature axis")
+            if out.setdefault(name, width) != width:
+                raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
+                                 "elsewhere; a featurizer has one width")
+            f = agreeing(plan.featurizers[name], at)
+            if f.header is not None and f.header.get("width") != str(width):
+                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
+                                 f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
+                                 f"whose width is {width}")
+            features: Any = (o.select or {}).get("features")
+            if features is not None:
+                n = featurizers.size(instance(plan, f, width, None))
+                if any(not 0 <= i < n for i in features):
+                    raise ValueError(f"{where}: select features {features} outside the {n} features of {name!r}")
+    for name, step in walk(plan.steps):
+        for f in step.train if step.kind == "fit" else []:
+            if f not in out:
+                raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
+    return out
+
+
+def instance(plan: Plan, spec, width: int, seed: int | None) -> dict:
+    """A featurizer point `spec` made: from its bundle, or drawn from its seed, else `seed`; a probe's class
+    list from its `classes` column."""
+    fields = spec.model_extra or {}
+    labels = None
+    if "classes" in fields:
+        dataset, _, column = fields["classes"].partition(".")
+        labels = sorted({row[column] for row in plan.data[dataset].rows or []})
+    return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels)
+
+
+def made(plan: Plan, widths: dict) -> dict:
+    """The run's state at its start: each declared featurizer used at a site, at each of its points, made
+    where the model is."""
+    state: dict = {}
+    for name, entry in plan.featurizers.items():
+        for spec in points(entry) if name in widths else []:
+            put(state, name, spec.at, instance(plan, spec, widths[name], None))
+    return state
 
 
 # The generate options a step cannot forward as they are, the one value each may have, and why.
@@ -226,22 +321,6 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def walk(steps: dict, prefix: str = ""):
-    """Every step and point, a fit's body steps after the fit, each with its dotted name."""
-    for name, entry in steps.items():
-        for step in points(entry):
-            yield prefix + name, step
-            if step.kind == "fit":
-                yield from walk(step.steps, f"{prefix}{name}.")
-
-
-def refuse_later(where: str, op: str, featurizer: str | None) -> None:
-    if op in LATER:
-        raise NotImplementedError(f"{where}: op {op!r} lands in {LATER[op]}")
-    if featurizer is not None:
-        raise NotImplementedError(f"{where}: op {op!r} in featurizer {featurizer!r}'s space lands in M4")
-
-
 def check_tokens(engine, plan: Plan, where: str, name: str, args: dict) -> None:
     for key, p in ops.parameters(name).items():
         if p.annotation == ops.Tokens and key in args:
@@ -284,8 +363,7 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     parts = []
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         sites, writes, reads = bind(engine, plan, name, step, step.reads, state, found, chunk, pads)
-        with torch.no_grad():
-            got = engine.forward(batch, writes, reads)
+        got = engine.forward(batch, writes, reads)
         parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
                                                  pads, state, step.at) for layer in layers(engine, record)])
                       for key, record in step.reads.items()})
@@ -338,8 +416,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                                   "layer": layer})
                 reads.append({**decoding(record, n, pads), "name": f"{key}@{layer}", "layer": layer,
                               "calls": calls})
-        with torch.no_grad():
-            ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
+        ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
             if "calls" in record:
                 made = range(1, ids.shape[1]) if record["calls"] is None else \
@@ -383,11 +460,123 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     """The op over the whole value `of` names. `top_k`'s value also holds its tokens, decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
-    value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of),
+    vocabulary = classes(plan, state, step.of, step.at) if "classes" in dims_of(plan, step.of) else None
+    value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
+                                             vocabulary),
                   dims_of(plan, step.of), stops(engine, producer) if producer.kind == "generate" else engine.eos)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
+
+
+OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
+
+
+@kind
+def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+    """Train the featurizers `train` names, then score the body once under `eval` (`plan.Fit` says what each
+    part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
+    gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
+    weights never hold a gradient."""
+    sources = lookup(found["bodies"], name, step.at)
+    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found["widths"][f], step.seed)
+               for f in step.train}
+    params = [p.requires_grad_() for f in trained.values() for p in featurizers.parameters(f)]
+    optimizer = step.optimizer
+    opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
+    body_ops = [n for n, s in step.steps.items() if s.kind == "op"]
+    n = len(sources["train"][0].data[next(iter(datasets(step)))].rows or [])
+    history: dict = {o: [] for o in body_ops}
+    best, since, kept = None, 0, None
+    for epoch in range(step.epochs):
+        for f in trained.values():
+            featurizers.anneal(f, epoch, step.epochs)
+        order = torch.randperm(n, generator=torch.Generator().manual_seed(step.seed * 1_000_003 + epoch)).tolist()
+        for lo in range(0, n, step.batch_size):
+            body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + step.batch_size])
+            with torch.enable_grad():
+                loss = sum(weight * term(body, trained, t, step.at) for t, weight in step.objective.items())
+            assert isinstance(loss, Tensor)
+            for p, g in zip(params, torch.autograd.grad(loss, params)):
+                p.grad = g
+            opt.step()
+            opt.zero_grad()
+        scored = body_run(engine, name, step, state, trained, sources["train"], None)
+        for o in body_ops:
+            value = lookup(scored, o, step.at)
+            if isinstance(value, Tensor):
+                history[o].append(overall(value))
+        if step.early_stop is None:
+            kept = snapshot(params)
+            continue
+        score, mode = history[step.early_stop.metric][-1], step.early_stop.mode
+        if best is None or (score > best if mode == "max" else score < best):
+            best, since, kept = score, 0, snapshot(params)
+        else:
+            since += 1
+            if since >= step.early_stop.patience:
+                break
+    for p, value in zip(params, kept or []):
+        p.requires_grad_(False).copy_(value)
+    final = body_run(engine, name, step, state, trained, sources["eval"], None)
+    for f, inst in trained.items():
+        put(state, f"{name}.{f}", step.at, inst)
+    for key, s in step.steps.items():
+        if s.kind == "op":
+            put(state, f"{name}.{key}", step.at, lookup(final, key, step.at))
+            if history[key]:
+                put(state, f"{name}.history.{key}", step.at, torch.stack(history[key]))
+        for read in getattr(s, "reads", {}):
+            put(state, f"{name}.{key}.{read}", step.at, lookup(final, f"{key}.{read}", step.at))
+
+
+def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple, index: list[int] | None) -> dict:
+    """A fit's body over the rows `source` holds (its training rows or eval's), or the minibatch `index` of
+    them, in a namespace of its own that falls back to `state`, each trained featurizer under its declared
+    name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
+    Returns the body's namespace."""
+    plan, found = source if index is None else narrowed(source[0], source[1], index, datasets(step))
+    body = dict(state)
+    for f, inst in trained.items():
+        inst["training"] = index is not None
+        put(body, f, {}, inst)
+        put(body, f"{name}.{f}", {}, inst)
+    with torch.set_grad_enabled(index is not None):
+        for n, s in step.steps.items():
+            KINDS[s.kind](engine, plan, n, s, body, step.batch_size, found)
+    return body
+
+
+def datasets(step) -> list[str]:
+    """The datasets a fit's body runs over, which have as many rows as each other."""
+    return sorted({s.dataset for s in step.steps.values() if s.dataset is not None})
+
+
+def narrowed(plan: Plan, found: dict, index: list[int], names: list[str]) -> tuple[Plan, dict]:
+    """A body's plan and findings over the rows `index` picks of each of its datasets (`names`)."""
+    data = {**plan.data, **{d: plan.data[d].model_copy(update={"rows": [(plan.data[d].rows or [])[i] for i in index]})
+                            for d in names}}
+    return plan.model_copy(update={"data": data}), {
+        "inputs": {k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found["inputs"].items()},
+        "positions": {w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found["positions"].items()},
+        "said": {}, "widths": found["widths"]}
+
+
+def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:
+    """An objective term: a body op's value averaged over every axis, or a trained featurizer's scalar."""
+    thing, _, member = name.partition(".")
+    if member and thing in trained:
+        return featurizers.scalar(trained[thing], member)
+    return overall(lookup(body, name, at))
+
+
+def overall(value: Tensor) -> Tensor:
+    """A value's mean over every axis, of the entries that have one (a missing row is NaN)."""
+    return value.float().nanmean() if value.isnan().any() else value.float().mean()
+
+
+def snapshot(params: list[Tensor]) -> list[Tensor]:
+    return [p.detach().clone() for p in params]
 
 
 # -- binding a record to one batch ------------------------------------------------------------------------
@@ -423,9 +612,18 @@ def selection(record, pads: list[int]) -> dict:
 
 
 def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> dict:
-    """A write's op bound to one batch, as `ops.write` runs it."""
-    return {"op": o.op, "featurizer": space(o), "args": bound(engine, plan, o.op, arguments(o), state, at, rows),
-            "dims": address.dims(record.site.component, None, False)}
+    """A write's op bound to one batch, as `ops.write` runs it: in a featurizer's space, with its instance and
+    the features its `select` keeps."""
+    dims = address.dims(record.site.component, None, False)
+    within = space(o)
+    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows),
+            "featurizer": lookup(state, within, at) if within is not None else None,
+            "features": features(o), "dims": dims[:-1] + ["features"] if within is not None else dims}
+
+
+def features(o) -> Tensor | None:
+    """The features an op in a featurizer's space keeps, if it narrows them."""
+    return torch.tensor(o.select["features"]) if o.select else None
 
 
 def generated(engine, name: str, batch: dict, writes: list[dict], reads: list[dict], options: dict):
@@ -536,18 +734,30 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
 
 
 def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice) -> Any:
-    """A read's value with its ops applied in listed order."""
+    """A read's value with its ops applied in listed order: one in a featurizer's space on the value's
+    coordinates there, the change written back. Past a probe's `encode` a column names its classes."""
     dims = address.dims(record.site.component, None, positions.width(positions.parse(record.pos)) is None)
+    vocabulary = None
     for o in record.ops:
-        value = apply(engine, o.op, value, bound(engine, plan, o.op, arguments(o), state, at, rows, value), dims)
-        dims = ops.out_dims(o.op, dims, arguments(o))
+        within = space(o)
+        f = lookup(state, within, at) if within is not None else None
+        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary)
+        value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
+                      features=features(o))
+        if f is None:
+            dims = ops.out_dims(o.op, dims, arguments(o))
+        if o.op == "encode":
+            probe = args["featurizer"]
+            dims[-1] = featurizers.AXIS.get(probe["kind"], "features")
+            vocabulary = probe.get("classes")
     return value
 
 
 def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
-          of: Any = None) -> dict:
-    """An op's arguments bound to tensors: names looked up, columns tokenized, sliced to `rows`. On a ragged
-    value `of`, an argument with a row per example is taken at each entry's row."""
+          of: Any = None, vocabulary: list | None = None) -> dict:
+    """An op's arguments bound to tensors: names looked up (a featurizer to its instance), columns resolved
+    against the value's own vocabulary (the tokenizer's, or a probe's class list), sliced to `rows`. On a
+    ragged value `of`, an argument with a row per example is taken at each entry's row."""
     params, out = ops.parameters(name), {}
     for key, value in args.items():
         annotation, per_row = params[key].annotation, False
@@ -556,21 +766,51 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
             per_row = dims_of(plan, given)[:1] == ["rows"]
             value = value[rows] if rows is not None and per_row else value
         elif annotation == ops.Tokens:
-            value, per_row = tokens(engine, plan, value, args.get("token_form", "spaced"), rows), True
+            value, per_row = (tokens(engine, plan, value, args.get("token_form", "spaced"), rows) if vocabulary is None
+                              else indexed(plan, value, vocabulary, rows)), True
         elif annotation == ops.Featurizer:
-            raise NotImplementedError(f"M4: featurizer {value!r}")
+            value = lookup(state, value, at)
         if per_row and isinstance(of, dict) and "tok" in of:
             value = value[of["row"] - (rows.start if rows is not None else 0)]
         out[key] = value
     return out
 
 
-def apply(engine, name: str, value, args: dict, dims: list[str], eos: list[int] | None = None):
-    """Op `name` on a value; on a ragged value, on its entries, which stay ragged while the op keeps them."""
+def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
+          featurizer: dict | None = None, features: Tensor | None = None) -> Any:
+    """Op `name` on a value, or in `featurizer`'s space on its coordinates there (the `features` it keeps),
+    the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
-        got = ops.call(name, value["values"], args, engine=engine, dims=dims, eos=eos)
-        return {**value, "values": got} if "entries" in ops.out_dims(name, dims, args) else got
-    return ops.call(name, value, args, engine=engine, dims=dims, eos=eos)
+        got = apply(engine, name, value["values"], args, dims, eos, featurizer, features)
+        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args) \
+            else got
+
+    def fn(x: Any) -> Any:
+        return ops.call(name, x, args, engine=engine, dims=dims, eos=eos)
+    return fn(value) if featurizer is None else featurizers.within(featurizer, cast(Tensor, value), fn, features)
+
+
+def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Tensor:
+    """A column's values as their indices in a probe's class list."""
+    name, _, col = column.partition(".")
+    values = [r[col] for r in plan.data[name].rows or []]
+    for v in values:
+        if v not in vocabulary:
+            raise ValueError(f"{column}: {v!r} is not one of the probe's classes {vocabulary}")
+    return torch.tensor([vocabulary.index(v) for v in (values[rows] if rows is not None else values)])
+
+
+def classes(plan: Plan, state: dict, name: str, at: dict) -> list:
+    """The class list a value's `classes` axis indexes: that of the probe whose encode made it."""
+    thing, _, member = name.partition(".")
+    step = points(plan.steps[thing])[0]
+    if step.kind == "op":
+        return classes(plan, state, step.of, at)
+    if step.kind == "fit":
+        within = plan.model_copy(update={"steps": {**plan.steps, **step.steps}})
+        return classes(within, {**state, **{f: state[f"{thing}.{f}"] for f in step.train}}, member, at)
+    encode = next(o for o in reversed(step.reads[member].ops) if o.op == "encode")
+    return lookup(state, encode.featurizer, at)["classes"]
 
 
 def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Tensor:
@@ -590,7 +830,8 @@ def decoded(tokenizer, ids: Tensor) -> list:
 
 
 def put(state: dict, name: str, at: dict, value) -> None:
-    state.setdefault(name, {})[tuple(at.items())] = value
+    # A new dict each time: a fit's body namespace is a copy of the state, whose entries it must not change.
+    state[name] = {**state.get(name, {}), tuple(at.items()): value}
 
 
 def lookup(state: dict, name: str, at: dict):
