@@ -467,3 +467,21 @@ forward-only documents.
   only inside a read or a write, where they act on the live value within one
   forward. Metrics stay per-example (`match` returns one 0/1 per row and
   position); the number is a `mean` step after it.
+- **A result file is the value, nothing else.** A tensor (or a dict/bundle of
+  tensors) is written as `.safetensors`; anything else as `.json` (plain
+  `json.dumps`, tensors inside it as nested lists). A swept save is a dict
+  keyed by coordinate in both formats (`pos=-1` as a safetensors key, `"-1"`
+  as a JSON key); a ragged value is its own `{values, row}` shape. One file per
+  save, named `<name>.<ext>`, no coordinate directories. Everything that
+  describes a value — the step it came from, `dims`, `axes`, `shape`, `dtype`,
+  example ids, rows that were `alignment_missing` — is in `manifest.json`
+  once; that is how a result links back to its step. The labelled per-row
+  view with the mean up front is `plan.table(name)` in memory, not a file.
+- **`saves` is a list of names.** The filename is `<name>` and the extension
+  follows the type, so a filename in the document carries no information. The
+  corpus's dict form and its paths (`compare/patching/iia.json`) are migrated
+  in M2; `das_apply.json`'s `file_path` becomes
+  `documents/artifacts/fit.rot.safetensors`.
+- **No `metric` step kind.** Per-example scoring is a property an op declares
+  (it keeps the rows axis); `FORMAT.md` groups ops as metrics, reductions and
+  edits so the word is there for readers.
