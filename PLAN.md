@@ -572,7 +572,7 @@ when the owner asks for open items.
   pos := int                                  # shorthand: {"frame": 0, "index": int}
        | {"frame"?: frame, "scope"?: scope, "index"?: index}
   frame := int | [start, stop] | "generated" | "all" | "eos"      # default 0
-  scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+  scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>"}   # each with occurrence; column/text with strip
   index := int | [start, stop] | "all"                            # default "all"
   ```
 
@@ -623,8 +623,12 @@ when the owner asks for open items.
   fed the k-th occurrence's last token, `"all"` at each as it appears, and a
   row with too few occurrences is recorded missing; a negative occurrence is
   for reads only. `strip: true` strips the text's surrounding whitespace
-  before locating it (default `false`). `turn` takes neither. `column` and
-  `text` may be a list: every occurrence of every listed text is located,
+  before locating it (default `false`). `turn` takes `occurrence` but not `strip`:
+  `{"turn": "user", "occurrence": 1}` names the role, and the role's
+  messages in order are its occurrences (`0` the first, `"all"` every one,
+  ragged; a role the row lacks is refused by name). The `role[n]` syntax is
+  gone; `chat_turn.json` migrates to `{"turn": "user", "occurrence": 1}`.
+  `column` and `text` may be a list: every occurrence of every listed text is located,
   ordered by position, and `occurrence` picks among them by the same rule
   (default 0 = the first of any; `"all"` = the union of their tokens where
   occurrences overlap).
@@ -636,3 +640,9 @@ when the owner asks for open items.
 - **Milestone order from here:** M4 = positions (this grammar, migration
   round four, generated-frame writes); M5 = featurizers and `fit`; M6 =
   real remote.
+- **One resolution rule for reads and writes.** A scoped generated write
+  lands at a decode call iff, among the occurrences the selector picks on
+  the tokens fed so far — counted only within the frame's calls, exactly as
+  a read counts them — some picked occurrence's last token is that call's
+  input. A read and a write with the same record always agree; each picked
+  occurrence lands at its own last token.
