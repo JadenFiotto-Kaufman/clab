@@ -672,3 +672,25 @@ when the owner asks for open items.
   its history) and `sae_train_ablation.json` (load it and ablate latents,
   as `sae_feature_ablation.json` does with the fixture).
 - Roadmap (§12): hub datasets are what SAE training at real scale needs.
+- **One op calls a featurizer: `{"op": "featurizer", "featurizer": F,
+  "mode": M, ...}`.** Modes belong to kinds, not to the op vocabulary: a
+  kind declares its modes (one function each in its table) and the layout
+  each produces; a mode the kind lacks is refused by name; extra kwargs
+  belong to the mode. `encode` (coordinates: features / latents / classes)
+  and `apply` (the featurizer's version of `h`, same layout: a subspace's
+  projection, an SAE's reconstruction, a gate's masked value, a LoRA's
+  adapted value) are modes; the global ops `encode`/`apply` do not exist.
+  `describe featurizers` lists each kind's modes and what they produce.
+  The edit ops keep their `featurizer` argument ("swap, in F's
+  coordinates", written back as a delta) — an edit composed with a space,
+  not a call. The five documents using `encode` migrate to the `featurizer`
+  op (a respelling; no number moves).
+- **LoRA is a featurizer kind.** `{"kind": "lora", "rank": r, "alpha": a}`:
+  `A` seeded, `B` zero (so `apply` starts as `h` exactly), `apply(h) = h +
+  (alpha/rank) · (h Aᵀ) Bᵀ`; trained by `fit`, saved and loaded as a bundle.
+  Same-site adapters anywhere; a cross-site adapter (o_proj: read
+  `attention_premix`, apply at `attention_output`) names the same-forward
+  read as `with`. No module sites. Two example documents: train one on
+  `weekdays`, load and apply it. Open: a root-level `edits` block (writes
+  applied to every forward of the document) for an adapter that is on for
+  the whole run — not decided.
