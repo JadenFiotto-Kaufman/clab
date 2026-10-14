@@ -562,3 +562,30 @@ when the owner asks for open items.
 - **Named sweeps** to zip two different fields, if a document ever needs it.
 - Readability: the `cx` dict threaded through `compiler.py`;
   `output.elements`.
+
+### Ratified after M3 (2026-10-14)
+
+- **`scope` is one of `column` / `text` / `turn`; `index` is an int or
+  `"eos"`.** `{"column": "pairs.entity"}` names the row's text with the one
+  dataset.column syntax (an indexed input's variables are named explicitly:
+  `"pairs.counterfactual_inputs_variables[0].entity"`); the hidden
+  `<column>_variables` convention is gone. `{"text": "tomorrow"}` is a literal
+  text located in the input, the same mechanism. `{"turn": "user[1]"}` is a
+  chat turn. `"index": "eos"` is the step the row stopped at (generated frame
+  only). `variable` and `segment` are gone. Four documents migrate
+  (entity_patch, entity_mean_ablation, chat_turn, generated_answer).
+- **Writes in the generated frame are allowed.** A write at generated step
+  *k* edits the live value at decode call *k*'s last position, and takes
+  effect from token *k+1* on through the cache; `span` and `all` apply the
+  write at each call independently; the operand is `[rows, 1, ...]` or a
+  broadcast vector. A row that stopped before the step has nothing to write
+  there: it is skipped and recorded in the manifest's positions as missing
+  (the model decided), not refused. Both engines must agree to the bit, as
+  for reads.
+- **Frames:** `prompt` (the prefill call; the default; the only frame a
+  `forward` step has) and `generated` (the decode calls, counted from 0 =
+  the call that chose token 0, read or written at that call's last position).
+  No other frame exists.
+- **Milestone order from here:** M4 = positions (the scope rename, `text`
+  scope, generated-frame writes, migration round four); M5 = featurizers and
+  `fit`; M6 = real remote.
