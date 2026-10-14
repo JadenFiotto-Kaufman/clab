@@ -1,192 +1,108 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "zero_ablation",
-  "path": "documents/zero_ablation.json",
-  "sha256": "f49286565bf7818e09566b81fedf99a6d4a0919838840c1e34d9e90de69f622f"
- },
  "description": "Zero ablation, the cheapest baseline there is: the residual stream at the answer position replaced by 0.0, scored against the un-intervened model. The operand is a number, not a reference to anything read.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "prompts": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "clean": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "prompts",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "prompts.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "prompts"
   },
   "clean_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "clean.logits",
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "prompts",
+   "of": "clean.logits",
+   "dataset": "prompts",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "clean_ld": {
-     "save": "clean.json",
-     "value": null
-    }
-   }
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
   },
   "zeroed": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "prompts",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "zero",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "prompts.input",
+   "writes": {
+    "zero": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": 0.0
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": 0.0
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "prompts"
   },
   "zeroed_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "zeroed.logits",
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "prompts",
+   "of": "zeroed.logits",
+   "dataset": "prompts",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "zeroed_ld": {
-     "save": "zeroed.json",
-     "value": null
-    }
-   }
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
   },
   "p_answer": {
    "kind": "op",
-   "at": {},
    "op": "token_prob",
-   "args": {
-    "of": "zeroed.logits",
-    "token": "prompts.cf_answer",
-    "token_form": "spaced"
-   },
-   "data": "prompts",
+   "of": "zeroed.logits",
+   "dataset": "prompts",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "p_answer": {
-     "save": "p_answer.json",
-     "value": null
-    }
-   }
+   "token": "prompts.cf_answer"
   }
- }
+ },
+ "saves": [
+  "clean_ld",
+  "zeroed_ld",
+  "p_answer"
+ ],
+ "document": "documents/zero_ablation.json",
+ "compiled": true
 }

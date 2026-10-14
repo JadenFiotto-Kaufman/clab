@@ -17,9 +17,27 @@ DIMS = ["rows", "pos", "hidden_size"]
 def test_every_op_registered_itself_under_its_own_name():
     assert set(ops.OPS) == {"swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
                             "encode", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
-                            "cross_entropy", "kl", "js", "top_k"}
+                            "cross_entropy", "kl", "js", "top_k", "argmax", "decode"}
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.AXES) == set(ops.OPS)
+
+
+def test_ops_group_by_what_they_do_to_the_rows():
+    groups = {name: ops.group(name) for name in ops.OPS}
+    assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
+                                                               "normalize", "project_out"}
+    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "pca"}
+    assert groups["match"] == groups["top_k"] == groups["readout"] == "metrics"
+
+
+def test_an_ops_arguments_bind_to_its_signature():
+    ops.check("match", {"expected": "pairs.cf_answer"})
+    with pytest.raises(ValueError, match="'match' needs 'expected'"):
+        ops.check("match", {})
+    with pytest.raises(ValueError, match="'add' takes no 'factor'; its arguments: with, scale"):
+        ops.check("add", {"with": "x", "factor": 2.0})
+    with pytest.raises(ValueError, match="k: 'three' is not int"):
+        ops.check("top_k", {"k": "three"})
 
 
 def test_swap_broadcasts_a_vector_or_a_number_exactly():
@@ -130,3 +148,45 @@ def test_a_pattern_is_selected_along_its_query_axis():
     value = torch.randn(2, 4, 5, 5)                      # batch, num_heads, query, key
     rec = {"positions": torch.tensor([[4], [4]]), "select": {}}
     assert torch.equal(ops.select(value, "attention_probabilities", rec), value[:, :, 4:5].movedim(2, 1))
+
+
+def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
+    torch.manual_seed(1)
+    x = torch.randn(40, 5) * torch.tensor([5.0, 3.0, 1.0, 0.5, 0.1]) + 2.0
+    got = ops.pca(x, k=3, dims=["entries", "hidden_size"])
+    basis, mean = got["basis"], got["mean"]
+    assert basis.shape == (5, 3) and mean.shape == (5,)
+    torch.testing.assert_close(basis.T @ basis, torch.eye(3), atol=1e-5, rtol=0)
+    torch.testing.assert_close(mean, x.mean(0))
+    variance = ((x - mean) @ basis).var(0)
+    assert bool((variance[:-1] >= variance[1:]).all())
+    assert torch.equal(ops.pca(x, k=3, dims=["entries", "hidden_size"])["basis"], basis)     # deterministic signs
+    with pytest.raises(ValueError, match="pca of 3 vectors has no rank-3 basis"):
+        ops.pca(x[:3], k=3, dims=["entries", "hidden_size"])
+
+
+def test_top_k_and_argmax():
+    got = ops.top_k(LOGITS, k=2)
+    assert got["ids"].shape == got["probs"].shape == (3, 1, 2)
+    assert torch.equal(got["ids"][..., 0], ops.argmax(LOGITS))
+    torch.testing.assert_close(got["probs"][..., 0], LOGITS.softmax(-1).max(-1).values)
+
+
+class Tokenizer:
+    eos_token_id = 0
+
+    def decode(self, ids):
+        return "".join(f"<{i}>" for i in ids)
+
+    def convert_ids_to_tokens(self, ids):
+        return [f"t{i}" for i in ids]
+
+
+class Engine:
+    tokenizer = Tokenizer()
+
+
+def test_decode_stops_at_each_rows_first_eos():
+    ids = torch.tensor([[5, 6, 0, 7], [8, 9, 9, 9]])
+    assert ops.decode(ids, engine=Engine()) == ["<5><6>", "<8><9><9><9>"]
+    assert ops.decode(ids, engine=Engine(), tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]

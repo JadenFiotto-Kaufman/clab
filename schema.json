@@ -1,0 +1,1265 @@
+{
+ "$defs": {
+  "Access": {
+   "additionalProperties": false,
+   "description": "A write or a read: the `site` it lands on (a declared name, or one inline), the positions `pos` names\nthere, and the `ops` it runs on that selection. Several writes at one site compose in listed order on one\ncopy of the value; a read at a written site observes the writes.",
+   "properties": {
+    "site": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/Site"
+      }
+     ],
+     "title": "Site"
+    },
+    "pos": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Pos"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Pos"
+    },
+    "ops": {
+     "default": [],
+     "items": {
+      "$ref": "#/$defs/Op"
+     },
+     "title": "Ops",
+     "type": "array"
+    },
+    "dims": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the layout of what a read binds",
+     "title": "Dims"
+    }
+   },
+   "required": [
+    "site",
+    "pos"
+   ],
+   "title": "Access",
+   "type": "object"
+  },
+  "Axis": {
+   "additionalProperties": false,
+   "description": "A sweep axis: the document path of its sweep and its values.",
+   "properties": {
+    "path": {
+     "title": "Path",
+     "type": "string"
+    },
+    "values": {
+     "items": {},
+     "title": "Values",
+     "type": "array"
+    }
+   },
+   "required": [
+    "path",
+    "values"
+   ],
+   "title": "Axis",
+   "type": "object"
+  },
+  "Data": {
+   "additionalProperties": false,
+   "description": "A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline, or `hf` names a\npinned hub dataset (`revision`, `take` rows of `split`). `split` keeps the rows of that split.",
+   "properties": {
+    "path": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Path"
+    },
+    "rows": {
+     "anyOf": [
+      {
+       "items": {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Rows"
+    },
+    "hf": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Hf"
+    },
+    "revision": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Revision"
+    },
+    "split": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Split"
+    },
+    "take": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Take"
+    },
+    "sha256": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the digest of the rows, which a re-materialization must match",
+     "title": "Sha256"
+    }
+   },
+   "title": "Data",
+   "type": "object"
+  },
+  "EarlyStop": {
+   "additionalProperties": false,
+   "description": "End the fit after `patience` epochs without improvement of a body op's mean, scored on the training data.",
+   "properties": {
+    "metric": {
+     "title": "Metric",
+     "type": "string"
+    },
+    "mode": {
+     "enum": [
+      "max",
+      "min"
+     ],
+     "title": "Mode",
+     "type": "string"
+    },
+    "patience": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Patience"
+    }
+   },
+   "required": [
+    "metric",
+    "mode",
+    "patience"
+   ],
+   "title": "EarlyStop",
+   "type": "object"
+  },
+  "Eval": {
+   "additionalProperties": false,
+   "description": "After the fit, run the body once with each dataset `data` maps read as the other (`{\"train\": \"test\"}`).",
+   "properties": {
+    "data": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "title": "Data",
+     "type": "object"
+    }
+   },
+   "required": [
+    "data"
+   ],
+   "title": "Eval",
+   "type": "object"
+  },
+  "Featurizer": {
+   "additionalProperties": true,
+   "description": "A space a read or write happens in: `{\"kind\": <kind>, ...its fields}` (see Featurizer kinds).",
+   "properties": {
+    "kind": {
+     "title": "Kind",
+     "type": "string"
+    },
+    "at": {
+     "additionalProperties": {
+      "type": "integer"
+     },
+     "default": {},
+     "derived": true,
+     "description": "the point's index on each sweep axis it varies over",
+     "title": "At",
+     "type": "object"
+    }
+   },
+   "required": [
+    "kind"
+   ],
+   "title": "Featurizer",
+   "type": "object"
+  },
+  "Fit": {
+   "additionalProperties": false,
+   "description": "Train the featurizers `train` names. Each epoch runs the body `steps` over minibatches of `batch_size`\nrows and minimizes the weighted sum `objective` (`{term: weight}`; a term is a body op, averaged, or a\ntrained featurizer's scalar, `<featurizer>.<scalar>`). Inside the body a trained featurizer's name and\n`<fit>.<featurizer>` are the one being trained. Afterwards `<fit>.<featurizer>` is the trained one,\n`<fit>.<op>` a body op under `eval`, `<fit>.<step>.<read>` a body read, and `<fit>.history.<op>` the\nbody op's mean per epoch.",
+   "properties": {
+    "kind": {
+     "const": "fit",
+     "title": "Kind",
+     "type": "string"
+    },
+    "train": {
+     "items": {
+      "type": "string"
+     },
+     "title": "Train",
+     "type": "array"
+    },
+    "objective": {
+     "additionalProperties": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "$ref": "#/$defs/Sweep"
+       }
+      ]
+     },
+     "title": "Objective",
+     "type": "object"
+    },
+    "epochs": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Epochs"
+    },
+    "batch_size": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Batch Size"
+    },
+    "seed": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Seed"
+    },
+    "optimizer": {
+     "$ref": "#/$defs/Optimizer"
+    },
+    "steps": {
+     "additionalProperties": {
+      "oneOf": [
+       {
+        "oneOf": [
+         {
+          "$ref": "#/$defs/Forward"
+         },
+         {
+          "$ref": "#/$defs/Generate"
+         },
+         {
+          "$ref": "#/$defs/OpStep"
+         },
+         {
+          "$ref": "#/$defs/Fit"
+         }
+        ]
+       },
+       {
+        "items": {
+         "oneOf": [
+          {
+           "$ref": "#/$defs/Forward"
+          },
+          {
+           "$ref": "#/$defs/Generate"
+          },
+          {
+           "$ref": "#/$defs/OpStep"
+          },
+          {
+           "$ref": "#/$defs/Fit"
+          }
+         ]
+        },
+        "type": "array"
+       }
+      ]
+     },
+     "title": "Steps",
+     "type": "object"
+    },
+    "early_stop": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/EarlyStop"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "eval": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Eval"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "at": {
+     "additionalProperties": {
+      "type": "integer"
+     },
+     "default": {},
+     "derived": true,
+     "description": "the point's index on each sweep axis it varies over",
+     "title": "At",
+     "type": "object"
+    }
+   },
+   "required": [
+    "kind",
+    "train",
+    "objective",
+    "epochs",
+    "batch_size",
+    "seed",
+    "optimizer",
+    "steps"
+   ],
+   "title": "Fit",
+   "type": "object"
+  },
+  "Forward": {
+   "additionalProperties": false,
+   "description": "One forward over every row of a dataset input. `input` is `<dataset>.<column>` or\n`<dataset>.<column>[i]`, a text or a chat; `writes` land where they name before anything later reads them;\neach read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed\norder, before the step's own.\n\nRows run in consecutive batches of the run's batch size, each padded on the left to the input's longest\nrow, with position ids that count real tokens. A row's numbers then do not depend on which rows share its\nbatch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can\ndiffer in the last bits. Results reproduce to the bit at a fixed batch size.",
+   "properties": {
+    "kind": {
+     "const": "forward",
+     "title": "Kind",
+     "type": "string"
+    },
+    "input": {
+     "title": "Input",
+     "type": "string"
+    },
+    "writes": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Writes",
+     "type": "object"
+    },
+    "reads": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Reads",
+     "type": "object"
+    },
+    "interventions": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Interventions"
+    },
+    "at": {
+     "additionalProperties": {
+      "type": "integer"
+     },
+     "default": {},
+     "derived": true,
+     "description": "the point's index on each sweep axis it varies over",
+     "title": "At",
+     "type": "object"
+    },
+    "dataset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the dataset whose rows the step's values are aligned to",
+     "title": "Dataset"
+    }
+   },
+   "required": [
+    "kind",
+    "input"
+   ],
+   "title": "Forward",
+   "type": "object"
+  },
+  "Generate": {
+   "additionalProperties": false,
+   "description": "Generation from every row of a dataset input. Writes land on the prompt; reads in the `generated` frame\nread decode steps. The step's own value is the new token ids, `[rows, new]`; `decode` makes them text.",
+   "properties": {
+    "kind": {
+     "const": "generate",
+     "title": "Kind",
+     "type": "string"
+    },
+    "input": {
+     "title": "Input",
+     "type": "string"
+    },
+    "writes": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Writes",
+     "type": "object"
+    },
+    "reads": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Reads",
+     "type": "object"
+    },
+    "interventions": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Interventions"
+    },
+    "at": {
+     "additionalProperties": {
+      "type": "integer"
+     },
+     "default": {},
+     "derived": true,
+     "description": "the point's index on each sweep axis it varies over",
+     "title": "At",
+     "type": "object"
+    },
+    "dataset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the dataset whose rows the step's values are aligned to",
+     "title": "Dataset"
+    },
+    "max_new_tokens": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Max New Tokens"
+    },
+    "min_new_tokens": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "default": 0,
+     "title": "Min New Tokens"
+    },
+    "do_sample": {
+     "default": false,
+     "title": "Do Sample",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "kind",
+    "input",
+    "max_new_tokens"
+   ],
+   "title": "Generate",
+   "type": "object"
+  },
+  "Interventions": {
+   "additionalProperties": false,
+   "description": "A bundle of `writes` and `reads` (each by name), pulled into a step by `\"interventions\": \"<name>\"` or a\nlist of names. Its names resolve where a step pulls it in.",
+   "properties": {
+    "writes": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Writes",
+     "type": "object"
+    },
+    "reads": {
+     "additionalProperties": {
+      "$ref": "#/$defs/Access"
+     },
+     "default": {},
+     "title": "Reads",
+     "type": "object"
+    }
+   },
+   "title": "Interventions",
+   "type": "object"
+  },
+  "Model": {
+   "additionalProperties": false,
+   "description": "The pinned checkpoint. The attention interior needs `attn_implementation: \"eager\"`.",
+   "properties": {
+    "key": {
+     "title": "Key",
+     "type": "string"
+    },
+    "revision": {
+     "title": "Revision",
+     "type": "string"
+    },
+    "dtype": {
+     "default": "fp32",
+     "enum": [
+      "fp32",
+      "fp16",
+      "bf16"
+     ],
+     "title": "Dtype",
+     "type": "string"
+    },
+    "attn_implementation": {
+     "anyOf": [
+      {
+       "enum": [
+        "eager",
+        "sdpa"
+       ],
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Attn Implementation"
+    }
+   },
+   "required": [
+    "key",
+    "revision"
+   ],
+   "title": "Model",
+   "type": "object"
+  },
+  "Op": {
+   "additionalProperties": true,
+   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` (and\n`features`, a subset of its latents) make any op run on the value's coordinates in that featurizer's\nspace, the change written back.",
+   "properties": {
+    "op": {
+     "title": "Op",
+     "type": "string"
+    },
+    "featurizer": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Featurizer"
+    },
+    "features": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Features"
+    }
+   },
+   "required": [
+    "op"
+   ],
+   "title": "Op",
+   "type": "object"
+  },
+  "OpStep": {
+   "additionalProperties": true,
+   "description": "An op over a value earlier steps produced: `of` names it, and the op's arguments sit beside it (see\nOps). The step's value is the op's result; a step holds exactly one op, and chaining is the next step.",
+   "properties": {
+    "kind": {
+     "const": "op",
+     "title": "Kind",
+     "type": "string"
+    },
+    "op": {
+     "title": "Op",
+     "type": "string"
+    },
+    "of": {
+     "title": "Of",
+     "type": "string"
+    },
+    "at": {
+     "additionalProperties": {
+      "type": "integer"
+     },
+     "default": {},
+     "derived": true,
+     "description": "the point's index on each sweep axis it varies over",
+     "title": "At",
+     "type": "object"
+    },
+    "dataset": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the dataset whose rows the step's values are aligned to",
+     "title": "Dataset"
+    },
+    "dims": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "derived": true,
+     "description": "the layout of the step's value",
+     "title": "Dims"
+    }
+   },
+   "required": [
+    "kind",
+    "op",
+    "of"
+   ],
+   "title": "OpStep",
+   "type": "object"
+  },
+  "Optimizer": {
+   "additionalProperties": false,
+   "description": "The fit's optimizer, over the trained featurizers' parameters only.",
+   "properties": {
+    "name": {
+     "enum": [
+      "adamw",
+      "adam",
+      "sgd"
+     ],
+     "title": "Name",
+     "type": "string"
+    },
+    "lr": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Lr"
+    },
+    "weight_decay": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "default": 0.0,
+     "title": "Weight Decay"
+    }
+   },
+   "required": [
+    "name",
+    "lr"
+   ],
+   "title": "Optimizer",
+   "type": "object"
+  },
+  "Pos": {
+   "additionalProperties": false,
+   "description": "`pos` names token positions within a scope.\n\n```\npos := int                                    # the one shorthand: {\"index\": int}\n     | {\"frame\"?: \"prompt\" | \"generated\",     # default \"prompt\"\n        \"scope\"?: {\"variable\": column} | {\"segment\": \"role[n]\" | \"role\" | \"eos\"},\n        exactly one of \"index\": int | \"span\": [start, stop] | \"all\": true}\n```\n\nIndices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's\ntokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes\nto the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the\nsecond user message) or, in the generated frame, to where the row stopped (`eos`). Text a scope names\nthat occurs twice in the row is refused. The generated frame counts decode steps: index *k* is the\nforward that chose new token *k*, read at its last position. A turn has no meaning in the generated\nframe, nor `eos` in the prompt.\n\nA slice is rectangular when both ends count from the same side (or it runs to the end from a negative\nstart): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is\nragged: a read then gives one entry per token, `{values, row, tok}`.",
+   "properties": {
+    "frame": {
+     "default": "prompt",
+     "enum": [
+      "prompt",
+      "generated"
+     ],
+     "title": "Frame",
+     "type": "string"
+    },
+    "scope": {
+     "anyOf": [
+      {
+       "$ref": "#/$defs/Scope"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null
+    },
+    "index": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Index"
+    },
+    "span": {
+     "anyOf": [
+      {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "integer"
+        }
+       ],
+       "type": "array"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Span"
+    },
+    "all": {
+     "anyOf": [
+      {
+       "const": true,
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "All"
+    }
+   },
+   "title": "Pos",
+   "type": "object"
+  },
+  "Run": {
+   "additionalProperties": false,
+   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized (token strings per row), and the token index every positioned read and write\nresolved to, per row (keyed by coordinate when its step is swept).",
+   "properties": {
+    "engine": {
+     "title": "Engine",
+     "type": "string"
+    },
+    "remote": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "string"
+      }
+     ],
+     "title": "Remote"
+    },
+    "batch_size": {
+     "title": "Batch Size",
+     "type": "integer"
+    },
+    "versions": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "default": {},
+     "title": "Versions",
+     "type": "object"
+    },
+    "started": {
+     "default": "",
+     "title": "Started",
+     "type": "string"
+    },
+    "seconds": {
+     "default": 0.0,
+     "title": "Seconds",
+     "type": "number"
+    },
+    "tokens": {
+     "additionalProperties": {
+      "items": {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "array"
+     },
+     "default": {},
+     "title": "Tokens",
+     "type": "object"
+    },
+    "positions": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Positions",
+     "type": "object"
+    }
+   },
+   "required": [
+    "engine",
+    "remote",
+    "batch_size"
+   ],
+   "title": "Run",
+   "type": "object"
+  },
+  "Scope": {
+   "additionalProperties": false,
+   "description": "`{\"variable\": column}`: the row's own text of that column, located in its input; or `{\"segment\":\n\"role[n]\" | \"role\" | \"eos\"}`: a chat turn, or where a generated row stopped.",
+   "properties": {
+    "variable": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Variable"
+    },
+    "segment": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Segment"
+    }
+   },
+   "title": "Scope",
+   "type": "object"
+  },
+  "Site": {
+   "additionalProperties": false,
+   "description": "A component, narrowed: `layers` (an int, or `\"all\"`: one value, the layer axis first) on a block's\ncomponent; at most one of `heads` and `units`, as the component allows.",
+   "properties": {
+    "component": {
+     "title": "Component",
+     "type": "string"
+    },
+    "layers": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "const": "all",
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Layers"
+    },
+    "heads": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Heads"
+    },
+    "units": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "integer"
+       },
+       "type": "array"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Units"
+    }
+   },
+   "required": [
+    "component"
+   ],
+   "title": "Site",
+   "type": "object"
+  },
+  "Sweep": {
+   "additionalProperties": false,
+   "description": "A value standing for several. Whatever uses it runs once per value, a point each; one sweep reached\nfrom two places is one axis.",
+   "properties": {
+    "sweep": {
+     "items": {},
+     "minItems": 1,
+     "title": "Sweep",
+     "type": "array"
+    }
+   },
+   "required": [
+    "sweep"
+   ],
+   "title": "Sweep",
+   "type": "object"
+  }
+ },
+ "additionalProperties": false,
+ "description": "A complete experiment.",
+ "properties": {
+  "description": {
+   "default": "",
+   "description": "what the experiment is, in prose",
+   "title": "Description",
+   "type": "string"
+  },
+  "model": {
+   "$ref": "#/$defs/Model",
+   "description": "the checkpoint, and how to load it"
+  },
+  "data": {
+   "additionalProperties": {
+    "$ref": "#/$defs/Data"
+   },
+   "description": "each dataset by name",
+   "title": "Data",
+   "type": "object"
+  },
+  "sites": {
+   "additionalProperties": {
+    "$ref": "#/$defs/Site"
+   },
+   "default": {},
+   "description": "named locations, referenced by `site`",
+   "title": "Sites",
+   "type": "object"
+  },
+  "interventions": {
+   "additionalProperties": {
+    "$ref": "#/$defs/Interventions"
+   },
+   "default": {},
+   "description": "named bundles of writes and reads, pulled into a step by `interventions`",
+   "title": "Interventions",
+   "type": "object"
+  },
+  "featurizers": {
+   "additionalProperties": {
+    "oneOf": [
+     {
+      "$ref": "#/$defs/Featurizer"
+     },
+     {
+      "items": {
+       "$ref": "#/$defs/Featurizer"
+      },
+      "type": "array"
+     }
+    ]
+   },
+   "default": {},
+   "description": "named spaces a read or write happens in",
+   "title": "Featurizers",
+   "type": "object"
+  },
+  "steps": {
+   "additionalProperties": {
+    "oneOf": [
+     {
+      "oneOf": [
+       {
+        "$ref": "#/$defs/Forward"
+       },
+       {
+        "$ref": "#/$defs/Generate"
+       },
+       {
+        "$ref": "#/$defs/OpStep"
+       },
+       {
+        "$ref": "#/$defs/Fit"
+       }
+      ]
+     },
+     {
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/$defs/Forward"
+        },
+        {
+         "$ref": "#/$defs/Generate"
+        },
+        {
+         "$ref": "#/$defs/OpStep"
+        },
+        {
+         "$ref": "#/$defs/Fit"
+        }
+       ]
+      },
+      "type": "array"
+     }
+    ]
+   },
+   "description": "what runs, in order",
+   "title": "Steps",
+   "type": "object"
+  },
+  "saves": {
+   "default": [],
+   "description": "the values that come home, by name",
+   "items": {
+    "type": "string"
+   },
+   "title": "Saves",
+   "type": "array"
+  },
+  "document": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "derived": true,
+   "description": "the document file `Plan(path)` read; data paths and bundles resolve against its corpus root, the parent of its directory",
+   "title": "Document"
+  },
+  "compiled": {
+   "default": false,
+   "derived": true,
+   "description": "whether this is the compiled plan",
+   "title": "Compiled",
+   "type": "boolean"
+  },
+  "sweeps": {
+   "additionalProperties": {
+    "$ref": "#/$defs/Axis"
+   },
+   "default": {},
+   "derived": true,
+   "description": "each sweep axis by label, in axis order",
+   "title": "Sweeps",
+   "type": "object"
+  },
+  "run": {
+   "anyOf": [
+    {
+     "$ref": "#/$defs/Run"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "derived": true,
+   "description": "how the plan ran, set by `execute`"
+  }
+ },
+ "required": [
+  "model",
+  "data",
+  "steps"
+ ],
+ "title": "Plan",
+ "type": "object"
+}

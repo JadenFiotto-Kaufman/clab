@@ -1,220 +1,125 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "faithfulness",
-  "path": "documents/faithfulness.json",
-  "sha256": "79de06bb0fe57c72eb0bef913bb106c8ea79e970f6dd7fca97c9cd9f0f33b0c0"
- },
  "description": "How much an interchange moves the whole prediction, not one logit: the patched run's next-token distribution scored against the clean run's on the same prompts. `kl` is KL(patched ‖ clean), in nats, weighted by where the patched model puts its mass; `js` is the symmetric Jensen–Shannon divergence, at most log 2. `p_answer` is the probability the patched run puts on the counterfactual answer — the soft accuracy, `match` without the argmax.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "clean": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "counterfactual": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "counterfactual_inputs",
-    "index": 0,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "v_cf",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.counterfactual_inputs[0]",
+   "reads": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "patched": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "patch",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "writes": {
+    "patch": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": "counterfactual.v_cf"
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": "counterfactual.v_cf"
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "kl": {
    "kind": "op",
-   "at": {},
    "op": "kl",
-   "args": {
-    "of": "patched.logits",
-    "against": "clean.logits"
-   },
-   "data": "pairs",
+   "of": "patched.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "kl": {
-     "save": "kl.json",
-     "value": null
-    }
-   }
+   "against": "clean.logits"
   },
   "js": {
    "kind": "op",
-   "at": {},
    "op": "js",
-   "args": {
-    "of": "patched.logits",
-    "against": "clean.logits"
-   },
-   "data": "pairs",
+   "of": "patched.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "js": {
-     "save": "js.json",
-     "value": null
-    }
-   }
+   "against": "clean.logits"
   },
   "p_answer": {
    "kind": "op",
-   "at": {},
    "op": "token_prob",
-   "args": {
-    "of": "patched.logits",
-    "token": "pairs.cf_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "patched.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "p_answer": {
-     "save": "p_answer.json",
-     "value": null
-    }
-   }
+   "token": "pairs.cf_answer"
   }
- }
+ },
+ "saves": [
+  "kl",
+  "js",
+  "p_answer"
+ ],
+ "document": "documents/faithfulness.json",
+ "compiled": true
 }

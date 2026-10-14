@@ -1,31 +1,408 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "attention_pattern_patching",
-  "path": "documents/attention_pattern_patching.json",
-  "sha256": "008a3e544df773b8cd2a65838628ffee3ea5e9d3b7a7fa372254d1e19c2dbd77"
- },
- "description": "Attention-pattern patching: make one head attend, at the last position, the way it did on the COUNTERFACTUAL prompt, and leave its values alone — so the question is 'does where this head looks carry the answer', separately from what it moves. `attention_probs` needs eager attention, and its last axis is the keys of the padded batch, so the two prompts must tokenize to the same length row by row; the compiler checks that before any forward (documents/data/weekdays_aligned is the subset of pairs that do, under this tokenizer).",
+ "description": "Attention-pattern patching: make one head attend, at the last position, the way it did on the COUNTERFACTUAL prompt, and leave its values alone — so the question is 'does where this head looks carry the answer', separately from what it moves. `attention_probabilities` needs eager attention, and its last axis is the keys of the padded batch, so the two prompts must tokenize to the same length row by row; the run checks that before any forward (data/weekdays_aligned is the subset of pairs that do, under this tokenizer).",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
   "attn_implementation": "eager"
  },
  "data": {
   "pairs": {
    "path": "weekdays_aligned/data",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "example_id",
-    "input"
-   ]
+   "sha256": "37624f0e308a1ed7496ad05cbc4291cb11ec96a28d2a63d6ee5d87d9127e1e84"
   }
  },
- "featurizers": {},
+ "steps": {
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "their_pattern": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        0
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
+      ]
+     }
+    },
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "their_pattern": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        1
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
+      ]
+     }
+    },
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "their_pattern": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        2
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
+      ]
+     }
+    },
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "their_pattern": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        3
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
+      ]
+     }
+    },
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "patched": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "look_there": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        0
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.their_pattern"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "look_there": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        1
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.their_pattern"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "look_there": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        2
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.their_pattern"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "look_there": {
+      "site": {
+       "component": "attention_probabilities",
+       "layers": 0,
+       "heads": [
+        3
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.their_pattern"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   }
+  ]
+ },
+ "saves": [
+  "iia",
+  "logit_diff"
+ ],
+ "document": "documents/attention_pattern_patching.json",
+ "compiled": true,
  "sweeps": {
   "heads": {
    "path": "sites.one_head.heads",
@@ -44,651 +421,5 @@
     ]
    ]
   }
- },
- "steps": {
-  "counterfactual": [
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "their_pattern",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        0
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "their_pattern",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        1
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "their_pattern",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        2
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 3
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "their_pattern",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "patched": [
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "look_there",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        0
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.their_pattern"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "key"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "look_there",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        1
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.their_pattern"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "key"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "look_there",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        2
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.their_pattern"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "key"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 3
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "look_there",
-      "component": "attention_probabilities",
-      "layer": 0,
-      "select": {
-       "heads": [
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.their_pattern"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "key"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "key"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "iia": [
-   {
-    "kind": "op",
-    "at": {
-     "heads": 0
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 1
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 2
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 3
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   }
-  ],
-  "logit_diff": [
-   {
-    "kind": "op",
-    "at": {
-     "heads": 0
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 1
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 2
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 3
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   }
-  ]
  }
 }

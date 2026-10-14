@@ -1,66 +1,344 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "random_subspace",
-  "path": "documents/random_subspace.json",
-  "sha256": "077d6c9bceea0aba39b86804f0102365d0dab5e94f6254dbede40ba99691ef72"
- },
  "description": "The matched-k control for a DAS result: three untrained rank-4 subspaces at one cell, one per seed, scored exactly as a fit's would be — the spread across draws is the null a trained rotation has to beat. No fit at all: the featurizer is declared, drawn from its seed where the run runs, and used.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
  "featurizers": {
   "rot": [
    {
     "kind": "subspace",
-    "k": 4,
-    "parametrization": "cayley",
-    "seed": 0,
-    "file_path": null,
-    "bundle": null,
     "at": {
      "seed": 0
-    }
+    },
+    "k": 4,
+    "parametrization": "cayley",
+    "seed": 0
    },
    {
     "kind": "subspace",
-    "k": 4,
-    "parametrization": "cayley",
-    "seed": 1,
-    "file_path": null,
-    "bundle": null,
     "at": {
      "seed": 1
-    }
+    },
+    "k": 4,
+    "parametrization": "cayley",
+    "seed": 1
    },
    {
     "kind": "subspace",
-    "k": 4,
-    "parametrization": "cayley",
-    "seed": 2,
-    "file_path": null,
-    "bundle": null,
     "at": {
      "seed": 2
-    }
+    },
+    "k": 4,
+    "parametrization": "cayley",
+    "seed": 2
    }
   ]
  },
+ "steps": {
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "rot"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    },
+    "at": {
+     "seed": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "rot"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    },
+    "at": {
+     "seed": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "rot"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    },
+    "at": {
+     "seed": 2
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "patched": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "rot",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "seed": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "rot",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "seed": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "rot",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "seed": 2
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "seed": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "seed": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "seed": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "seed": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "seed": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "seed": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   }
+  ]
+ },
+ "saves": [
+  "iia",
+  "logit_diff"
+ ],
+ "document": "documents/random_subspace.json",
+ "compiled": true,
  "sweeps": {
   "seed": {
    "path": "featurizers.rot.seed",
@@ -70,501 +348,5 @@
     2
    ]
   }
- },
- "steps": {
-  "counterfactual": [
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "encode",
-        "args": {
-         "featurizer": "rot"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "features"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "encode",
-        "args": {
-         "featurizer": "rot"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "features"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "encode",
-        "args": {
-         "featurizer": "rot"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "features"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "patched": [
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": "rot",
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "hidden_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": "rot",
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "hidden_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "seed": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "layer_output",
-      "layer": 0,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": "rot",
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "hidden_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "hidden_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "iia": [
-   {
-    "kind": "op",
-    "at": {
-     "seed": 0
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "seed": 1
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "seed": 2
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   }
-  ],
-  "logit_diff": [
-   {
-    "kind": "op",
-    "at": {
-     "seed": 0
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "seed": 1
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "seed": 2
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   }
-  ]
  }
 }

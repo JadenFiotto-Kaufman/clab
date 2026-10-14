@@ -1,138 +1,86 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "chat_turn",
-  "path": "documents/chat_turn.json",
-  "sha256": "8c0e350dc167eae0018060fabd062dbb437506e0933a01e3af4abac585c5f10d"
- },
- "description": "A chat prompt, and a position inside one of its turns. The `chat` column holds a list of {'role', 'content'} messages rather than a string, so the compiler renders it through the checkpoint's own chat template and records where each turn landed; a position may then name a turn the way it names a variable. `blanked` zeroes, and reads, the last token of the SECOND user turn — `{'segment': 'user[1]'}`, because the conversation has two and a bare 'user' is ambiguous, the same rule a variable that occurs twice gets. The template's control tokens are between the turns and in none of them, so the position is the question's own last token and not `[/INST]`.",
+ "description": "A chat prompt, and a position inside one of its turns. The `chat` column holds a list of {'role', 'content'} messages rather than a string, so the run renders it through the checkpoint's own chat template and records where each turn landed; a position may then name a turn the way it names a variable. `blanked` zeroes, and reads, the last token of the SECOND user turn — `{'segment': 'user[1]'}`, because the conversation has two and a bare 'user' is ambiguous, the same rule a variable that occurs twice gets. The template's control tokens are between the turns and in none of them, so the position is the question's own last token and not `[/INST]`.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "chats": {
    "path": "weekdays/chat",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "chat",
-    "example_id"
-   ]
+   "sha256": "a2d624a7641ddb4bcc02bcbdc55014e72ad0ef08a3049ef664fcf4b5ddf53bb0"
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "blanked": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "chats",
-    "column": "chat",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "blank",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
+   "input": "chats.chat",
+   "writes": {
+    "blank": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
      "pos": {
-      "frame": "prompt",
       "scope": {
        "segment": "user[1]"
       },
-      "start": -1,
-      "stop": null
+      "index": -1
      },
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": 0.0
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": 0.0
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "asked",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
+   },
+   "reads": {
+    "asked": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
      "pos": {
-      "frame": "prompt",
       "scope": {
        "segment": "user[1]"
       },
-      "start": -1,
-      "stop": null
+      "index": -1
      },
-     "ops": [],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     },
-    {
-     "name": "logits",
-     "component": "logits",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+    "logits": {
+     "site": {
+      "component": "logits"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "chats"
   },
   "p_answer": {
    "kind": "op",
-   "at": {},
    "op": "token_prob",
-   "args": {
-    "of": "blanked.logits",
-    "token": "chats.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "chats",
+   "of": "blanked.logits",
+   "dataset": "chats",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "p_answer": {
-     "save": "p_answer.json",
-     "value": null
-    }
-   }
+   "token": "chats.base_answer"
   }
- }
+ },
+ "saves": [
+  "p_answer"
+ ],
+ "document": "documents/chat_turn.json",
+ "compiled": true
 }

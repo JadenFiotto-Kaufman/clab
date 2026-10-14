@@ -1,30 +1,407 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "head_patching",
-  "path": "documents/head_patching.json",
-  "sha256": "f0163aa97ffc2d04e7569a65b690f9407bcd0ef1db165dbb4b11a64e330e8f00"
- },
- "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix` — the output projection's input, which is every head's result side by side — so this runs on the hooks engine too; `attention_z` is the same tensor held as (heads, head_dim) and gives the same numbers bit for bit on nnterp.",
+ "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix`, the output projection's input, served per head as (num_heads, head_dim) — every head's result side by side — so a site narrows it by `heads`, and this runs on the hooks engine too, which reaches it at the projection's input; `attention_head_outputs` is the same tensor read inside the attention's forward, which nnterp serves under eager attention only; with `attn_implementation: eager` it gives the same numbers bit for bit.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
+ "steps": {
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        0
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "head_dim"
+      ]
+     }
+    },
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        1
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "head_dim"
+      ]
+     }
+    },
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        2
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "head_dim"
+      ]
+     }
+    },
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        3
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "head_dim"
+      ]
+     }
+    },
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "patched": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        0
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        1
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        2
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "attention_premix",
+       "layers": 0,
+       "heads": [
+        3
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "heads": 3
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   }
+  ]
+ },
+ "saves": [
+  "iia",
+  "logit_diff"
+ ],
+ "document": "documents/head_patching.json",
+ "compiled": true,
  "sweeps": {
   "heads": {
    "path": "sites.target.heads",
@@ -43,651 +420,5 @@
     ]
    ]
   }
- },
- "steps": {
-  "counterfactual": [
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        0
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        1
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        2
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 3
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "patched": [
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        0
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "head_dim"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        1
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "head_dim"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        2
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "head_dim"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "heads": 3
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "attention_premix",
-      "layer": 0,
-      "select": {
-       "heads": [
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "num_heads",
-         "head_dim"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "iia": [
-   {
-    "kind": "op",
-    "at": {
-     "heads": 0
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 1
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 2
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 3
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   }
-  ],
-  "logit_diff": [
-   {
-    "kind": "op",
-    "at": {
-     "heads": 0
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 1
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 2
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "heads": 3
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   }
-  ]
  }
 }

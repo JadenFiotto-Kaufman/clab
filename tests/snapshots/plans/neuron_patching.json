@@ -1,30 +1,328 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "neuron_patching",
-  "path": "documents/neuron_patching.json",
-  "sha256": "b4c94d3ca162d21092edd6f5ac284301b6a9abfed903c9b8a082f621ce4f7421"
- },
- "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site names `units` — single features of `mlp_activation` — and the sweep is over which. `heads` on an attention site (head_patching.json) is the same mechanism at a coarser grain: both compile to one Selection, positions plus a part of the feature axis.",
+ "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site names `units` — single features of `mlp_activation` — and the sweep is over which. `heads` on an attention site (head_patching.json) is the same narrowing at a coarser grain: a site's positions, and a part of its feature axis.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
+ "steps": {
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        0,
+        1,
+        2,
+        3
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        4,
+        5,
+        6,
+        7
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.counterfactual_inputs[0]",
+    "reads": {
+     "v_cf": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        8,
+        9,
+        10,
+        11
+       ]
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 2
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "patched": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        0,
+        1,
+        2,
+        3
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 0
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        4,
+        5,
+        6,
+        7
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 1
+    },
+    "dataset": "pairs"
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "mlp_activation",
+       "layers": 0,
+       "units": [
+        8,
+        9,
+        10,
+        11
+       ]
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.v_cf"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "units": 2
+    },
+    "dataset": "pairs"
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "units": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "units": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "patched.logits",
+    "at": {
+     "units": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "pairs.cf_answer"
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "units": 0
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "units": 1
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "patched.logits",
+    "at": {
+     "units": 2
+    },
+    "dataset": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer"
+   }
+  ]
+ },
+ "saves": [
+  "iia",
+  "logit_diff"
+ ],
+ "document": "documents/neuron_patching.json",
+ "compiled": true,
  "sweeps": {
   "units": {
    "path": "sites.target.units",
@@ -49,501 +347,5 @@
     ]
    ]
   }
- },
- "steps": {
-  "counterfactual": [
-   {
-    "kind": "forward",
-    "at": {
-     "units": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        0,
-        1,
-        2,
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "units": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        4,
-        5,
-        6,
-        7
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "units": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "counterfactual_inputs",
-     "index": 0,
-     "variables": null
-    },
-    "writes": [],
-    "reads": [
-     {
-      "name": "v_cf",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        8,
-        9,
-        10,
-        11
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "patched": [
-   {
-    "kind": "forward",
-    "at": {
-     "units": 0
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        0,
-        1,
-        2,
-        3
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "intermediate_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "units": 1
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        4,
-        5,
-        6,
-        7
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "intermediate_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   },
-   {
-    "kind": "forward",
-    "at": {
-     "units": 2
-    },
-    "input": {
-     "data": "pairs",
-     "column": "input",
-     "index": null,
-     "variables": null
-    },
-    "writes": [
-     {
-      "name": "patch",
-      "component": "mlp_activation",
-      "layer": 0,
-      "select": {
-       "units": [
-        8,
-        9,
-        10,
-        11
-       ]
-      },
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [
-       {
-        "op": "swap",
-        "args": {
-         "with": "counterfactual.v_cf"
-        },
-        "featurizer": null,
-        "features": null,
-        "dims": [
-         "rows",
-         "pos",
-         "intermediate_size"
-        ]
-       }
-      ],
-      "dims": [
-       "rows",
-       "pos",
-       "intermediate_size"
-      ]
-     }
-    ],
-    "reads": [
-     {
-      "name": "logits",
-      "component": "lm_head_output",
-      "layer": null,
-      "select": {},
-      "pos": {
-       "frame": "prompt",
-       "scope": null,
-       "start": -1,
-       "stop": null
-      },
-      "ops": [],
-      "dims": [
-       "rows",
-       "pos",
-       "vocab_size"
-      ]
-     }
-    ],
-    "result": {}
-   }
-  ],
-  "iia": [
-   {
-    "kind": "op",
-    "at": {
-     "units": 0
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "units": 1
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "units": 2
-    },
-    "op": "match",
-    "args": {
-     "of": "patched.logits",
-     "expected": "pairs.cf_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "iia": {
-      "save": "iia.json",
-      "value": null
-     }
-    }
-   }
-  ],
-  "logit_diff": [
-   {
-    "kind": "op",
-    "at": {
-     "units": 0
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "units": 1
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   },
-   {
-    "kind": "op",
-    "at": {
-     "units": 2
-    },
-    "op": "logit_diff",
-    "args": {
-     "of": "patched.logits",
-     "a": "pairs.cf_answer",
-     "b": "pairs.base_answer",
-     "token_form": "spaced"
-    },
-    "data": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "result": {
-     "logit_diff": {
-      "save": "logit_diff.json",
-      "value": null
-     }
-    }
-   }
-  ]
  }
 }

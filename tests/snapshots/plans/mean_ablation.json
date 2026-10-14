@@ -1,222 +1,125 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "mean_ablation",
-  "path": "documents/mean_ablation.json",
-  "sha256": "8c5adce2236adef21c2c733877253b37c3af6dd7b56a21ffa86ecb45cd50a5f9"
- },
  "description": "Mean ablation. `harvest` reads the residual stream at the answer position over the corpus and `mean` averages it over the rows; `clean` scores the un-intervened model; `ablated` swaps the mean in at that position and scores again. The mean is one step's value and a later step's operand; it reaches disk only because a save names it. Tiny CPU Llama, so the numbers demonstrate the mechanism and nothing else.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "prompts": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "harvest": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "prompts",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "acts",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "prompts.input",
+   "reads": {
+    "acts": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "prompts"
   },
   "mean": {
    "kind": "op",
-   "at": {},
    "op": "mean",
-   "args": {
-    "of": "harvest.acts",
-    "over": null
-   },
-   "data": "prompts",
+   "of": "harvest.acts",
+   "dataset": "prompts",
    "dims": [
     "hidden_size"
-   ],
-   "result": {
-    "mean": {
-     "save": "mean.safetensors",
-     "value": null
-    }
-   }
+   ]
   },
   "clean": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "prompts",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "prompts.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "prompts"
   },
   "clean_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "clean.logits",
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "prompts",
+   "of": "clean.logits",
+   "dataset": "prompts",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "clean_ld": {
-     "save": "clean.json",
-     "value": null
-    }
-   }
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
   },
   "ablated": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "prompts",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "ablate",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "prompts.input",
+   "writes": {
+    "ablate": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": "mean"
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": "mean"
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "prompts"
   },
   "ablated_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "ablated.logits",
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "prompts",
+   "of": "ablated.logits",
+   "dataset": "prompts",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "ablated_ld": {
-     "save": "ablated.json",
-     "value": null
-    }
-   }
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
   }
- }
+ },
+ "saves": [
+  "mean",
+  "clean_ld",
+  "ablated_ld"
+ ],
+ "document": "documents/mean_ablation.json",
+ "compiled": true
 }

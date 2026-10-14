@@ -1,55 +1,27 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "attention_query",
-  "path": "documents/attention_query.json",
-  "sha256": "26ce3c1c7f8824e5362749dc40431e42b5319bb13d9c9a7e3645d02999f38857"
- },
  "description": "The interchange at a place inside a module's forward: the query the attention hands its implementation, after the projection, the head reshape and RoPE, at layer 0 — read on the counterfactual prompt at its last token and swapped into the base prompt's. nnterp's `self_attn.attention_queries` reaches it through nnsight's `.source`, and serves it under eager attention only, which the model block says; the hooks engine refuses it by name. Only the logit difference is saved.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
   "attn_implementation": "eager"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "counterfactual": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "counterfactual_inputs",
-    "index": 0,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "v_cf",
-     "component": "attention_queries",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.counterfactual_inputs[0]",
+   "reads": {
+    "v_cf": {
+     "site": {
+      "component": "attention_queries",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
@@ -57,97 +29,58 @@
       "qk_head_dim"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "patched": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "patch",
-     "component": "attention_queries",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "writes": {
+    "patch": {
+     "site": {
+      "component": "attention_queries",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": "counterfactual.v_cf"
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "num_heads",
-        "qk_head_dim"
-       ]
+       "with": "counterfactual.v_cf"
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "num_heads",
-      "qk_head_dim"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "logit_diff": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "patched.logits",
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "patched.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "logit_diff": {
-     "save": "logit_diff.json",
-     "value": null
-    }
-   }
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer"
   }
- }
+ },
+ "saves": [
+  "logit_diff"
+ ],
+ "document": "documents/attention_query.json",
+ "compiled": true
 }
