@@ -691,6 +691,7 @@ when the owner asks for open items.
   Same-site adapters anywhere; a cross-site adapter (o_proj: read
   `attention_premix`, apply at `attention_output`) names the same-forward
   read as `with`. No module sites. Two example documents: train one on
-  `weekdays`, load and apply it. Open: a root-level `edits` block (writes
-  applied to every forward of the document) for an adapter that is on for
-  the whole run — not decided.
+  `weekdays`, load and apply it. An adapter that is on for several steps is a
+  named intervention at the root, pulled into each step by name; there is
+  no root-level `edits` block (steps that do not name it run the
+  un-adapted model, which is the comparison a document wants).
