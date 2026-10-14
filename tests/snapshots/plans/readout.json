@@ -1,0 +1,103 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "readout",
+  "path": "documents/readout.json",
+  "sha256": "1fd3dca6250f502c8ff73f628cbe12aa286fc627a9b7e7c82d5e02f0f5bca339"
+ },
+ "description": "What the model says, read out rather than scored: at the last token of each prompt, the three tokens it finds most likely, decoded, each with its probability — a list per row, which its table writes as the row's value. Beside it, the probability of the expected answer spelled bare, as the first word of a text is, rather than after a space.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "clean": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "prompts",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "logits",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "top3": {
+   "kind": "op",
+   "at": {},
+   "op": "top_k",
+   "args": {
+    "of": "clean.logits",
+    "k": 3
+   },
+   "data": "prompts",
+   "dims": [
+    "rows",
+    "pos",
+    "k"
+   ],
+   "result": {
+    "top3": {
+     "save": "top3.safetensors",
+     "value": null
+    }
+   }
+  },
+  "p_answer": {
+   "kind": "op",
+   "at": {},
+   "op": "token_prob",
+   "args": {
+    "of": "clean.logits",
+    "token": "prompts.base_answer",
+    "token_form": "bare"
+   },
+   "data": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "p_answer": {
+     "save": "p_answer.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

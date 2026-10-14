@@ -1,0 +1,227 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "logit_lens",
+  "path": "documents/logit_lens.json",
+  "sha256": "93e1d36143a5d034efe7f06fbfc96757c03114ca563e04cd675670a8488c0638"
+ },
+ "description": "The logit lens as one document: at every layer, push the residual stream at the answer position through the model's final norm and head and read what it would say if that were its last layer. `view: logits` is the projection; the layer sweep is the lens; `token_prob` on the answer is what to plot against depth. Two layers here, so two points.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {
+  "layers": {
+   "path": "sites.resid.layers",
+   "values": [
+    0,
+    1
+   ]
+  }
+ },
+ "steps": {
+  "lens": [
+   {
+    "kind": "forward",
+    "at": {
+     "layers": 0
+    },
+    "input": {
+     "data": "prompts",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "readout",
+        "args": {},
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "layers": 1
+    },
+    "input": {
+     "data": "prompts",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "layer_output",
+      "layer": 1,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "readout",
+        "args": {},
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   }
+  ],
+  "p_answer": [
+   {
+    "kind": "op",
+    "at": {
+     "layers": 0
+    },
+    "op": "token_prob",
+    "args": {
+     "of": "lens.logits",
+     "token": "prompts.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "p_answer": {
+      "save": "p_answer.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "layers": 1
+    },
+    "op": "token_prob",
+    "args": {
+     "of": "lens.logits",
+     "token": "prompts.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "p_answer": {
+      "save": "p_answer.json",
+      "value": null
+     }
+    }
+   }
+  ],
+  "top1": [
+   {
+    "kind": "op",
+    "at": {
+     "layers": 0
+    },
+    "op": "match",
+    "args": {
+     "of": "lens.logits",
+     "expected": "prompts.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "top1": {
+      "save": "top1.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "layers": 1
+    },
+    "op": "match",
+    "args": {
+     "of": "lens.logits",
+     "expected": "prompts.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "top1": {
+      "save": "top1.json",
+      "value": null
+     }
+    }
+   }
+  ]
+ }
+}

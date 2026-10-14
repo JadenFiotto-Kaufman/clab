@@ -1,5 +1,26 @@
 # clab — design (M0)
 
+**Amended by PLAN.md §10, which wins wherever the two disagree.** `FORMAT.md` (generated from the code) is
+the user-facing reference; the code now differs from this document in these places:
+
+- §1: the plan has a root `description`; a forward's `input` names its dataset (`{"data", "column", "index",
+  "variables"}`); write and read records carry `ops` in place of `mechanism`/`operand`/`params`/`featurizer`/
+  `features`/`view`, and write records carry `dims`; `metric` and `reduce` steps are `op` steps, `{"op",
+  "args": {"of", ...}, "data", "dims"}`; a fit's `objective` is a dict and it has no `anneal`.
+- §2: `ops.py` replaces `interventions.py` and `metrics.py`; `describe` lives in `cli.py`; the compiler is
+  `compiler.py`, so that `clab.compile` is the function; `engines/standard.py` holds how nnterp reaches each
+  component, which both engines read.
+- §3: the engine's records hold `positions` (not `at`) and `select` as `{dimension: indices}`; reads reach the
+  engine without their ops, which `steps.py` applies to the gathered selection; the hooks engine holds its
+  tokenizer beside its model and configuration.
+- §4: the table is keyed on nnterp's names, and `attention_premix` is held in nnterp's layout,
+  `(batch, seq, num_heads, head_dim)`, rather than flat.
+- §7: a swept objective weight is labelled by its term (`mask.mask`), since the objective is a dict.
+- §8: any op step's value may be saved as a `.json` table; `load` gives each dataset `n_rows` in place of
+  its rows.
+- §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
+  step).
+
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the
 environment in `pyproject.toml`: nnsight `dev` at d565f5f8, nnterp

@@ -1,0 +1,119 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "logit_lens_all",
+  "path": "documents/logit_lens_all.json",
+  "sha256": "f6fbd304c6a13beaa4d8ece976b0cf09400b647f76af193167107fb6367e0a3d"
+ },
+ "description": "The logit lens at every layer, in one forward: `layers: \"all\"` reads the residual stream at the answer position at each layer of the model and projects each through the final norm and head, so `lens.logits` is one value with the layer axis first — (layers, rows, 1, vocab). A metric of it scores each layer, and its table has a row per layer and example, each saying its layer. logit_lens.json is the same lens as one point per layer; the numbers are the same.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "lens": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "prompts",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "layer_output",
+     "layer": "all",
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "readout",
+       "args": {},
+       "featurizer": null,
+       "features": null,
+       "dims": [
+        "layers",
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "p_answer": {
+   "kind": "op",
+   "at": {},
+   "op": "token_prob",
+   "args": {
+    "of": "lens.logits",
+    "token": "prompts.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "prompts",
+   "dims": [
+    "layers",
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "p_answer": {
+     "save": "p_answer.json",
+     "value": null
+    }
+   }
+  },
+  "top1": {
+   "kind": "op",
+   "at": {},
+   "op": "match",
+   "args": {
+    "of": "lens.logits",
+    "expected": "prompts.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "prompts",
+   "dims": [
+    "layers",
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "top1": {
+     "save": "top1.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

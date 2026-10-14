@@ -1,0 +1,1494 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "dbm",
+  "path": "documents/dbm.json",
+  "sha256": "1a92a080b5141acb5cdd3ee478a427dd04cd82cdc8bbd977554c27c3f0fad96c"
+ },
+ "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer, one more objective term and an anneal. The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "train": {
+   "path": "weekdays/data",
+   "split": "train",
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  },
+  "test": {
+   "path": "weekdays/data",
+   "split": "test",
+   "columns": []
+  }
+ },
+ "featurizers": {
+  "mask": {
+   "kind": "gate",
+   "temperature": {
+    "start": 1.0,
+    "end": 0.05
+   },
+   "bundle": null,
+   "at": {}
+  }
+ },
+ "sweeps": {
+  "mask.mask": {
+   "path": "steps.fit.objective.mask.mask",
+   "values": [
+    0.0001,
+    0.002,
+    0.01,
+    0.05
+   ]
+  }
+ },
+ "steps": {
+  "fit": [
+   {
+    "kind": "fit",
+    "at": {
+     "mask.mask": 0
+    },
+    "train": [
+     "mask"
+    ],
+    "objective": {
+     "ce": 1.0,
+     "mask.mask": 0.0001
+    },
+    "epochs": 20,
+    "batch_size": 16,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.05,
+     "weight_decay": 0.0
+    },
+    "early_stop": {
+     "metric": "ce",
+     "mode": "min",
+     "patience": 20
+    },
+    "eval": {
+     "data": {
+      "train": "test"
+     }
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 0
+      },
+      "input": {
+       "data": "train",
+       "column": "counterfactual_inputs",
+       "index": 0,
+       "variables": null
+      },
+      "writes": [],
+      "reads": [
+       {
+        "name": "v_cf",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "encode",
+          "args": {
+           "featurizer": "fit.mask"
+          },
+          "featurizer": null,
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "patched": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 0
+      },
+      "input": {
+       "data": "train",
+       "column": "input",
+       "index": null,
+       "variables": null
+      },
+      "writes": [
+       {
+        "name": "patch",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "swap",
+          "args": {
+           "with": "counterfactual.v_cf"
+          },
+          "featurizer": "fit.mask",
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "reads": [
+       {
+        "name": "logits",
+        "component": "lm_head_output",
+        "layer": null,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [],
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "iia": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 0
+      },
+      "op": "logit_diff",
+      "args": {
+       "of": "patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     },
+     "ce": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 0
+      },
+      "op": "cross_entropy",
+      "args": {
+       "of": "patched.logits",
+       "target": "train.cf_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     }
+    },
+    "result": {
+     "fit.iia": {
+      "save": "held_out_iia.json",
+      "value": null
+     },
+     "fit.mask": {
+      "save": "mask.safetensors",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "fit",
+    "at": {
+     "mask.mask": 1
+    },
+    "train": [
+     "mask"
+    ],
+    "objective": {
+     "ce": 1.0,
+     "mask.mask": 0.002
+    },
+    "epochs": 20,
+    "batch_size": 16,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.05,
+     "weight_decay": 0.0
+    },
+    "early_stop": {
+     "metric": "ce",
+     "mode": "min",
+     "patience": 20
+    },
+    "eval": {
+     "data": {
+      "train": "test"
+     }
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 1
+      },
+      "input": {
+       "data": "train",
+       "column": "counterfactual_inputs",
+       "index": 0,
+       "variables": null
+      },
+      "writes": [],
+      "reads": [
+       {
+        "name": "v_cf",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "encode",
+          "args": {
+           "featurizer": "fit.mask"
+          },
+          "featurizer": null,
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "patched": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 1
+      },
+      "input": {
+       "data": "train",
+       "column": "input",
+       "index": null,
+       "variables": null
+      },
+      "writes": [
+       {
+        "name": "patch",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "swap",
+          "args": {
+           "with": "counterfactual.v_cf"
+          },
+          "featurizer": "fit.mask",
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "reads": [
+       {
+        "name": "logits",
+        "component": "lm_head_output",
+        "layer": null,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [],
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "iia": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 1
+      },
+      "op": "logit_diff",
+      "args": {
+       "of": "patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     },
+     "ce": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 1
+      },
+      "op": "cross_entropy",
+      "args": {
+       "of": "patched.logits",
+       "target": "train.cf_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     }
+    },
+    "result": {
+     "fit.iia": {
+      "save": "held_out_iia.json",
+      "value": null
+     },
+     "fit.mask": {
+      "save": "mask.safetensors",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "fit",
+    "at": {
+     "mask.mask": 2
+    },
+    "train": [
+     "mask"
+    ],
+    "objective": {
+     "ce": 1.0,
+     "mask.mask": 0.01
+    },
+    "epochs": 20,
+    "batch_size": 16,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.05,
+     "weight_decay": 0.0
+    },
+    "early_stop": {
+     "metric": "ce",
+     "mode": "min",
+     "patience": 20
+    },
+    "eval": {
+     "data": {
+      "train": "test"
+     }
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 2
+      },
+      "input": {
+       "data": "train",
+       "column": "counterfactual_inputs",
+       "index": 0,
+       "variables": null
+      },
+      "writes": [],
+      "reads": [
+       {
+        "name": "v_cf",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "encode",
+          "args": {
+           "featurizer": "fit.mask"
+          },
+          "featurizer": null,
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "patched": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 2
+      },
+      "input": {
+       "data": "train",
+       "column": "input",
+       "index": null,
+       "variables": null
+      },
+      "writes": [
+       {
+        "name": "patch",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "swap",
+          "args": {
+           "with": "counterfactual.v_cf"
+          },
+          "featurizer": "fit.mask",
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "reads": [
+       {
+        "name": "logits",
+        "component": "lm_head_output",
+        "layer": null,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [],
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "iia": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 2
+      },
+      "op": "logit_diff",
+      "args": {
+       "of": "patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     },
+     "ce": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 2
+      },
+      "op": "cross_entropy",
+      "args": {
+       "of": "patched.logits",
+       "target": "train.cf_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     }
+    },
+    "result": {
+     "fit.iia": {
+      "save": "held_out_iia.json",
+      "value": null
+     },
+     "fit.mask": {
+      "save": "mask.safetensors",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "fit",
+    "at": {
+     "mask.mask": 3
+    },
+    "train": [
+     "mask"
+    ],
+    "objective": {
+     "ce": 1.0,
+     "mask.mask": 0.05
+    },
+    "epochs": 20,
+    "batch_size": 16,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.05,
+     "weight_decay": 0.0
+    },
+    "early_stop": {
+     "metric": "ce",
+     "mode": "min",
+     "patience": 20
+    },
+    "eval": {
+     "data": {
+      "train": "test"
+     }
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 3
+      },
+      "input": {
+       "data": "train",
+       "column": "counterfactual_inputs",
+       "index": 0,
+       "variables": null
+      },
+      "writes": [],
+      "reads": [
+       {
+        "name": "v_cf",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "encode",
+          "args": {
+           "featurizer": "fit.mask"
+          },
+          "featurizer": null,
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "patched": {
+      "kind": "forward",
+      "at": {
+       "mask.mask": 3
+      },
+      "input": {
+       "data": "train",
+       "column": "input",
+       "index": null,
+       "variables": null
+      },
+      "writes": [
+       {
+        "name": "patch",
+        "component": "layer_output",
+        "layer": 0,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [
+         {
+          "op": "swap",
+          "args": {
+           "with": "counterfactual.v_cf"
+          },
+          "featurizer": "fit.mask",
+          "features": null,
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "reads": [
+       {
+        "name": "logits",
+        "component": "lm_head_output",
+        "layer": null,
+        "select": {},
+        "pos": {
+         "frame": "prompt",
+         "scope": null,
+         "start": -1,
+         "stop": null
+        },
+        "ops": [],
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      ],
+      "result": {}
+     },
+     "iia": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 3
+      },
+      "op": "logit_diff",
+      "args": {
+       "of": "patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     },
+     "ce": {
+      "kind": "op",
+      "at": {
+       "mask.mask": 3
+      },
+      "op": "cross_entropy",
+      "args": {
+       "of": "patched.logits",
+       "target": "train.cf_answer",
+       "token_form": "spaced"
+      },
+      "data": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "result": {}
+     }
+    },
+    "result": {
+     "fit.iia": {
+      "save": "held_out_iia.json",
+      "value": null
+     },
+     "fit.mask": {
+      "save": "mask.safetensors",
+      "value": null
+     }
+    }
+   }
+  ],
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 0
+    },
+    "input": {
+     "data": "train",
+     "column": "counterfactual_inputs",
+     "index": 0,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "v_cf",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "encode",
+        "args": {
+         "featurizer": "fit.mask"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 1
+    },
+    "input": {
+     "data": "train",
+     "column": "counterfactual_inputs",
+     "index": 0,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "v_cf",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "encode",
+        "args": {
+         "featurizer": "fit.mask"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 2
+    },
+    "input": {
+     "data": "train",
+     "column": "counterfactual_inputs",
+     "index": 0,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "v_cf",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "encode",
+        "args": {
+         "featurizer": "fit.mask"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 3
+    },
+    "input": {
+     "data": "train",
+     "column": "counterfactual_inputs",
+     "index": 0,
+     "variables": null
+    },
+    "writes": [],
+    "reads": [
+     {
+      "name": "v_cf",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "encode",
+        "args": {
+         "featurizer": "fit.mask"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ]
+     }
+    ],
+    "result": {}
+   }
+  ],
+  "patched": [
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 0
+    },
+    "input": {
+     "data": "train",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": "fit.mask",
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 1
+    },
+    "input": {
+     "data": "train",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": "fit.mask",
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 2
+    },
+    "input": {
+     "data": "train",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": "fit.mask",
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "mask.mask": 3
+    },
+    "input": {
+     "data": "train",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": "fit.mask",
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 0
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "train.cf_answer",
+     "b": "train.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 1
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "train.cf_answer",
+     "b": "train.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 2
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "train.cf_answer",
+     "b": "train.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 3
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "train.cf_answer",
+     "b": "train.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   }
+  ],
+  "ce": [
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 0
+    },
+    "op": "cross_entropy",
+    "args": {
+     "of": "patched.logits",
+     "target": "train.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "ce": {
+      "save": "ce.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 1
+    },
+    "op": "cross_entropy",
+    "args": {
+     "of": "patched.logits",
+     "target": "train.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "ce": {
+      "save": "ce.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 2
+    },
+    "op": "cross_entropy",
+    "args": {
+     "of": "patched.logits",
+     "target": "train.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "ce": {
+      "save": "ce.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "mask.mask": 3
+    },
+    "op": "cross_entropy",
+    "args": {
+     "of": "patched.logits",
+     "target": "train.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "train",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "ce": {
+      "save": "ce.json",
+      "value": null
+     }
+    }
+   }
+  ]
+ }
+}

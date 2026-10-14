@@ -1,7 +1,5 @@
 {
-  "header": {
-    "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of 16 pairs: the counterfactual read through the rotation, and swapped into the base in its space. The same two declared interventions are then scored on the training pairs after it. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one — and the held-out run is the body with `test` in place of `train`."
-  },
+  "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of 16 pairs: the counterfactual read through the rotation, and swapped into the base in its space. The same two declared interventions are then scored on the training pairs after it. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one — and the held-out run is the body with `test` in place of `train`.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -9,20 +7,22 @@
   },
   "data": {"train": {"path": "weekdays/data#train"}, "test": {"path": "weekdays/data#test"}},
   "sites": {
-    "target": {"component": "block_output", "layers": 0},
-    "head": {"component": "lm_head"}
+    "target": {"component": "layer_output", "layers": 0},
+    "head": {"component": "lm_head_output"}
   },
   "featurizers": {"rot": {"kind": "subspace", "k": 8, "parametrization": "cayley"}},
   "interventions": {
-    "cf_read": {"reads": {"v_cf": {"site": "target", "pos": -1, "featurizer": "fit.rot"}}},
+    "cf_read": {
+      "reads": {
+        "v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}
+      }
+    },
     "das": {
       "writes": {
         "patch": {
           "site": "target",
           "pos": -1,
-          "mechanism": "swap",
-          "operand": "counterfactual.v_cf",
-          "featurizer": "fit.rot"
+          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "fit.rot"}]
         }
       },
       "reads": {"logits": {"site": "head", "pos": -1}}
@@ -32,7 +32,7 @@
     "fit": {
       "kind": "fit",
       "train": ["rot"],
-      "objective": [[1.0, "ce"]],
+      "objective": {"ce": 1.0},
       "epochs": 10,
       "batch_size": 16,
       "seed": 0,
@@ -42,46 +42,35 @@
       "steps": {
         "counterfactual": {
           "kind": "forward",
-          "data": "train",
-          "field": "counterfactual_inputs[0]",
+          "input": "train.counterfactual_inputs[0]",
           "interventions": "cf_read"
         },
-        "patched": {"kind": "forward", "data": "train", "field": "input", "interventions": "das"},
+        "patched": {"kind": "forward", "input": "train.input", "interventions": "das"},
         "iia": {
-          "kind": "metric",
-          "metric": "logit_diff",
+          "kind": "op",
+          "op": "logit_diff",
           "of": "patched.logits",
           "a": "train.cf_answer",
           "b": "train.base_answer"
         },
         "ce": {
-          "kind": "metric",
-          "metric": "cross_entropy",
+          "kind": "op",
+          "op": "cross_entropy",
           "of": "patched.logits",
           "target": "train.cf_answer"
         }
       }
     },
-    "counterfactual": {
-      "kind": "forward",
-      "data": "train",
-      "field": "counterfactual_inputs[0]",
-      "interventions": "cf_read"
-    },
-    "patched": {"kind": "forward", "data": "train", "field": "input", "interventions": "das"},
+    "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": "cf_read"},
+    "patched": {"kind": "forward", "input": "train.input", "interventions": "das"},
     "iia": {
-      "kind": "metric",
-      "metric": "logit_diff",
+      "kind": "op",
+      "op": "logit_diff",
       "of": "patched.logits",
       "a": "train.cf_answer",
       "b": "train.base_answer"
     },
-    "ce": {
-      "kind": "metric",
-      "metric": "cross_entropy",
-      "of": "patched.logits",
-      "target": "train.cf_answer"
-    },
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"},
     "saves": {
       "fit.iia": "held_out_iia.json",
       "iia": "iia.json",

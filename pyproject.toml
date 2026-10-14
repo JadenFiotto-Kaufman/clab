@@ -7,7 +7,11 @@ dependencies = [
     "nnsight",
     "nnterp",
     "torch",
+    "safetensors",
 ]
+
+[project.scripts]
+clab = "clab.cli:main"
 
 [dependency-groups]
 dev = ["pytest"]
@@ -36,3 +40,6 @@ venvPath = "."
 venv = ".venv"
 extraPaths = ["/home/localjadenfk/wd/nnterp"]
 typeCheckingMode = "standard"
+
+[tool.setuptools.packages.find]
+include = ["clab*"]

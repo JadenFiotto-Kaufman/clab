@@ -1,0 +1,420 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "pos_sweep",
+  "path": "documents/pos_sweep.json",
+  "sha256": "cb6de8ab2a9d6c58940e84abd9622bd5cd2eb2f2b6c6dda143ce22c98e350a57"
+ },
+ "description": "patching.json with the patched position swept: the same interchange at the last token, the one before it and the one before that. One document, three experiments, one model load — a sweep point is a plan, and the root is three of them.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {
+  "pos": {
+   "path": "steps.patched.writes.patch.pos",
+   "values": [
+    -1,
+    -2,
+    -3
+   ]
+  }
+ },
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "counterfactual_inputs",
+    "index": 0,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_cf",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "patched": [
+   {
+    "kind": "forward",
+    "at": {
+     "pos": 0
+    },
+    "input": {
+     "data": "pairs",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "pos": 1
+    },
+    "input": {
+     "data": "pairs",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -2,
+       "stop": -1
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   },
+   {
+    "kind": "forward",
+    "at": {
+     "pos": 2
+    },
+    "input": {
+     "data": "pairs",
+     "column": "input",
+     "index": null,
+     "variables": null
+    },
+    "writes": [
+     {
+      "name": "patch",
+      "component": "layer_output",
+      "layer": 0,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -3,
+       "stop": -2
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "args": {
+         "with": "counterfactual.v_cf"
+        },
+        "featurizer": null,
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    ],
+    "reads": [
+     {
+      "name": "logits",
+      "component": "lm_head_output",
+      "layer": null,
+      "select": {},
+      "pos": {
+       "frame": "prompt",
+       "scope": null,
+       "start": -1,
+       "stop": null
+      },
+      "ops": [],
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    ],
+    "result": {}
+   }
+  ],
+  "iia": [
+   {
+    "kind": "op",
+    "at": {
+     "pos": 0
+    },
+    "op": "match",
+    "args": {
+     "of": "patched.logits",
+     "expected": "pairs.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "pos": 1
+    },
+    "op": "match",
+    "args": {
+     "of": "patched.logits",
+     "expected": "pairs.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "pos": 2
+    },
+    "op": "match",
+    "args": {
+     "of": "patched.logits",
+     "expected": "pairs.cf_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "iia": {
+      "save": "iia.json",
+      "value": null
+     }
+    }
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "at": {
+     "pos": 0
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "pairs.cf_answer",
+     "b": "pairs.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "logit_diff": {
+      "save": "logit_diff.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "pos": 1
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "pairs.cf_answer",
+     "b": "pairs.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "logit_diff": {
+      "save": "logit_diff.json",
+      "value": null
+     }
+    }
+   },
+   {
+    "kind": "op",
+    "at": {
+     "pos": 2
+    },
+    "op": "logit_diff",
+    "args": {
+     "of": "patched.logits",
+     "a": "pairs.cf_answer",
+     "b": "pairs.base_answer",
+     "token_form": "spaced"
+    },
+    "data": "pairs",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "result": {
+     "logit_diff": {
+      "save": "logit_diff.json",
+      "value": null
+     }
+    }
+   }
+  ]
+ }
+}
