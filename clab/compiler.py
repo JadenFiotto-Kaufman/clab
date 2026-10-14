@@ -187,6 +187,8 @@ def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: boo
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
     if write and site.layers == "all":
         fail(f"{path}.site", "a write names its layer; layers 'all' is a read's (or sweep the layers)")
+    if write and len(site.select or {}) > 1:
+        fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     if pos["frame"] == "generated" and step.kind != "generate":
         fail(f"{path}.pos", "the generated frame is a generate step's; a forward has only its prompt")

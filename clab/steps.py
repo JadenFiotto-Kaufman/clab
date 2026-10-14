@@ -59,8 +59,8 @@ def preflight(engine, plan: Plan) -> dict:
     record's token indices per row (`positions`).
 
     Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
-    does not serve; a layer or narrowing
-    outside the model's sizes; a position that does not fit some row's scope, or whose scope is not in a row
+    does not serve; a layer or a `select`
+    outside the model's sizes, or a `select` on the padded batch's `key` axis; a position that does not fit some row's scope, or whose scope is not in a row
     a write or a rectangular read needs; a token column that is not one token on some row; a write whose
     operand was selected at a different width or narrowing; a write to a component with a `key` axis (the
     attention pattern, the scores) whose operand was read on another input that does not tokenize to the
@@ -100,13 +100,15 @@ def preflight(engine, plan: Plan) -> dict:
                 where, site = f"{name}.{key}", record.site
                 if isinstance(site.layers, int) and not 0 <= site.layers < sizes["num_layers"]:
                     raise ValueError(f"{where}: layer {site.layers}; the model has {sizes['num_layers']} layers")
-                for narrow, index in (("heads", site.heads), ("units", site.units)):
-                    axis = address.COMPONENTS[site.component]["narrow"].get(narrow)
-                    if index is not None and any(not 0 <= i < sizes[axis] for i in index):
-                        raise ValueError(f"{where}: {narrow} {index} outside the model's {sizes[axis]} ({axis})")
+                for axis, index in (site.select or {}).items():
+                    if axis == "key":
+                        raise NotImplementedError(f"{where}: select on 'key' indexes the padded batch's keys, "
+                                                  "which differ per row; it lands when positions can name keys")
+                    if any(not 0 <= i < sizes[axis] for i in index):
+                        raise ValueError(f"{where}: select {axis} {index} outside the model's {sizes[axis]}")
                 resolved = indices(where, side == "writes", record, step.input, rows, encoded, special)
                 put(found["positions"], where, step.at, resolved)
-                shape = (len(resolved[0]), [len(v) for v in (site.heads, site.units) if v is not None])
+                shape = (len(resolved[0]), {axis: len(v) for axis, v in (site.select or {}).items()})
                 put(shapes, where, step.at, shape)
                 for o in record.ops:
                     refuse_later(where, o.op, space(o))
@@ -270,9 +272,7 @@ def site(record, rows: list[list[int]], pads: list[int]) -> dict:
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
              for row, pad in zip(rows, pads)]
     layout = address.dims(record.site.component, None, False)
-    narrow = address.COMPONENTS[record.site.component]["narrow"]
-    select = {layout.index(narrow[k]): torch.tensor(v) for k in ("heads", "units")
-              if (v := getattr(record.site, k)) is not None}
+    select = {layout.index(axis): torch.tensor(v) for axis, v in (record.site.select or {}).items()}
     return {"component": record.site.component, "positions": torch.tensor(index), "select": select,
             "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows])}
 

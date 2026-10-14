@@ -5,7 +5,8 @@ from typing import cast
 
 from ..address import COMPONENTS
 
-SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "intermediate_size", "vocab_size")
+SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
+         "vocab_size")
 
 # The per-layer components nnterp serves below the block, on its attention or its MLP.
 BELOW = {
@@ -34,6 +35,16 @@ def envoy(model, component: str, layer: int | None):
         return model
     block = model.layers[cast(int, layer)]
     return block if where == "layer" else getattr(block, where)
+
+
+def loader(model, engine: str, owned: tuple) -> dict:
+    """The keys of a model block an engine's loader takes as they are: every key but `key`, `revision` and
+    `dtype`. A key the engine sets itself (`owned`) is one it cannot honor, and is refused by name."""
+    extra = dict(model.model_extra or {})
+    for key in extra:
+        if key in owned:
+            raise ValueError(f"model.{key}: the {engine} engine sets {key} itself")
+    return extra
 
 
 def by_site(writes: list[dict], reads: list[dict]) -> dict[tuple, tuple[list, list]]:

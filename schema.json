@@ -421,8 +421,8 @@
    "type": "object"
   },
   "Generate": {
-   "additionalProperties": false,
-   "description": "Generation from every row of a dataset input. Writes land on the prompt; reads in the `generated` frame\nread decode steps. The step's own value is the new token ids, `[rows, new]`; `decode` makes them text.",
+   "additionalProperties": true,
+   "description": "Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as\na forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,\n`do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the\n`generated` frame reads decode steps, at each step's last position; how far a row got is what the engine\nactually generated, up to and including the row's first EOS (the token the engine's generation stops on).\nThe step's own value is the new token ids, `[rows, new]`; `decode` makes them text.",
    "properties": {
     "kind": {
      "const": "generate",
@@ -466,40 +466,11 @@
      ],
      "default": null,
      "title": "Interventions"
-    },
-    "max_new_tokens": {
-     "oneOf": [
-      {
-       "type": "integer"
-      },
-      {
-       "$ref": "#/$defs/Sweep"
-      }
-     ],
-     "title": "Max New Tokens"
-    },
-    "min_new_tokens": {
-     "default": 0,
-     "oneOf": [
-      {
-       "type": "integer"
-      },
-      {
-       "$ref": "#/$defs/Sweep"
-      }
-     ],
-     "title": "Min New Tokens"
-    },
-    "do_sample": {
-     "default": false,
-     "title": "Do Sample",
-     "type": "boolean"
     }
    },
    "required": [
     "kind",
-    "input",
-    "max_new_tokens"
+    "input"
    ],
    "title": "Generate",
    "type": "object"
@@ -529,8 +500,8 @@
    "type": "object"
   },
   "Model": {
-   "additionalProperties": false,
-   "description": "The pinned checkpoint. The attention interior needs `attn_implementation: \"eager\"`.",
+   "additionalProperties": true,
+   "description": "The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the\nengine's loader untouched (`attn_implementation`, `device_map`, ...), and a loader refuses what it cannot\nhonor. The attention interior needs `attn_implementation: \"eager\"`.",
    "properties": {
     "key": {
      "title": "Key",
@@ -541,30 +512,14 @@
      "type": "string"
     },
     "dtype": {
-     "default": "fp32",
+     "default": "float32",
      "enum": [
-      "fp32",
-      "fp16",
-      "bf16"
+      "float32",
+      "float16",
+      "bfloat16"
      ],
      "title": "Dtype",
      "type": "string"
-    },
-    "attn_implementation": {
-     "anyOf": [
-      {
-       "enum": [
-        "eager",
-        "sdpa"
-       ],
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Attn Implementation"
     }
    },
    "required": [
@@ -576,7 +531,7 @@
   },
   "Op": {
    "title": "Op",
-   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` (and\n`features`, a subset of its latents) make any op run on the value's coordinates in that featurizer's\nspace, the change written back.",
+   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them.",
    "oneOf": [
     {
      "type": "object",
@@ -596,27 +551,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "with": {
        "anyOf": [
@@ -656,27 +614,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "with": {
        "anyOf": [
@@ -726,27 +687,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "with": {
        "anyOf": [
@@ -786,27 +750,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "factor": {
        "anyOf": [
@@ -843,27 +810,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       }
      },
      "required": [
@@ -889,27 +859,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       }
      },
      "required": [
@@ -935,27 +908,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "direction": {
        "anyOf": [
@@ -995,27 +971,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       }
      },
      "required": [
@@ -1041,27 +1020,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       }
      },
      "required": [
@@ -1087,27 +1069,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "over": {
        "anyOf": [
@@ -1153,27 +1138,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "k": {
        "anyOf": [
@@ -1210,27 +1198,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "expected": {
        "anyOf": [
@@ -1281,27 +1272,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "a": {
        "anyOf": [
@@ -1363,27 +1357,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "token": {
        "anyOf": [
@@ -1434,27 +1431,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "token": {
        "anyOf": [
@@ -1505,27 +1505,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "target": {
        "anyOf": [
@@ -1576,27 +1579,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "against": {
        "anyOf": [
@@ -1636,27 +1642,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "against": {
        "anyOf": [
@@ -1696,27 +1705,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "k": {
        "anyOf": [
@@ -1753,27 +1765,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       }
      },
      "required": [
@@ -1799,27 +1814,30 @@
        "default": null,
        "title": "Featurizer"
       },
-      "features": {
+      "select": {
        "anyOf": [
         {
-         "oneOf": [
-          {
-           "items": {
-            "type": "integer"
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "items": {
+             "type": "integer"
+            },
+            "type": "array"
            },
-           "type": "array"
-          },
-          {
-           "$ref": "#/$defs/Sweep"
-          }
-         ]
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
         },
         {
          "type": "null"
         }
        ],
        "default": null,
-       "title": "Features"
+       "title": "Select"
       },
       "tokens": {
        "anyOf": [
@@ -2886,7 +2904,7 @@
   },
   "Site": {
    "additionalProperties": false,
-   "description": "A component, narrowed: `layers` (an int, or `\"all\"`: one value, the layer axis first) on a block's\ncomponent; at most one of `heads` and `units`, as the component allows.",
+   "description": "A component, narrowed: `layers` (an int, or `\"all\"`: one value, the layer axis first) on a block's\ncomponent, and `select` (`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens.",
    "properties": {
     "component": {
      "enum": [
@@ -2938,49 +2956,30 @@
      "default": null,
      "title": "Layers"
     },
-    "heads": {
+    "select": {
      "anyOf": [
       {
-       "oneOf": [
-        {
-         "items": {
-          "type": "integer"
+       "additionalProperties": {
+        "oneOf": [
+         {
+          "items": {
+           "type": "integer"
+          },
+          "type": "array"
          },
-         "type": "array"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
+         {
+          "$ref": "#/$defs/Sweep"
+         }
+        ]
+       },
+       "type": "object"
       },
       {
        "type": "null"
       }
      ],
      "default": null,
-     "title": "Heads"
-    },
-    "units": {
-     "anyOf": [
-      {
-       "oneOf": [
-        {
-         "items": {
-          "type": "integer"
-         },
-         "type": "array"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Units"
+     "title": "Select"
     }
    },
    "required": [

@@ -215,7 +215,7 @@ def test_a_swept_value_is_keyed_by_coordinate(filled, tmp_path):
     assert list(heads.results["iia"]) == [(0,), (1,), (2,), (3,)]
     heads.dump(str(tmp_path / "heads"))
     with safe_open(str(tmp_path / "heads" / "iia.safetensors"), "pt") as f:
-        assert sorted(f.keys()) == ["heads=[0]", "heads=[1]", "heads=[2]", "heads=[3]"]
+        assert sorted(f.keys()) == ["num_heads=[0]", "num_heads=[1]", "num_heads=[2]", "num_heads=[3]"]
 
 
 def test_tables_join_wide_and_label_layers_and_keys(filled):

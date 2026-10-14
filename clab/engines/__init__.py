@@ -49,6 +49,4 @@ def engine(name: str) -> Callable:
     return register
 
 
-DTYPES = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
-
 from . import hooks, nnterp  # noqa: E402,F401

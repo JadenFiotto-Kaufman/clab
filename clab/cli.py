@@ -136,7 +136,7 @@ def describe(what: str | None = None) -> str:
     if what in (None, "components"):
         lines = ["components:"]
         for name, c in address.COMPONENTS.items():
-            narrow = ", ".join(["layers"] * c["per_layer"] + list(c["narrow"]))
+            narrow = ", ".join(["layers"] * c["per_layer"] + address.selectable(name))
             lines.append(f"  {name:24} [{', '.join(c['dims'])}]  narrowed by {narrow}  — {c['meaning']}")
         sections.append("\n".join(lines))
     if what in (None, "featurizers"):
@@ -191,7 +191,7 @@ def markdown() -> str:
                            for n, fn in ops.OPS.items() if ops.DECLARED[n]["group"] == group])]
     parts += ["## Components\n", doc(address) + "\n",
               table([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
-                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + list(c["narrow"])),
+                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + address.selectable(n)),
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, fn in featurizers.KINDS.items():

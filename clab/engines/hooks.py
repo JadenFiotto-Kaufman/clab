@@ -21,8 +21,8 @@ from transformers import AutoModelForCausalLM
 from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
-from . import DTYPES, engine
-from .standard import SIZES, by_site, envoy, nnterp_name
+from . import engine
+from .standard import SIZES, by_site, envoy, loader, nnterp_name
 
 
 @engine("hooks")
@@ -32,7 +32,7 @@ class HooksEngine:
     def __init__(self, model: Model):
         """The checkpoint `model` pins, as `AutoModelForCausalLM` on the CPU, with what the meta shell says of it:
         each component's native module and boundary, the sizes, and the modules the readout runs."""
-        extra: dict[str, Any] = {"attn_implementation": model.attn_implementation} if model.attn_implementation else {}
+        extra = loader(model, "hooks", ("dispatch", "device_map"))
         shell = StandardizedTransformer(model.key, revision=model.revision, dispatch=False, device_map=None, **extra)
         support = shell.support()
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
@@ -41,7 +41,7 @@ class HooksEngine:
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
                        "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
         self.model = AutoModelForCausalLM.from_pretrained(model.key, revision=model.revision,
-                                                          dtype=getattr(torch, DTYPES[model.dtype]), **extra).eval()
+                                                          dtype=getattr(torch, model.dtype), **extra).eval()
 
     def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         if remote:

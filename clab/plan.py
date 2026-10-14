@@ -103,11 +103,13 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 
 
 class Model(Record):
-    """The pinned checkpoint. The attention interior needs `attn_implementation: "eager"`."""
+    """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
+    engine's loader untouched (`attn_implementation`, `device_map`, ...), and a loader refuses what it cannot
+    honor. The attention interior needs `attn_implementation: "eager"`."""
+    model_config = ConfigDict(extra="allow")
     key: str
     revision: str
-    dtype: Literal["fp32", "fp16", "bf16"] = "fp32"
-    attn_implementation: Literal["eager", "sdpa"] | None = None
+    dtype: Literal["float32", "float16", "bfloat16"] = "float32"
 
 
 class Data(Record):
@@ -138,26 +140,23 @@ class Data(Record):
 
 class Site(Record):
     """A component, narrowed: `layers` (an int, or `"all"`: one value, the layer axis first) on a block's
-    component; at most one of `heads` and `units`, as the component allows."""
+    component, and `select` (`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens."""
     component: str = Field(json_schema_extra={"enum": list(address.COMPONENTS)})
     layers: Swept[int | Literal["all"]] | None = None
-    heads: Swept[list[int]] | None = None
-    units: Swept[list[int]] | None = None
+    select: dict[str, Swept[list[int]]] | None = None
 
     @model_validator(mode="after")
     def _narrowing(self):
         if self.component not in address.COMPONENTS:
             raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
-        meaning = address.COMPONENTS[self.component]
-        if meaning["per_layer"] != (self.layers is not None):
-            raise ValueError(f"{self.component} is a block's value and needs 'layers'" if meaning["per_layer"]
+        if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
+            raise ValueError(f"{self.component} is a block's value and needs 'layers'"
+                             if address.COMPONENTS[self.component]["per_layer"]
                              else f"{self.component} is the model's own value and takes no layers")
-        narrowed = [k for k in ("heads", "units") if getattr(self, k) is not None]
-        if len(narrowed) > 1:
-            raise ValueError("a site narrows one axis: heads or units, not both")
-        for k in narrowed:
-            if k not in meaning["narrow"]:
-                raise ValueError(f"{self.component} is narrowed by {', '.join(meaning['narrow'])}, not {k}")
+        valid = address.selectable(self.component)
+        for axis in self.select or {}:
+            if axis not in valid:
+                raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
         return self
 
 
@@ -216,19 +215,22 @@ class Pos(Record):
 
 
 class Op(Record):
-    """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` (and
-    `features`, a subset of its latents) make any op run on the value's coordinates in that featurizer's
-    space, the change written back."""
+    """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
+    run on the value's coordinates in that featurizer's space, the change written back; `select`
+    (`{"features": [indices]}`) narrows it to some of them."""
     model_config = ConfigDict(extra="allow")
     op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     featurizer: str | None = None
-    features: Swept[list[int]] | None = None
+    select: dict[str, Swept[list[int]]] | None = None
 
     @model_validator(mode="after")
     def _arguments(self):
         ops.check(self.op, arguments(self))
-        if self.features is not None and self.featurizer is None:
-            raise ValueError("features are a featurizer's latents; name the 'featurizer' they belong to")
+        if self.select is not None and space(self) is None:
+            raise ValueError("select on an op narrows a featurizer's space; name the 'featurizer' it runs in")
+        for axis in self.select or {}:
+            if axis != "features":
+                raise ValueError(f"a featurizer's space has no axis {axis!r} to select; its axes: features")
         return self
 
 
@@ -294,12 +296,14 @@ class Forward(Record):
 
 
 class Generate(Forward):
-    """Generation from every row of a dataset input. Writes land on the prompt; reads in the `generated` frame
-    read decode steps. The step's own value is the new token ids, `[rows, new]`; `decode` makes them text."""
+    """Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as
+    a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
+    `do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the
+    `generated` frame reads decode steps, at each step's last position; how far a row got is what the engine
+    actually generated, up to and including the row's first EOS (the token the engine's generation stops on).
+    The step's own value is the new token ids, `[rows, new]`; `decode` makes them text."""
+    model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
-    max_new_tokens: Swept[int]
-    min_new_tokens: Swept[int] = 0
-    do_sample: bool = False
 
 
 class OpStep(Record):

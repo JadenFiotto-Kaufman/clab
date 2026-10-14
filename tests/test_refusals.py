@@ -10,11 +10,31 @@ from conftest import edited, plan_of
 # -- the plan and compile ---------------------------------------------------------------------------------
 
 
-def test_features_need_a_featurizer():
+def test_select_on_an_op_needs_a_featurizer():
     def change(d):
-        d["steps"]["patched"]["writes"]["patch"]["ops"][0]["features"] = [0]
-    with pytest.raises(PlanError, match=r"ops\[0\]: features are a featurizer's latents"):
+        d["steps"]["patched"]["writes"]["patch"]["ops"][0]["select"] = {"features": [0]}
+    with pytest.raises(PlanError, match=r"ops\[0\]: select on an op narrows a featurizer's space"):
         edited("patching", change)
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["sites"]["target"].update(select={"heads": [0]}),
+     r"sites\.target: layer_output has no axis 'heads' to select; its axes: hidden_size$"),
+    (lambda d: d["sites"]["target"].update(component="attention_premix", select={"units": [0]}),
+     r"sites\.target: attention_premix has no axis 'units' to select; its axes: num_heads, head_dim$"),
+    (lambda d: d["sites"]["target"].update(heads=[0]),
+     r"sites\.target: unknown field 'heads'; valid: component, layers, select$"),
+])
+def test_select_names_an_axis_the_component_publishes(change, message):
+    with pytest.raises(PlanError, match=message):
+        edited("patching", change)
+
+
+def test_a_write_selects_on_one_axis():
+    def change(d):
+        d["sites"]["target"].update(component="attention_premix", select={"num_heads": [0], "head_dim": [0]})
+    with pytest.raises(PlanError, match=r"writes\.patch\.site\.select: a write selects on one axis"):
+        edited("patching", change).compile()
 
 
 def test_an_operand_must_have_the_writes_layout():
@@ -80,8 +100,8 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
 
 @pytest.mark.parametrize("name, change, message", [
     ("patching", lambda d: d["sites"]["target"].update(layers=99), "counterfactual.v_cf: layer 99; the model has 2 layers"),
-    ("patching", lambda d: d["sites"]["target"].update(units=[999]),
-     r"counterfactual.v_cf: units \[999\] outside the model's 16 \(hidden_size\)"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": [999]}),
+     r"counterfactual.v_cf: select hidden_size \[999\] outside the model's 16"),
     ("patching", lambda d: d["steps"]["patched"]["reads"].update(scored={
         "site": {"component": "lm_head_output"}, "pos": -1, "ops": [{"op": "match", "expected": "pairs.input"}]}),
      "patched.scored: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens"),
@@ -115,6 +135,12 @@ def test_what_needs_the_model_is_checked_before_any_forward(engines, name, chang
     assert re.match(message, text) and forwards == 0, text
 
 
+def test_a_select_on_the_key_axis_is_refused(engines):
+    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": [0]})).compile()
+    text, forwards = refused(engines, plan, kind="nnterp")
+    assert text.startswith("clean.pattern: select on 'key' indexes the padded batch's keys") and forwards == 0, text
+
+
 def test_an_operand_of_another_width_is_refused(engines):
     def change(d):
         d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = -1
@@ -134,3 +160,18 @@ def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
 def test_the_aligned_pattern_dataset_passes_the_check(engines):
     plan = plan_of("attention_pattern_patching")
     engines("nnterp", plan.model).execute(plan, batch_size=2)
+
+
+@pytest.mark.parametrize("kind, key", [("nnterp", "device"), ("nnterp", "dispatch"), ("hooks", "device_map")])
+def test_a_loader_refuses_a_model_key_its_engine_sets_itself(kind, key):
+    from clab.engines import ENGINES
+    plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
+    with pytest.raises(ValueError, match=f"model.{key}: the {kind} engine sets {key} itself"):
+        ENGINES[kind](plan.model)
+
+
+def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch():
+    plan = plan_of("attention_knockout")
+    assert plan.model.dtype == "float32" and plan.model.model_extra == {"attn_implementation": "eager"}
+    with pytest.raises(PlanError, match=r"model\.dtype: Input should be 'float32', 'float16' or 'bfloat16'"):
+        edited("patching", lambda d: d["model"].update(dtype="fp32"))

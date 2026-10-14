@@ -5,7 +5,6 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 """
 
 import time
-from typing import Any
 
 import nnsight
 import torch
@@ -15,8 +14,8 @@ from torch import Tensor
 from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
-from . import DTYPES, engine
-from .standard import SIZES, by_site, envoy, nnterp_name
+from . import engine
+from .standard import SIZES, by_site, envoy, loader, nnterp_name
 
 
 @engine("nnterp")
@@ -24,11 +23,11 @@ class NnterpEngine:
     name: str
 
     def __init__(self, model: Model):
-        """The checkpoint `model` pins, on the CPU."""
-        extra: dict[str, Any] = {"attn_implementation": model.attn_implementation} if model.attn_implementation else {}
+        """The checkpoint `model` pins, on the CPU; the block's other keys go to the loader as they are."""
+        extra = loader(model, "nnterp", ("device", "dispatch"))
         self.spec = model
         self.model = StandardizedTransformer(model.key, revision=model.revision, device="cpu", dispatch=True,
-                                             dtype=getattr(torch, DTYPES[model.dtype]), **extra)
+                                             dtype=getattr(torch, model.dtype), **extra)
 
     def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         """The whole plan in one session; the filled plan is the one thing that comes home."""

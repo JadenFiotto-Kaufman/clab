@@ -25,10 +25,10 @@ different layout (logits from a residual stream, tokens from logits, text from i
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
 dataset column of one token per row, resolved through the value's own vocabulary; `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `features` are
-arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the `features`
-given) and the change is written back. `renormalize`'s reference is the value at the site before the
-step's writes.
+featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
+arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
+`{"select": {"features": [...]}}` keeps) and the change is written back. `renormalize`'s reference is the
+value at the site before the step's writes.
 """
 
 import inspect
@@ -123,7 +123,7 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
 
     Each write's ops run on its selection of the current value; `original` is
     the selection as it was before any of these writes. A write narrows at most
-    one dimension of its selection. A ragged write's rows are padded to one
+    one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
     axis = pos_axis(component)
@@ -131,8 +131,6 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
     x = before.clone()
     rows = torch.arange(x.shape[0])[:, None]
     for w in writes:
-        if len(w["select"]) > 1:
-            raise ValueError(f"write {w['name']!r} narrows {len(w['select'])} dimensions; a write narrows one")
         pos = w["positions"]
         current, original = x[rows, pos], before[rows, pos]
         new = current
