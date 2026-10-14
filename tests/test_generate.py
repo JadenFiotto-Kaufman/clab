@@ -744,11 +744,43 @@ def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
         edited("generate_probe", change).compile()
 
 
-def test_a_turn_takes_no_occurrence():
+@pytest.mark.parametrize("scope, message", [
+    ({"turn": "user", "strip": True}, r"a turn's messages are located as the chat template rendered them; it takes "
+                                      r"no strip"),
+    ({"turn": "user[1]"}, r"turn 'user\[1\]' is a role; its messages are its occurrences, so "),
+])
+def test_a_turn_is_a_role_and_takes_no_strip(scope, message):
     def change(d):
-        d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"]["occurrence"] = 1
-    with pytest.raises(PlanError, match=r"a turn is one place of the chat; it takes no occurrence or strip"):
+        d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"] = scope
+    with pytest.raises(PlanError, match=message):
         edited("chat_turn", change)
+
+
+def test_a_roles_messages_are_its_occurrences(engines):
+    """A user, assistant, user chat: `turn: user` occurrence 0 is the first user message's tokens, 1 and -1
+    the second's, `"all"` both, and `turn: assistant` the reply's; each is the tokens the template rendered
+    the message's content as, on both engines to the bit."""
+    chat = [{"role": "user", "content": "Name a weekday."}, {"role": "assistant", "content": "Thursday."},
+            {"role": "user", "content": "If today is Thursday, tomorrow is"}]
+    reads = {"first": {"turn": "user"}, "second": {"turn": "user", "occurrence": 1},
+             "last": {"turn": "user", "occurrence": -1}, "both": {"turn": "user", "occurrence": "all"},
+             "reply": {"turn": "assistant"}}
+
+    def change(d):
+        d["data"] = {"chats": {"rows": [{"chat": chat, "base_answer": " Friday"}]}}
+        d["steps"] = {"look": {"kind": "forward", "input": "chats.chat",
+                               "reads": {k: {"site": {"component": "layer_output", "layers": 0},
+                                             "pos": {"scope": scope}} for k, scope in reads.items()}}}
+        d["saves"] = [f"look.{k}" for k in reads]
+    plan = edited("chat_turn", change).compile()
+    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    assert runs["nnterp"].run.positions == runs["hooks"].run.positions
+    where, tokens = runs["nnterp"].run.positions, runs["nnterp"].run.tokens["chats.chat"][0]
+    said = {k: "".join(tokens[i] for i in where[f"look.{k}"][0]).replace("▁", " ").strip() for k in reads}
+    assert said == {"first": "Name a weekday.", "second": "If today is Thursday, tomorrow is",
+                    "last": "If today is Thursday, tomorrow is",
+                    "both": "Name a weekday. If today is Thursday, tomorrow is", "reply": "Thursday."}
 
 
 def listed(d, rows: list[dict], reads: dict):

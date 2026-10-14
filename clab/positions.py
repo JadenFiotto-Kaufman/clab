@@ -55,11 +55,10 @@ def fixed(selector) -> int | None:
 
 def width(pos: dict) -> int | None:
     """A record's width on every row, or None when it is ragged: its frame names calls (an int or a span,
-    not a set each row has its own), its index picks a fixed number, and a text scope, if any, is one
-    occurrence in the prefill."""
-    scope = pos["scope"] or {}
-    textual = any(k in scope for k in TEXTUAL)
-    if isinstance(pos["frame"], str) or textual and (not prefill(pos) or fixed(scope["occurrence"]) != 1):
+    not a set each row has its own), its index picks a fixed number, and a scope, if any, is one occurrence
+    in the prefill."""
+    scope = pos["scope"]
+    if isinstance(pos["frame"], str) or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
         return None
     return fixed(pos["index"])
 
@@ -115,8 +114,8 @@ def call_of(position: int, prompt: int) -> int:
 
 
 def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -> list[int]:
-    """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text among
-    `tokens` (a turn is one place), in order."""
+    """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
+    role's messages) among `tokens`, in order."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
@@ -124,9 +123,8 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -
     picked = select(which, len(found))
     what = f"{next(iter(scope))} {next(iter(scope.values()))!r}"
     if not found:
-        raise Unaligned(MISSING, f"{what} is not in its input")
-    if "turn" in scope and len(found) > 1:
-        raise Unaligned(MISSING, f"{what} names {len(found)} turns of the chat; a turn is one place")
+        raise Unaligned(MISSING, f"the row has no {scope['turn']!r} message" if "turn" in scope else
+                        f"{what} is not in its input")
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
         raise Unaligned(MISSING, f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
     return [t for t in tokens if any(t in found[i] for i in picked)]
@@ -204,11 +202,10 @@ def landing(pos: dict, texts: list[str], inputs: list[int], eos: set[int], token
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 
 
-def turns(row: dict, turn: str) -> list[tuple[int, int]]:
-    """The character spans of the chat turns `turn` names: `role[n]` the n-th of that role, `role` all of them."""
-    role, n = re.fullmatch(r"(\w+)(?:\[(\d+)\])?", turn).groups("")  # type: ignore[union-attr]
-    spans = [(a, b) for r, a, b in row["turns"] if r == role]
-    return spans[int(n):int(n) + 1] if n else spans
+def turns(row: dict, role: str) -> list[tuple[int, int]]:
+    """The character spans of the row's messages of `role`, as the chat template rendered them: in order, so
+    ordered by where each ends, as `located` orders text."""
+    return [(a, b) for r, a, b in row["turns"] if r == role]
 
 
 def continuation(ids: list[int], eos: set[int]) -> list[int]:

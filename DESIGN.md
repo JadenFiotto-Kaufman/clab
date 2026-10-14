@@ -57,6 +57,8 @@ document in these places:
   with `occurrence` (default 0, the first; the frame/index selector) and may `strip` its text; ambiguity is
   gone: a doubled text takes the occurrence asked for, and `alignment_ambiguous` no longer exists. `column`
   and `text` may be lists, whose occurrences are taken together, ordered by where each ends.
+- §5: `turn` is a role (`{"turn": "user", "occurrence": 1}` the second user message); its messages are its
+  occurrences, and the `role[n]` spelling is gone.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

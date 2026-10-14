@@ -171,12 +171,13 @@ Span = Annotated[list[int], Field(min_length=2, max_length=2)]
 class Scope(Record):
     """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
     named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
-    `{"turn": "<role>[<n>]"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).
-    `column` and `text` may each be a list: the scope's texts are then every one listed (a string is the
-    one-element list), their occurrences together, ordered by where each ends. A `column` or `text` scope
-    also takes `occurrence`, which of those occurrences it is (the selector
+    `{"turn": "<role>"}`: that role's messages of a chat, each an occurrence. `column` and `text` may each be
+    a list: the scope's texts are then every one listed (a string is the one-element list), their occurrences
+    together, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (the
+    selector
     `frame` and `index` use: an int, negative from the last, a `[start, stop]` span or `"all"`; default 0,
-    the first), and `strip`, whether the text is stripped of surrounding whitespace before it is located."""
+    the first); `column` and `text` also take `strip`, whether each text is stripped of surrounding whitespace
+    before it is located (a turn's contents are located as the template rendered them)."""
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
     column: str | list[str] | None = None
     text: str | list[str] | None = None
@@ -188,11 +189,14 @@ class Scope(Record):
     def _one(self):
         if [self.column, self.text, self.turn].count(None) != 2:
             raise ValueError("a scope is one of {'column': '<dataset>.<column>'}, {'text': '<literal>'}, "
-                             "{'turn': '<role>[<n>]'}")
+                             "{'turn': '<role>'}")
         if [] in (self.column, self.text):
             raise ValueError("a scope's list of columns or texts names at least one")
-        if self.turn is not None and {"occurrence", "strip"} & self.model_fields_set:
-            raise ValueError("a turn is one place of the chat; it takes no occurrence or strip")
+        if self.turn is not None and "strip" in self.model_fields_set:
+            raise ValueError("a turn's messages are located as the chat template rendered them; it takes no strip")
+        if self.turn is not None and not self.turn.isidentifier():
+            raise ValueError(f"turn {self.turn!r} is a role; its messages are its occurrences, so "
+                             "`{'turn': 'user', 'occurrence': 1}` is the second user message")
         return self
 
 
@@ -204,8 +208,10 @@ class Pos(Record):
     pos   := int                                   # shorthand: {"frame": 0, "index": int}
            | {"frame"?: frame, "scope"?: scope, "index"?: index}
     frame := int | [start, stop] | "generated" | "all" | "eos"         # default 0
-    scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+    scope := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
+           | {"turn": "<role>", "occurrence"?: selector}
     index := int | [start, stop] | "all"                               # default "all"
+    selector := int | [start, stop] | "all"                            # occurrence's; default 0
     ```
 
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
@@ -230,7 +236,9 @@ class Pos(Record):
     whitespace first. The prompt and the generated
     tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
     token is never an input to any call, so a word ending on it is `alignment_missing` (with
-    `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.
+    `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in
+    call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
+    user message, `"all"` every one of them); a role the row has no message of is refused by name.
 
     **index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
     half-open. It counts over the tokens of every call the frame selected, in order: `{"frame": [0, 3],
@@ -318,7 +326,7 @@ class Forward(Record):
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
     template without a generation prompt, so the rendered prompt ends with the template's close of the last
     message (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and
-    `{"scope": {"turn": "user[1]"}}` names the message's own tokens.
+    `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
     Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
     row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its

@@ -79,8 +79,10 @@ run on the value's coordinates in that featurizer's space, the change written ba
 pos   := int                                   # shorthand: {"frame": 0, "index": int}
        | {"frame"?: frame, "scope"?: scope, "index"?: index}
 frame := int | [start, stop] | "generated" | "all" | "eos"         # default 0
-scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+scope := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
+       | {"turn": "<role>", "occurrence"?: selector}
 index := int | [start, stop] | "all"                               # default "all"
+selector := int | [start, stop] | "all"                            # occurrence's; default 0
 ```
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
@@ -105,7 +107,9 @@ scope is, with the selector `frame` and `index` use; the scope is the tokens of 
 whitespace first. The prompt and the generated
 tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
 token is never an input to any call, so a word ending on it is `alignment_missing` (with
-`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.
+`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in
+call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
+user message, `"all"` every one of them); a role the row has no message of is refused by name.
 
 **index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
 half-open. It counts over the tokens of every call the frame selected, in order: `{"frame": [0, 3],
@@ -146,7 +150,7 @@ order, before the step's own.
 A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
 template without a generation prompt, so the rendered prompt ends with the template's close of the last
 message (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and
-`{"scope": {"turn": "user[1]"}}` names the message's own tokens.
+`{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
 row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
