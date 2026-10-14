@@ -86,14 +86,23 @@ pos := int                                    # the one shorthand: {"index": int
 Indices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's
 tokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes
 to the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the
-second user message) or, in the generated frame, to where the row stopped (`eos`). Text a scope names
-that occurs twice in the row is refused. The generated frame counts decode steps: index *k* is the
-forward that chose new token *k*, read at its last position. A turn has no meaning in the generated
-frame, nor `eos` in the prompt.
+second user message) or, in the generated frame, to where the row stopped (`eos`). In the prompt, text a
+scope names that occurs twice in the row is refused. A turn has no meaning in the generated frame, nor
+`eos` in the prompt.
+
+The generated frame counts decode steps: index *k* is the forward that chose new token *k*, read at its
+last position, so index 0 is the prompt call's last position. A row's steps are its continuation, its
+new tokens up to and including its first EOS. A `variable` scope there is the row's text located in what
+it said, `eos` the step that chose its first EOS. A row its scope or slice does not reach is
+`alignment_missing`, and one whose text occurs twice in what it said `alignment_ambiguous`: results, not
+errors.
 
 A slice is rectangular when both ends count from the same side (or it runs to the end from a negative
 start): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is
-ragged: a read then gives one entry per token, `{values, row, tok}`.
+ragged: a read then gives one entry per token, `{values, row, tok}`. In the generated frame a slice is
+rectangular only unscoped and counted from the start at both ends (`index: 2`, `span: [0, 3]`), since
+rows stop at different steps; a rectangular read holds NaN on a row that did not get that far, and a
+ragged one's `tok` is the step.
 
 ### `interventions.<name>`
 
@@ -267,7 +276,7 @@ value at the site before the step's writes.
 | `encode` | `featurizer: Featurizer` | needs hidden_size; removes hidden_size; adds features | The value's coordinates in `featurizer`'s space. |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
 | `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token. |
-| `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped at the row's first EOS; with `tokens`, as its token strings. |
+| `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the engine's, where its generation stops); with `tokens`, as its token strings. |
 
 ## Components
 
@@ -397,17 +406,20 @@ the header that featurizer checks.
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
-The plan's `run` holds how each input tokenized and which token every positioned read and write resolved
-to, which `table` uses to label positions. Values are never in the manifest.
+The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which token
+(in the generated frame, which decode step) every positioned read and write resolved to per row, which
+`table` uses to label positions. Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
-A value with a rows axis gives a row per example and token: `at` (its point's coordinates, when its step
-is swept), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token axes
-with their tokens (`pos`/`pos_token`, the index into the row's tokens a position resolved to;
+A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose
+step is not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers:
+"all"`, the token axes with their tokens (`pos`/`pos_token`, the index into the row's tokens a position
+resolved to; `step`/`step_token` in the generated frame, the decode step and the token it chose;
 `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose),
 and `value`: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A
-value with no rows axis gives a row per element with its axis indices.
+row a generated-frame read did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
+true, with no value. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document
 

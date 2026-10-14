@@ -91,7 +91,6 @@ def refused(engines, plan, kind: str = "hooks"):
 @pytest.mark.parametrize("name, message", [
     ("random_subspace", "counterfactual.v_cf: op 'encode' lands in M4"),
     ("das", "fit: fit steps land in M4"),
-    ("generated_answer", "answer: generate steps land in M3"),
 ])
 def test_unserved_documents_refuse_before_any_forward(engines, name, message):
     text, forwards = refused(engines, plan_of(name))

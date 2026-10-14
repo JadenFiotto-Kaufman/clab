@@ -233,39 +233,47 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict:
 # -- metrics: logits in, one number per row and position out -------------------
 
 
-def _pick(x: Tensor, ids: Tensor) -> Tensor:
-    index = ids.reshape(*ids.shape, 1, 1).expand(*x.shape[:-1], 1)
-    return x.gather(-1, index).squeeze(-1)
+def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
+    """One id per row (`[rows]`), shaped to broadcast against `x` along its rows (or entries) axis."""
+    shape = [1] * x.dim()
+    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = -1
+    return ids.reshape(shape)
+
+
+def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
+    return x.gather(-1, _per_row(ids, x, dims).expand(*x.shape[:-1], 1)).squeeze(-1)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def match(of: Tensor, expected: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """1 where the most likely token is `expected`, else 0."""
-    return (of.argmax(-1) == expected.reshape(*expected.shape, 1)).to(of.dtype)
+    return (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def logit_diff(of: Tensor, a: Tokens, b: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
+               token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `a` less the logit of `b`."""
-    return _pick(of, a) - _pick(of, b)
+    return _pick(of, a, dims) - _pick(of, b, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def token_prob(of: Tensor, token: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The probability of `token`."""
-    return _pick(of.softmax(-1), token)
+    return _pick(of.softmax(-1), token, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def token_logit(of: Tensor, token: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `token`."""
-    return _pick(of, token)
+    return _pick(of, token, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def cross_entropy(of: Tensor, target: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
+                  token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The negative log-probability of `target`, in nats."""
-    return -_pick(of.log_softmax(-1), target)
+    return -_pick(of.log_softmax(-1), target, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
@@ -299,10 +307,11 @@ def argmax(of: Tensor) -> Tensor:
 
 @op("transforms", needs=("new",), removes=("new",))
 def decode(of: Tensor, engine: Any, tokens: bool = False) -> list:
-    """Each row's generated ids as text, stopped at the row's first EOS; with `tokens`, as its token strings."""
-    tokenizer = engine.tokenizer
+    """Each row's generated ids as text, stopped before the row's first EOS (the engine's, where its generation
+    stops); with `tokens`, as its token strings."""
+    tokenizer, eos = engine.tokenizer, set(engine.eos)
     out = []
     for ids in of.tolist():
-        ids = ids[:ids.index(tokenizer.eos_token_id)] if tokenizer.eos_token_id in ids else ids
+        ids = next((ids[:i] for i, t in enumerate(ids) if t in eos), ids)
         out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
     return out

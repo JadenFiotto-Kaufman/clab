@@ -192,6 +192,13 @@ def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: boo
     pos = positions.parse(spec.pos)
     if pos["frame"] == "generated" and step.kind != "generate":
         fail(f"{path}.pos", "the generated frame is a generate step's; a forward has only its prompt")
+    if pos["frame"] == "generated" and write:
+        fail(f"{path}.pos", "a generate step's writes land on the prompt; the generated frame is read")
+    if pos["frame"] == "generated" and "key" in address.COMPONENTS[site.component]["dims"]:
+        fail(f"{path}.site", f"{site.component}'s key axis grows with every decode step; read it in a forward")
+    if pos["frame"] == "prompt" and step.kind == "generate" and site.component in ("lm_head_output", "logits"):
+        fail(f"{path}.pos", f"a generation's prompt call computes {site.component} at its last position only; "
+             "read it in the generated frame, index 0")
     variable = (pos["scope"] or {}).get("variable")
     _, column, index = data.parse_input(step.input)
     if variable is not None and pos["frame"] == "prompt" and index is not None:

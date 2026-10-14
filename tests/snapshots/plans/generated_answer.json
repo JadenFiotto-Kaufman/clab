@@ -28,8 +28,7 @@
       "index": -1
      },
      "dims": [
-      "rows",
-      "pos",
+      "entries",
       "vocab_size"
      ]
     },
@@ -45,8 +44,7 @@
       "index": -1
      },
      "dims": [
-      "rows",
-      "pos",
+      "entries",
       "vocab_size"
      ]
     }
@@ -62,8 +60,7 @@
    "of": "answer.at_said",
    "dataset": "prompts",
    "dims": [
-    "rows",
-    "pos"
+    "entries"
    ],
    "token": "prompts.cf_answer"
   }

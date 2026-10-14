@@ -75,21 +75,28 @@ def test_mean_over_the_example_axes_by_default():
 
 
 def test_metrics_on_logits():
-    assert torch.equal(ops.match(LOGITS, LOGITS.argmax(-1)[:, 0]), torch.ones(3, 1))
-    assert torch.equal(ops.match(LOGITS, (LOGITS.argmax(-1)[:, 0] + 1) % 7), torch.zeros(3, 1))
+    d = ["rows", "pos", "vocab_size"]
+    assert torch.equal(ops.match(LOGITS, LOGITS.argmax(-1)[:, 0], d), torch.ones(3, 1))
+    assert torch.equal(ops.match(LOGITS, (LOGITS.argmax(-1)[:, 0] + 1) % 7, d), torch.zeros(3, 1))
     picked = LOGITS[torch.arange(3), 0, IDS][:, None]
-    assert torch.equal(ops.token_logit(LOGITS, IDS), picked)
-    assert torch.equal(ops.logit_diff(LOGITS, IDS, IDS), torch.zeros(3, 1))
-    torch.testing.assert_close(ops.token_prob(LOGITS, IDS), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
-    torch.testing.assert_close(ops.cross_entropy(LOGITS, IDS),
+    assert torch.equal(ops.token_logit(LOGITS, IDS, d), picked)
+    assert torch.equal(ops.logit_diff(LOGITS, IDS, IDS, d), torch.zeros(3, 1))
+    torch.testing.assert_close(ops.token_prob(LOGITS, IDS, d), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
+    torch.testing.assert_close(ops.cross_entropy(LOGITS, IDS, d),
                                torch.nn.functional.cross_entropy(LOGITS[:, 0], IDS, reduction="none")[:, None])
+
+
+def test_metrics_on_ragged_entries_take_each_entrys_own_token():
+    entries = LOGITS[:, 0]                                # entries, vocab: one entry per row here
+    assert torch.equal(ops.token_logit(entries, IDS, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
+    assert torch.equal(ops.match(entries, entries.argmax(-1), ["entries", "vocab_size"]), torch.ones(3))
 
 
 def test_metrics_broadcast_over_a_leading_layer_axis():
     stacked = torch.stack([LOGITS, LOGITS * 2])          # layers, rows, pos, vocab
-    out = ops.token_logit(stacked, IDS)
+    out = ops.token_logit(stacked, IDS, ["layers", "rows", "pos", "vocab_size"])
     assert out.shape == (2, 3, 1)
-    assert torch.equal(out[1], 2 * ops.token_logit(LOGITS, IDS))
+    assert torch.equal(out[1], 2 * ops.token_logit(LOGITS, IDS, ["rows", "pos", "vocab_size"]))
 
 
 def test_kl_and_js():
@@ -199,6 +206,7 @@ class Tokenizer:
 
 class Engine:
     tokenizer = Tokenizer()
+    eos = [0]
 
 
 def test_decode_stops_at_each_rows_first_eos():

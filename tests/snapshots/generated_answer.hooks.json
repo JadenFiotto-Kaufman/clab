@@ -1,0 +1,123 @@
+{
+ "batch_size": 2,
+ "values": {
+  "results": {
+   "p_answer": {
+    "values": [
+     3.0088249332038686e-05,
+     3.15998840960674e-05
+    ],
+    "row": [
+     0,
+     1
+    ],
+    "tok": [
+     1,
+     2
+    ]
+   }
+  },
+  "positions": {
+   "answer.at_said": [
+    [
+     1
+    ],
+    [
+     2
+    ],
+    "alignment_missing",
+    "alignment_missing"
+   ],
+   "answer.at_stop": [
+    "alignment_missing",
+    "alignment_missing",
+    "alignment_missing",
+    "alignment_missing"
+   ]
+  },
+  "said": {
+   "prompts.input": [
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Th",
+     "urs",
+     "day",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Friday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Saturday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Sunday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ]
+   ],
+   "answer": [
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ]
+   ]
+  }
+ }
+}

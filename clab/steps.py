@@ -20,7 +20,7 @@ from .plan import Plan, Run, arguments, coordinate, dims_of, labelled, points, s
 from .registry import registers
 
 # The step kinds and ops later milestones serve, refused before anything runs.
-LATER = {"generate": "M3", "fit": "M4", "encode": "M4"}
+LATER = {"fit": "M4", "encode": "M4"}
 
 KINDS: dict = {}
 kind = registers(KINDS)
@@ -51,20 +51,30 @@ def run(engine, plan: Plan, batch_size: int) -> None:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(lookup(state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(lookup(state, name, {})))
+    plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in found["positions"].items()}
+    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
+
+
+def by_coordinate(plan: Plan, by_point: dict) -> Any:
+    """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
+    the point's coordinate as text."""
+    return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
 
 
 def preflight(engine, plan: Plan) -> dict:
-    """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` and
-    `plan.run.positions`, and returns each dataset input's encoded rows and padded width (`inputs`) and every
-    record's token indices per row (`positions`).
+    """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
+    tokens, and returns each dataset input's encoded rows and padded width (`inputs`), every prompt-frame
+    record's token indices per row (`positions`, which the run extends with the generated frame's), and
+    room for what each generate step's rows said (`said`).
 
     Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
-    does not serve; a layer or a `select`
-    outside the model's sizes, or a `select` on the padded batch's `key` axis; a position that does not fit some row's scope, or whose scope is not in a row
-    a write or a rectangular read needs; a token column that is not one token on some row; a write whose
-    operand was selected at a different width or narrowing; a write to a component with a `key` axis (the
-    attention pattern, the scores) whose operand was read on another input that does not tokenize to the
-    same length on every row, which would misalign the keys; and a `pca` over no more vectors than its `k`.
+    does not serve; a layer or a `select` outside the model's sizes, or a `select` on the padded batch's
+    `key` axis; a generate option that would change its rows or its value (`generation_options`); a
+    position that does not fit some row's scope, or whose scope is not in a row a write or a rectangular
+    read needs; a token column that is not one token on some row; a write whose operand was selected at a
+    different width or narrowing; a write to a component with a `key` axis (the attention pattern, the
+    scores) whose operand was read on another input that does not tokenize to the same length on every row,
+    which would misalign the keys; and a `pca` over no more vectors than its `k`.
     """
     for name, step in walk(plan.steps):
         if step.kind not in KINDS:
@@ -72,7 +82,7 @@ def preflight(engine, plan: Plan) -> dict:
     refuse(engine, plan)
     assert plan.run is not None
     sizes, tokenizer, special = engine.sizes(), engine.tokenizer, set(engine.tokenizer.all_special_ids)
-    found: dict = {"inputs": {}, "positions": {}}
+    found: dict = {"inputs": {}, "positions": {}, "said": {}}
     shapes: dict = {}
     for name, step in walk(plan.steps):
         if step.kind == "op":
@@ -84,6 +94,8 @@ def preflight(engine, plan: Plan) -> dict:
                     raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
                                      f"it needs more than {arguments(step)['k']}")
             continue
+        if step.kind == "generate":
+            generation_options(name, step.model_extra or {}, engine.eos)
         rows = plan.data[step.dataset].rows or []
         if step.input not in found["inputs"]:
             encoded = []
@@ -106,19 +118,31 @@ def preflight(engine, plan: Plan) -> dict:
                                                   "which differ per row; it lands when positions can name keys")
                     if any(not 0 <= i < sizes[axis] for i in index):
                         raise ValueError(f"{where}: select {axis} {index} outside the model's {sizes[axis]}")
+                for o in record.ops:
+                    refuse_later(where, o.op, space(o))
+                    check_tokens(engine, plan, where, o.op, arguments(o))
+                if positions.parse(record.pos)["frame"] == "generated":
+                    continue        # resolved from what each row generates, in the run
                 resolved = indices(where, side == "writes", record, step.input, rows, encoded, special)
                 put(found["positions"], where, step.at, resolved)
                 shape = (len(resolved[0]), {axis: len(v) for axis, v in (site.select or {}).items()})
                 put(shapes, where, step.at, shape)
-                for o in record.ops:
-                    refuse_later(where, o.op, space(o))
-                    check_tokens(engine, plan, where, o.op, arguments(o))
-                    if side == "writes":
-                        check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
-    for where, by_point in found["positions"].items():
-        plan.run.positions[where] = by_point[()] if () in by_point else \
-            {labelled(plan, dict(coords)): rows for coords, rows in by_point.items()}
+                for o in record.ops if side == "writes" else []:
+                    check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
     return found
+
+
+def generation_options(name: str, options: dict, eos: list[int]) -> None:
+    """Refuses the options a generate step cannot forward as they are: those that make more than one sequence
+    per row (its rows are its input's) or return more than ids (its value is the ids), and `eos_token_id`,
+    since a row stops at the engine's EOS, which `segment: eos` and `decode` name."""
+    for key, only in (("num_return_sequences", 1), ("num_beams", 1), ("return_dict_in_generate", False)):
+        if options.get(key, only) != only:
+            raise ValueError(f"{name}: {key} {options[key]!r}; a generate step's value is one sequence of ids per "
+                             f"row of its input, so {key} stays {only!r}")
+    if "eos_token_id" in options:
+        raise ValueError(f"{name}: eos_token_id; a row stops at the engine's EOS ({eos}), which `segment: eos` "
+                         "and decode name; set it in the checkpoint's generation config")
 
 
 def indices(where: str, write: bool, record, input: str, rows: list[dict], encoded: list[dict],
@@ -215,47 +239,70 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     A `layers: "all"` read is one read per layer, its ops run on each, stacked layer-first; a ragged read is
     gathered at the batch's widest row and kept as `{values, row, tok}`: one entry per token, its row and its
     token index."""
-    encoded, at = found["inputs"][step.input], step.at
-    n, layers = len(encoded["rows"]), engine.sizes()["num_layers"]
-    every = {key: range(layers) if r.site.layers == "all" else [r.site.layers] for key, r in step.reads.items()}
     parts = []
-    for lo in range(0, n, batch_size):
-        chunk = slice(lo, min(lo + batch_size, n))
-        ids = [e["ids"] for e in encoded["rows"][chunk]]
-        batch = data.pad(engine.tokenizer, ids, encoded["width"])
-        pads = [encoded["width"] - len(x) for x in ids]
-        sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", at)[chunk], pads)
-                 for key, record in {**step.writes, **step.reads}.items()}
-        writes = [{**sites[key], "name": key, "layer": record.site.layers,
-                   "ops": [edit(engine, plan, record, o, state, at, chunk) for o in record.ops]}
-                  for key, record in step.writes.items()]
-        reads = [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
-                 for key in step.reads for layer in every[key]]
+    for chunk, batch, pads in batches(engine, step, found, batch_size):
+        sites, writes, reads = bind(engine, plan, name, step, step.reads, state, found, chunk, pads)
         with torch.no_grad():
             got = engine.forward(batch, writes, reads)
-        out = {}
-        for key, record in step.reads.items():
-            values = [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads, state, at)
-                      for layer in every[key]]
-            if record.site.layers != "all":
-                out[key] = values[0]
-            elif isinstance(values[0], Tensor):
-                out[key] = torch.stack(values)
-            else:
-                out[key] = {**values[0], "values": torch.stack([v["values"] for v in values])}
+        parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
+                                                 pads, state, step.at) for layer in layers(engine, record)])
+                      for key, record in step.reads.items()})
+    joined(state, name, step, parts)
+
+
+@kind
+def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+    """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as
+    its options; each read joined along rows, and the new ids joined into the step's value.
+
+    Writes and prompt-frame reads are a forward's, on the prompt call. A generated-frame read asks the engine
+    for its own steps when it is rectangular and for every step when it is scoped; each row then resolves
+    from what it generated (`positions.generated`), and the resolution is recorded per row in
+    `plan.run.positions`, with each row's continuation as token strings in `plan.run.tokens[<step>]`. A
+    batch whose rows all stopped early generates fewer steps; its ids are filled after their EOS to the
+    longest batch's."""
+    eos, rows = engine.eos, plan.data[step.dataset].rows or []
+    prompt = {k: r for k, r in step.reads.items() if positions.parse(r.pos)["frame"] == "prompt"}
+    later = {k: r for k, r in step.reads.items() if k not in prompt}
+    parts, new, resolved = [], [], {key: [] for key in later}
+    for chunk, batch, pads in batches(engine, step, found, batch_size):
+        sites, writes, reads = bind(engine, plan, name, step, prompt, state, found, chunk, pads)
+        last = torch.full((chunk.stop - chunk.start, 1), -1)
+        reads += [{"component": record.site.component, "positions": last, "select": selection(record),
+                   "name": f"{key}@{layer}", "layer": layer, "steps": positions.asked(positions.parse(record.pos))}
+                  for key, record in later.items() for layer in layers(engine, record)]
+        with torch.no_grad():
+            ids, got = engine.generate(batch, writes, reads, dict(step.model_extra or {}))
+        out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
+                                          state, step.at) for layer in layers(engine, record)])
+               for key, record in prompt.items()}
+        for key, record in later.items():
+            pos = positions.parse(record.pos)
+            scope = pos["scope"] or {}
+            steps = [positions.generated(pos, ids[i].tolist(), set(eos), engine.tokenizer,
+                                         data.variable(row, step.input, scope["variable"]) if "variable" in scope
+                                         else None) for i, row in enumerate(rows[chunk])]
+            resolved[key] += steps
+            out[key] = stacked(record, [at_steps(engine, plan, record, got[f"{key}@{layer}"], steps, chunk, state,
+                                                 step.at) for layer in layers(engine, record)])
         parts.append(out)
-    for key, record in step.reads.items():
-        axis = 1 if record.site.layers == "all" else 0
-        values = [p[key] for p in parts]
-        put(state, f"{name}.{key}", at, torch.cat(values, axis) if isinstance(values[0], Tensor) else
-            {k: torch.cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})
+        new.append(ids)
+    joined(state, name, step, parts)
+    width = max(x.shape[1] for x in new)
+    ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=eos[0]) for x in new])
+    put(state, name, step.at, ids)
+    for key in later:
+        put(found["positions"], f"{name}.{key}", step.at, resolved[key])
+    put(found["said"], name, step.at,
+        [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, set(eos))) for x in ids.tolist()])
 
 
 @kind
 def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
     """The op over the whole value `of` names. `top_k`'s value also holds its tokens, decoded."""
-    args = bound(engine, plan, step.op, arguments(step), state, step.at, None)
-    value = apply(engine, step.op, lookup(state, step.of, step.at), args, dims_of(plan, step.of))
+    of = lookup(state, step.of, step.at)
+    value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of),
+                  dims_of(plan, step.of))
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
@@ -271,10 +318,14 @@ def site(record, rows: list[list[int]], pads: list[int]) -> dict:
     width = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
              for row, pad in zip(rows, pads)]
-    layout = address.dims(record.site.component, None, False)
-    select = {layout.index(axis): torch.tensor(v) for axis, v in (record.site.select or {}).items()}
-    return {"component": record.site.component, "positions": torch.tensor(index), "select": select,
+    return {"component": record.site.component, "positions": torch.tensor(index), "select": selection(record),
             "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows])}
+
+
+def selection(record) -> dict:
+    """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps."""
+    layout = address.dims(record.site.component, None, False)
+    return {layout.index(axis): torch.tensor(v) for axis, v in (record.site.select or {}).items()}
 
 
 def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> dict:
@@ -283,34 +334,117 @@ def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> d
             "dims": address.dims(record.site.component, None, False)}
 
 
+def batches(engine, step, found: dict, batch_size: int):
+    """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
+    input's longest row, and each row's padding."""
+    encoded = found["inputs"][step.input]
+    n = len(encoded["rows"])
+    for lo in range(0, n, batch_size):
+        chunk = slice(lo, min(lo + batch_size, n))
+        ids = [e["ids"] for e in encoded["rows"][chunk]]
+        yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
+
+
+def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: dict, rows: slice,
+         pads: list[int]) -> tuple[dict, list[dict], list[dict]]:
+    """A step's writes and the prompt-frame `reads` bound to one batch: each record's site, the writes with
+    their ops, and the reads, one per layer (`<read>@<layer>`)."""
+    sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads)
+             for key, record in {**step.writes, **reads}.items()}
+    writes = [{**sites[key], "name": key, "layer": record.site.layers,
+               "ops": [edit(engine, plan, record, o, state, step.at, rows) for o in record.ops]}
+              for key, record in step.writes.items()]
+    return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
+                           for key, record in reads.items() for layer in layers(engine, record)]
+
+
+def layers(engine, record) -> list:
+    """The layers a read is made at: every one under `layers: "all"`, else its own."""
+    return list(range(engine.sizes()["num_layers"])) if record.site.layers == "all" else [record.site.layers]
+
+
+def stacked(record, values: list) -> Any:
+    """A read's per-layer values as its value: the one, or under `layers: "all"` stacked layer-first."""
+    if record.site.layers != "all":
+        return values[0]
+    if isinstance(values[0], Tensor):
+        return torch.stack(values)
+    return {**values[0], "values": torch.stack([v["values"] for v in values])}
+
+
+def joined(state: dict, name: str, step, parts: list[dict]) -> None:
+    """Each read's per-batch values joined along rows (a ragged read's entries, after the layer axis)."""
+    for key, record in step.reads.items():
+        axis = 1 if record.site.layers == "all" else 0
+        values = [p[key] for p in parts]
+        put(state, f"{name}.{key}", step.at, torch.cat(values, axis) if isinstance(values[0], Tensor) else
+            {k: torch.cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})
+
+
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
          at: dict) -> Any:
-    """One layer of a read in one batch: its entries when it is ragged, then its ops."""
-    ragged = positions.ragged(positions.parse(record.pos))
-    if ragged:
+    """One layer of a prompt-frame read in one batch: its entries when it is ragged, then its ops."""
+    if positions.ragged(positions.parse(record.pos)):
         keep = site["keep"]
         value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
                  "tok": (site["positions"] - torch.tensor(pads)[:, None])[keep]}
-    dims = address.dims(record.site.component, None, ragged)
+    return with_ops(engine, plan, record, value, state, at, rows)
+
+
+def at_steps(engine, plan: Plan, record, values: list[Tensor], steps: list, rows: slice, state: dict,
+             at: dict) -> Any:
+    """One layer of a generated-frame read in one batch: what the engine read at each step it asked for
+    (`values`, one `[rows, 1, ...]` per step the batch reached), arranged by the steps each row resolved to
+    (`steps`, per row a list of steps or an alignment marker); then its ops.
+
+    A rectangular read is `[rows, width, ...]` with NaN where a row, or the batch, did not reach the step; a
+    ragged one is `{values, row, tok}`, `tok` the step, with no entries for a row whose scope is not there."""
+    pos = positions.parse(record.pos)
+    want = positions.asked(pos)
+    by_step = dict(zip(want if want is not None else range(len(values)), values))
+    sizes, select = engine.sizes(), record.site.select or {}
+    rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
+    blank = torch.full((rows.stop - rows.start, 1, *rest), float("nan"),
+                       dtype=values[0].dtype if values else getattr(torch, plan.model.dtype))
+    if want is not None:
+        value = torch.cat([by_step.get(s, blank) for s in want], 1)
+        for i, got in enumerate(steps):
+            if isinstance(got, str):
+                value[i] = float("nan")
+    else:
+        kept = [(i, s) for i, got in enumerate(steps) if not isinstance(got, str) for s in got]
+        value = {"values": torch.stack([by_step[s][i, 0] for i, s in kept]) if kept else blank[:0, 0],
+                 "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
+                 "tok": torch.tensor([s for _, s in kept], dtype=torch.long)}
+    return with_ops(engine, plan, record, value, state, at, rows)
+
+
+def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice) -> Any:
+    """A read's value with its ops applied in listed order."""
+    dims = address.dims(record.site.component, None, positions.ragged(positions.parse(record.pos)))
     for o in record.ops:
-        value = apply(engine, o.op, value, bound(engine, plan, o.op, arguments(o), state, at, rows), dims)
+        value = apply(engine, o.op, value, bound(engine, plan, o.op, arguments(o), state, at, rows, value), dims)
         dims = ops.out_dims(o.op, dims, arguments(o))
     return value
 
 
-def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None) -> dict:
-    """An op's arguments bound to tensors: names looked up, columns tokenized, sliced to `rows`."""
+def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
+          of: Any = None) -> dict:
+    """An op's arguments bound to tensors: names looked up, columns tokenized, sliced to `rows`. On a ragged
+    value `of`, an argument with a row per example is taken at each entry's row."""
     params, out = ops.parameters(name), {}
     for key, value in args.items():
-        annotation = params[key].annotation
+        annotation, per_row = params[key].annotation, False
         if annotation == ops.Value and isinstance(value, str):
             given, value = value, lookup(state, value, at)
-            if rows is not None and dims_of(plan, given)[:1] == ["rows"]:
-                value = value[rows]
+            per_row = dims_of(plan, given)[:1] == ["rows"]
+            value = value[rows] if rows is not None and per_row else value
         elif annotation == ops.Tokens:
-            value = tokens(engine, plan, value, args.get("token_form", "spaced"), rows)
+            value, per_row = tokens(engine, plan, value, args.get("token_form", "spaced"), rows), True
         elif annotation == ops.Featurizer:
             raise NotImplementedError(f"M4: featurizer {value!r}")
+        if per_row and isinstance(of, dict) and "tok" in of:
+            value = value[of["row"] - (rows.start if rows is not None else 0)]
         out[key] = value
     return out
 

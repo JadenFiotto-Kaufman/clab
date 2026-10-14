@@ -47,6 +47,33 @@ def loader(model, engine: str, owned: tuple) -> dict:
     return extra
 
 
+def stops(config, tokenizer) -> list[int]:
+    """The ids a generation stops on: the generation config's EOS, else the tokenizer's."""
+    found = getattr(config, "eos_token_id", None)
+    found = tokenizer.eos_token_id if found is None else found
+    return [found] if isinstance(found, int) else list(found)
+
+
+def now(here: list, there: list, step: int) -> tuple[list, list]:
+    """What a generation does at a site on forward call `step` (0 is the prompt call): the writes and the
+    prompt-frame reads on the prompt call only, and each generated-frame read on the steps it asked for
+    (`steps`; None for every step)."""
+    def wanted(record: dict) -> bool:
+        if "steps" not in record:
+            return step == 0
+        return record["steps"] is None or step in record["steps"]
+    return (here if step == 0 else []), [r for r in there if wanted(r)]
+
+
+def keep(got: dict, record: dict, value) -> None:
+    """A read's value into `got`: a prompt-frame read's as itself, a generated-frame read's appended to its
+    list, one per step read."""
+    if "steps" in record:
+        got[record["name"]].append(value)
+    else:
+        got[record["name"]] = value
+
+
 def by_site(writes: list[dict], reads: list[dict]) -> dict[tuple, tuple[list, list]]:
     """A forward's writes and reads by `(component, layer)`, each site's in listed order."""
     sites: dict[tuple, tuple[list, list]] = {}

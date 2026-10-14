@@ -199,9 +199,6 @@ def test_unserved_kinds_refuse_by_name_before_anything_runs(engines):
     plan = plan_of("das")
     with pytest.raises(NotImplementedError, match="fit: fit steps land in M4"):
         engines("hooks", plan.model).execute(plan)
-    plan = plan_of("generated_answer")
-    with pytest.raises(NotImplementedError, match="answer: generate steps land in M3"):
-        engines("hooks", plan.model).execute(plan)
 
 
 @pytest.mark.parametrize("name, component", [("attention_query", "attention_queries"),

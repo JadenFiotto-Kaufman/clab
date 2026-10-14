@@ -20,10 +20,10 @@ SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
 UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
-# Documents whose steps later milestones serve: generation (M3), featurizers and fits (M4).
-LATER = {"generate_probe", "generated_answer", "das", "das_apply", "dbm", "pca_control", "random_subspace",
-         "sae_feature_ablation"}
-FORWARD = [n for n in NAMES if n not in LATER]
+# Documents whose steps a later milestone serves: featurizers and fits (M4).
+LATER = {"das", "das_apply", "dbm", "pca_control", "random_subspace", "sae_feature_ablation"}
+GENERATE = ["generate_probe", "generated_answer"]
+FORWARD = [n for n in NAMES if n not in LATER and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
 INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
 

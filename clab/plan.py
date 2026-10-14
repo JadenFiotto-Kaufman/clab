@@ -186,14 +186,23 @@ class Pos(Record):
     Indices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's
     tokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes
     to the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the
-    second user message) or, in the generated frame, to where the row stopped (`eos`). Text a scope names
-    that occurs twice in the row is refused. The generated frame counts decode steps: index *k* is the
-    forward that chose new token *k*, read at its last position. A turn has no meaning in the generated
-    frame, nor `eos` in the prompt.
+    second user message) or, in the generated frame, to where the row stopped (`eos`). In the prompt, text a
+    scope names that occurs twice in the row is refused. A turn has no meaning in the generated frame, nor
+    `eos` in the prompt.
+
+    The generated frame counts decode steps: index *k* is the forward that chose new token *k*, read at its
+    last position, so index 0 is the prompt call's last position. A row's steps are its continuation, its
+    new tokens up to and including its first EOS. A `variable` scope there is the row's text located in what
+    it said, `eos` the step that chose its first EOS. A row its scope or slice does not reach is
+    `alignment_missing`, and one whose text occurs twice in what it said `alignment_ambiguous`: results, not
+    errors.
 
     A slice is rectangular when both ends count from the same side (or it runs to the end from a negative
     start): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is
-    ragged: a read then gives one entry per token, `{values, row, tok}`.
+    ragged: a read then gives one entry per token, `{values, row, tok}`. In the generated frame a slice is
+    rectangular only unscoped and counted from the start at both ends (`index: 2`, `span: [0, 3]`), since
+    rows stop at different steps; a rectangular read holds NaN on a row that did not get that far, and a
+    ragged one's `tok` is the step.
     """
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("index", "span", "all")]})
     frame: Literal["prompt", "generated"] = "prompt"
@@ -409,15 +418,17 @@ class Axis(Record):
 
 class Run(Record):
     """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
-    each dataset input tokenized (token strings per row), and the token index every positioned read and write
-    resolved to, per row (keyed by coordinate when its step is swept)."""
+    each dataset input tokenized and what each generate step's rows generated (token strings per row, under
+    the input or the step's name), and the token index, or in the generated frame the decode step, every
+    positioned read and write resolved to, per row (`alignment_missing` or `alignment_ambiguous` for a
+    generated row it does not reach). A swept step's are keyed by coordinate."""
     engine: str
     remote: bool | str
     batch_size: int
     versions: dict[str, str] = {}
     started: str = ""
     seconds: float = 0.0
-    tokens: dict[str, list[list[str]]] = {}
+    tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
 
 
