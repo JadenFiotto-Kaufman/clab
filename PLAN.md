@@ -459,3 +459,6 @@ forward-only documents.
   started, seconds, set by `execute`). `clab.run(plan_or_path, engine=name
   or instance, ...)` is `Plan(...)` → `compile` → `execute` → `dump`.
 - Nothing is added to `Plan` without a stated reason.
+- **`split` is a key**, not a path suffix: `{"path": "weekdays/data", "split":
+  "train"}`. The `#split` form is gone; the corpus's four uses are migrated in
+  M2.
