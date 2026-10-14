@@ -1,0 +1,75 @@
+{
+ "description": "Train a sparse autoencoder on the tiny CPU Llama: a 16 -> 32 dictionary for layer 0's output, fitted to every token of the weekday prompts (a ragged read through `fit.dictionary`, one forward per minibatch of 2 prompts). The objective is the dictionary's own scalars: `reconstruction`, the mean squared error between each read vector and its decoding, plus 0.01 times `l1`, the mean absolute latent. Its decoder rows are kept at unit norm by a projection after each optimizer step. The trained dictionary is saved as a bundle (sae_train_ablation.json loads it) with each scalar's per-epoch history. The model is random, so its latents mean nothing; the mechanics are what this exercises.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "featurizers": {
+  "dictionary": {
+   "kind": "sae",
+   "latents": 32
+  }
+ },
+ "steps": {
+  "fit": {
+   "kind": "fit",
+   "train": [
+    "dictionary"
+   ],
+   "objective": {
+    "dictionary.reconstruction": 1.0,
+    "dictionary.l1": 0.01
+   },
+   "epochs": 20,
+   "batch_size": 2,
+   "seed": 0,
+   "optimizer": {
+    "name": "adam",
+    "lr": 0.01
+   },
+   "steps": {
+    "harvest": {
+     "kind": "forward",
+     "input": "prompts.input",
+     "reads": {
+      "latents": {
+       "site": {
+        "component": "layer_output",
+        "layers": 0
+       },
+       "pos": {},
+       "ops": [
+        {
+         "op": "encode",
+         "featurizer": "fit.dictionary"
+        }
+       ],
+       "dims": [
+        "entries",
+        "features"
+       ]
+      }
+     },
+     "dataset": "prompts"
+    }
+   },
+   "eval": {
+    "train": {}
+   }
+  }
+ },
+ "saves": [
+  "fit.dictionary",
+  "fit.history.dictionary.reconstruction",
+  "fit.history.dictionary.l1"
+ ],
+ "document": "documents/sae_train.json",
+ "compiled": true
+}

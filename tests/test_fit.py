@@ -2,8 +2,8 @@
 per engine at one batch size, the engines agreeing to the bit; and the numbers that pin what a fit, a bundle
 and an op in a featurizer's space mean.
 
-`das` and `pca_harvest` run first, into the corpus copy's `documents/artifacts`, because `das_apply` and
-`pca_control` load what they write.
+`das`, `pca_harvest` and `sae_train` run first, into the corpus copy's `documents/artifacts`, because
+`das_apply`, `pca_control` and `sae_train_ablation` load what they write.
 """
 
 import json
@@ -31,8 +31,8 @@ def corpus_copy(root) -> str:
 
 @pytest.fixture(scope="module")
 def ran(tmp_path_factory) -> dict:
-    """Each fit document run from the CLI on each engine and loaded back, `das` and `pca_harvest` (on nnterp)
-    into `documents/artifacts` first."""
+    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train` and `pca_harvest`
+    (on nnterp) into `documents/artifacts` first."""
     root = corpus_copy(tmp_path_factory.mktemp("fits"))
     out = {}
 
@@ -49,6 +49,7 @@ def ran(tmp_path_factory) -> dict:
     out["root"] = root
     artifacts = os.path.join(root, "documents", "artifacts")
     out["das", "nnterp"] = run("das", "nnterp", artifacts)
+    out["sae_train", "nnterp"] = run("sae_train", "nnterp", artifacts)
     run("pca_harvest", "nnterp", artifacts)
     for name in FIT:
         for kind in ("nnterp", "hooks"):
@@ -72,7 +73,7 @@ def test_the_engines_agree_to_the_bit(ran, name):
 
 def with_history(change=None) -> Plan:
     def edit(d):
-        d["saves"] += ["fit.history.ce", "fit.history.iia", "fit.ce"]
+        d["saves"] += ["fit.history.ce", "fit.history.iia", "fit.held_out.ce"]
         if change:
             change(d)
     return edited("das", edit).compile()
@@ -88,7 +89,7 @@ def test_a_das_fit_lowers_ce_and_its_history_says_so(engines, kind):
     ce, iia = values["fit.history.ce"], values["fit.history.iia"]
     assert ce.shape == iia.shape == (10,)
     assert (ce[1:] < ce[:-1]).all() and (iia[1:] > iia[:-1]).all()
-    assert torch.equal(ce[-1], values["ce"].mean())
+    assert torch.equal(ce[-1], values["fit.train.ce"].mean())
     assert all(p.grad is None for p in engine.model.parameters())
 
 
@@ -105,8 +106,9 @@ def test_early_stopping_restores_the_best_epoch_before_the_eval_run(engines):
     engine = engines("hooks", plan.model)
     values = engine.execute(plan, batch_size=BATCH_SIZE).results
     assert values["fit.history.ce"].shape == (4,)
-    assert torch.equal(values["fit.history.ce"][0], values["ce"].mean())
-    assert torch.equal(values["fit.ce"], engine.execute(with_history(one_epoch), batch_size=BATCH_SIZE).results["fit.ce"])
+    assert torch.equal(values["fit.history.ce"][0], values["fit.train.ce"].mean())
+    assert torch.equal(values["fit.held_out.ce"],
+                       engine.execute(with_history(one_epoch), batch_size=BATCH_SIZE).results["fit.held_out.ce"])
 
 
 def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(engines, monkeypatch):
@@ -154,7 +156,7 @@ def test_a_fit_is_the_same_remote_local_and_through_the_stand_in_server(engines,
 def test_das_apply_scores_the_saved_rotation_as_das_scored_it_held_out(ran):
     """das_apply loads the bundle das wrote and runs das's held-out body: the same numbers, to the bit."""
     das, applied = ran["das", "nnterp"], ran["das_apply", "nnterp"]
-    assert same(applied.results["iia"], das.results["fit.iia"])
+    assert same(applied.results["iia"], das.results["fit.held_out.iia"])
     assert same(load_file(os.path.join(ran["root"], "documents", "artifacts", "fit.rot.safetensors")),
                 das.results["fit.rot"])
 
@@ -172,14 +174,18 @@ def test_random_subspace_draws_a_different_subspace_per_seed(ran):
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, kind):
-    """sae_feature_ablation.json's claim: on a row where latent j was already zero, zeroing it leaves the
-    logits bit-identical to an unpatched forward (the delta keeps the error term exactly); where it was not,
-    they move. The fixture has both among latents 0 to 3."""
+@pytest.mark.parametrize("name", ["sae_feature_ablation", "sae_train_ablation"])
+def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, ran, name, kind):
+    """The ablation documents' claim: on a row where latent j was already zero, zeroing it leaves the logits
+    bit-identical to an unpatched forward (the delta keeps the error term exactly); where it was not, they
+    move. The fixture and the dictionary sae_train trains both have each among latents 0 to 3."""
     def change(d):
         d["steps"]["clean"] = {"kind": "forward", "input": "prompts.input", "reads": {"logits": {"site": "head", "pos": -1}}}
         d["saves"] = ["base.latents", "zeroed.logits", "clean.logits"]
-    plan = edited("sae_feature_ablation", change).compile()
+    with open(os.path.join(ran["root"], "documents", f"{name}.json")) as f:
+        doc = json.load(f)
+    change(doc)
+    plan = Plan(**doc, document=os.path.join(ran["root"], "documents", f"{name}.json")).compile()
     values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
     latents, clean, seen = values["base.latents"][:, 0], values["clean.logits"], set()
     for j in range(4):
@@ -188,6 +194,45 @@ def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, kind):
             seen.add(bool(latents[r, j] == 0))
             assert torch.equal(zeroed[r], clean[r]) == bool(latents[r, j] == 0), (j, r)
     assert seen == {True, False}
+
+
+def sae_train(change=None) -> Plan:
+    def edit(d):
+        d["saves"].append("fit.train.harvest.latents")
+        if change:
+            change(d)
+    return edited("sae_train", edit).compile()
+
+
+def test_training_a_dictionary_lowers_its_reconstruction_the_same_everywhere(engines, monkeypatch):
+    """sae_train's reconstruction falls every epoch; nnterp, hooks, remote="local" and the stand-in server give
+    the same numbers to the bit, and the model's weights get no gradient. The decoder's rows stay unit-norm."""
+    engine = engines("nnterp", sae_train().model)
+    values = engine.execute(sae_train(), batch_size=BATCH_SIZE).results
+    reconstruction = values["fit.history.dictionary.reconstruction"]
+    assert reconstruction.shape == (20,) and (reconstruction[1:] < reconstruction[:-1]).all()
+    assert same(engines("hooks", sae_train().model).execute(sae_train(), batch_size=BATCH_SIZE).results, values)
+    assert same(engine.execute(sae_train(), batch_size=BATCH_SIZE, remote="local").results, values)
+    came, trip = stand_in(engine, sae_train(), monkeypatch)
+    assert trip["by_reference"] and trip["names"] == ["plan"] and same(came.results, values)
+    torch.testing.assert_close(values["fit.dictionary"]["W_dec"].norm(dim=1), torch.ones(32), atol=1e-6, rtol=0)
+    assert all(p.grad is None for p in engine.model.parameters())
+
+
+def test_a_trained_dictionary_loads_and_encodes_as_the_trained_one_did(engines, tmp_path):
+    """sae_train_ablation's dictionary, loaded from the bundle sae_train wrote, gives the latents of every
+    prompt token bit-equal to the trained instance's own encode in sae_train's `train` eval."""
+    root = corpus_copy(tmp_path)
+    engine = engines("hooks", sae_train().model)
+    filled = engine.execute(sae_train(), batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "documents", "artifacts"))
+    with open(os.path.join(root, "documents", "sae_train_ablation.json")) as f:
+        doc = json.load(f)
+    doc["steps"]["base"]["reads"]["latents"]["pos"] = {"index": "all"}
+    doc["saves"] = ["base.latents"]
+    plan = Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["base.latents"],
+                filled.results["fit.train.harvest.latents"])
 
 
 def test_dbms_hard_mask_keeps_whole_units_per_sweep_point(ran):
@@ -252,14 +297,14 @@ def probe(change=None) -> Plan:
         "featurizers": {"probe": {"kind": "linear", "classes": "days.label"}},
         "steps": {"fit": {
             "kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 30, "batch_size": 4, "seed": 0,
-            "optimizer": {"name": "adam", "lr": 0.5},
+            "optimizer": {"name": "adam", "lr": 0.5}, "eval": {"train": {}},
             "steps": {
                 "read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
                     "site": {"component": "layer_output", "layers": 1}, "pos": -1,
                     "ops": [{"op": "encode", "featurizer": "fit.probe"}]}}},
                 "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores", "target": "days.label"},
                 "hit": {"kind": "op", "op": "match", "of": "read.scores", "expected": "days.label"}}}},
-        "saves": ["fit.history.ce", "fit.hit", "fit.read.scores", "fit.probe"]}
+        "saves": ["fit.history.ce", "fit.train.hit", "fit.train.read.scores", "fit.probe"]}
     if change:
         change(doc)
     return Plan(**doc).compile()
@@ -270,12 +315,12 @@ def test_a_probe_learns_its_classes(engines, kind):
     """Its scores are one per class, `[rows, pos, classes]`; cross_entropy and match resolve the label column
     against the class list, so the training ce falls and the trained probe calls every row right."""
     plan = probe()
-    assert dims_of(plan, "fit.read.scores") == ["rows", "pos", "classes"]
+    assert dims_of(plan, "fit.train.read.scores") == ["rows", "pos", "classes"]
     values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
-    assert values["fit.read.scores"].shape == (8, 1, 2) and values["fit.probe"]["W"].shape == (16, 2)
+    assert values["fit.train.read.scores"].shape == (8, 1, 2) and values["fit.probe"]["W"].shape == (16, 2)
     assert values["fit.history.ce"][-1] < values["fit.history.ce"][0]
-    assert values["fit.hit"].eq(1).all()
-    assert values["fit.hit"].tolist() == (values["fit.read.scores"].argmax(-1) == torch.tensor(
+    assert values["fit.train.hit"].eq(1).all()
+    assert values["fit.train.hit"].tolist() == (values["fit.train.read.scores"].argmax(-1) == torch.tensor(
         [[int(d in ("Saturday", "Sunday"))] for d in DAYS])).float().tolist()       # weekday, weekend: sorted
 
 
@@ -323,18 +368,25 @@ def test_a_trained_bundle_carries_its_site_and_document(ran):
         assert f.metadata() == bundle_header(kind="subspace", k="8", parametrization="cayley", document="das")
 
 
-def test_a_fit_member_tables_over_the_eval_rows(ran):
-    """`fit.iia` is the body's iia under eval: one row per held-out example, labelled with its own tokens."""
+def test_both_named_evals_run_and_each_member_tables_over_its_own_rows(ran):
+    """das names two evals: `held_out` (the body with `test` for `train`) and `train` (the data it trained on).
+    Both run, and each member tables over its own eval's rows, labelled with their own tokens and text."""
+    das = ran["das", "nnterp"]
+    assert das.results["fit.held_out.iia"].shape == das.results["fit.train.iia"].shape == (2, 1)
+    assert not torch.equal(das.results["fit.held_out.iia"], das.results["fit.train.iia"])
     cwd = os.getcwd()
     try:
         os.chdir(ran["root"])
-        rows = ran["das", "nnterp"].table("fit.iia")
+        tables = {label: das.table(f"fit.{label}.iia") for label in ("held_out", "train")}
     finally:
         os.chdir(cwd)
-    assert [r["row"] for r in rows] == [0, 1] and {r["pos_token"] for r in rows} == {"▁is"}
-    assert [r["input"] for r in rows] == [r["input"] for r in json.load(open(os.path.join(ROOT, "data", "weekdays",
-                                                                                          "data.json")))
-                                          if r["split"] == "test"]
+    with open(os.path.join(ROOT, "data", "weekdays", "data.json")) as f:
+        rows = json.load(f)
+    for label, split in (("held_out", "test"), ("train", "train")):
+        table = tables[label]
+        assert [r["row"] for r in table] == [0, 1] and {r["pos_token"] for r in table} == {"▁is"}
+        assert [r["input"] for r in table] == [r["input"] for r in rows if r["split"] == split]
+        assert [r["value"] for r in table] == das.results[f"fit.{label}.iia"].flatten().tolist()
 
 
 # -- refusals -------------------------------------------------------------------------------------------------
@@ -352,11 +404,13 @@ def use_a_root_read_in_the_body(d):
 
 
 @pytest.mark.parametrize("change, message", [
-    (train_an_sae, r"steps\.fit\.train\[0\]: 'dictionary' is a sae, which a bundle fixes; it has nothing to train"),
+    (train_an_sae, r"steps\.fit\.train\[0\]: 'dictionary' is loaded from a bundle, which fixes it"),
     (use_a_root_read_in_the_body,
      r"steps\.fit\.steps: the body uses 'early\.logits', which has a row per example of the whole dataset"),
     (lambda d: d["steps"]["fit"]["steps"].update(rot={"kind": "op", "op": "mean", "of": "patched.logits"}),
      r"steps\.fit\.steps\.rot: 'rot' is also a dataset or a featurizer"),
+    (lambda d: d["steps"]["fit"]["eval"].update(rot={}),
+     r"steps\.fit\.eval\.rot: 'rot' names the fit's history or a featurizer it trains"),
 ])
 def test_a_fit_that_cannot_mean_anything_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
@@ -401,8 +455,9 @@ def test_a_readout_in_the_body_carries_the_gradient_on_both_engines(engines):
 def test_a_table_refuses_to_join_values_of_two_datasets(ran):
     """`fit.iia` has a row per held-out example and `iia` one per training example: row 1 of one is not row 1
     of the other, so the join is refused naming both datasets."""
-    with pytest.raises(ValueError, match=r"'fit\.iia' has a row per example of 'test' and 'iia' of 'train'"):
-        ran["das", "nnterp"].table("fit.iia", "iia")
+    with pytest.raises(ValueError, match=r"'fit\.held_out\.iia' has a row per example of 'test' and "
+                                         r"'fit\.train\.iia' of 'train'"):
+        ran["das", "nnterp"].table("fit.held_out.iia", "fit.train.iia")
 
 
 def test_a_swept_fits_bundle_is_refused_naming_its_points(engines, tmp_path):
@@ -431,7 +486,7 @@ def held_out(label: str):
         held = [dict(r) for r in d["data"]["days"]["rows"]]
         held[0]["label"] = label
         d["data"]["held"] = {"rows": held}
-        d["steps"]["fit"]["eval"] = {"data": {"days": "held"}}
+        d["steps"]["fit"]["eval"] = {"train": {"days": "held"}}
     return change
 
 
@@ -473,7 +528,7 @@ def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, t
         "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "encode", "featurizer": "probe"}]}}}}
     spec = {"kind": "linear", "classes": "days.label", "file_path": "documents/artifacts/fit.probe.safetensors"}
     plan = applied(root, "probe", spec, read, data)
-    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.read.scores"])
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.train.read.scores"])
     for row in data["days"]["rows"]:
         row["label"] = "rest" if row["label"] == "weekend" else row["label"]
     with pytest.raises(PlanError, match=r"header 'classes' is '\[\"weekday\", \"weekend\"\]'; this document expects "
@@ -482,8 +537,8 @@ def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, t
 
 
 def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
-    """dbm at one L1 weight, its gate loaded by a document that runs dbm's root steps through it: the same
-    numbers, to the bit."""
+    """dbm at one L1 weight, its gate loaded by a document that runs dbm's body at the root through it: the
+    numbers of its `train` eval, to the bit."""
     root = corpus_copy(tmp_path)
     one = edited("dbm", lambda d: d["steps"]["fit"]["objective"].update({"mask.mask": 0.01})).compile()
     engine = engines("hooks", one.model)
@@ -492,7 +547,7 @@ def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
 
     def loaded(d):
         d["featurizers"]["mask"]["file_path"] = "documents/artifacts/fit.mask.safetensors"
-        del d["steps"]["fit"]
+        d["steps"] = d["steps"]["fit"]["steps"]
         for side in d["interventions"].values():
             for record in {**side.get("writes", {}), **side.get("reads", {})}.values():
                 for o in record.get("ops", []):
@@ -501,4 +556,5 @@ def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
     plan = edited("dbm", loaded)
     plan = Plan(**plan.model_dump(exclude_defaults=True, exclude={"document"}),
                 document=os.path.join(root, "documents", "dbm.json")).compile()
-    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results, {k: filled.results[k] for k in ("iia", "ce")})
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
+                {k: filled.results[f"fit.train.{k}"] for k in ("iia", "ce")})

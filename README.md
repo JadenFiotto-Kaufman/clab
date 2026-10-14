@@ -40,7 +40,16 @@ uv run clab run documents/das_apply.json --batch-size 2                        #
 uv run clab table out/das_apply iia                                            # das's held-out iia, to the bit
 ```
 
-`pca_control.json` loads what `pca_harvest.json` writes the same way. `documents/artifacts/sae.safetensors`,
+`pca_control.json` loads what `pca_harvest.json` writes the same way, and `sae_train_ablation.json` the
+sparse autoencoder `sae_train.json` trains on every token of the weekday prompts:
+
+```
+uv run clab run documents/sae_train.json --batch-size 2 --out documents/artifacts   # fit.dictionary.safetensors
+uv run clab run documents/sae_train_ablation.json --batch-size 2                     # ablates latents 0 to 3
+```
+
+A fit's `eval` names its runs after training: `das.json`'s `{"held_out": {"train": "test"}, "train": {}}`
+gives `fit.held_out.iia` and `fit.train.iia`. `documents/artifacts/sae.safetensors`,
 the dictionary `sae_feature_ablation.json` loads, is a committed fixture (`uv run python tests/fixtures/sae.py`
 writes it again). A fit's members are saved like any value; `fit.history.<op>` is a body op's mean on the
 training rows after each epoch:
@@ -49,6 +58,7 @@ training rows after each epoch:
 plan = clab.run("documents/dbm.json", batch_size=2)
 plan.results["fit.mask"][0.05]       # the gate trained at L1 weight 0.05: {"theta": tensor [16]}
 (plan.results["fit.mask"][0.05]["theta"] > 0).sum()    # the units its hard mask keeps
+plan.results["fit.held_out.iia"][0.05]                  # its iia on the test split
 ```
 
 ## Look at a run

@@ -27,8 +27,8 @@ def compiled_form(plan: Plan) -> dict:
     return dump
 
 
-def test_the_corpus_is_31_documents():
-    assert len(NAMES) == 31
+def test_the_corpus_is_the_31_documents_and_the_examples_since():
+    assert len(NAMES) == 31 + 2 and {"sae_train", "sae_train_ablation"} <= set(NAMES)
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -129,8 +129,9 @@ def test_one_sweep_reached_from_two_steps_is_one_axis():
 
 
 def test_a_reference_carries_its_producers_axes():
-    plan = plan_of("dbm")       # the root counterfactual's only link to the swept fit is featurizer fit.mask
-    assert [p.at for p in points(plan.steps["counterfactual"])] == [{"mask.mask": i} for i in range(4)]
+    plan = edited("dbm", lambda d: d["steps"].update(               # the step's only link to the swept fit
+        accuracy={"kind": "op", "op": "mean", "of": "fit.held_out.iia"})).compile()
+    assert [p.at for p in points(plan.steps["accuracy"])] == [{"mask.mask": i} for i in range(4)]
     assert [p.objective["mask.mask"] for p in points(plan.steps["fit"])] == [0.0001, 0.002, 0.01, 0.05]
 
 
