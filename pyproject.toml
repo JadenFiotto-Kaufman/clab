@@ -8,13 +8,14 @@ dependencies = [
     "nnterp",
     "torch",
     "safetensors",
+    "pydantic",
 ]
 
 [project.scripts]
 clab = "clab.cli:main"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "jsonschema"]
 
 # nnsight and nnterp are the shared working checkouts on this machine,
 # installed editable. Leave these two entries and the override alone; add your

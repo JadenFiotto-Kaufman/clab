@@ -43,3 +43,4 @@ def by_site(writes: list[dict], reads: list[dict]) -> dict[tuple, tuple[list, li
         for record in records:
             sites.setdefault((record["component"], record["layer"]), ([], []))[side].append(record)
     return sites
+

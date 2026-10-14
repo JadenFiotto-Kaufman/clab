@@ -1,150 +1,85 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "gpt2_reach",
-  "path": "documents/gpt2_reach.json",
-  "sha256": "72504118a9828396d792cceb9fe5d0c0e6705e01e289eddc88e1df8bb714d753"
- },
  "description": "The interchange on a second model family: tiny GPT-2, whose module tree shares no path with Llama's, at layer 2's residual stream. It asks whether the engine generalizes, not whether the result means anything — the weights are random. The counting dataset, because tiny GPT-2's vocabulary cannot spell the weekdays as one token each. Only the logit difference is saved.",
  "model": {
   "key": "hf-internal-testing/tiny-random-gpt2",
-  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
  },
  "data": {
   "pairs": {
    "path": "counting/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "a6dddab9ac905ac91c29a904980cf2005c547c02e1b2611988915ee992a8e9b9",
+   "n_rows": 4
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "counterfactual": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "counterfactual_inputs",
-    "index": 0,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "v_cf",
-     "component": "layer_output",
-     "layer": 2,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.counterfactual_inputs[0]",
+   "reads": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 2
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "patched": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "patch",
-     "component": "layer_output",
-     "layer": 2,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "writes": {
+    "patch": {
+     "site": {
+      "component": "layer_output",
+      "layers": 2
      },
+     "pos": -1,
      "ops": [
       {
        "op": "swap",
-       "args": {
-        "with": "counterfactual.v_cf"
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": "counterfactual.v_cf"
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "logit_diff": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "patched.logits",
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "patched.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "logit_diff": {
-     "save": "logit_diff.json",
-     "value": null
-    }
-   }
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer"
   }
- }
+ },
+ "saves": [
+  "logit_diff"
+ ],
+ "document": "documents/gpt2_reach.json",
+ "compiled": true
 }

@@ -1,0 +1,112 @@
+{
+ "description": "The PCA control: the interchange DAS fits a rotation for, run through the top-4 principal directions of the residual stream instead — a basis loaded from what pca_harvest.json wrote, never trained. Run pca_harvest.json with --out documents/artifacts first; this loads what it wrote. It keeps das_apply.json's name, `rot`, so the two documents differ only in what that featurizer is. What a trained rotation has to beat.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "test": {
+   "path": "weekdays/data",
+   "split": "test",
+   "sha256": "0ba4fcc8fb6b3cdce5ef2c459d9e9d0e16e55480910f26a4342e11b59dfe9d46",
+   "n_rows": 2
+  }
+ },
+ "featurizers": {
+  "rot": {
+   "kind": "pca",
+   "k": 4,
+   "file_path": "documents/artifacts/basis.safetensors"
+  }
+ },
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "input": "test.counterfactual_inputs[0]",
+   "reads": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "encode",
+       "featurizer": "rot"
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "features"
+     ]
+    }
+   },
+   "dataset": "test"
+  },
+  "patched": {
+   "kind": "forward",
+   "input": "test.input",
+   "writes": {
+    "patch": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "swap",
+       "featurizer": "rot",
+       "with": "counterfactual.v_cf"
+      }
+     ]
+    }
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "test"
+  },
+  "iia": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "patched.logits",
+   "dataset": "test",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "test.cf_answer",
+   "b": "test.base_answer"
+  },
+  "ce": {
+   "kind": "op",
+   "op": "cross_entropy",
+   "of": "patched.logits",
+   "dataset": "test",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "target": "test.cf_answer"
+  }
+ },
+ "saves": [
+  "iia",
+  "ce"
+ ],
+ "document": "documents/pca_control.json",
+ "compiled": true
+}

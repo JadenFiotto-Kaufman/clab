@@ -9,6 +9,7 @@ module's forward (`.source`) is not a module boundary, and is refused by name
 before anything runs, as is `remote`.
 """
 
+import time
 from typing import Any
 
 import nnterp  # noqa: F401  (before any transformers.models import, which otherwise segfaults)
@@ -19,22 +20,42 @@ from transformers import AutoModelForCausalLM
 
 from .. import ops, steps
 from ..address import COMPONENTS
-from ..compiler import points
+from ..plan import Model, Plan
+from . import DTYPES, engine
 from .standard import SIZES, by_site, envoy, nnterp_name
 
 
+@engine("hooks")
 class HooksEngine:
-    def __init__(self, model, tokenizer, config: dict):
-        self.model = model
-        self.tokenizer = tokenizer
-        self.config = config
+    name: str
 
-    def execute(self, plan: dict, *, batch_size: int = 8, remote: bool | str = False) -> dict:
+    def __init__(self, model: Model):
+        """The checkpoint `model` pins, as `AutoModelForCausalLM` on the CPU, with what the meta shell says of it:
+        each component's native module and boundary, the sizes, and the modules the readout runs."""
+        extra: dict[str, Any] = {"attn_implementation": model.attn_implementation} if model.attn_implementation else {}
+        shell = StandardizedTransformer(model.key, revision=model.revision, dispatch=False, device_map=None, **extra)
+        support = shell.support()
+        sites = {c: reach(shell, c, support) for c in COMPONENTS}
+        self.spec = model
+        self.tokenizer = shell.tokenizer
+        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
+                       "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
+        self.model = AutoModelForCausalLM.from_pretrained(model.key, revision=model.revision,
+                                                          dtype=getattr(torch, DTYPES[model.dtype]), **extra).eval()
+
+    def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         if remote:
             raise ValueError("the hooks engine runs in this process; remote runs need the nnterp engine")
-        refuse(plan, self.config["sites"])
+        started = steps.begin(self, plan, batch_size, remote)
         steps.run(self, plan, batch_size)
+        assert plan.run is not None
+        plan.run.seconds = round(time.time() - started, 3)
         return plan
+
+    def unserved(self) -> dict:
+        """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
+        module's forward rather than at a module boundary; None where it can."""
+        return {c: site["refused"] for c, site in self.config["sites"].items()}
 
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
@@ -58,7 +79,10 @@ class HooksEngine:
         raise NotImplementedError("M3")
 
     def readout(self, hidden: Tensor) -> Tensor:
-        raise NotImplementedError("M2")
+        """The final norm, then the head: the modules nnterp's names for their outputs reach."""
+        norm, head = (self.model.get_submodule(path) for path in self.config["readout"])
+        with torch.no_grad():
+            return head(norm(hidden))
 
 
 def hook(model, config: dict, component: str, layer: int | None, here: list, there: list, got: dict):
@@ -97,17 +121,6 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
     return module.register_forward_hook(post)
 
 
-def refuse(plan: dict, sites: dict) -> None:
-    """Every component the plan names that this engine cannot reach, by name, before anything runs."""
-    for name, entry in plan["steps"].items():
-        for step in points(entry):
-            for record in step.get("writes", []) + step.get("reads", []):
-                reason = sites[record["component"]]["refused"]
-                if reason:
-                    raise ValueError(f"step {name!r}, {record['name']!r}: the hooks engine does not serve "
-                                     f"{record['component']}: {reason}")
-
-
 def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict:
     """Where the component is on the native model: per layer, the module whose output or input nnterp's key names."""
     per_layer = COMPONENTS[component]["per_layer"]
@@ -130,14 +143,3 @@ def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict
         paths[str(layer)] = host.path.removeprefix("model").removeprefix(".")
     return {"paths": paths, "boundary": boundary, "refused": None}
 
-
-def load(model: dict) -> HooksEngine:
-    """The checkpoint the plan pins, as `AutoModelForCausalLM` on the CPU, with what the meta shell says of it."""
-    extra = {"attn_implementation": model["attn_implementation"]} if model["attn_implementation"] else {}
-    shell = StandardizedTransformer(model["key"], revision=model["revision"], dispatch=False, device_map=None, **extra)
-    support = shell.support()
-    config = {"sizes": {k: getattr(shell, k) for k in SIZES},
-              "sites": {c: reach(shell, c, support) for c in COMPONENTS}}
-    loaded = AutoModelForCausalLM.from_pretrained(model["key"], revision=model["revision"],
-                                                  dtype=getattr(torch, model["dtype"]), **extra)
-    return HooksEngine(loaded.eval(), shell.tokenizer, config)

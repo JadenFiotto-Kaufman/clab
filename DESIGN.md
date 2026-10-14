@@ -1,23 +1,38 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10, which wins wherever the two disagree.** `FORMAT.md` (generated from the code) is
-the user-facing reference; the code now differs from this document in these places:
+**Amended by PLAN.md §10 and §11, which win wherever they and this document disagree.** `FORMAT.md` and
+`schema.json` (generated from the code) are the user-facing reference; the code now differs from this
+document in these places:
 
-- §1: the plan has a root `description`; a forward's `input` names its dataset (`{"data", "column", "index",
-  "variables"}`); write and read records carry `ops` in place of `mechanism`/`operand`/`params`/`featurizer`/
-  `features`/`view`, and write records carry `dims`; `metric` and `reduce` steps are `op` steps, `{"op",
-  "args": {"of", ...}, "data", "dims"}`; a fit's `objective` is a dict and it has no `anneal`.
-- §2: `ops.py` replaces `interventions.py` and `metrics.py`; `describe` lives in `cli.py`; the compiler is
-  `compiler.py`, so that `clab.compile` is the function; `engines/standard.py` holds how nnterp reaches each
-  component, which both engines read.
-- §3: the engine's records hold `positions` (not `at`) and `select` as `{dimension: indices}`; reads reach the
-  engine without their ops, which `steps.py` applies to the gathered selection; the hooks engine holds its
-  tokenizer beside its model and configuration.
-- §4: the table is keyed on nnterp's names, and `attention_premix` is held in nnterp's layout,
-  `(batch, seq, num_heads, head_dim)`, rather than flat.
-- §7: a swept objective weight is labelled by its term (`mask.mask`), since the objective is a dict.
-- §8: any op step's value may be saved as a `.json` table; `load` gives each dataset `n_rows` in place of
-  its rows.
+- §1: the plan is one pydantic model, `Plan` (`clab/plan.py`), which is also the document: `Plan(path)` reads
+  one, `compile()` returns it compiled (`compiled: true`). The records (sites, reads and writes, ops, `pos`,
+  steps, datasets, featurizers) are the same models in both states; compile fills a few derived fields (a
+  step's `at`, `dataset` and `dims`, a read's `dims`, a dataset's `sha256`). Sites and named interventions
+  are inlined into the steps; featurizers stay at the root, by name. Steps carry no result slots: results
+  are `plan.results`, one dict at the root keyed by the names in `saves`, a swept one a dict keyed by
+  coordinate. `saves` is a root key and a list of names. A forward's `input` stays the string
+  `"<dataset>.<column>[i]"`; `pos` stays as written and becomes a slice in the run.
+- §2: `plan.py` holds the models and `find_sweeps`; `compiler.py` is the transform (sweeps, inlining, names,
+  layouts, datasets, bundles); `output.py` is `dump`, `load` and `table`; `registry.py` checks a document's
+  arguments against a function's signature; an op declares its group and, for `pca`, the featurizer its
+  bundle is for in `@op`.
+- §3: an engine loads its checkpoint in `__init__` from the plan's `model` block and registers by decorator
+  (`@engine("nnterp")`); `execute` refuses an uncompiled plan and a plan for another checkpoint; an engine
+  says what it cannot serve (`unserved()`, nnterp from its `support()`), and preflight refuses those
+  components by name, inside the session, before any forward. `readout` is nnterp's `project_on_vocab` and the hooks engine's final norm and head.
+- §5: positions resolve per row on the unpadded tokens in `steps.preflight`, are recorded in
+  `plan.run.positions`, and are offset by each row's padding per batch. Scopes use the tokenizer's offset
+  mapping; a chat is rendered through the template and its turns located by their content.
+- §6: the cross-step state is as described; what `saves` keeps goes into `plan.results` when the run ends.
+- §7: a swept result is keyed by the axis's value (a list value as a tuple; several axes as a tuple in axis
+  order), not stored per point directory. A `layers: "all"` read runs its ops per layer before stacking, so it
+  equals the layer sweep to the bit.
+- §8: there are no coordinate directories and no table files: one file per save, `<name>.safetensors` or
+  `<name>.json`, a swept one keyed by coordinate inside the file. `manifest.json` is the plan's own dump
+  without its file-read rows, each result replaced by `{file, step, dims, axes, shape, dtype}`.
+- §10: verified in M2 that a pydantic `Plan` survives `nnsight.save(plan)` under `remote="local"` and the
+  stand-in server's `torch.save`/`torch.load` round trip, pickled by class reference with nothing of clab or
+  nnterp by value; the stand-in test asserts it.
 - §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
   step).
 

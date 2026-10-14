@@ -1,382 +1,211 @@
 {
- "format": "clab/1",
- "document": {
-  "name": "steer_renormalize",
-  "path": "documents/steer_renormalize.json",
-  "sha256": "787336a35ad59b8d401263ba473d2d8737ae8bb0f16e5df23dcddd1231608bab"
- },
- "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it at the last position (add_scaled), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked.",
+ "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-  "dtype": "float32",
-  "attn_implementation": null
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
  },
  "data": {
   "pairs": {
    "path": "weekdays/train",
-   "split": null,
-   "columns": [
-    "base_answer",
-    "cf_answer",
-    "counterfactual_inputs",
-    "input"
-   ]
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
   }
  },
- "featurizers": {},
- "sweeps": {},
  "steps": {
   "harvest": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "counterfactual_inputs",
-    "index": 0,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "resid",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.counterfactual_inputs[0]",
+   "reads": {
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {}
+   },
+   "dataset": "pairs"
   },
   "direction": {
    "kind": "op",
-   "at": {},
    "op": "mean",
-   "args": {
-    "of": "harvest.resid",
-    "over": null
-   },
-   "data": "pairs",
+   "of": "harvest.resid",
+   "dataset": "pairs",
    "dims": [
     "hidden_size"
-   ],
-   "result": {}
+   ]
   },
   "base": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [],
-   "reads": [
-    {
-     "name": "resid",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "reads": {
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {
-    "base.resid": {
-     "save": "norm_before.safetensors",
-     "value": null
-    }
-   }
+   },
+   "dataset": "pairs"
   },
   "steered": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "steer",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "writes": {
+    "steer": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "add",
-       "args": {
-        "with": "direction",
-        "scale": 4.0
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": "direction",
+       "scale": 4.0
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     },
-    {
-     "name": "resid",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {
-    "steered.resid": {
-     "save": "norm_steered.safetensors",
-     "value": null
-    }
-   }
+   },
+   "dataset": "pairs"
   },
   "steered_renormed": {
    "kind": "forward",
-   "at": {},
-   "input": {
-    "data": "pairs",
-    "column": "input",
-    "index": null,
-    "variables": null
-   },
-   "writes": [
-    {
-     "name": "steer",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   "input": "pairs.input",
+   "writes": {
+    "steer": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
        "op": "add",
-       "args": {
-        "with": "direction",
-        "scale": 4.0
-       },
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "with": "direction",
+       "scale": 4.0
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     },
-    {
-     "name": "restore",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+    "restore": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
+     "pos": -1,
      "ops": [
       {
-       "op": "renormalize",
-       "args": {},
-       "featurizer": null,
-       "features": null,
-       "dims": [
-        "rows",
-        "pos",
-        "hidden_size"
-       ]
+       "op": "renormalize"
       }
-     ],
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ]
     }
-   ],
-   "reads": [
-    {
-     "name": "logits",
-     "component": "lm_head_output",
-     "layer": null,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "vocab_size"
      ]
     },
-    {
-     "name": "resid",
-     "component": "layer_output",
-     "layer": 0,
-     "select": {},
-     "pos": {
-      "frame": "prompt",
-      "scope": null,
-      "start": -1,
-      "stop": null
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
      },
-     "ops": [],
+     "pos": -1,
      "dims": [
       "rows",
       "pos",
       "hidden_size"
      ]
     }
-   ],
-   "result": {
-    "steered_renormed.resid": {
-     "save": "norm_after.safetensors",
-     "value": null
-    }
-   }
+   },
+   "dataset": "pairs"
   },
   "renormed_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "steered_renormed.logits",
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "steered_renormed.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "renormed_ld": {
-     "save": "logit_diff_renormed.json",
-     "value": null
-    }
-   }
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer"
   },
   "p_answer": {
    "kind": "op",
-   "at": {},
    "op": "token_prob",
-   "args": {
-    "of": "steered_renormed.logits",
-    "token": "pairs.cf_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "steered_renormed.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {}
+   "token": "pairs.cf_answer"
   },
   "steered_ld": {
    "kind": "op",
-   "at": {},
    "op": "logit_diff",
-   "args": {
-    "of": "steered.logits",
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer",
-    "token_form": "spaced"
-   },
-   "data": "pairs",
+   "of": "steered.logits",
+   "dataset": "pairs",
    "dims": [
     "rows",
     "pos"
    ],
-   "result": {
-    "steered_ld": {
-     "save": "logit_diff_steered.json",
-     "value": null
-    }
-   }
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer"
   }
- }
+ },
+ "saves": [
+  "renormed_ld",
+  "steered_ld",
+  "base.resid",
+  "steered_renormed.resid",
+  "steered.resid"
+ ],
+ "document": "documents/steer_renormalize.json",
+ "compiled": true
 }

@@ -1,5 +1,5 @@
 {
-  "description": "Two experiments at one site over the same rows, and the baseline they share. `interventions` declares interchange patching and mean ablation at the last position of layer 0; nothing there runs until a step lists it. `clean` runs the un-intervened model, scores it, and reads the activation `mean` averages. `patched` lists `patching`, whose operand is `counterfactual.v_cf`; `ablated` lists `ablation`, whose operand is `mean`, the step before it. Each metric is a step with its own name, and the save paths put the two experiments' tables in compare/patching/ and compare/ablation/. Tiny CPU Llama, so the numbers demonstrate the mechanism and nothing else.",
+  "description": "Two experiments at one site over the same rows, and the baseline they share. `interventions` declares interchange patching and mean ablation at the last position of layer 0; nothing there runs until a step lists it. `clean` runs the un-intervened model, scores it, and reads the activation `mean` averages. `patched` lists `patching`, whose operand is `counterfactual.v_cf`; `ablated` lists `ablation`, whose operand is `mean`, the step before it. Each metric is a step with its own name, `patching_ld` and `ablation_ld`, so the two experiments' results sit side by side in one output directory and `plan.table(\"patching_ld\", \"ablation_ld\")` joins them row by row. Tiny CPU Llama, so the numbers demonstrate the mechanism and nothing else.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -57,12 +57,7 @@
       "of": "ablated.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {
-      "clean_ld": "clean.json",
-      "iia": "compare/patching/iia.json",
-      "patching_ld": "compare/patching/logit_diff.json",
-      "ablation_ld": "compare/ablation/logit_diff.json"
     }
-  }
+  },
+  "saves": ["clean_ld", "iia", "patching_ld", "ablation_ld"]
 }

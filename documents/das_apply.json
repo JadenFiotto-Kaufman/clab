@@ -1,11 +1,11 @@
 {
-  "description": "The apply half of a fit: the rotation documents/v2/das.json trained and saved as `fit.rot`, loaded from the bundle it wrote and scored on the held-out split. Nothing here trains it, so it is named by its declared name. The bundle's header is checked against this document key by key before anything runs; a rotation from another model, layer or width is refused naming the key. Run das.json with --out documents/artifacts first; this loads what it wrote.",
+  "description": "The apply half of a fit: the rotation documents/das.json trained and saved as `fit.rot`, loaded from the bundle it wrote and scored on the held-out split. Nothing here trains it, so it is named by its declared name. The bundle's header is checked against this document key by key before anything runs; a rotation from another model, layer or width is refused naming the key. Run das.json with --out documents/artifacts first; this loads what it wrote.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "dtype": "fp32"
   },
-  "data": {"test": {"path": "weekdays/data#test"}},
+  "data": {"test": {"path": "weekdays/data", "split": "test"}},
   "sites": {
     "target": {"component": "layer_output", "layers": 0},
     "head": {"component": "lm_head_output"}
@@ -15,7 +15,7 @@
       "kind": "subspace",
       "k": 8,
       "parametrization": "cayley",
-      "file_path": "documents/artifacts/rot.safetensors"
+      "file_path": "documents/artifacts/fit.rot.safetensors"
     }
   },
   "steps": {
@@ -43,7 +43,7 @@
       "a": "test.cf_answer",
       "b": "test.base_answer"
     },
-    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "test.cf_answer"},
-    "saves": {"iia": "iia.json", "ce": "ce.json"}
-  }
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "test.cf_answer"}
+  },
+  "saves": ["iia", "ce"]
 }

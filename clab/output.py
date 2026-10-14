@@ -1,131 +1,277 @@
-"""A filled plan to a directory and back: each saved value at the path its document gives, and a manifest.
+"""A run's output directory and back, and saved values as tables.
 
-`.json` files are tables, a row per element of the value; `.safetensors`
-files hold the tensor under its name, with `dims` and `at` in the metadata.
-`manifest.json` mirrors the plan: its steps as compiled, every slot's value
-replaced by where it landed. `load` is the inverse of `write`.
+One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
+bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
+save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
+(`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`) carries
+the header that featurizer checks.
+
+`manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
+`results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
+step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
+The plan's `run` holds how each input tokenized and which token every positioned read and write resolved
+to, which `table` uses to label positions. Values are never in the manifest.
 """
 
-import importlib.metadata
 import itertools
 import json
 import os
-import platform
+from typing import Any
 
 import torch
 from safetensors.torch import load_file, save_file
+from torch import Tensor
 
-from .compiler import dims_of, place, points
+from . import data, featurizers, ops
+from .plan import Plan, arguments, coordinate, corpus_root, dims_of, labelled, points
 
-AXIS = {"rows": "row", "layers": "layer"}
 
-
-def write(plan: dict, out: str, run: dict) -> dict:
-    """Every filled slot to its file and `manifest.json`; returns the manifest. `run` says how it ran."""
+def dump(plan: Plan, out: str) -> None:
+    if plan.run is None:
+        raise ValueError("the plan has not run, so it has no results; execute it first")
     os.makedirs(out, exist_ok=True)
-    saves: list[dict] = []
-    steps = {}
-    for name, entry in plan["steps"].items():
-        described = [written(plan, name, point, out, saves) for point in points(entry)]
-        steps[name] = described if isinstance(entry, list) else described[0]
-    manifest = {
-        "format": plan["format"], "document": plan["document"], "description": plan["description"],
-        "model": plan["model"], **run, "versions": versions(),
-        "sweeps": [{"label": label, **s} for label, s in plan["sweeps"].items()],
-        "data": {n: {k: v for k, v in d.items() if k != "rows"} | {"n_rows": len(d["rows"])}
-                 for n, d in plan["data"].items()},
-        "featurizers": {n: [without_tensors(p) for p in points(f)] if isinstance(f, list) else without_tensors(f)
-                        for n, f in plan["featurizers"].items()},
-        "steps": steps, "saves": saves,
-    }
-    with open(os.path.join(out, "manifest.json"), "w") as f:
-        json.dump(manifest, f, indent=1)
-    return manifest
-
-
-def written(plan: dict, name: str, point: dict, out: str, saves: list) -> dict:
-    result = {}
-    for key, slot in point["result"].items():
-        file, value, dims = place(plan, point["at"], slot["save"]), slot["value"], dims_of(plan, key)
-        os.makedirs(os.path.dirname(os.path.join(out, file)) or out, exist_ok=True)
-        at = coordinates(plan, point["at"])
-        if file.endswith(".json"):
-            table = {"name": key, "step": name, "op": point.get("op"), "of": point.get("args", {}).get("of"),
-                     "at": at, "dims": dims, "mean": value.float().mean().item(), "rows": flatten(plan, point, value, dims)}
-            with open(os.path.join(out, file), "w") as f:
-                json.dump(table, f, indent=1)
+    described = {}
+    for name in plan.saves:
+        entry = plan.steps[name.partition(".")[0]]
+        value = plan.results[name]
+        if isinstance(entry, list):
+            value = {labelled(plan, p.at, tensors(value)): value[coordinate(plan, p.at)] for p in entry}
+        file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
+        if tensors(value):
+            save_file(flat({name: value} if isinstance(value, Tensor) else value), os.path.join(out, file),
+                      metadata=header(plan, name))
         else:
-            save_file({key: value.contiguous()}, os.path.join(out, file),
-                      metadata={"dims": json.dumps(dims), "at": json.dumps(at)})
-        described = {"file": file, "kind": "table" if file.endswith(".json") else "tensor", "dims": dims,
-                     "shape": list(value.shape), "dtype": str(value.dtype).removeprefix("torch.")}
-        result[key] = {"save": slot["save"], "value": described}
-        saves.append({"name": key, "step": name, "at": at, "file": file})
-    return {**point, "result": result}
+            with open(os.path.join(out, file), "w") as f:
+                json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
+        described[name] = {"file": file, "step": name.partition(".")[0], "dims": dims_of(plan, name),
+                           "axes": list(points(entry)[0].at), "shape": describe(value, "shape"),
+                           "dtype": describe(value, "dtype")}
+    manifest = plan.model_dump(mode="json", exclude_defaults=True)
+    for d in manifest["data"].values():
+        if "path" in d or "hf" in d:
+            del d["rows"]
+    with open(os.path.join(out, "manifest.json"), "w") as f:
+        json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)
 
 
-def load(out: str) -> dict:
-    """The filled plan an output directory holds, its tensors loaded; datasets carry `n_rows` in place of rows."""
+def load(out: str) -> Plan:
     with open(os.path.join(out, "manifest.json")) as f:
         manifest = json.load(f)
-    plan = {k: manifest[k] for k in ("format", "document", "description", "model", "data", "featurizers")}
-    plan["sweeps"] = {s["label"]: {"path": s["path"], "values": s["values"]} for s in manifest["sweeps"]}
-    plan["steps"] = manifest["steps"]
-    for entry in plan["steps"].values():
-        for point in points(entry):
-            for key, slot in point["result"].items():
-                slot["value"] = value_at(out, key, slot["value"])
+    described = manifest.pop("results")
+    plan = Plan(**manifest)
+    for name, d in described.items():
+        file = os.path.join(out, d["file"])
+        if file.endswith(".safetensors"):
+            value = nested(load_file(file))
+            value = value[name] if isinstance(d["dtype"], str) else value
+        else:
+            with open(file) as f:
+                value = json.load(f)
+        value = restored(value, d["dtype"])
+        entry = plan.steps[d["step"]]
+        if isinstance(entry, list):
+            value = {coordinate(plan, p.at): value[labelled(plan, p.at, file.endswith(".safetensors"))] for p in entry}
+        plan.results[name] = value
     return plan
 
 
-def value_at(out: str, key: str, described: dict) -> torch.Tensor:
-    path = os.path.join(out, described["file"])
-    if path.endswith(".safetensors"):
-        return load_file(path)[key]
-    with open(path) as f:
-        rows = json.load(f)["rows"]
-    dtype = getattr(torch, described["dtype"])
-    return torch.tensor([r["value"] for r in rows], dtype=dtype).reshape(described["shape"])
+def tensors(value: Any) -> bool:
+    return isinstance(value, Tensor) or isinstance(value, dict) and all(map(tensors, value.values()))
 
 
-def table(plan: dict, name: str) -> list[dict]:
-    """One flat table over every point of a saved value: a row per element, its point's coordinates under `at`
-    (kept apart from the row's own axes, which a sweep label may share: `pos_sweep.json` sweeps `pos`)."""
-    rows = []
-    for point in points(plan["steps"][name.partition(".")[0]]):
-        value = point["result"][name]["value"]
-        at = coordinates(plan, point["at"])
-        rows += [{"at": at, **row} for row in flatten(plan, point, value, dims_of(plan, name))]
+def flat(value: dict, prefix: str = "") -> dict[str, Tensor]:
+    out = {}
+    for k, v in value.items():
+        out.update(flat(v, f"{prefix}{k}/") if isinstance(v, dict) else {prefix + k: v.contiguous()})
+    return out
+
+
+def nested(value: dict[str, Tensor]) -> dict:
+    out: dict = {}
+    for key, v in value.items():
+        *path, last = key.split("/")
+        here = out
+        for k in path:
+            here = here.setdefault(k, {})
+        here[last] = v
+    return out
+
+
+def describe(value: Any, what: str) -> Any:
+    if isinstance(value, Tensor):
+        return list(value.shape) if what == "shape" else str(value.dtype).removeprefix("torch.")
+    if isinstance(value, dict):
+        return {k: describe(v, what) for k, v in value.items()}
+    return None
+
+
+def restored(value: Any, dtype: Any) -> Any:
+    """A loaded value with every entry its `dtype` says was a tensor a tensor again."""
+    if isinstance(dtype, str):
+        return value if isinstance(value, Tensor) else torch.tensor(value, dtype=getattr(torch, dtype))
+    if isinstance(dtype, dict):
+        return {k: restored(value[k], dtype[k]) for k in value}
+    return value
+
+
+def header(plan: Plan, name: str) -> dict[str, str] | None:
+    """A bundle's header, when the value is one: the value of an op step whose op declares the featurizer kind
+    its bundle is for."""
+    step = points(plan.steps[name.partition(".")[0]])[0]
+    kind = ops.DECLARED[step.op]["bundle"] if "." not in name and step.kind == "op" else None
+    return featurizers.header(kind, arguments(step), plan.model) if kind else None
+
+
+# -- tables ---------------------------------------------------------------------------------------------
+
+JOIN = ("at", "row", "layer", "pos", "key")
+
+
+def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict]:
+    """The saved values `names` as rows, joined wide on their shared axes, one column per name.
+
+    A value with a rows axis gives a row per example and token: `at` (its point's coordinates, when its step
+    is swept), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token axes
+    with their tokens (`pos`/`pos_token`, the index into the row's tokens a position resolved to;
+    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose),
+    and `value`: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A
+    value with no rows axis gives a row per element with its axis indices."""
+    for name in names:
+        if name not in plan.saves:
+            raise ValueError(f"{name!r} was not saved; add it to saves")
+    if len(names) == 1:
+        return rows_of(plan, names[0], columns)
+    joined: list[dict] = []
+    for name in names:
+        rows = [{**{k: v for k, v in row.items() if k != "value"}, name: row["value"]}
+                for row in rows_of(plan, name, columns)]
+        joined = join(joined, rows) if joined else rows
+    return joined
+
+
+def join(left: list[dict], right: list[dict]) -> list[dict]:
+    """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
+    beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
+    def axes(rows: list[dict]) -> list[str]:
+        return [k for k in JOIN if rows and k in rows[0]]
+    many, few = (left, right) if len(axes(left)) >= len(axes(right)) else (right, left)
+    shared = [k for k in axes(many) if k in axes(few)]
+    by_key: dict = {}
+    for row in few:
+        by_key.setdefault(json.dumps([row[k] for k in shared]), []).append(row)
+    pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row[k] for k in shared]), [])]
+    merged = [{**a, **b} if many is left else {**b, **a} for a, b in pairs]
+    return [{"at": m.pop("at"), **m} if "at" in m else m for m in merged]
+
+
+def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
+    entry, dims = plan.steps[name.partition(".")[0]], dims_of(plan, name)
+    source, used = provenance(plan, name)
+    dataset = points(entry)[0].dataset
+    examples = materialized(plan, dataset) if dataset else []
+    out = []
+    for p in points(entry):
+        value = plan.results[name][coordinate(plan, p.at)] if isinstance(entry, list) else plan.results[name]
+        at = {"at": {label: plan.sweeps[label].values[i] for label, i in p.at.items()}} if p.at else {}
+        place = located(plan, source, p.at) if source else None
+        for row in elements(value, dims, place):
+            if "row" in row and examples:
+                example = examples[row["row"]]
+                row = {**({"example_id": example["example_id"]} if "example_id" in example else {}), **row,
+                       **{c: example[c] for c in (columns if columns is not None else used)}}
+            out.append({**at, **row})
+    return out
+
+
+def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
+    """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
+    if isinstance(value, dict) and "tok" in value:
+        stack = value["values"] if "layers" in dims else value["values"][None]
+        return [{**({"layer": l} if "layers" in dims else {}), "row": r, "pos": t,
+                 **({"pos_token": place["tokens"][r][t]} if place else {}), "value": stack[l, i].tolist()}
+                for l in range(stack.shape[0])
+                for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist()))]
+    if isinstance(value, dict) and "rows" not in dims:
+        raise ValueError("a bundle has no rows to table; read it from plan.results")
+    first = next(iter(value.values())) if isinstance(value, dict) else value
+    shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
+    axes = [i for i, a in enumerate(dims) if a in ("layers", "rows", "pos", "key") or "rows" not in dims]
+    out = []
+    for index in itertools.product(*(range(shape[i]) for i in axes)):
+        at = dict(zip(axes, index))
+        row: dict = {}
+        for i, k in at.items():
+            axis = dims[i]
+            if axis in ("pos", "key"):
+                row.update(token(place, at[dims.index("rows")], axis, k))
+            else:
+                row[{"rows": "row", "layers": "layer"}.get(axis, axis)] = k
+        if row.get("key", 0) is None:
+            continue
+        pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
+        row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
+        out.append(row)
+    return out
+
+
+def token(place: dict | None, row: int, axis: str, k: int) -> dict:
+    """Index `k` on a token axis as the token it is in the row's tokens: `pos` through the read's resolved
+    positions, `key` (the padded batch's keys) less the row's padding; None on a padding key."""
+    if place is None:
+        return {axis: k}
+    tokens = place["tokens"][row]
+    index = place["positions"][row][k] if axis == "pos" else k - (place["width"] - len(tokens))
+    if index < 0:
+        return {axis: None}
+    return {axis: index, f"{axis}_token": tokens[index]}
+
+
+def part(value: Any, pick: tuple) -> Any:
+    if isinstance(value, Tensor):
+        got = value[pick]
+        return got.item() if got.dim() == 0 else got.tolist()
+    for i in pick:
+        if isinstance(i, int):
+            value = value[i]
+    return value
+
+
+def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
+    """The read a value's positions come from (following `of`), and the dataset columns its chain uses."""
+    used = []
+    while True:
+        thing, _, member = name.partition(".")
+        step = points(plan.steps[thing])[0]
+        args = arguments(step) if step.kind == "op" else {}
+        used += [v.partition(".")[2] for v in args.values() if isinstance(v, str) and v.partition(".")[0] in plan.data]
+        if step.kind != "op":
+            used.insert(0, data.parse_input(step.input)[1])
+            for o in step.reads[member].ops if member else []:
+                used += [v.partition(".")[2] for v in arguments(o).values()
+                         if isinstance(v, str) and v.partition(".")[0] in plan.data]
+            return (name if member else None), list(dict.fromkeys(used))
+        name = step.of
+
+
+def located(plan: Plan, source: str, at: dict) -> dict:
+    """For the read `source` at the point agreeing with `at`: the rows' tokens and resolved positions."""
+    assert plan.run is not None
+    producer = next(p for p in points(plan.steps[source.partition(".")[0]])
+                    if all(at.get(k) == i for k, i in p.at.items()))
+    resolved = plan.run.positions[source]
+    tokens = plan.run.tokens[producer.input]
+    return {"tokens": tokens, "width": max(map(len, tokens)),
+            "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved}
+
+
+def materialized(plan: Plan, name: str) -> list[dict]:
+    """A dataset's rows: the plan's, or, after `Plan.load`, read again from its file and checked against the
+    digest the run recorded."""
+    d = plan.data[name]
+    if d.rows is not None:
+        return d.rows
+    rows = data.rows(corpus_root(plan), d.path or "", d.split)
+    if data.digest(rows) != d.sha256:
+        raise ValueError(f"data.{name}: data/{d.path}.json is not what the run read (its rows' digest differs)")
     return rows
-
-
-def flatten(plan: dict, point: dict, value: torch.Tensor, dims: list[str]) -> list[dict]:
-    """A row per element: its index on each axis (`rows` as `row`, `layers` as `layer`), then its value."""
-    dataset = point.get("data") or point.get("input", {}).get("data")
-    ids = [r.get("example_id") for r in plan["data"][dataset].get("rows", [])] if dataset else []
-    values = value.tolist()
-    rows = []
-    for index in itertools.product(*map(range, value.shape)):
-        row = {AXIS.get(axis, axis): i for axis, i in zip(dims, index)}
-        if "rows" in dims and any(ids):
-            row["example_id"] = ids[index[dims.index("rows")]]
-        element = values
-        for i in index:
-            element = element[i]
-        rows.append({**row, "value": element})
-    return rows
-
-
-def coordinates(plan: dict, at: dict) -> dict:
-    """A point's coordinates as each axis's value, by label."""
-    return {label: plan["sweeps"][label]["values"][i] for label, i in at.items()}
-
-
-def without_tensors(featurizer: dict) -> dict:
-    bundle = featurizer.get("bundle")
-    return {**featurizer, "bundle": None if bundle is None else {"header": bundle["header"]}}
-
-
-def versions() -> dict:
-    found = {p: importlib.metadata.version(p) for p in ("clab", "nnsight", "nnterp", "transformers", "torch")}
-    return {**found, "python": platform.python_version()}

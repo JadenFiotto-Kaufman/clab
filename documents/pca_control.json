@@ -1,16 +1,16 @@
 {
-  "description": "The PCA control: the interchange DAS fits a rotation for, run through the top-4 principal directions of the residual stream instead — a basis loaded from what pca_harvest.json wrote, never trained. It keeps das_apply.json's name, `rot`, so the two documents differ only in what that featurizer is. What a trained rotation has to beat.",
+  "description": "The PCA control: the interchange DAS fits a rotation for, run through the top-4 principal directions of the residual stream instead — a basis loaded from what pca_harvest.json wrote, never trained. Run pca_harvest.json with --out documents/artifacts first; this loads what it wrote. It keeps das_apply.json's name, `rot`, so the two documents differ only in what that featurizer is. What a trained rotation has to beat.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "dtype": "fp32"
   },
-  "data": {"test": {"path": "weekdays/data#test"}},
+  "data": {"test": {"path": "weekdays/data", "split": "test"}},
   "sites": {
     "target": {"component": "layer_output", "layers": 0},
     "head": {"component": "lm_head_output"}
   },
-  "featurizers": {"rot": {"kind": "pca", "k": 4, "file_path": "documents/artifacts/pca.safetensors"}},
+  "featurizers": {"rot": {"kind": "pca", "k": 4, "file_path": "documents/artifacts/basis.safetensors"}},
   "steps": {
     "counterfactual": {
       "kind": "forward",
@@ -36,7 +36,7 @@
       "a": "test.cf_answer",
       "b": "test.base_answer"
     },
-    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "test.cf_answer"},
-    "saves": {"iia": "iia.json", "ce": "ce.json"}
-  }
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "test.cf_answer"}
+  },
+  "saves": ["iia", "ce"]
 }

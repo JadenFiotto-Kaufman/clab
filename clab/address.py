@@ -79,7 +79,7 @@ def pos_axis(component: str) -> int:
     return dims.index("query") if "query" in dims else dims.index("seq")
 
 
-def dims(component: str, layers: str | int | None, ragged: bool) -> list[str]:
+def dims(component: str, layers: object, ragged: bool) -> list[str]:
     """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`.
 
     `layers: "all"` puts a `layers` axis first. A ragged selection holds one

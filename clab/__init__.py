@@ -1,33 +1,25 @@
 """clab runs mechanistic-interpretability experiments from declarative JSON documents.
 
-`run` compiles a document, runs it on an engine and writes its output
-directory; `load` reads an output directory back into the filled plan;
-`table` flattens a saved value over every point; `describe` prints the
-format's tables; `compile` turns a document into its plan without running it.
+`Plan` is a document as a model: compile it, run it on an engine, dump it to a directory, load it back,
+table its values. `run` does the whole of that in one call; `describe` prints the format's tables.
 """
 
 import os
-import time
 
 from .cli import describe
-from .compiler import compile, load as load_document
-from .output import load, table, write
+from .plan import Plan, name
 
-__all__ = ["run", "load", "table", "describe", "compile"]
+__all__ = ["Plan", "run", "describe"]
 
 
-def run(path: str, engine: str = "nnterp", out: str | None = None, batch_size: int = 8,
-        remote: bool | str = False) -> dict:
-    """Run the document at `path` on `engine` and write its output to `out` (default `out/<document name>`).
-    Returns the filled plan."""
+def run(plan: "Plan | str", engine="nnterp", out: str | None = None, batch_size: int = 8,
+        remote: bool | str = False) -> Plan:
+    """`Plan(path)` -> `compile` -> `execute` on `engine` (a registered name, or a loaded engine, so one
+    model serves many documents) -> `dump` into `out` (default `out/<document name>`). Returns the filled plan."""
     from .engines import ENGINES
 
-    plan = compile(load_document(path), path)
-    loaded = ENGINES[engine](plan["model"])
-    started = time.time()
-    filled = loaded.execute(plan, batch_size=batch_size, remote=remote)
-    out = out or os.path.join("out", plan["document"]["name"])
-    write(filled, out, {"engine": engine, "remote": remote, "batch_size": batch_size,
-                        "started": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started)),
-                        "seconds": round(time.time() - started, 3)})
+    compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
+    loaded = ENGINES[engine](compiled.model) if isinstance(engine, str) else engine
+    filled = loaded.execute(compiled, batch_size=batch_size, remote=remote)
+    filled.dump(out or os.path.join("out", name(filled)))
     return filled

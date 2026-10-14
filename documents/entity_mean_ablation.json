@@ -41,7 +41,7 @@
       "of": "ablated.logits",
       "a": "prompts.cf_answer",
       "b": "prompts.base_answer"
-    },
-    "saves": {"mean": "entity_mean.safetensors", "clean_ld": "clean.json", "ablated_ld": "ablated.json"}
-  }
+    }
+  },
+  "saves": ["mean", "clean_ld", "ablated_ld"]
 }

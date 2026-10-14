@@ -25,7 +25,7 @@
         }
       }
     },
-    "p_answer": {"kind": "op", "op": "token_prob", "of": "answer.at_said", "token": "prompts.cf_answer"},
-    "saves": {"p_answer": "p_answer.json"}
-  }
+    "p_answer": {"kind": "op", "op": "token_prob", "of": "answer.at_said", "token": "prompts.cf_answer"}
+  },
+  "saves": ["p_answer"]
 }

@@ -32,10 +32,10 @@
       "of": "patched.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {"iia": "iia.json", "logit_diff": "logit_diff.json"}
+    }
   },
   "featurizers": {
     "rot": {"kind": "subspace", "k": 4, "parametrization": "cayley", "seed": {"sweep": [0, 1, 2]}}
-  }
+  },
+  "saves": ["iia", "logit_diff"]
 }

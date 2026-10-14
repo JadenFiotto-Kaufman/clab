@@ -1,9 +1,14 @@
-"""FORMAT.md is generated from the code; the committed copy must be what the code generates now."""
+"""FORMAT.md and schema.json are generated from the code; the committed copies must be what the code generates now."""
 
+import json
 import os
 
-from clab.cli import describe, markdown
-from conftest import ROOT
+import copy
+
+import jsonschema
+
+from clab.cli import describe, markdown, schema
+from conftest import NAMES, ROOT, document
 
 
 def test_format_md_is_what_the_code_generates():
@@ -12,8 +17,33 @@ def test_format_md_is_what_the_code_generates():
     assert committed == markdown(), "FORMAT.md is stale: run `clab describe --markdown` from the repo root"
 
 
+def test_schema_json_is_what_the_code_generates():
+    with open(os.path.join(ROOT, "schema.json")) as f:
+        committed = json.load(f)
+    assert committed == schema(), "schema.json is stale: run `clab schema > schema.json`"
+
+
+def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
+    validator = jsonschema.Draft202012Validator(schema())
+    for name in NAMES:
+        with open(document(name)) as f:
+            assert validator.is_valid(json.load(f)), name
+    with open(document("patching")) as f:
+        doc = json.load(f)
+    for change in (lambda d: d["steps"]["iia"].update(op="matches"),
+                   lambda d: d["sites"]["target"].update(component="nope"),
+                   lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": -1, "all": True}),
+                   lambda d: d.update(compiled=True),
+                   lambda d: d["steps"]["iia"].update(dims=["rows"])):
+        bad = copy.deepcopy(doc)
+        change(bad)
+        assert not validator.is_valid(bad)
+
+
 def test_describe_lists_every_registry():
     text = describe()
-    for word in ("step kinds:", "ops", "components:", "featurizer kinds:", "pos:", "logit_diff(", "layer_output",
-                 "subspace(", "fit("):
+    for word in ("records:", "step kinds:", "metrics:", "reductions:", "edits:", "transforms:", "components:",
+                 "featurizer kinds:",
+                 "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode("):
         assert word in text, word
