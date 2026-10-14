@@ -435,3 +435,27 @@ forward-only documents.
 - Verify first in M2 (**belief**): a pydantic plan survives `nnsight.save`
   under `remote="local"` and the stand-in-server test, pickled by class
   reference with nothing by value.
+
+### Tightened the same day
+
+- **One model, `Plan`.** There is no `Document` model: the plan *is* the
+  document, resolved. `compiled: bool` says which state it is in (rows loaded,
+  references inlined, sweeps expanded); `execute` refuses an uncompiled plan
+  and `dump` refuses one without results, each in one line; `repr` shows the
+  state. Swept fields are typed `T | Sweep` and `steps` is
+  `dict[str, Step | list[Step]]`; after compile no `Sweep` remains.
+- **Results are plain values**, no `Result` type: `plan.results[name]` is the
+  value for an unswept save, and for a swept save a dict keyed by coordinate
+  value (bare for one axis, a tuple in axis order for more). `save` is in
+  `plan.saves`; the axes are on the step.
+- **The `Plan` API, complete:**
+  `Plan(path_or_fields)` — a document file, or the fields themselves;
+  `plan.compile() -> Plan`;
+  `plan.dump(out)` — a run's output directory (result files + `manifest.json`);
+  `Plan.load(out)` — the inverse of `dump`, the filled plan back;
+  `plan.write(path)` — the plan itself as a JSON document, for editing in
+  Python and saving; drops `results` and `run`, keeps the plan's state;
+  `plan.table(name)`; `plan.run` (engine, remote, batch_size, versions,
+  started, seconds, set by `execute`). `clab.run(plan_or_path, engine=name
+  or instance, ...)` is `Plan(...)` → `compile` → `execute` → `dump`.
+- Nothing is added to `Plan` without a stated reason.
