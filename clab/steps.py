@@ -188,7 +188,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     put(shapes, where, step.at, shape)
                     later += [(where, o, shape, site) for o in record.ops] if side == "writes" else []
             for where, o, shape, site in later:
-                check_operands(plan, where, o, shape, step, site, found["inputs"], shapes, sizes)
+                check_operands(engine, plan, where, o, shape, step, site, found, shapes)
     return found
 
 
@@ -356,30 +356,43 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                                      f"{vocabulary}")
 
 
-def check_operands(plan: Plan, where: str, o, shape: tuple, step, site, inputs: dict, shapes: dict,
-                   sizes: dict) -> None:
+def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: dict, shapes: dict) -> None:
     """A write's operands that another record selected: the same width and narrowing; on a `key` axis, inputs
-    that line up token for token; and an argument of the function an op's `options` choose (a lora's `with`)
-    as wide per position, its axes after the positions flattened, as the value it acts on."""
-    chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
-    for key, p in parameters(plan, o.op, arguments(o)).items():
-        value = arguments(o).get(key)
+    that line up token for token. One from a read of the write's own forward is read at a site this engine
+    reaches first. An argument of the function an op's `options` choose (a lora's `with`) is as wide per
+    position, its axes after the positions flattened, as the value the op acts on, and, from the same forward,
+    read at the write's own positions."""
+    args, sizes = arguments(o), engine.sizes()
+    chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
+    for key, p in parameters(plan, o.op, args).items():
+        value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
         theirs = lookup(shapes, value, step.at)
+        read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
+        same = value.partition(".")[0] == where.partition(".")[0]
+        if same and engine.rank(read.component, read.layers) >= engine.rank(site.component, site.layers):
+            raise ValueError(f"{where}: operand {value!r} is read at {read.component} layer {read.layers}, which the "
+                             f"{engine.name} engine's forward does not reach before this write's {site.component} "
+                             f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")
         if key in chosen:
-            read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
             per, own = (math.prod(len((s.select or {}).get(a, [])) or sizes[a]
                                   for a in address.dims(s.component, None, False)[2:]) for s in (read, site))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
+            ours, at = (lookup(found["positions"], n, step.at) for n in (where, value)) if same else ([], [])
+            for row, (a, b) in enumerate(zip(at, ours)):
+                if a != b:
+                    raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
+                                     f"write lands at {b}; {key!r} from the write's own forward is read where it "
+                                     "lands")
         if theirs[0] != shape[0] or (theirs[1] != shape[1] and key not in chosen):
             raise ValueError(f"{where}: operand {value!r} is {theirs[0]} token(s) wide, narrowed to {theirs[1]}; "
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
         producer = points(plan.steps[value.partition(".")[0]])[0].input
         if "key" in address.COMPONENTS[site.component]["dims"] and producer != step.input:
-            for row, (a, b) in enumerate(zip(inputs[producer]["rows"], inputs[step.input]["rows"])):
+            for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][step.input]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {step.input} has {len(b['ids'])} there, so their "

@@ -201,8 +201,7 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
             new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
             f, features = o["featurizer"], o.get("features")
-            args = {k: (got or {})[v["live"]] if isinstance(v, dict) and "live" in v else v
-                    for k, v in o["args"].items()}
+            args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
             if f is None:
                 new = call(o["op"], new, args, original=original, dims=o["dims"])
                 continue
@@ -217,6 +216,15 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
         keep = w.get("keep", torch.ones(pos.shape, dtype=torch.bool))
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(x.dtype)[keep]
     return x.movedim(1, axis)
+
+
+def live(got: dict | None, operand: dict) -> Tensor:
+    """A write's operand that names a read of its own forward: that read's value, which the engine made before
+    it reached the write."""
+    if operand["live"] not in (got or {}):
+        raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
+                         "reached the write; it reads it at a later site")
+    return (got or {})[operand["live"]]
 
 
 # -- ops that change a value in place of it ------------------------------------

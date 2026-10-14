@@ -329,7 +329,11 @@ class Access(Record):
 
 class Interventions(Record):
     """A bundle of `writes` and `reads` (each by name), pulled into a step by `"interventions": "<name>"` or a
-    list of names. Its names resolve where a step pulls it in."""
+    list of names. Its names resolve where a step pulls it in. A write's operand may name one of the bundle's
+    own reads by its bare name (`"with": "premix"`, a cross-site adapter's input): it means that read of
+    whichever step pulls the bundle in. `<a step>.<one of the bundle's reads>` is refused, since pulled into
+    another step it would still mean that step's read. A write's operand from its own step's reads is served
+    in a forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap)."""
     writes: dict[str, Access] = {}
     reads: dict[str, Access] = {}
 

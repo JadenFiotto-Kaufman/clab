@@ -42,6 +42,7 @@ class HooksEngine:
                        "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
         self.model: Any = load(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, dtype=getattr(torch, model.dtype), **extra).eval())
+        self.config["order"] = order(self.model, sites)
 
     def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         if remote:
@@ -60,6 +61,10 @@ class HooksEngine:
         """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
         module's forward rather than at a module boundary; None where it can."""
         return {c: site["refused"] for c, site in self.config["sites"].items()}
+
+    def rank(self, component: str, layer: int | None) -> int:
+        """Where the component falls in this model's forward: when its hook fires, as measured at load."""
+        return self.config["order"][f"{component}@{layer}"]
 
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
@@ -146,6 +151,31 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
             return None
         return (value, *output[1:]) if isinstance(output, tuple) else value
     return module.register_forward_hook(post)
+
+
+def order(model, sites: dict) -> dict[str, int]:
+    """When each served component's hook fires in a forward (`<component>@<layer>`), measured on a two-token
+    input: components at one module boundary fire together and share a rank."""
+    fired: list = []
+
+    def noted(key: tuple):
+        def note(*_):
+            if key not in fired:
+                fired.append(key)
+        return note
+    handles = []
+    for path, boundary in {(p, s["boundary"]) for s in sites.values() for p in s["paths"].values()}:
+        module = model.get_submodule(path)
+        handles.append(module.register_forward_pre_hook(noted((path, boundary))) if boundary == "input" else
+                       module.register_forward_hook(noted((path, boundary))))
+    try:
+        with torch.no_grad():
+            model(input_ids=torch.tensor([[1, 2]]))
+    finally:
+        for handle in handles:
+            handle.remove()
+    return {f"{c}@{layer}": fired.index((path, s["boundary"])) for c, s in sites.items()
+            for layer, path in s["paths"].items()}
 
 
 def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict:

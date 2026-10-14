@@ -4,6 +4,7 @@ always-on adapter as a named intervention, on forwards and through a generation.
 
 import json
 import os
+from typing import Any
 
 import pytest
 import torch
@@ -107,7 +108,8 @@ def test_the_adapter_is_on_in_every_step_that_names_it(engines, tmp_path):
 # -- an adapter across sites: o_proj, read at attention_premix and applied at attention_output ----------------
 
 
-def cross_site(root: str, steps: dict, saves: list[str], train: bool = False) -> Plan:
+def cross_site(root: str, steps: dict, saves: list[str], train: bool = False,
+               interventions: dict | None = None) -> Plan:
     """A document with a rank-2 adapter whose input is layer 0's `attention_premix` and whose update lands on
     its `attention_output`: drawn to be trained, or loaded from a random bundle made at that site."""
     spec = {"kind": "lora", "rank": 2, "alpha": 4} if train else \
@@ -118,7 +120,7 @@ def cross_site(root: str, steps: dict, saves: list[str], train: bool = False) ->
                   metadata=bundle_header(kind="lora", rank="2", alpha="4", component="attention_output",
                                          document="oproj"))
     doc = {"model": TINY, "data": {"train": {"path": "weekdays/data", "split": "train"}},
-           "featurizers": {"oproj": spec}, "steps": steps, "saves": saves}
+           "featurizers": {"oproj": spec}, "interventions": interventions or {}, "steps": steps, "saves": saves}
     with open(os.path.join(root, "documents", "oproj.json"), "w") as f:
         json.dump(doc, f)
     return Plan(os.path.join(root, "documents", "oproj.json")).compile()
@@ -165,14 +167,51 @@ def test_a_cross_site_adapter_trains_the_same_on_both_engines(engines, tmp_path)
     assert got[0]["fit.history.ce"][-1] < got[0]["fit.history.ce"][0]
 
 
+# -- a cross-site adapter as a named intervention ---------------------------------------------------------------
+
+OPROJ = {"reads": {"premix": {"site": {"component": "attention_premix", "layers": 0}, "pos": -1}},
+         "writes": {"adapt": {"site": {"component": "attention_output", "layers": 0}, "pos": -1, "ops": [
+             {"op": "featurizer", "featurizer": "oproj", "mode": "apply", "with": "premix"}]}}}
+
+
+def test_an_intervention_names_its_own_read_bare_and_each_step_uses_its_own(engines, tmp_path):
+    """`oproj` reads the premix and adapts the attention output with `with: "premix"`; pulled into two forwards
+    on different inputs, each one's output is its own clean output plus the update of its own premix."""
+    root = corpus_copy(tmp_path)
+    out = {"site": {"component": "attention_output", "layers": 0}, "pos": -1}
+    steps = {}
+    for name, column in (("a", "train.input"), ("b", "train.counterfactual_inputs[0]")):
+        steps[f"{name}_clean"] = {"kind": "forward", "input": column, "reads": {"out": out}}
+        steps[name] = {"kind": "forward", "input": column, "interventions": "oproj", "reads": {"out": out}}
+    saves = [f"{n}.{r}" for n in ("a", "b") for r in ("premix", "out")] + ["a_clean.out", "b_clean.out"]
+    plan = cross_site(root, steps, saves, interventions={"oproj": OPROJ})
+    step: Any = plan.steps["b"]
+    assert [o.model_extra for o in step.writes["adapt"].ops] == [{"mode": "apply", "with": "b.premix"}]
+    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results for kind in ("nnterp", "hooks")]
+    assert same(*got)
+    bundle = points(plan.featurizers["oproj"])[0].bundle
+    assert bundle is not None
+    values = got[0]
+    assert not torch.equal(values["a.premix"], values["b.premix"])
+    for name in ("a", "b"):
+        update = (values[f"{name}.premix"].flatten(-2) @ bundle["A"]) @ bundle["B"]
+        expected = values[f"{name}_clean.out"] + 2.0 * update
+        torch.testing.assert_close(values[f"{name}.out"], expected, atol=1e-6, rtol=0)
+
+
+def test_an_intervention_naming_a_steps_read_as_its_own_is_refused(tmp_path):
+    root = corpus_copy(tmp_path)
+    oproj = json.loads(json.dumps(OPROJ))
+    oproj["writes"]["adapt"]["ops"][0]["with"] = "a.premix"
+    with pytest.raises(PlanError, match=r"interventions\.oproj\.writes\.adapt\.ops\[0\]\.with: 'a\.premix' names a "
+                                        r"step's "
+                                        r"read 'premix', which is also this intervention's own read; name the "
+                                        r"intervention's own read bare \('premix'\)"):
+        cross_site(root, {"a": {"kind": "forward", "input": "train.input", "interventions": "oproj"}}, ["a.premix"],
+                   interventions={"oproj": oproj})
+
+
 # -- refusals -------------------------------------------------------------------------------------------------
-
-
-def premix_after(d):
-    """lora_train's write reads `with` from a read at layer 1, which the forward reaches after layer 0."""
-    body = d["steps"]["fit"]["steps"]["adapted"]
-    body["reads"]["later"] = {"site": {"component": "layer_output", "layers": 1}, "pos": {"index": "all"}}
-    body["writes"]["adapt"]["ops"][0]["with"] = "adapted.later"
 
 
 @pytest.mark.parametrize("change, message", [
@@ -184,10 +223,10 @@ def premix_after(d):
     (lambda d: d["featurizers"]["lora"].pop("alpha"), r"'lora' \(lora\) is loaded from its bundle"),
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["writes"]["adapt"]["ops"].__setitem__(
         0, {"op": "scale", "factor": 2.0, "featurizer": "fit.lora"}),
-     r"'fit\.lora' is a 'lora' featurizer, which has no coordinates to edit and write back into the value; call it with the "
-     r"featurizer op \(modes: apply\)"),
-    (premix_after, r"adapt\.ops\[0\]\.with: 'adapted\.later' is read at layer_output layer 1, which the forward does "
-                   r"not reach before this write's layer_output layer 0"),
+     r"'fit\.lora' is a 'lora' featurizer, which has no coordinates to edit and write back into the value; call it "
+     r"with the featurizer op \(modes: apply\)"),
+    (lambda d: d["steps"]["fit"]["steps"]["adapted"]["writes"]["adapt"]["ops"][0].update({"with": 0.5}),
+     r"adapt\.ops\[0\]\.with: 0\.5 is not a name; 'with' names a value read at the positions the op acts on"),
 ])
 def test_what_an_adapter_cannot_be_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
@@ -197,19 +236,73 @@ def test_what_an_adapter_cannot_be_is_refused_at_compile(change, message):
 def test_a_generations_writes_take_no_operand_from_its_own_reads(corpus):
     with open(os.path.join(corpus, "documents", "lora_apply.json")) as f:
         doc = json.load(f)
-    doc["steps"]["answer"]["reads"] = {"h": {"site": "target", "pos": {"index": "all"}}}
-    doc["interventions"]["adapted"]["writes"]["adapt"]["ops"][0]["with"] = "answer.h"
-    with pytest.raises(PlanError, match=r"interventions\.adapted\.writes\.adapt\.ops\[0\]\.with: 'answer\.h' names no "
-                                        r"value produced before this step"):
+    doc["steps"]["answer"]["reads"] = {"h": {"site": {"component": "layer_input", "layers": 0}, "pos": -1}}
+    doc["steps"]["answer"]["writes"] = {"again": {"site": "target", "pos": -1, "ops": [
+        {"op": "featurizer", "featurizer": "lora", "mode": "apply", "with": "answer.h"}]}}
+    with pytest.raises(PlanError, match=r"steps\.answer\.writes\.again\.ops\[0\]\.with: 'answer\.h' is a read "
+                                        r"of this generation; a write's operand from a read of its own step is served "
+                                        r"in a forward, not yet inside a generate"):
         Plan(**doc, document=os.path.join(corpus, "documents", "lora_apply.json")).compile()
 
 
-def test_a_with_of_another_width_is_refused_before_any_forward(engines, tmp_path):
-    """One head of the premix is 4 wide per position; the adapter's value, attention_output, is 16."""
+def at_layer_1(step: dict) -> None:
+    step["reads"]["premix"]["site"] = {"component": "attention_output", "layers": 1}
+
+
+def at_the_write(step: dict) -> None:
+    step["reads"]["premix"]["site"] = {"component": "attention_output", "layers": 0}
+
+
+def one_head(step: dict) -> None:
+    step["reads"]["premix"]["site"]["select"] = {"num_heads": [0]}
+
+
+def at_the_first_token(step: dict) -> None:
+    step["reads"]["premix"]["pos"] = 0
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("change, message", [
+    (at_layer_1, r"patched\.adapt: operand 'patched\.premix' is read at attention_output layer 1, which the \w+ "
+                 r"engine's forward does not reach before this write's attention_output layer 0"),
+    (at_the_write, r"patched\.adapt: operand 'patched\.premix' is read at attention_output layer 0, which the \w+ "
+                   r"engine's forward does not reach before this write's attention_output layer 0"),
+    (one_head, r"patched\.adapt: operand 'patched\.premix' is 4 wide per position, its axes after the positions "
+               r"flattened; this write's value is 16"),
+    (at_the_first_token, r"patched\.adapt: operand 'patched\.premix' is read at positions \[1\] of row 0 and this "
+                         r"write lands at \[10\]; 'with' from the write's own forward is read where it lands"),
+])
+def test_a_same_forward_with_that_cannot_mean_anything_is_refused_before_any_forward(engines, tmp_path, kind,
+                                                                                     change, message):
+    """Read after the write (at a later layer, or at the written site itself), of another width per
+    position, or at other positions than the write lands on: each refused by name before the first forward,
+    the order by the engine's own measured forward order."""
     root = corpus_copy(tmp_path)
     step = adapted("patched", "oproj", -1)
-    step["reads"]["premix"]["site"]["select"] = {"num_heads": [0]}
+    change(step)
     plan = cross_site(root, {"patched": step}, ["patched.out"])
-    with pytest.raises(ValueError, match=r"patched\.adapt: operand 'patched\.premix' is 4 wide per position, its axes "
-                                         r"after the positions flattened; this write's value is 16"):
-        engines("hooks", plan.model).execute(plan)
+    engine = engines(kind, plan.model)
+    calls = []
+    original = engine.forward
+    engine.forward = lambda *args: calls.append(1) or original(*args)
+    try:
+        with pytest.raises(ValueError, match=message):
+            engine.execute(plan)
+    finally:
+        del engine.forward
+    assert not calls
+
+
+def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
+    for kind in ("nnterp", "hooks"):
+        engine = engines(kind, lora_train().model)
+        ranks = [engine.rank(c, layer) for c, layer in (("token_embeddings", None), ("attention_premix", 0),
+                                                         ("attention_output", 0), ("layer_output", 0),
+                                                         ("attention_premix", 1), ("lm_head_output", None))]
+        assert ranks == sorted(ranks) and len(set(ranks)) == len(ranks), kind
+
+
+def test_a_live_operand_the_engine_had_not_read_is_named():
+    from clab import ops
+    with pytest.raises(ValueError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
+        ops.live({}, {"live": "premix@0"})

@@ -12,8 +12,8 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from . import address, data, featurizers, ops, positions, registry
-from .plan import (Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, parameters, points, space,
-                   uses)
+from .plan import (Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, parameters, points,
+                   space, uses)
 
 
 def compile(plan: Plan) -> Plan:
@@ -193,32 +193,62 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     for n in [spec.interventions] if isinstance(spec.interventions, str) else spec.interventions or []:
         if n not in plan.interventions:
             fail(f"{path}.interventions", f"no intervention {n!r}; declared: {', '.join(plan.interventions) or 'none'}")
+        own = plan.interventions[n].reads
         for side in given:
             declared = getattr(plan.interventions[n], side)
-            given[side] += [(f"interventions.{n}.{side}.{k}", k, a) for k, a in declared.items()]
+            given[side] += [(f"interventions.{n}.{side}.{k}", k, a if side == "reads" else
+                             scoped(plan, f"interventions.{n}.{side}.{k}", a, own, name)) for k, a in declared.items()]
     for side in given:
         given[side] += [(f"{path}.{side}.{k}", k, a) for k, a in getattr(spec, side).items()]
         seen = [k for _, k, _ in given[side]]
         for k in seen:
             if seen.count(k) > 1:
                 fail(f"{path}.{side}", f"two {side[:-1]}s named {k!r}")
-    reads = {k: access(cx, p, a, plan, spec, dataset, False, {}) for p, k, a in given["reads"]}
+    reads = {k: access(cx, p, a, plan, spec, dataset, False, {}, set()) for p, k, a in given["reads"]}
     named = {f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value"} for k, r in reads.items()}
     # A forward's writes may name its own reads, which the engine makes as the forward reaches them; a
-    # generation's land call by call, so they may not.
+    # generation's land call by call, so they may not yet.
     live = {n: reads[n.partition(".")[2]] for n in named} if spec.kind == "forward" else {}
     cx.names.update(named if live else {})
-    records = {"writes": {k: access(cx, p, a, plan, spec, dataset, True, live) for p, k, a in given["writes"]},
-               "reads": reads}
+    records = {"writes": {k: access(cx, p, a, plan, spec, dataset, True, live, set(named))
+                          for p, k, a in given["writes"]}, "reads": reads}
     cx.names.update(named)
     if spec.kind == "generate":
         cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), **records, "dataset": dataset}
 
 
-def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool, live: dict) -> dict:
+def scoped(plan: Plan, path: str, spec, reads: dict, step: str):
+    """A named intervention's write, its operands that name one of the intervention's own `reads` by its bare
+    name (`"premix"`) naming that read of the step it is pulled into (`"<step>.premix"`). An operand that names
+    `<a step>.<one of those reads>` is refused: pulled into another step it would still mean that step's
+    read, not the one this step makes."""
+    rewritten = []
+    for i, o in enumerate(spec.ops):
+        args = arguments(o)
+        try:
+            params = parameters(plan, o.op, args)
+        except (KeyError, ValueError):          # an unknown featurizer or mode, which compile refuses by name
+            params = ops.parameters(o.op)
+        changes = {}
+        for key, value in args.items():
+            if key not in params or params[key].annotation != ops.Value or not isinstance(value, str):
+                continue
+            if value.partition(".")[2] in reads:
+                fail(f"{path}.ops[{i}].{key}", f"{value!r} names a step's read {value.partition('.')[2]!r}, which is "
+                     f"also this intervention's own read; name the intervention's own read bare "
+                     f"({value.partition('.')[2]!r}), which means it in whichever step pulls it in")
+            if value in reads:
+                changes[key] = f"{step}.{value}"
+        rewritten.append(Op(**{**o.model_dump(exclude_defaults=True), **changes}) if changes else o)
+    return spec.model_copy(update={"ops": rewritten})
+
+
+def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool, live: dict,
+           own: set) -> dict:
     """One write or read: its site inlined, its positions checked against the step, its ops' layouts. `live`
-    holds the reads of a write's own forward, by name, which its operands may name."""
+    holds the reads of a write's own forward, by name, which its operands may name; `own` names its step's
+    reads, which a generation's writes may not name yet."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -256,14 +286,19 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
                      f"write back into the value; call it with the featurizer op (modes: "
                      f"{', '.join(featurizers.modes(kind))})")
         kind = called(cx, plan, at, o.op, arguments(o))
+        for key, value in arguments(o).items():
+            if isinstance(value, str) and value in own and value not in live:
+                fail(f"{at}.{key}", f"{value!r} is a read of this generation; a write's operand from a read of its "
+                     "own step is served in a forward, not yet inside a generate")
         found = references(cx, plan, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
         if write:
             chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
             operands(at, found, selection, within, ragged, live, chosen)
             for key, info in found.items():
-                if info["name"] in live:
-                    reached(f"{at}.{key}", info["name"], live[info["name"]], site)
+                if info["name"] in live and live[info["name"]]["site"].get("layers") == "all":
+                    fail(f"{at}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
+                         "forward is one layer's read")
         # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
         inner = dims[:-1] + ["features"] if within is not None else dims
         out = layout(at, o.op, arguments(o), inner, "write" if write else "read", kind)
@@ -279,7 +314,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
     """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist; and the op's
     further arguments bound to the function its `options` choose for them (a mode the kind lacks refused by
-    name). None when the op takes no featurizer."""
+    name), a `Value` among them a name. None when the op takes no featurizer."""
     ref = ops.featurizer_of(name, args)
     if ref is None:
         return None
@@ -292,20 +327,11 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
             registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], repr(fn.__name__))
     except ValueError as e:
         fail(path, f"featurizer {ref!r}: {e}")
+    for key, p in ops.parameters(name, args, kind).items():
+        if key in own and p.annotation == ops.Value and not isinstance(own[key], str):
+            fail(f"{path}.{key}", f"{own[key]!r} is not a name; {key!r} names a value read at the positions the op "
+                 "acts on")
     return kind
-
-
-def reached(path: str, name: str, read: dict, site: Site) -> None:
-    """A write's operand from a read of its own forward is made before the write lands: one layer's read, at
-    a site the forward reaches first."""
-    component, layers = read["site"]["component"], read["site"].get("layers")
-    if layers == "all":
-        fail(path, f"{name!r} is read at every layer; an operand from the write's own forward is one layer's read")
-    if address.rank(component, layers) >= address.rank(site.component, site.layers):
-        fail(path, f"{name!r} is read at {component}" + (f" layer {layers}" if layers is not None else "") +
-             f", which the forward does not reach before this write's {site.component}" +
-             (f" layer {site.layers}" if site.layers is not None else "") +
-             "; an operand from the write's own forward is read at an earlier site")
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:

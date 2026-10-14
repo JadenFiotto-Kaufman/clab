@@ -70,15 +70,6 @@ COMPONENTS: dict[str, dict] = {
 }
 
 
-def rank(component: str, layer: object) -> tuple:
-    """Where a component falls in a forward: the embeddings, then each block's components in the order
-    `COMPONENTS` lists them (forward order), then the final norm and the head."""
-    order = list(COMPONENTS)
-    if COMPONENTS[component]["per_layer"]:
-        return (1, layer, order.index(component))
-    return (0 if order.index(component) < order.index("layer_input") else 2, 0, order.index(component))
-
-
 # The axes that index examples and positions rather than features.
 EXAMPLE_AXES = ("layers", "rows", "entries", "pos")
 
