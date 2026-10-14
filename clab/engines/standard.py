@@ -67,21 +67,20 @@ def stops(config, tokenizer) -> list[int]:
     return [found] if isinstance(found, int) else list(found)
 
 
-def now(here: list, there: list, step: int) -> tuple[list, list]:
-    """What a generation does at a site on forward call `step` (0 is the prompt call): the writes and the
-    prompt-frame reads on the prompt call only, and each generated-frame read on the steps it asked for
-    (`steps`; None for every step)."""
+def now(here: list, there: list, call: int) -> tuple[list, list]:
+    """What a generation does at a site on forward call `call` (0 is the prefill): a record with no `calls`
+    acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
     def wanted(record: dict) -> bool:
-        if "steps" not in record:
-            return step == 0
-        return record["steps"] is None or step in record["steps"]
-    return (here if step == 0 else []), [r for r in there if wanted(r)]
+        if "calls" not in record:
+            return call == 0
+        return call > 0 and (record["calls"] is None or call in record["calls"])
+    return [w for w in here if wanted(w)], [r for r in there if wanted(r)]
 
 
 def keep(got: dict, record: dict, value) -> None:
-    """A read's value into `got`: a prompt-frame read's as itself, a generated-frame read's appended to its
-    list, one per step read."""
-    if "steps" in record:
+    """A read's value into `got`: a prefill read's as itself, a decode-call read's appended to its list, one
+    per call read."""
+    if "calls" in record:
         got[record["name"]].append(value)
     else:
         got[record["name"]] = value

@@ -2,9 +2,9 @@
 `plan.results`.
 
 This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards and generations,
-its tokenizer, its sizes, its readout, the ids its generation stops on (EOS) and the options its `generate`
-takes, and does everything else itself, in plain torch: positions in the prompt from the encoded rows, and in
-the generated frame from the ids each row generated, up to its first EOS. Under the nnterp engine it runs inside
+its tokenizer, its sizes, its readout and the ids its generation stops on (EOS), and does everything else
+itself, in plain torch: positions in the prefill from the encoded rows, and beyond it from the ids each row
+generated, up to its first EOS. Under the nnterp engine it runs inside
 one session; under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
@@ -65,8 +65,8 @@ def by_coordinate(plan: Plan, by_point: dict) -> Any:
 
 def preflight(engine, plan: Plan) -> dict:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
-    tokens, and returns each dataset input's encoded rows and padded width (`inputs`), every prompt-frame
-    record's token indices per row (`positions`, which the run extends with the generated frame's), and
+    tokens, and returns each dataset input's encoded rows and padded width (`inputs`), every prefill
+    record's positions per row (`positions`, which the run extends with the other records'), and
     room for what each generate step's rows said (`said`).
 
     Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
@@ -123,9 +123,10 @@ def preflight(engine, plan: Plan) -> dict:
                 for o in record.ops:
                     refuse_later(where, o.op, space(o))
                     check_tokens(engine, plan, where, o.op, arguments(o))
-                if positions.parse(record.pos)["frame"] == "generated":
+                if not positions.prefill(positions.parse(record.pos)):
                     continue        # resolved from what each row generates, in the run
-                resolved = indices(where, side == "writes", record, step.input, rows, encoded, special)
+                resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer,
+                                   head(step, record))
                 put(found["positions"], where, step.at, resolved)
                 shape = (len(resolved[0]), {axis: len(v) for axis, v in (site.select or {}).items()})
                 put(shapes, where, step.at, shape)
@@ -158,29 +159,36 @@ def stops(engine, step) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def indices(where: str, write: bool, record, input: str, rows: list[dict], encoded: list[dict],
-            special: set) -> list[list[int]]:
-    """A record's token indices in each row. A row whose scope is not in its input, or whose ragged window is
-    empty, has none on a ragged read and is refused on a write, which needs a token to write (and, for a
-    missing scope, on a rectangular read)."""
-    pos = positions.parse(record.pos)
+def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict], tokenizer,
+            head_only: bool) -> list[list[int]]:
+    """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
+    doubled, or a rectangular index that does not fit, is refused by name, and so is a write whose positions
+    hold no token of a row."""
+    pos, special = positions.parse(record.pos), set(tokenizer.all_special_ids)
     found = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
-        scope = pos["scope"] or {}
-        text = data.variable(row, input, scope["variable"]) if "variable" in scope else None
         try:
-            got = positions.resolve(pos, enc, special, text)
+            got = positions.resolve(pos, enc, None, set(), special, tokenizer, text(pos, row), head_only)
         except ValueError as e:
             raise ValueError(f"{where}: row {i}: {e}") from None
-        if got is None and (write or not positions.ragged(pos)):
-            what = f"segment {scope['segment']!r}" if "segment" in scope else \
-                f"variable {scope['variable']!r} ({text!r})"
-            raise ValueError(f"{where}: row {i}: {what} is not in its input")
-        if write and got == []:
+        if write and not got:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              "one to write")
-        found.append(got or [])
+        found.append(list(got))
     return found
+
+
+def text(pos: dict, row: dict) -> str | None:
+    """The text a record's scope names in one row: its column's (`<dataset>.<column path>`), or the literal."""
+    scope = pos["scope"] or {}
+    if "column" in scope:
+        return str(data.lookup(row, scope["column"].partition(".")[2]))
+    return scope.get("text")
+
+
+def head(step, record) -> bool:
+    """Whether the record reads the head in a generation, whose prefill computes it at its last position only."""
+    return step.kind == "generate" and record.site.component in ("lm_head_output", "logits")
 
 
 def refuse(engine, plan: Plan) -> None:
@@ -268,51 +276,73 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as
     its options; each read joined along rows, and the new ids joined into the step's value.
 
-    Writes and prompt-frame reads are a forward's, on the prompt call. A generated-frame read asks the engine
-    for its own steps when it is rectangular and for every step when it is scoped; each row then resolves
-    from what it generated (`positions.generated`), and the resolution is recorded per row in
-    `plan.run.positions`, with each row's continuation as token strings in `plan.run.tokens[<step>]`. A
-    batch whose rows all stopped early generates fewer steps; its ids are filled after their EOS to the
-    longest batch's."""
-    eos, rows = stops(engine, step), plan.data[step.dataset].rows or []
-    prompt = {k: r for k, r in step.reads.items() if positions.parse(r.pos)["frame"] == "prompt"}
-    later = {k: r for k, r in step.reads.items() if k not in prompt}
-    parts, new, resolved = [], [], {key: [] for key in later}
+    A record in the prefill (`frame: 0`) is a forward's. One beyond it goes to the engine in two parts: its
+    prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
+    what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
+    or None for every decode call). After the generation each row resolves from what it generated
+    (`positions.resolve`); a row that stopped before a call a write selects is not written there (the call
+    computes nothing of that row's) and is recorded as missing. The resolution is recorded per row in
+    `plan.run.positions` and each row's continuation, as token strings, in `plan.run.tokens[<step>]`. A
+    batch whose rows all stopped early makes fewer calls; its ids are filled after their EOS to the longest
+    batch's."""
+    eos, rows, special = stops(engine, step), plan.data[step.dataset].rows or [], set(engine.tokenizer.all_special_ids)
+    encoded = found["inputs"][step.input]["rows"]
+    first = {k: r for k, r in step.reads.items() if positions.prefill(positions.parse(r.pos))}
+    later = {k: r for k, r in step.reads.items() if k not in first}
+    beyond = {k: w for k, w in step.writes.items() if not positions.prefill(positions.parse(w.pos))}
+    parts, new, resolved = [], [], {f"{name}.{key}": [] for key in {**later, **beyond}}
     for chunk, batch, pads in batches(engine, step, found, batch_size):
-        sites, writes, reads = bind(engine, plan, name, step, prompt, state, found, chunk, pads)
-        last = torch.full((chunk.stop - chunk.start, 1), -1)
-        reads += [{"component": record.site.component, "positions": last, "select": selection(record, pads),
-                   "name": f"{key}@{layer}", "layer": layer, "steps": positions.asked(positions.parse(record.pos))}
-                  for key, record in later.items() for layer in layers(engine, record)]
+        n = chunk.stop - chunk.start
+        sites, writes, reads = bind(engine, plan, name, step, first, state, found, chunk, pads, set(beyond))
+        for key, record in beyond.items():
+            pos, edits = positions.parse(record.pos), [edit(engine, plan, record, o, state, step.at, chunk)
+                                                        for o in record.ops]
+            if positions.with_prefill(pos):
+                where = [positions.held([0], e, [], special, head(step, record)) for e in encoded[chunk]]
+                writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
+                               "layer": record.site.layers, "ops": edits})
+            writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
+                           "calls": positions.calls(pos)})
+        for key, record in later.items():
+            pos = positions.parse(record.pos)
+            for layer in layers(engine, record):
+                if positions.with_prefill(pos):
+                    whole = [list(range(len(e["ids"]))) for e in encoded[chunk]]
+                    reads.append({**site(record, whole, pads, head(step, record)), "name": f"{key}@{layer}#0",
+                                  "layer": layer})
+                reads.append({**decoding(record, n, pads), "name": f"{key}@{layer}", "layer": layer,
+                              "calls": positions.calls(pos)})
         with torch.no_grad():
             ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
-            if "steps" in record:
-                made = range(ids.shape[1]) if record["steps"] is None else \
-                    [k for k in record["steps"] if k < ids.shape[1]]
+            if "calls" in record:
+                made = range(1, ids.shape[1]) if record["calls"] is None else \
+                    [k for k in record["calls"] if k < ids.shape[1]]
                 if len(got[record["name"]]) != len(made):
                     raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
-                                       f"{len(made)} decode steps it made; a read out of forward order shifts steps")
+                                       f"{len(made)} decode calls it made; a read out of forward order shifts calls")
         out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
                                           state, step.at) for layer in layers(engine, record)])
-               for key, record in prompt.items()}
-        for key, record in later.items():
+               for key, record in first.items()}
+        for key, record in {**later, **beyond}.items():
             pos = positions.parse(record.pos)
-            scope = pos["scope"] or {}
-            steps = [positions.generated(pos, ids[i].tolist(), set(eos), engine.tokenizer,
-                                         data.variable(row, step.input, scope["variable"]) if "variable" in scope
-                                         else None) for i, row in enumerate(rows[chunk])]
-            resolved[key] += steps
-            out[key] = stacked(record, [at_steps(engine, plan, record, got[f"{key}@{layer}"], steps, chunk, state,
-                                                 step.at) for layer in layers(engine, record)])
+            where = [positions.resolve(pos, e, ids[i].tolist(), set(eos), special, engine.tokenizer, text(pos, row),
+                                       head(step, record))
+                     for i, (row, e) in enumerate(zip(rows[chunk], encoded[chunk]))]
+            resolved[f"{name}.{key}"] += where
+            if key in later:
+                out[key] = stacked(record, [at_calls(engine, plan, record, got.get(f"{key}@{layer}#0"),
+                                                     got[f"{key}@{layer}"], where, encoded[chunk], pads, chunk,
+                                                     state, step.at, head(step, record))
+                                            for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
     joined(state, name, step, parts)
     width = max(x.shape[1] for x in new)
     ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=eos[0]) for x in new])
     put(state, name, step.at, ids)
-    for key in later:
-        put(found["positions"], f"{name}.{key}", step.at, resolved[key])
+    for where, per_row in resolved.items():
+        put(found["positions"], where, step.at, per_row)
     put(found["said"], name, step.at,
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, set(eos))) for x in ids.tolist()])
 
@@ -332,15 +362,24 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
 # -- binding a record to one batch ------------------------------------------------------------------------
 
 
-def site(record, rows: list[list[int]], pads: list[int]) -> dict:
+def site(record, rows: list[list[int]], pads: list[int], last_only: bool = False) -> dict:
     """What the engine needs to reach a record's selection in this batch: its component, its token indices
     into the padded batch (`positions`, `[rows, width]`; a ragged row repeats its last index to the batch's
-    widest, `keep` marking its own), and the part of the feature axes it keeps (`select`)."""
+    widest, `keep` marking its own, `tok` the unpadded indices), and the part of the feature axes it keeps
+    (`select`). Where the value
+    holds the last position alone (`last_only`: a generation's head in the prefill) every index is -1."""
     width = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
              for row, pad in zip(rows, pads)]
+    tok = [[i - pad for i in row] for row, pad in zip(index, pads)]
+    index = [[-1] * width for _ in rows] if last_only else index
     return {"component": record.site.component, "positions": torch.tensor(index), "select": selection(record, pads),
-            "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows])}
+            "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows]), "tok": torch.tensor(tok)}
+
+
+def decoding(record, n: int, pads: list[int]) -> dict:
+    """What the engine needs to reach a record at a decode call: the call's one position, the last."""
+    return {"component": record.site.component, "positions": torch.full((n, 1), -1), "select": selection(record, pads)}
 
 
 def selection(record, pads: list[int]) -> dict:
@@ -382,14 +421,15 @@ def batches(engine, step, found: dict, batch_size: int):
 
 
 def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: dict, rows: slice,
-         pads: list[int]) -> tuple[dict, list[dict], list[dict]]:
-    """A step's writes and the prompt-frame `reads` bound to one batch: each record's site, the writes with
-    their ops, and the reads, one per layer (`<read>@<layer>`)."""
-    sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads)
-             for key, record in {**step.writes, **reads}.items()}
+         pads: list[int], beyond: frozenset | set = frozenset()) -> tuple[dict, list[dict], list[dict]]:
+    """A step's prefill writes (all but `beyond`) and the prefill `reads` bound to one batch: each record's
+    site, the writes with their ops, and the reads, one per layer (`<read>@<layer>`)."""
+    writes_here = {k: w for k, w in step.writes.items() if k not in beyond}
+    sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
+             for key, record in {**writes_here, **reads}.items()}
     writes = [{**sites[key], "name": key, "layer": record.site.layers,
                "ops": [edit(engine, plan, record, o, state, step.at, rows) for o in record.ops]}
-              for key, record in step.writes.items()]
+              for key, record in writes_here.items()]
     return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
                            for key, record in reads.items() for layer in layers(engine, record)]
 
@@ -419,39 +459,48 @@ def joined(state: dict, name: str, step, parts: list[dict]) -> None:
 
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
          at: dict) -> Any:
-    """One layer of a prompt-frame read in one batch: its entries when it is ragged, then its ops."""
+    """One layer of a prefill read in one batch: its entries when it is ragged, then its ops."""
     if positions.ragged(positions.parse(record.pos)):
         keep = site["keep"]
         value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
-                 "tok": (site["positions"] - torch.tensor(pads)[:, None])[keep]}
+                 "tok": site["tok"][keep]}
     return with_ops(engine, plan, record, value, state, at, rows)
 
 
-def at_steps(engine, plan: Plan, record, values: list[Tensor], steps: list, rows: slice, state: dict,
-             at: dict) -> Any:
-    """One layer of a generated-frame read in one batch: what the engine read at each step it asked for
-    (`values`, one `[rows, 1, ...]` per step the batch reached), arranged by the steps each row resolved to
-    (`steps`, per row a list of steps or an alignment marker); then its ops.
-
-    A rectangular read is `[rows, width, ...]` with NaN where a row, or the batch, did not reach the step; a
-    ragged one is `{values, row, tok}`, `tok` the step, with no entries for a row whose scope is not there."""
+def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tensor], where: list, encoded: list[dict],
+             pads: list[int], rows: slice, state: dict, at: dict, head_only: bool) -> Any:
+    """One layer of a read beyond the prefill in one batch, arranged by the positions each row resolved to
+    (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
+    whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
+    `head_only`), a generated input's from
+    its decode call (`values`, one `[rows, 1, ...]` per call the record asked for that the batch made); then
+    its ops. A rectangular read is `[rows, width, ...]`, NaN on a row it does not reach; a ragged one
+    `{values, row, tok}`, `tok` the position, with no entries for such a row."""
     pos = positions.parse(record.pos)
-    want = positions.asked(pos)
-    by_step = dict(zip(want if want is not None else range(len(values)), values))
+    asked = positions.calls(pos)
+    by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes, select = engine.sizes(), record.site.select or {}
     rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
-    blank = torch.full((rows.stop - rows.start, 1, *rest), float("nan"),
-                       dtype=values[0].dtype if values else getattr(torch, plan.model.dtype))
-    if want is not None:
-        value = torch.cat([by_step.get(s, blank) for s in want], 1)
-        for i, got in enumerate(steps):
-            if isinstance(got, str):
-                value[i] = float("nan")
+    some = whole if whole is not None else values[0] if values else None
+    dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
+
+    def at_position(i: int, p: int) -> Tensor:
+        prompt = len(encoded[i]["ids"])
+        if p < prompt:
+            assert whole is not None
+            return whole[i, 0 if head_only else p]
+        return by_call[p - prompt + 1][i, 0]
+
+    if not positions.ragged(pos):
+        blank = torch.full((positions.width(pos), *rest), float("nan"), dtype=dtype)
+        value = torch.stack([blank if isinstance(got, str) else torch.stack([at_position(i, p) for p in got])
+                             for i, got in enumerate(where)])
     else:
-        kept = [(i, s) for i, got in enumerate(steps) if not isinstance(got, str) for s in got]
-        value = {"values": torch.stack([by_step[s][i, 0] for i, s in kept]) if kept else blank[:0, 0],
+        kept = [(i, p) for i, got in enumerate(where) if not isinstance(got, str) for p in got]
+        value = {"values": torch.stack([at_position(i, p) for i, p in kept]) if kept else
+                 torch.zeros((0, *rest), dtype=dtype),
                  "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
-                 "tok": torch.tensor([s for _, s in kept], dtype=torch.long)}
+                 "tok": torch.tensor([p for _, p in kept], dtype=torch.long)}
     return with_ops(engine, plan, record, value, state, at, rows)
 
 

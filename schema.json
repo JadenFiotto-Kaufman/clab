@@ -422,7 +422,7 @@
   },
   "Generate": {
    "additionalProperties": true,
-   "description": "Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as\na forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,\n`do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the\n`generated` frame reads decode steps, at each step's last position; how far a row got is what the engine\nactually generated, up to and including the row's first EOS: the step's own `eos_token_id` when it gives\none, else the id the engine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prompt\ncall projects the head at the last position only and every decode step is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at step 0.",
+   "description": "Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as\na forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,\n`do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A row's calls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
    "properties": {
     "kind": {
      "const": "generate",
@@ -2696,33 +2696,40 @@
   },
   "Pos": {
    "additionalProperties": false,
-   "description": "`pos` names token positions within a scope.\n\n```\npos := int                                    # the one shorthand: {\"index\": int}\n     | {\"frame\"?: \"prompt\" | \"generated\",     # default \"prompt\"\n        \"scope\"?: {\"variable\": column} | {\"segment\": \"role[n]\" | \"role\" | \"eos\"},\n        exactly one of \"index\": int | \"span\": [start, stop] | \"all\": true}\n```\n\nIndices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's\ntokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes\nto the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the\nsecond user message) or, in the generated frame, to where the row stopped (`eos`). In the prompt, text a\nscope names that occurs twice in the row is refused. A turn has no meaning in the generated frame, nor\n`eos` in the prompt.\n\nThe generated frame counts decode steps: index *k* is the forward that chose new token *k*, read at its\nlast position, so index 0 is the prompt call's last position. A row's steps are its continuation, its\nnew tokens up to and including its first EOS. A `variable` scope there is the row's text located in what\nit said, `eos` the step that chose its first EOS. A row its scope or slice does not reach is\n`alignment_missing`, and one whose text occurs twice in what it said `alignment_ambiguous`: results, not\nerrors.\n\nA slice is rectangular when both ends count from the same side (or it runs to the end from a negative\nstart): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is\nragged: a read then gives one entry per token, `{values, row, tok}`. In the generated frame a slice is\nrectangular only unscoped and counted from the start at both ends (`index: 2`, `span: [0, 3]`), since\nrows stop at different steps; a rectangular read holds NaN on a row that did not get that far, and a\nragged one's `tok` is the step.",
-   "oneOf": [
-    {
-     "required": [
-      "index"
-     ]
-    },
-    {
-     "required": [
-      "span"
-     ]
-    },
-    {
-     "required": [
-      "all"
-     ]
-    }
-   ],
+   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos   := int                                   # shorthand: {\"frame\": 0, \"index\": int}\n       | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: index}\nframe := int | [start, stop] | \"generated\" | \"all\" | \"eos\"         # default 0\nscope := {\"column\": \"<dataset>.<column>\"} | {\"text\": \"<literal>\"} | {\"turn\": \"<role>[<n>]\"}\nindex := int | [start, stop] | \"all\"                               # default \"all\"\n```\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call; a span is half-open; `\"generated\"` is every decode call, `\"all\"` the\nprefill and every decode call, `\"eos\"` the call where the row stopped (the one that chose its EOS). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes; the scope is the tokens that overlap its one occurrence. `turn` is a chat turn, in call 0 only.\n\n**index** (default `\"all\"`): an int counts the scope's tokens (negative from the end), a span is\nhalf-open.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or\na span of calls, its index is an int or a span whose ends count from the same side, and it has no\n`column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,\ntok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a\nrow, or a rectangular index that does not fit, is refused by name before any forward: the data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or\n`alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.",
    "properties": {
     "frame": {
-     "default": "prompt",
-     "enum": [
-      "prompt",
-      "generated"
+     "default": 0,
+     "oneOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "integer"
+        }
+       ],
+       "type": "array"
+      },
+      {
+       "enum": [
+        "generated",
+        "all",
+        "eos"
+       ],
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
      ],
-     "title": "Frame",
-     "type": "string"
+     "title": "Frame"
     },
     "scope": {
      "anyOf": [
@@ -2736,65 +2743,33 @@
      "default": null
     },
     "index": {
-     "anyOf": [
+     "default": "all",
+     "oneOf": [
       {
-       "oneOf": [
+       "type": "integer"
+      },
+      {
+       "maxItems": 2,
+       "minItems": 2,
+       "prefixItems": [
         {
          "type": "integer"
         },
         {
-         "$ref": "#/$defs/Sweep"
+         "type": "integer"
         }
-       ]
+       ],
+       "type": "array"
       },
       {
-       "type": "null"
+       "const": "all",
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
       }
      ],
-     "default": null,
      "title": "Index"
-    },
-    "span": {
-     "anyOf": [
-      {
-       "oneOf": [
-        {
-         "maxItems": 2,
-         "minItems": 2,
-         "prefixItems": [
-          {
-           "type": "integer"
-          },
-          {
-           "type": "integer"
-          }
-         ],
-         "type": "array"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Span"
-    },
-    "all": {
-     "anyOf": [
-      {
-       "const": true,
-       "type": "boolean"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "All"
     }
    },
    "title": "Pos",
@@ -2802,7 +2777,7 @@
   },
   "Run": {
    "additionalProperties": false,
-   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the token index, or in the generated frame the decode step, every\npositioned read and write resolved to, per row (`alignment_missing` or `alignment_ambiguous` for a\ngenerated row it does not reach). A swept step's are keyed by coordinate.",
+   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` or `alignment_ambiguous` for a row\nit does not reach). A swept step's are keyed by coordinate.",
    "properties": {
     "engine": {
      "title": "Engine",
@@ -2864,21 +2839,26 @@
   },
   "Scope": {
    "additionalProperties": false,
-   "description": "`{\"variable\": column}`: the row's own text of that column, located in its input; or `{\"segment\":\n\"role[n]\" | \"role\" | \"eos\"}`: a chat turn, or where a generated row stopped.",
-   "properties": {
-    "variable": {
-     "anyOf": [
-      {
-       "type": "string"
-      },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null,
-     "title": "Variable"
+   "description": "`{\"column\": \"<dataset>.<column>\"}`: the row's own text of that column (an indexed input's variables are\nnamed whole: `pairs.counterfactual_inputs_variables[0].entity`); `{\"text\": \"<literal>\"}`: that text; or\n`{\"turn\": \"<role>[<n>]\"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).",
+   "oneOf": [
+    {
+     "required": [
+      "column"
+     ]
     },
-    "segment": {
+    {
+     "required": [
+      "text"
+     ]
+    },
+    {
+     "required": [
+      "turn"
+     ]
+    }
+   ],
+   "properties": {
+    "column": {
      "anyOf": [
       {
        "type": "string"
@@ -2888,7 +2868,31 @@
       }
      ],
      "default": null,
-     "title": "Segment"
+     "title": "Column"
+    },
+    "text": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Text"
+    },
+    "turn": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Turn"
     }
    },
    "title": "Scope",

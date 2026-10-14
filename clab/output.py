@@ -10,8 +10,9 @@ the header that featurizer checks.
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
-The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which token
-(in the generated frame, which decode step) every positioned read and write resolved to per row, which
+The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
+position (an index into the row's prompt tokens, then its generated ones) every read and write resolved to
+per row, which
 `table` uses to label positions. Values are never in the manifest.
 """
 
@@ -129,7 +130,7 @@ def header(plan: Plan, name: str) -> dict[str, str] | None:
 
 # -- tables ---------------------------------------------------------------------------------------------
 
-JOIN = ("at", "row", "layer", "pos", "step", "key")
+JOIN = ("at", "row", "layer", "pos", "key")
 
 
 def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict]:
@@ -137,11 +138,11 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 
     A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose
     step is not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers:
-    "all"`, the token axes with their tokens (`pos`/`pos_token`, the index into the row's tokens a position
-    resolved to; `step`/`step_token` in the generated frame, the decode step and the token it chose;
-    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose),
-    and `value`: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A
-    row a generated-frame read did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
+    "all"`, the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index
+    into the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it
+    for a read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step
+    used (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A
+    ragged value gives a row per entry. A row a read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
     true, with no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
@@ -225,8 +226,7 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
 
 def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
     """A ragged value's rows: one per entry (per layer under `layers: "all"`), labelled with its row and the
-    token it is (`tok`: a token index, or a decode step in the generated frame); then one row for each row a
-    generated-frame read did not reach."""
+    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach."""
     stack = value["values"] if "layers" in dims else value["values"][None]
     out = []
     for layer in range(stack.shape[0]):
@@ -239,7 +239,7 @@ def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
 
 
 def unreached(place: dict | None, row: int | None) -> dict:
-    """`{"alignment_missing": True}` (or ambiguous) for a row a generated-frame read did not reach, else {}."""
+    """`{"alignment_missing": True}` (or ambiguous) for a row a read beyond the prefill did not reach, else {}."""
     resolved = place["positions"][row] if place and row is not None else None
     return {resolved: True} if isinstance(resolved, str) else {}
 
@@ -252,17 +252,18 @@ def token(place: dict | None, row: int, axis: str, k: int) -> dict:
         return {axis: k}
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis)
-    index = place["keys"][k] if place["keys"] is not None else k - (place["width"] - len(place["tokens"][row]))
+    index = place["keys"][k] if place["keys"] is not None else k - (place["width"] - len(place["prompt"][row]))
     return {axis: None} if index < 0 else label(place, row, index, axis)
 
 
 def label(place: dict | None, row: int, index: int, axis: str) -> dict:
-    """A row's token `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`) in the
-    prompt, `step` and `step_token`, the token that step chose, in the generated frame."""
+    """A row's position `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`), the token
+    that sits there, and for a read in a generation the forward `call` that holds it."""
     if place is None:
         return {axis: index}
-    name = "step" if place["frame"] == "generated" else axis
-    return {name: index, f"{name}_token": place["tokens"][row][index]}
+    prompt = len(place["prompt"][row])
+    call = {"call": 0 if index < prompt else index - prompt + 1} if place["beyond"] else {}
+    return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
 
 
 def part(value: Any, pick: tuple) -> Any:
@@ -293,18 +294,21 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
 
 
 def located(plan: Plan, source: str, at: dict) -> dict:
-    """For the read `source` at the point agreeing with `at`: its frame, the rows' tokens (the prompt's, or
-    what a generate step's rows generated), the positions each row resolved to, and the keys it selects."""
+    """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
+    tokens (the prompt's, then in a generation what each row generated), whether it was read in a
+    generation (whose positions are labelled with their call), the positions each row resolved to, and the keys it selects."""
     assert plan.run is not None
     thing, _, member = source.partition(".")
     producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
-    frame = positions.parse(producer.reads[member].pos)["frame"]
-    tokens = plan.run.tokens[thing if frame == "generated" else producer.input]
-    if frame == "generated" and producer.at:
-        tokens = tokens[labelled(plan, producer.at)]
+    prompt = plan.run.tokens[producer.input]
+    said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
+    if said is not None and producer.at:
+        said = said[labelled(plan, producer.at)]
     resolved = plan.run.positions[source]
     keys = (producer.reads[member].site.select or {}).get("key")
-    return {"frame": frame, "tokens": tokens, "width": max(map(len, tokens)), "keys": keys,
+    return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
+            "beyond": producer.kind == "generate",
+            "width": max(map(len, prompt)), "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved}
 
 

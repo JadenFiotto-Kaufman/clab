@@ -68,10 +68,11 @@ def test_renormalize_runs_only_inside_a_write(where):
         edited("patching", change).compile()
 
 
-def test_the_generated_frame_is_a_generate_steps():
+def test_a_forward_makes_one_call():
     def change(d):
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": "generated", "index": 0}
-    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos: the generated frame is a generate step's"):
+        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 1, "index": -1}
+    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos\.frame: a forward makes one call, the "
+                                        r"prefill; frame is 0"):
         edited("patching", change).compile()
 
 
@@ -121,24 +122,25 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
         "input": "If today is Monday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: variable 'entity' \('Friday'\) is not in its input"),
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) is not in its input"),
     ("entity_patch", lambda d: d["data"].update(pairs={"rows": [{
         "input": "Friday or Friday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: variable 'entity' \('Friday'\) occurs 2 times in the row's input; a scope is one place"),
-    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(segment="user"),
-     r"blanked.blank: row 0: segment 'user' occurs 2 times in the row's input"),
-    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(segment="user[2]"),
-     r"blanked.blank: row 0: segment 'user\[2\]' is not in its input"),
-    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"span": [9, -1]},
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) occurs 2 times in the row's input; a scope is one "
+     r"place"),
+    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(turn="user"),
+     r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input"),
+    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(turn="user[2]"),
+     r"blanked.blank: row 0: turn 'user\[2\]' is not in its input"),
+    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [9, -1]},
                                                                            ops=[{"op": "swap", "with": 0.0}]),
      r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
     ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],
                                                              "base_answer": " Friday"}]}),
      r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=20),
-     r"patched.patch: row 0: tokens \[20:21\] do not fit its 10 scope tokens"),
+     r"patched.patch: row 0: tokens 20 do not fit its 10 scope tokens"),
 ])
 def test_what_needs_the_model_is_checked_before_any_forward(engines, name, change, message):
     text, forwards = refused(engines, edited(name, change).compile())

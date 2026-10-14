@@ -38,11 +38,13 @@ def field(row: dict, input: str) -> str | list[dict]:
     return row[column] if index is None else row[column][index]
 
 
-def variable(row: dict, input: str, name: str) -> str | None:
-    """The row's own text of variable `name`: its column of that name, or, for an indexed input, the matching
-    entry of `<column>_variables` (`counterfactual_inputs_variables[0]["entity"]`)."""
-    _, column, index = parse_input(input)
-    return row.get(name) if index is None else row[f"{column}_variables"][index].get(name)
+def lookup(row: dict, path: str) -> object:
+    """The value a column path names in one row, after its dataset: `entity`, or into a column's entries and
+    keys, `counterfactual_inputs_variables[0].entity`."""
+    value: object = row
+    for name, index in re.findall(r"(\w+)|\[(\d+)\]", path):
+        value = value[name] if name else value[int(index)]  # type: ignore[index]
+    return value
 
 
 def encode(tokenizer, value: str | list[dict]) -> dict:

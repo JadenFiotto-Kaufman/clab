@@ -209,23 +209,15 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
-    if pos["frame"] == "generated" and step.kind != "generate":
-        fail(f"{path}.pos", "the generated frame is a generate step's; a forward has only its prompt")
-    if pos["frame"] == "generated" and write:
-        fail(f"{path}.pos", "a generate step's writes land on the prompt; the generated frame is read")
-    if pos["frame"] == "generated" and "key" in address.COMPONENTS[site.component]["dims"]:
-        fail(f"{path}.site", f"{site.component}'s key axis grows with every decode step; read it in a forward")
-    if pos["frame"] == "prompt" and step.kind == "generate" and site.component in ("lm_head_output", "logits"):
-        fail(f"{path}.pos", f"a generation's prompt call computes {site.component} at its last position only; "
-             "read it in the generated frame, index 0")
-    variable = (pos["scope"] or {}).get("variable")
-    _, column, index = data.parse_input(step.input)
-    if variable is not None and pos["frame"] == "prompt" and index is not None:
-        entries = [r.get(f"{column}_variables") for r in cx.rows[dataset]]
-        if any(not isinstance(e, list) or len(e) <= index or variable not in e[index] for e in entries):
-            fail(f"{path}.pos.scope.variable", f"no {variable!r} in {column}_variables[{index}] on every row")
-    elif variable is not None:
-        column_ref(cx, f"{dataset}.{variable}", f"{path}.pos.scope.variable", dataset)
+    frame, scope = pos["frame"], pos["scope"] or {}
+    if frame != 0 and step.kind != "generate":
+        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0")
+    if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
+        fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
+    if write and frame != 0:
+        decided(f"{path}.pos", pos)
+    if "column" in scope:
+        text_ref(cx, scope["column"], f"{path}.pos.scope.column", dataset)
     ragged = positions.ragged(pos)
     dims = selection = address.dims(site.component, site.layers, ragged)
     for i, o in enumerate(spec.ops):
@@ -370,6 +362,35 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
         fail(path, f"{value!r} is a column of {name!r}, and the value it goes with has a row per example of "
              f"{dataset!r}")
     return name
+
+
+def decided(path: str, pos: dict) -> None:
+    """A write beyond the prefill lands at each call it selects as that call runs, so which calls and which
+    positions must be known before the call: a fixed frame (no negative call, no `eos`), no scope, and of a
+    decode call's one position, all of it (a single call may also say 0 or -1)."""
+    frame, index = pos["frame"], pos["index"]
+    if frame == "eos" or isinstance(frame, int) and frame < 0 or isinstance(frame, list) and min(frame) < 0:
+        fail(f"{path}.frame", f"frame {frame!r} is known only once the row has stopped; a write lands as its call "
+             "runs, so its frame is a call, a span from the start or 'generated' or 'all'")
+    if pos["scope"] is not None:
+        fail(f"{path}.scope", "a write beyond the prefill lands as its call runs, before the text a scope names "
+             "is all generated; it takes no scope")
+    if index != "all" and not (isinstance(frame, int) and index in (0, -1)):
+        fail(f"{path}.index", f"index {index!r}: a decode call holds one position, so a write over several calls "
+             "takes index 'all' (a single call also 0 or -1)")
+
+
+def text_ref(cx: Compiling, value, path: str, dataset: str) -> None:
+    """`<dataset>.<column path>` naming text on every row of `dataset` (the step's)."""
+    name, _, column = value.partition(".")
+    column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}", path, dataset)
+    for i, row in enumerate(cx.rows[name]):
+        try:
+            found = data.lookup(row, column)
+        except (KeyError, IndexError, TypeError):
+            fail(path, f"{value!r} is not on row {i} of {name!r}")
+        if not isinstance(found, str):
+            fail(path, f"{value!r} is {type(found).__name__} on row {i} of {name!r}; a scope's column is text")
 
 
 def featurizer_ref(cx: Compiling, value, path: str) -> None:

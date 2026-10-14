@@ -1,10 +1,14 @@
 """Generation: both generate documents' numbers pinned per engine at one batch size, the engines agreeing to
-the bit and `remote="local"` too; and the numbers that pin what the generated frame means: index 0 is the
-prompt call's last position, step k's logits chose token k, a scoped read resolves per row from what the row
-said (missing, ambiguous, where it stopped), a step the run never made is missing, and `decode` stops at EOS.
+the bit and `remote="local"` too; and the numbers that pin what a position means across calls: the prefill's
+last position is the forward's, decode call k holds generated token k-1 and its logits chose token k, a
+scoped read resolves per row from what the row said (missing, ambiguous, where it stopped), a call the run
+never made is missing, a write at a decode call changes the tokens from that call on, and `decode` stops at
+EOS.
 
 The tiny Llama says the same six tokens after every weekday prompt ("Handler substr energcalc tossorter"),
-and its generation stops on id 1 (its generation config's EOS, which is not its tokenizer's).
+and its generation stops on id 1 (its generation config's EOS, which is not its tokenizer's). The weekday
+prompts are 11, 9, 9 and 9 tokens long, BOS included, so generated token j of row r sits at position
+`P_r + j`: 11 + j on row 0, 9 + j on the others.
 """
 
 import json
@@ -19,6 +23,7 @@ from clab import Plan, positions
 from clab.plan import PlanError
 from conftest import BATCH_SIZE, GENERATE, ROOT, close, edited, plain, plan_of, same, snapshot, stand_in
 
+PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
 
 
@@ -62,39 +67,46 @@ def test_remote_local_is_bit_equal_to_local(engines, filled, name):
 
 
 def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
-    """The header: two rows score, two are `alignment_missing` under `at_said`, and `at_stop` is missing on
-    every row, since `min_new_tokens` holds EOS off for all six steps."""
+    """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_stop` is
+    missing on every row, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
+    word's last token where it is an input: row 0 said `▁substr` as token 1 (position 12, call 2), row 1
+    `▁energ` as token 2 (position 11, call 3)."""
     plan = filled["generated_answer", "nnterp"]
-    assert plan.run.positions["answer.at_said"] == [[1], [2], "alignment_missing", "alignment_missing"]
+    assert plan.run.positions["answer.at_said"] == [[12], [11], "alignment_missing", "alignment_missing"]
     assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
     p = plan.results["p_answer"]
-    assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [1, 2] and p["values"].shape == (2,)
+    assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 11] and p["values"].shape == (2,)
     said = plan.run.tokens["answer"]
-    assert [said[r][s] for r, s in ((0, 1), (1, 2))] == ["▁substr", "▁energ"]
+    assert [said[0][1], said[1][2]] == ["▁substr", "▁energ"]
 
 
-def test_index_0_is_the_prompt_calls_last_position_and_each_step_chose_its_token(engines):
-    """generate_probe.json's patched step over its three steps at once: step 0 is what a forward with the same
-    patch reads at the prompt's last position, and every step's argmax is the token generated there. The
-    final norm's output there is the forward's to the bit; the head's to an ulp, since a generation's prompt
-    call projects the last position alone and a forward projects every position (a different matmul)."""
+def test_call_k_holds_token_k_minus_1_and_its_logits_chose_token_k(engines):
+    """generate_probe.json's patched step: the prefill's last position is what a forward with the same patch
+    reads there (the final norm to the bit; the head to an ulp, since a generation's prefill projects the
+    last position alone and a forward every position, a different matmul); the head at calls 0, 1, 2 chose
+    tokens 0, 1, 2; and the embedding at calls 1 and 2 is that of tokens 0 and 1, their inputs."""
     def change(d):
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": "generated", "span": [0, 3]}
-        d["steps"]["forward"] = {**d["steps"]["patched"], "kind": "forward",
-                                 "reads": {"logits": {"site": "head", "pos": -1}}}
-        for key in ("max_new_tokens", "min_new_tokens", "do_sample"):
-            del d["steps"]["forward"][key]
-        d["steps"]["patched"]["reads"]["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
-        d["steps"]["forward"]["reads"]["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
-        d["saves"] = ["patched", "patched.logits", "forward.logits", "patched.resid", "forward.resid"]
+        reads = d["steps"]["patched"]["reads"]
+        reads["logits"]["pos"] = {"frame": 0, "index": -1}
+        reads["later"] = {"site": "head", "pos": {"frame": [1, 3], "index": [0, 2]}}
+        reads["inputs"] = {"site": {"component": "token_embeddings"}, "pos": {"frame": [1, 3], "index": [0, 2]}}
+        reads["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
+        d["steps"]["forward"] = {"kind": "forward", "input": "pairs.input", "writes": d["steps"]["patched"]["writes"],
+                                 "reads": {"logits": {"site": "head", "pos": -1},
+                                           "resid": {"site": {"component": "final_norm_output"}, "pos": -1}}}
+        d["saves"] = ["patched", "patched.logits", "patched.later", "patched.inputs", "patched.resid",
+                      "forward.logits", "forward.resid"]
     plan = edited("generate_probe", change).compile()
     for kind in ("nnterp", "hooks"):
-        values = run(engines, plan, kind).results
-        logits = values["patched.logits"]
-        assert logits.shape == (4, 3, 32000)
+        engine = engines(kind, plan.model)
+        values = engine.execute(plan, batch_size=BATCH_SIZE).results
         assert torch.equal(values["patched.resid"], values["forward.resid"])
-        torch.testing.assert_close(logits[:, :1], values["forward.logits"], atol=1e-6, rtol=0)
-        assert torch.equal(logits.argmax(-1), values["patched"])
+        torch.testing.assert_close(values["patched.logits"], values["forward.logits"], atol=1e-6, rtol=0)
+        chose = torch.cat([values["patched.logits"], values["patched.later"]], 1).argmax(-1)
+        assert torch.equal(chose, values["patched"])
+        if kind == "hooks":
+            table = engine.model.get_input_embeddings().weight
+            assert torch.equal(values["patched.inputs"], table[values["patched"][:, :2]])
 
 
 def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engines):
@@ -105,8 +117,9 @@ def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engin
     text = plan.results["text"]
     assert text == ["Handler substr energcalc tossorter"] * 4
     rows = plan.table("p_answer", "text", columns=["said"])
-    assert [(r["row"], r.get("step"), r.get("step_token"), r.get("alignment_missing")) for r in rows] == \
-        [(0, 1, "▁substr", None), (1, 2, "▁energ", None), (2, None, None, True), (3, None, None, True)]
+    assert [(r["row"], r.get("pos"), r.get("pos_token"), r.get("call"), r.get("alignment_missing")) for r in rows] \
+        == [(0, 12, "▁substr", 2, None), (1, 11, "▁energ", 3, None), (2, None, None, None, True),
+            (3, None, None, None, True)]
     assert all(r["text"] == text[0] for r in rows) and [r["said"] for r in rows][2:] == ["Friday", "Saturday"]
     assert "p_answer" not in rows[2] and rows[0]["p_answer"] == plan.results["p_answer"]["values"][0].item()
 
@@ -119,13 +132,13 @@ def test_a_word_said_twice_is_ambiguous(engines):
         d["data"]["prompts"] = {"rows": [{**rows[0], "said": "er"}, {**rows[1], "said": "subst"}]}
         d["saves"] = ["p_answer"]
     plan = run(engines, edited("generated_answer", change).compile())
-    assert plan.run.positions["answer.at_said"] == ["alignment_ambiguous", [1]]
+    assert plan.run.positions["answer.at_said"] == ["alignment_ambiguous", [10]]
     assert [r.get("alignment_ambiguous") for r in plan.table("p_answer")] == [True, None]
 
 
 def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
-    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: `eos`
-    resolves to step 2, and decode leaves it out. Without it (and without `min_new_tokens`) nothing changes."""
+    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: `eos` is
+    call 2, the one that chose it, whose one position is token 1, and decode leaves the EOS out."""
     def change(d):
         answer = d["steps"]["answer"]
         answer.update(max_new_tokens=3, forced_eos_token_id=1)
@@ -136,7 +149,7 @@ def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[2]] * 4
+        assert values.run.positions["answer.at_stop"] == [[p + 1] for p in PROMPT]
         assert values.results["answer"][:, 2].tolist() == [1] * 4
         assert values.results["text"] == ["Handler substr"] * 4
         assert values.results["pieces"] == [["Handler", "▁substr"]] * 4
@@ -144,11 +157,11 @@ def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_a_step_the_run_never_made_is_missing(engines, kind):
-    """A read at step 5 of a three-step generation: the loop asks for a step the run does not make, and every
-    row is `alignment_missing`, its value NaN, the run going on."""
+def test_a_call_the_run_never_made_is_missing(engines, kind):
+    """A read at call 5 of a three-token generation: the loop asks for a call the run does not make, and
+    every row is `alignment_missing`, its value NaN, the run going on."""
     def change(d):
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": "generated", "index": 5}
+        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 5, "index": -1}
         d["saves"] = ["p_answer", "patched"]
     plan = run(engines, edited("generate_probe", change).compile(), kind)
     assert plan.run.positions["patched.logits"] == ["alignment_missing"] * 4
@@ -161,11 +174,21 @@ def test_a_forwarded_option_sweeps(engines):
     def change(d):
         d["steps"]["patched"]["max_new_tokens"] = {"sweep": [2, 3]}
         d["steps"]["patched"]["min_new_tokens"] = 0
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": "generated", "index": 0}
+        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 0, "index": -1}
         d["saves"] = ["patched"]
     plan = run(engines, edited("generate_probe", change).compile())
     assert {k: v.shape for k, v in plan.results["patched"].items()} == {2: (4, 2), 3: (4, 3)}
     assert torch.equal(plan.results["patched"][3][:, :2], plan.results["patched"][2])
+
+
+def prompt_of(ids: list[int]) -> dict:
+    """An encoded prompt of `ids` (`data.encode`'s shape), its first token BOS, for resolving by hand."""
+    return {"ids": ids, "offsets": [(0, 0)] + [(0, 1)] * (len(ids) - 1), "text": "x", "turns": []}
+
+
+def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, prompt: int = 2):
+    return positions.resolve({"frame": 0, "scope": None, "index": "all", **pos}, prompt_of([1] + [5] * (prompt - 1)),
+                             said, {1}, {1}, tokenizer, text)
 
 
 def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
@@ -176,40 +199,51 @@ def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
     text, spans = positions.char_spans(tokenizer, ids)
     assert text == "say 🍐 now"
     assert [text[a:b] for a, b in spans] == ["say", " ", "", "", "", "🍐", " now"]
-    every = {"frame": "generated", "scope": {"variable": "pear"}, "start": 0, "stop": None}
-    assert positions.generated(every, ids, {1}, tokenizer, "🍐") == [2, 3, 4, 5]
-    assert positions.generated({**every, "start": -1}, ids, {1}, tokenizer, "🍐") == [5]
+    pear = {"frame": "generated", "scope": {"text": "🍐"}}
+    assert resolved(pear, ids, tokenizer, "🍐") == [4, 5, 6, 7]          # generated tokens 2..5, after a 2-token prompt
+    assert resolved({**pear, "index": -1}, ids, tokenizer, "🍐") == [7]
 
 
-def test_generated_positions_resolve_per_row():
+def test_each_stage_narrows_the_one_before():
+    """The three stages by hand, on a two-token prompt (BOS, then position 1) and what a row generated: the
+    calls a frame picks (a row's calls end with the one that chose its last token, so that token is never an
+    input), the text a scope finds in their tokens, the positions an index picks."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     words = tokenizer(" alpha beta", add_special_tokens=False)["input_ids"]
-    eos = {1}
-    last = {"frame": "generated", "scope": None, "start": -1, "stop": None}
-    stop = {**last, "scope": {"segment": "eos"}}
-    beta = {**last, "scope": {"variable": "beta"}}
-    assert positions.generated(last, [*words, 1, 0, 0], eos, tokenizer, None) == [len(words)]
-    assert positions.generated(last, words, eos, tokenizer, None) == [len(words) - 1]
-    assert positions.generated(stop, [*words, 1, 0], eos, tokenizer, None) == [len(words)]
-    assert positions.generated(stop, words, eos, tokenizer, None) == "alignment_missing"
-    assert positions.generated(beta, [*words, 1], eos, tokenizer, "beta") == [len(words) - 1]
-    assert positions.generated(beta, [*words, 1], eos, tokenizer, "gamma") == "alignment_missing"
-    assert positions.generated(beta, [*words, *words], eos, tokenizer, "beta") == "alignment_ambiguous"
-    assert positions.generated(beta, [1, *words], eos, tokenizer, "beta") == "alignment_missing"   # after its EOS
-    fixed = {"frame": "generated", "scope": None, "start": 2, "stop": 3}
-    assert positions.generated(fixed, [5, 1, 0, 0], eos, tokenizer, None) == "alignment_missing"   # stopped first
-    assert positions.generated(fixed, [5, 6, 7], eos, tokenizer, None) == [2]
+    n = len(words)
+    assert resolved({"frame": 0, "index": -1}, [], tokenizer) == [1]                     # BOS is never a position
+    assert resolved({"frame": 1}, words, tokenizer) == [2]                               # call 1 holds token 0
+    assert resolved({"frame": -1}, words, tokenizer) == [n]                              # the row's last call
+    assert resolved({"frame": "generated"}, [*words, 1], tokenizer) == list(range(2, 2 + n))
+    assert resolved({"frame": "all"}, [*words, 1], tokenizer) == list(range(1, 2 + n))
+    assert resolved({"frame": [1, 3], "index": 1}, [*words, 1], tokenizer) == [3]
+    assert resolved({"frame": "eos"}, [*words, 1, 0], tokenizer) == [1 + n]              # the call that chose EOS
+    assert resolved({"frame": "eos"}, words, tokenizer) == "alignment_missing"           # it never stopped
+    assert resolved({"frame": n + 1, "index": -1}, words, tokenizer) == "alignment_missing"
+    beta = {"frame": "generated", "scope": {"text": "beta"}, "index": -1}
+    assert resolved(beta, [*words, 1], tokenizer, "beta") == [1 + n]
+    assert resolved(beta, [*words, 1], tokenizer, "gamma") == "alignment_missing"
+    assert resolved(beta, [*words, *words, 1], tokenizer, "beta") == "alignment_ambiguous"
+    assert resolved(beta, [1, *words], tokenizer, "beta") == "alignment_missing"         # said after its EOS
+    assert resolved(beta, words, tokenizer, "beta") == "alignment_missing"               # its last token, never an input
+    assert resolved({"frame": 3, "index": -1}, [5, 1, 0, 0], tokenizer) == "alignment_missing"   # stopped first
+    assert resolved({"frame": 2, "index": -1}, [5, 6, 7], tokenizer) == [3]
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "generated", "index": 0}),
-     r"steps\.patched\.writes\.patch\.pos: a generate step's writes land on the prompt"),
-    (lambda d: d["steps"]["patched"]["reads"]["logits"].update(pos=-1),
-     r"steps\.patched\.reads\.logits\.pos: a generation's prompt call computes lm_head_output at its last "
-     r"position only"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "eos"}),
+     r"steps\.patched\.writes\.patch\.pos\.frame: frame 'eos' is known only once the row has stopped"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
+     r"steps\.patched\.writes\.patch\.pos\.frame: frame -1 is known only once the row has stopped"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
+     r"steps\.patched\.writes\.patch\.pos\.scope: a write beyond the prefill lands as its call runs"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "generated", "index": -1}),
+     r"steps\.patched\.writes\.patch\.pos\.index: index -1: a decode call holds one position"),
     (lambda d: d["steps"]["patched"]["reads"].update(pattern={
-        "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": "generated", "index": 0}}),
-     r"steps\.patched\.reads\.pattern\.site: attention_probabilities's key axis grows with every decode step"),
+        "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
+     r"steps\.patched\.reads\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
+    (lambda d: d["steps"]["patched"]["reads"]["logits"].update(pos={"frame": 1, "scope": {"column": "pairs.said"}}),
+     r"steps\.patched\.reads\.logits\.pos\.scope\.column: dataset 'pairs' has no column 'said'"),
 ])
 def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     with pytest.raises(PlanError, match=message):
@@ -248,7 +282,7 @@ def test_an_option_the_engine_rejects_fails_naming_the_step(engines, kind):
 
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     """`eos_token_id` is forwarded and is that step's EOS: 25148 (`▁substr`), the second token every row says,
-    so every row stops at step 1, `eos` resolves there and decode stops before it."""
+    so every row stops at call 1, whose one position is token 0, and decode stops before it."""
     def change(d):
         answer = d["steps"]["answer"]
         answer["eos_token_id"] = 25148
@@ -258,18 +292,20 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[1]] * 4
+        assert values.run.positions["answer.at_stop"] == [[p] for p in PROMPT]
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
-def test_the_manifest_holds_each_rows_decode_step_and_what_it_said(filled, tmp_path):
+def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_path):
     out = tmp_path / "probe"
     filled["generate_probe", "nnterp"].dump(str(out))
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["run"]["positions"]["patched.logits"] == {f"index={k}": [[k]] * 4 for k in range(3)}
-    assert manifest["run"]["tokens"]["patched"]["index=0"][0] == ["Handler", "▁substr", "▁energ"]
+    assert manifest["run"]["positions"]["patched.logits"] == {f"frame={k}": [[p - 1 + k] for p in PROMPT]
+                                                              for k in range(3)}
+    assert manifest["run"]["tokens"]["patched"]["frame=0"][0] == ["Handler", "▁substr", "▁energ"]
     rows = Plan.load(str(out)).table("p_answer")
-    assert [(r["at"], r["row"], r["step"], r["step_token"]) for r in rows][4] == ({"index": 1}, 0, 1, "▁substr")
+    assert [(r["at"], r["row"], r["pos"], r["pos_token"], r["call"]) for r in rows][4] == \
+        ({"frame": 1}, 0, 11, "Handler", 1)
 
 
 @pytest.mark.parametrize("name", GENERATE)
@@ -282,36 +318,37 @@ def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch, na
 
 
 class Steer(LogitsProcessor):
-    """Rows that say different things and stop at different steps, which the tiny Llama's own generation (the
+    """Rows that say different things and stop at different calls, which the tiny Llama's own generation (the
     same six tokens after every prompt, no EOS) never does. Additive, so `min_new_tokens` still holds EOS off:
-    the Thursday row is pushed to EOS from step 1, the Saturday row from step 3, and the Sunday row to
-    `▁Friday` at step 0."""
+    the Thursday row is pushed to EOS from token 1 on (it stops after two tokens, calls 0 and 1), the
+    Saturday row from token 3, and the Sunday row to `▁Friday` as token 0."""
 
     def __init__(self, tokenizer, width: int):
         self.tokenizer, self.width = tokenizer, width
         self.friday = tokenizer(" Friday", add_special_tokens=False)["input_ids"][0]
 
     def __call__(self, input_ids, scores):
-        step = input_ids.shape[1] - self.width
+        token = input_ids.shape[1] - self.width
         for i, prompt in enumerate(self.tokenizer.batch_decode(input_ids[:, :self.width], skip_special_tokens=True)):
-            if "Thursday" in prompt and step >= 1 or "Saturday" in prompt and step >= 3:
+            if "Thursday" in prompt and token >= 1 or "Saturday" in prompt and token >= 3:
                 scores[i, 1] += 1e4
-            if "Sunday" in prompt and step == 0:
+            if "Sunday" in prompt and token == 0:
                 scores[i, self.friday] += 1e4
         return scores
 
 
-def steered(engines, kind: str, batch_size: int, held: bool) -> Any:
-    """generated_answer.json steered by `Steer`, with EOS held off (`held`) or not, reading the head at steps 1
-    and 2, layer 1 at step 0 and at the prompt's last token, and scoring step 2."""
-    def change(d):
+def steered(engines, kind: str, batch_size: int, held: bool, change=None, **kwargs) -> Any:
+    """generated_answer.json steered by `Steer`, with EOS held off (`held`) or not, reading the head at calls
+    1 and 2, layer 1 at the prompt's last token from inside a read beyond the prefill and from the prefill,
+    and scoring call 2; `change` edits the document further."""
+    def changed(d):
         answer = d["steps"]["answer"]
         if not held:
             del answer["min_new_tokens"]
         answer["reads"].update(
-            at1={"site": "head", "pos": {"frame": "generated", "index": 1}},
-            at2={"site": "head", "pos": {"frame": "generated", "index": 2}},
-            resid0={"site": {"component": "layer_output", "layers": 1}, "pos": {"frame": "generated", "index": 0}},
+            at1={"site": "head", "pos": {"frame": 1, "index": -1}},
+            at2={"site": "head", "pos": {"frame": 2, "index": -1}},
+            resid0={"site": {"component": "layer_output", "layers": 1}, "pos": {"frame": [0, 2], "index": -2}},
             resid={"site": {"component": "layer_output", "layers": 1}, "pos": -1})
         d["steps"].update(iia={"kind": "op", "op": "match", "of": "answer.at2", "expected": "prompts.cf_answer"},
                           acc={"kind": "op", "op": "mean", "of": "iia"},
@@ -319,12 +356,16 @@ def steered(engines, kind: str, batch_size: int, held: bool) -> Any:
                           text={"kind": "op", "op": "decode", "of": "answer"})
         d["saves"] = ["answer", "answer.at1", "answer.at2", "answer.resid0", "answer.resid", "iia", "acc", "top",
                       "text"]
-    plan = edited("generated_answer", change).compile()
+        if change:
+            change(d)
+    plan = edited("generated_answer", changed).compile()
     engine = engines(kind, plan.model)
     width = max(len(engine.tokenizer(r["input"])["input_ids"]) for r in plan.data["prompts"].rows or [])
-    step: Any = plan.steps["answer"]
-    step.__pydantic_extra__["logits_processor"] = LogitsProcessorList([Steer(engine.tokenizer, width)])
-    return engine.execute(plan, batch_size=batch_size)
+    for entry in plan.steps.values():
+        step: Any = entry
+        if getattr(step, "kind", None) == "generate":
+            step.__pydantic_extra__["logits_processor"] = LogitsProcessorList([Steer(engine.tokenizer, width)])
+    return engine.execute(plan, batch_size=batch_size, **kwargs)
 
 
 def missing_as(value: Any) -> Any:
@@ -334,10 +375,11 @@ def missing_as(value: Any) -> Any:
     return {k: missing_as(v) for k, v in value.items()} if isinstance(value, dict) else value
 
 
-def test_rows_that_stop_at_different_steps(engines):
-    """Each row's ids are its own, a row that stopped at step 1 is missing at step 2 and not at step 1, and is
-    missing all the way down (NaN in `match`, -1 from `argmax`, left out of the mean); the decode call is read
-    at its last position; on both engines and at batch sizes 1, 2 and 4, to the bit."""
+def test_rows_that_stop_at_different_calls(engines):
+    """Each row's ids are its own; a row that stopped after call 1 is missing at call 2 and not at call 1, and
+    missing all the way down (NaN in `match`, -1 from `argmax`, left out of the mean); a read beyond the
+    prefill takes a prompt position from the prefill's own; on both engines and at batch sizes 1, 2 and 4, to
+    the bit."""
     runs = {(kind, size): steered(engines, kind, size, held=False) for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
     plan = runs["nnterp", 2]
     v, positions = plan.results, plan.run.positions
@@ -345,13 +387,13 @@ def test_rows_that_stop_at_different_steps(engines):
                                     [4598, 25148, 18190, 1, 1, 1], [28728, 5117, 1325, 13194, 21367, 28630]]
     assert v["text"] == ["Handler", "Handler substr energcalc tossorter", "Handler substr energ",
                          "FridayreichсиhovervelopeAlpha"]
-    assert positions["answer.at_stop"] == [[1], "alignment_missing", [3], "alignment_missing"]
-    assert positions["answer.at1"] == [[1]] * 4
-    assert positions["answer.at2"] == ["alignment_missing", [2], [2], [2]]
+    assert positions["answer.at_stop"] == [[11], "alignment_missing", [11], "alignment_missing"]
+    assert positions["answer.at1"] == [[p] for p in PROMPT]
+    assert positions["answer.at2"] == ["alignment_missing", [10], [10], [10]]
     assert not v["answer.at1"].isnan().any() and v["answer.at2"][0].isnan().all() and not v["answer.at2"][1:].isnan().any()
     assert v["iia"][0].isnan().all() and v["top"][:, 0].tolist() == [-1, 18190, 18190, 1325]
     assert torch.equal(v["acc"], v["iia"][1:].mean())
-    assert torch.equal(v["answer.resid0"], v["answer.resid"])          # step 0 is the prompt call's last token
+    assert torch.equal(v["answer.resid0"], v["answer.resid"])          # the prompt's last token, either way
     for kind, size in runs:
         other = runs[kind, size]
         assert other.run.positions == positions and other.run.tokens == plan.run.tokens, (kind, size)
@@ -367,4 +409,50 @@ def test_min_new_tokens_holds_eos_off(engines):
         plan = steered(engines, kind, 2, held=True)
         assert 1 not in plan.results["answer"].flatten().tolist()
         assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
-        assert plan.run.positions["answer.at2"] == [[2]] * 4
+        assert plan.run.positions["answer.at2"] == [[p + 1] for p in PROMPT]
+
+
+WRITE = {"site": {"component": "layer_output", "layers": 0}, "pos": {"frame": 2, "index": -1}}
+
+
+def written(d, held: bool = True):
+    """generated_answer.json as a clean generation beside two that write at decode call 2, a swap of zeros
+    and an add of the prompts' mean last-token vector (scaled up), each keeping its ids."""
+    answer = {k: v for k, v in d["steps"]["answer"].items() if k != "reads"}
+    if not held:
+        answer.pop("min_new_tokens", None)
+    d["steps"] = {
+        "harvest": {"kind": "forward", "input": "prompts.input", "reads": {"acts": {**WRITE, "pos": -1}}},
+        "mean": {"kind": "op", "op": "mean", "of": "harvest.acts"},
+        "clean": answer,
+        "swapped": {**answer, "writes": {"w": {**WRITE, "ops": [{"op": "swap", "with": 0.0}]}}},
+        "added": {**answer, "writes": {"w": {**WRITE, "ops": [{"op": "add", "with": "mean", "scale": 50.0}]}}}}
+    d["saves"] = ["clean", "swapped", "added"]
+
+
+def test_a_write_at_a_decode_call_changes_the_tokens_from_there_on(engines):
+    """A swap and an add at call 2 on layer 0's output edit generated token 1 where it is an input: tokens 0
+    and 1 are as without the write and token 2 on are not; both engines at batch sizes 1, 2 and 4 and
+    `remote="local"` give the same ids, to the bit, and the manifest records the written position."""
+    plan = edited("generated_answer", written).compile()
+    runs: dict = {(kind, size): engines(kind, plan.model).execute(edited("generated_answer", written).compile(),
+                                                            batch_size=size)
+            for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
+    runs["local"] = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE, remote="local")
+    v = runs["nnterp", 2].results
+    for key in ("swapped", "added"):
+        assert torch.equal(v[key][:, :2], v["clean"][:, :2]) and (v[key][:, 2] != v["clean"][:, 2]).any(), key
+        assert runs["nnterp", 2].run.positions[f"{key}.w"] == [[p + 1] for p in PROMPT]
+    for where, other in runs.items():
+        assert same(other.results, v), where
+
+
+def test_a_write_at_a_call_a_row_never_reaches_skips_that_row(engines):
+    """The Thursday row stops after call 1, so a write at call 2 has nothing of it to write: it is recorded
+    missing there and its ids are those of the clean run; the other rows are written, on both engines."""
+    for kind in ("nnterp", "hooks"):
+        plan = steered(engines, kind, BATCH_SIZE, held=False, change=lambda d: written(d, held=False))
+        v, where = plan.results, plan.run.positions
+        assert where["swapped.w"] == ["alignment_missing", [10], [10], [10]], kind
+        assert torch.equal(v["swapped"][0], v["clean"][0]) and v["clean"][0].tolist()[:2] == [4598, 1]
+        assert (v["swapped"][1:, 2] != v["clean"][1:, 2]).any()

@@ -36,9 +36,9 @@ uv run clab table out/generate_probe p_answer --csv      # the same as CSV on st
 
 `show` prints the run's engine, remote flag, batch size, versions, start time and seconds, then one line per
 saved value: the step that made it, its `dims`, its sweep axes and its shape (per coordinate when swept).
-`table` prints `plan.table(name, ...)`: a row per example and token (`pos`/`pos_token`, or `step`/
-`step_token` for a value read in the generated frame), the point's coordinates `at` when the step is swept,
-the dataset columns the step used, and one column per name; a row a generated-frame read did not reach says
+`table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
+generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
+dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
 `alignment_missing` (or `alignment_ambiguous`) in place of a value. Aligned output cuts long cells short;
 `--csv` keeps them whole. Both are `Plan.load(out)` and one call, run from the corpus root (where the
 dataset files are).
@@ -112,7 +112,8 @@ every positioned read and write resolved to, which is how `table` labels `pos_to
 
 `FORMAT.md` is the one-page reference: root keys, every record and its fields, step kinds, every op with its
 arguments and axis behaviour (grouped as metrics, reductions and edits), every component, featurizer kinds,
-the `pos` grammar, names and scoping, sweeps and the output. It is generated from the code (`clab describe
+the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
+within their tokens, `index` positions within that), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
 `documents/` holds the corpus of 31 documents; `data/` their datasets.
 

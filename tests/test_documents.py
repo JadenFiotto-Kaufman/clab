@@ -150,7 +150,7 @@ def test_premix_and_head_outputs_are_one_tensor(engines):
         engines("nnterp", plan.model).execute(plan)
 
 
-def test_a_variable_scope_is_the_rows_own_text(filled):
+def test_a_column_scope_is_the_rows_own_text(filled):
     """entity_patch.json: the last token of each row's entity, ' Thursday' three tokens and the others one."""
     run = filled["entity_patch", "nnterp"].run
     at = [run.tokens["pairs.input"][r][i] for r, (i,) in enumerate(run.positions["patched.patch"])]
@@ -261,9 +261,9 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
     """A window from prompt token 5 to the end is four tokens on the 10-token row and two on the others: zeros
     land there, and every other position (padding and BOS included) keeps its value."""
     def change(d, write):
-        d["steps"]["patched"]["writes"] = {"zero": {"site": "target", "pos": {"span": [5, -1]},
+        d["steps"]["patched"]["writes"] = {"zero": {"site": "target", "pos": {"index": [5, -1]},
                                                     "ops": [{"op": "swap", "with": 0.0}]}} if write else {}
-        d["steps"]["patched"]["reads"]["all"] = {"site": "target", "pos": {"all": True}}
+        d["steps"]["patched"]["reads"]["all"] = {"site": "target", "pos": {"index": "all"}}
         d["saves"] = ["patched.all"]
     written, clean = (edited("patching", lambda d, w=w: change(d, w)).compile() for w in (True, False))
     engine = engines(kind, written.model)

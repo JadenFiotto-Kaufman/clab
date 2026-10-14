@@ -84,11 +84,11 @@ class HooksEngine:
         pre-hook on the model counts its forward calls (0 is the prompt), and each site's hook does what
         `now` says on that call."""
         sites = by_site(writes, reads)
-        got: dict[str, Any] = {r["name"]: [] for r in reads if "steps" in r}
-        call = {"step": -1}
+        got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
+        call = {"n": -1}
 
         def count(module, args):
-            call["step"] += 1
+            call["n"] += 1
         handles = [self.model.register_forward_pre_hook(count)]
         handles += [hook(self.model, self.config, component, layer, here, there, got, call)
                     for (component, layer), (here, there) in sites.items()]
@@ -115,7 +115,7 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
     shape = config["sizes"]["num_heads"], config["sizes"]["head_dim"]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
-        writes, reads = (here, there) if call is None else now(here, there, call["step"])
+        writes, reads = (here, there) if call is None else now(here, there, call["n"])
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value

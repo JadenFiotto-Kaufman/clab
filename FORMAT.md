@@ -68,41 +68,46 @@ run on the value's coordinates in that featurizer's space, the change written ba
 
 ### `pos`
 
-- `frame: one of 'prompt', 'generated' = 'prompt'`
+- `frame: int or list of int or one of 'generated', 'all', 'eos' or a sweep = 0`
 - `scope: scope or null = None`
-- `index: int or a sweep or null = None`
-- `span: list of int or a sweep or null = None`
-- `all: one of True or null = None`
+- `index: int or list of int or one of 'all' or a sweep = 'all'`
 
-`pos` names token positions within a scope.
+`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,
+`index` picks positions within that.
 
 ```
-pos := int                                    # the one shorthand: {"index": int}
-     | {"frame"?: "prompt" | "generated",     # default "prompt"
-        "scope"?: {"variable": column} | {"segment": "role[n]" | "role" | "eos"},
-        exactly one of "index": int | "span": [start, stop] | "all": true}
+pos   := int                                   # shorthand: {"frame": 0, "index": int}
+       | {"frame"?: frame, "scope"?: scope, "index"?: index}
+frame := int | [start, stop] | "generated" | "all" | "eos"         # default 0
+scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+index := int | [start, stop] | "all"                               # default "all"
 ```
 
-Indices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's
-tokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes
-to the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the
-second user message) or, in the generated frame, to where the row stopped (`eos`). In the prompt, text a
-scope names that occurs twice in the row is refused. A turn has no meaning in the generated frame, nor
-`eos` in the prompt.
+**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
+counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
+prefill and every decode call, `"eos"` the call where the row stopped (the one that chose its EOS). A
+position is where an input token sits, in a forward and in a generation alike: the prefill holds every
+prompt token, its last position the distribution over generated token 0; under the cache decode call k
+holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
+row's calls end with the one that chose its last token, so the token it stopped on is never an input. The
+prompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a
+generation's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there
+call 0 holds that one position.
 
-The generated frame counts decode steps: index *k* is the forward that chose new token *k*, read at its
-last position, so index 0 is the prompt call's last position. A row's steps are its continuation, its
-new tokens up to and including its first EOS. A `variable` scope there is the row's text located in what
-it said, `eos` the step that chose its first EOS. A row its scope or slice does not reach is
-`alignment_missing`, and one whose text occurs twice in what it said `alignment_ambiguous`: results, not
-errors.
+**scope** (default: every token the frame selected): `column` and `text` locate text in the selected
+calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
+prefixes; the scope is the tokens that overlap its one occurrence. `turn` is a chat turn, in call 0 only.
 
-A slice is rectangular when both ends count from the same side (or it runs to the end from a negative
-start): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is
-ragged: a read then gives one entry per token, `{values, row, tok}`. In the generated frame a slice is
-rectangular only unscoped and counted from the start at both ends (`index: 2`, `span: [0, 3]`), since
-rows stop at different steps; a rectangular read holds NaN on a row that did not get that far, and a
-ragged one's `tok` is the step.
+**index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
+half-open.
+
+A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
+a span of calls, its index is an int or a span whose ends count from the same side, and it has no
+`column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,
+tok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a
+row, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
+Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or
+`alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.
 
 ### `interventions.<name>`
 
@@ -147,18 +152,19 @@ differ in the last bits. Results reproduce to the bit at a fixed batch size.
 
 Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as
 a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
-`do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the
-`generated` frame reads decode steps, at each step's last position; how far a row got is what the engine
-actually generated, up to and including the row's first EOS: the step's own `eos_token_id` when it gives
-one, else the id the engine's generation stops on (its generation config's). The step's own value is the
+`do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
+prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
+generated token k on, through the cache. A row's calls are what the engine actually generated, up to the
+one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
+engine's generation stops on (its generation config's). The step's own value is the
 new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
 (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
 runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
 runs, naming the step.
 
-Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prompt
-call projects the head at the last position only and every decode step is a `[batch, 1, ...]` matmul, so
-batch sizes 4 and 2 already differ by about 1e-7 at step 0.
+Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
+projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
+batch sizes 4 and 2 already differ by about 1e-7 at call 0.
 
 ### `op`
 
@@ -234,7 +240,7 @@ An op runs in three places, always as the same function:
 Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
 refused there (make it a step after the forward).
 
-A row a generated-frame read did not reach is missing all the way down: in a rectangular value it is NaN,
+A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
 every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
@@ -419,19 +425,20 @@ the header that featurizer checks.
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
-The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which token
-(in the generated frame, which decode step) every positioned read and write resolved to per row, which
+The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
+position (an index into the row's prompt tokens, then its generated ones) every read and write resolved to
+per row, which
 `table` uses to label positions. Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
 A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose
 step is not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers:
-"all"`, the token axes with their tokens (`pos`/`pos_token`, the index into the row's tokens a position
-resolved to; `step`/`step_token` in the generated frame, the decode step and the token it chose;
-`key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose),
-and `value`: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A
-row a generated-frame read did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
+"all"`, the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index
+into the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it
+for a read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step
+used (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A
+ragged value gives a row per entry. A row a read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
 true, with no value. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document

@@ -88,9 +88,9 @@ class NnterpEngine:
         model = self.model
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
-        asked = [r["steps"] for r in reads if "steps" in r]
-        calls = None if None in asked else sorted({0, *(s for a in asked for s in a)})
-        got: dict[str, Any] = {r["name"]: [] for r in reads if "steps" in r}
+        asked = [r["calls"] for r in writes + reads if "calls" in r]
+        loop = None if None in asked else sorted({0, *(s for a in asked for s in a)})
+        got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
         result: dict = {}
         inputs = {k: batch[k] for k in ("input_ids", "attention_mask")}
         with warnings.catch_warnings():
@@ -98,7 +98,7 @@ class NnterpEngine:
                                                       r"not make")
             with model.generate(**options) as tracer:
                 with tracer.invoke(inputs):
-                    for step in tracer.all() if calls is None else tracer.iter[calls]:
+                    for step in tracer.all() if loop is None else tracer.iter[loop]:
                         for component, layer in order:
                             here, there = now(*sites[(component, layer)], step)
                             if not here and not there:

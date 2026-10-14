@@ -48,6 +48,10 @@ document in these places:
   generated-frame read holds NaN on a row that did not reach its step, which is missing all the way down:
   the manifest records `alignment_missing`, metrics give NaN, `argmax`/`top_k` give id -1, and reductions
   skip the row. `select` replaces `heads`/`units`/`features`; on `key` it counts the row's own tokens.
+- §5 (PLAN.md §11 "Ratified after M3"): `pos` is `frame` (forward calls: 0 the prefill, k a decode call,
+  `generated`/`all`/`eos`) → `scope` (`column`/`text`/`turn`) → `index`; a position is where an input token
+  sits (decode call k holds generated token k-1), the "generated index k = the call that chose token k"
+  convention, `variable`, `segment` and the `span`/`all` keys are gone, and writes land in every frame.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

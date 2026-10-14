@@ -1,6 +1,11 @@
-"""Positions: a `pos` as a slice of a scope's tokens, and that slice resolved to token indices, row by row,
-inside the run (where the tokenizer is): in the prompt frame from the row's encoding, in the generated frame
-from what the row generated."""
+"""Positions: a `pos` as three stages of narrowing (frame, scope, index), resolved row by row inside the run,
+where the tokenizer is, to the positions the record names.
+
+A row's positions are its token indices in one sequence: the prompt's tokens (`0 .. P-1`, as encoded,
+special ones included), then what it generated (`P + j` for generated token `j`). The prefill, call 0, holds
+the prompt; decode call `k >= 1` holds generated token `k - 1`, its input, at index `P + k - 1`. Calls up to
+the one that chose the row's last token are the row's: calls `0 .. L-1` for a row that generated `L` tokens.
+"""
 
 import re
 
@@ -8,78 +13,163 @@ MISSING, AMBIGUOUS = "alignment_missing", "alignment_ambiguous"
 
 
 def parse(pos) -> dict:
-    """A `pos` (an int, or a `Pos`) as `{"frame", "scope", "start", "stop"}`: a half-open slice of the scope's
-    tokens, `stop` None for "to the end"."""
+    """A `pos` (an int, or a `Pos`) as `{"frame", "scope", "index"}`, spans as lists."""
     if isinstance(pos, int):
-        return {"frame": "prompt", "scope": None, "start": pos, "stop": None if pos == -1 else pos + 1}
+        return {"frame": 0, "scope": None, "index": pos}
+    def plain(value):
+        return list(value) if isinstance(value, tuple) else value
     scope = None if pos.scope is None else pos.scope.model_dump(exclude_none=True)
-    if pos.index is not None:
-        start, stop = pos.index, (None if pos.index == -1 else pos.index + 1)
-    elif pos.span is not None:
-        start, stop = pos.span
-    else:
-        start, stop = 0, None
-    return {"frame": pos.frame, "scope": scope, "start": start, "stop": stop}
+    return {"frame": plain(pos.frame), "scope": scope, "index": plain(pos.index)}
 
 
 def ragged(pos: dict) -> bool:
-    """Whether the slice's width can differ between rows: one end counted from the start, one from the end. In
-    the generated frame every row's continuation has its own length, so a slice is the same width on every
-    row only unscoped and counted from the start at both ends."""
-    start, stop = pos["start"], pos["stop"]
-    if pos["frame"] == "generated":
-        return pos["scope"] is not None or start < 0 or stop is None or stop < 0
-    return (start < 0) != (stop is None or stop < 0)
+    """Whether a record's width can differ between rows, from its three selectors alone. It is rectangular
+    when the frame is one call or a span of calls, the index an int or a span whose ends count from the same
+    side, and no `column` or `text` scope looks outside the prefill."""
+    frame, index, scope = pos["frame"], pos["index"], pos["scope"] or {}
+    fixed = isinstance(index, int) or isinstance(index, list) and (index[0] < 0) == (index[1] < 0)
+    texted = ("column" in scope or "text" in scope) and frame != 0
+    return not (fixed and isinstance(frame, (int, list)) and not texted)
 
 
-def asked(pos: dict) -> list[int] | None:
-    """The decode steps a generated-frame slice reads: its own when it is rectangular; every step (None) when
-    which ones it means depends on what each row said."""
-    return None if ragged(pos) else list(range(pos["start"], pos["stop"]))
+def width(pos: dict) -> int:
+    """A rectangular record's width: one for an int index, the span's length otherwise."""
+    index = pos["index"]
+    return 1 if isinstance(index, int) else index[1] - index[0]
 
 
-def bounds(pos: dict, n: int) -> tuple[int, int]:
-    """The slice's ends as indices into a scope of `n` tokens."""
-    start = pos["start"] + n if pos["start"] < 0 else pos["start"]
-    stop = n if pos["stop"] is None else (pos["stop"] + n if pos["stop"] < 0 else pos["stop"])
+def prefill(pos: dict) -> bool:
+    """Whether the record looks only at the prefill, so the data alone decides it, before any forward."""
+    return pos["frame"] == 0
+
+
+def calls(pos: dict) -> list[int] | None:
+    """The decode calls a record must reach on every row, known before the run: a fixed frame's own calls
+    (`[]` for the prefill alone), or None when which calls it means depends on how far each row got."""
+    frame = pos["frame"]
+    if isinstance(frame, int) and frame >= 0:
+        return [frame] if frame else []
+    if isinstance(frame, list) and min(frame) >= 0:
+        return [k for k in range(*frame) if k]
+    return None
+
+
+def with_prefill(pos: dict) -> bool:
+    """Whether the record can name a position of the prefill on some row."""
+    frame = pos["frame"]
+    if isinstance(frame, list):
+        return frame[0] <= 0
+    return frame == "all" or frame == "eos" or isinstance(frame, int) and frame <= 0
+
+
+# -- the three stages ---------------------------------------------------------------------------------
+
+
+def bounds(selector, n: int) -> tuple[int, int]:
+    """An int or a `[start, stop]` span (negative from the end) as indices into `n` things."""
+    start, stop = (selector, None if selector == -1 else selector + 1) if isinstance(selector, int) else selector
+    start = start + n if start < 0 else start
+    stop = n if stop is None else (stop + n if stop < 0 else stop)
     return start, stop
 
 
-def resolve(pos: dict, row: dict, special: set, variable: str | None) -> list[int] | None:
-    """The slice's token indices in one encoded row (`data.encode`), or None when its scope is not in the row.
+def framed(frame, n: int, stopped: bool) -> list[int]:
+    """Stage one: the calls `frame` picks among a row's `n` calls; `stopped` says whether its last one chose
+    EOS."""
+    if frame == "generated":
+        return list(range(1, n))
+    if frame == "all":
+        return list(range(n))
+    if frame == "eos":
+        return [n - 1] if stopped else []
+    start, stop = bounds(frame, n)
+    return list(range(max(start, 0), min(stop, n)))
 
-    The prompt's tokens are the row's tokens that are not special (so BOS is never one). A `variable` scope
-    is the prompt tokens overlapping the one place the row's own text of that column occurs in its input;
-    a `segment` scope those overlapping a chat turn (`user[1]` is the second user message; a bare `user` is
-    the only one). Text that occurs twice is ambiguous and refused. A rectangular slice must fit the scope;
-    a ragged one takes what is there, possibly nothing.
-    """
-    tokens = [i for i, t in enumerate(row["ids"]) if t not in special]
-    scope = pos["scope"]
-    if scope is not None:
-        if "segment" in scope:
-            spans, what = turns(row, scope["segment"]), f"segment {scope['segment']!r}"
-        else:
-            spans = [(m.start(), m.end()) for m in re.finditer(re.escape(variable), row["text"])] if variable else []
-            what = f"variable {scope['variable']!r} ({variable!r})"
-        if not spans:
-            return None
-        if len(spans) > 1:
-            raise ValueError(f"{what} occurs {len(spans)} times in the row's input; a scope is one place")
+
+def held(called: list[int], row: dict, said: list[int], special: set, head_only: bool) -> list[int]:
+    """The positions the calls hold: the prefill's prompt tokens that are not special (only its last token,
+    `head_only`, where the prefill computes the head at its last position alone), each decode call's input."""
+    prompt = len(row["ids"])
+    out = []
+    for call in called:
+        if call == 0:
+            out += [prompt - 1] if head_only else [i for i, t in enumerate(row["ids"]) if t not in special]
+        elif call - 1 < len(said):
+            out.append(prompt + call - 1)
+    return out
+
+
+def scoped(scope: dict | None, tokens: list[int], row: dict, said: list[int], tokenizer, text: str | None,
+           prefilled: bool) -> list[int] | str:
+    """Stage two: the tokens of `tokens` that overlap the one place the scope's text occurs (`text`: the
+    column's or the literal) or the chat turn it names. Text that is absent or occurs twice is refused in the
+    prefill and a result (`MISSING`, `AMBIGUOUS`) elsewhere. The prompt's text is located by the tokenizer's
+    offsets; the generated inputs' by decoding growing prefixes."""
+    if scope is None:
+        return tokens
+    prompt, inputs, spans = len(row["ids"]), [], []
+    if "turn" in scope:
+        found, what = [("prompt", a, b) for a, b in turns(row, scope["turn"])], f"turn {scope['turn']!r}"
+    else:
+        what = f"{'column ' + repr(scope['column']) if 'column' in scope else 'text'} ({text!r})"
+        looked = any(t < prompt for t in tokens)
+        found = [("prompt", m.start(), m.end()) for m in re.finditer(re.escape(text), row["text"])] \
+            if text and looked else []
+        inputs = [t - prompt for t in tokens if t >= prompt]
+        if inputs and text:
+            words, spans = char_spans(tokenizer, [said[j] for j in inputs])
+            found += [("said", m.start(), m.end()) for m in re.finditer(re.escape(text), words)]
+    if len(found) != 1:
+        if prefilled:
+            raise ValueError(f"{what} occurs {len(found)} times in the row's input; a scope is one place"
+                             if found else f"{what} is not in its input")
+        return AMBIGUOUS if found else MISSING
+    (part, a, b), = found
+    if part == "prompt":
         if row["offsets"] is None:
-            raise ValueError("this tokenizer has no offset mapping, which a scope needs")
-        (a, b), = spans
-        tokens = [i for i in tokens if row["offsets"][i][0] < b and row["offsets"][i][1] > a]
-    n = len(tokens)
-    start, stop = bounds(pos, n)
-    if not ragged(pos) and not 0 <= start < stop <= n:
-        raise ValueError(f"tokens [{pos['start']}:{pos['stop']}] do not fit its {n} scope tokens")
-    return tokens[max(start, 0):max(stop, 0)]
+            raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
+        return [t for t in tokens if t < prompt and row["offsets"][t][0] < b and row["offsets"][t][1] > a]
+    # A token with an empty span (part of a split character) covers the character it begins.
+    return [prompt + j for j, (x, y) in zip(inputs, spans) if x < b and max(y, x + 1) > a]
 
 
-def turns(row: dict, segment: str) -> list[tuple[int, int]]:
-    """The character spans of the chat turns `segment` names: `role[n]` the n-th of that role, `role` all of them."""
-    role, n = re.fullmatch(r"(\w+)(?:\[(\d+)\])?", segment).groups("")  # type: ignore[union-attr]
+def indexed(index, tokens: list[int], rectangular: bool, prefilled: bool) -> list[int] | str:
+    """Stage three: the positions `index` picks among the scope's tokens. A rectangular index that does not
+    fit is refused in the prefill and missing elsewhere; a ragged one takes what is there."""
+    if index == "all":
+        got = tokens
+    else:
+        start, stop = bounds(index, len(tokens))
+        if rectangular and not 0 <= start < stop <= len(tokens):
+            if prefilled:
+                raise ValueError(f"tokens {index} do not fit its {len(tokens)} scope tokens")
+            return MISSING
+        got = tokens[max(start, 0):max(stop, 0)]
+    return got if got or prefilled else MISSING
+
+
+def resolve(pos: dict, row: dict, said: list[int] | None, eos: set[int], special: set, tokenizer,
+            text: str | None, head_only: bool = False) -> list[int] | str:
+    """The positions a record names in one row, given its encoded prompt (`data.encode`) and, in a
+    generation, its new ids `said` (None in a forward); or why it names none (`MISSING`, `AMBIGUOUS`)."""
+    said = continuation(said or [], eos)
+    stopped = bool(said) and said[-1] in eos
+    called = framed(pos["frame"], max(len(said), 1), stopped)
+    if not called:
+        return MISSING
+    tokens = held(called, row, said, special, head_only)
+    tokens = scoped(pos["scope"], tokens, row, said, tokenizer, text, prefill(pos))
+    if isinstance(tokens, str):
+        return tokens
+    return indexed(pos["index"], tokens, not ragged(pos), prefill(pos))
+
+
+# -- the text a scope names ------------------------------------------------------------------------------
+
+
+def turns(row: dict, turn: str) -> list[tuple[int, int]]:
+    """The character spans of the chat turns `turn` names: `role[n]` the n-th of that role, `role` all of them."""
+    role, n = re.fullmatch(r"(\w+)(?:\[(\d+)\])?", turn).groups("")  # type: ignore[union-attr]
     spans = [(a, b) for r, a, b in row["turns"] if r == role]
     return spans[int(n):int(n) + 1] if n else spans
 
@@ -96,7 +186,7 @@ def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
     """The text `ids` decode to, and each token's character span in it, found by decoding growing prefixes.
 
     A token ends where its prefix's text stops agreeing with the whole text, so a character split across
-    tokens (a multi-byte one, which a partial prefix decodes to `\ufffd`) is the span of the token that
+    tokens (a multi-byte one, which a partial prefix decodes to `\\ufffd`) is the span of the token that
     completes it, and the tokens before that one have empty spans at the character's start.
     """
     text = tokenizer.decode(ids)
@@ -107,34 +197,3 @@ def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
         spans.append((start, max(start, end)))
         start = max(start, end)
     return text, spans
-
-
-def generated(pos: dict, ids: list[int], eos: set[int], tokenizer, variable: str | None) -> list[int] | str:
-    """The decode steps a generated-frame slice names in one row, from the row's new `ids`, or why it names
-    none: `alignment_missing` or `alignment_ambiguous`, a result rather than an error.
-
-    Step *k* is the forward that chose new token *k*, so the row's steps index its continuation (its new
-    tokens up to and including its first EOS). A `variable` scope is the steps whose tokens overlap the one
-    place the row's own text of that column occurs in what it said (its continuation decoded, without the
-    EOS; a token with an empty span, part of a split character, covers the character it begins): missing
-    where it never occurs, ambiguous where it occurs twice. `segment: eos` is the step that
-    chose the row's first EOS, missing when the row never stopped. A slice the row's steps do not reach, or
-    that holds none of them, is missing.
-    """
-    said = continuation(ids, eos)
-    stopped = bool(said) and said[-1] in eos
-    steps = list(range(len(said)))
-    scope = pos["scope"] or {}
-    if scope.get("segment") == "eos":
-        steps = steps[-1:] if stopped else []
-    elif "variable" in scope:
-        text, spans = char_spans(tokenizer, said[:-1] if stopped else said)
-        found = [(m.start(), m.end()) for m in re.finditer(re.escape(variable), text)] if variable else []
-        if len(found) != 1:
-            return AMBIGUOUS if found else MISSING
-        (a, b), = found
-        steps = [i for i, (x, y) in enumerate(spans) if x < b and max(y, x + 1) > a]
-    start, stop = bounds(pos, len(steps))
-    if not ragged(pos) and stop > len(steps):
-        return MISSING
-    return steps[max(start, 0):max(stop, 0)] or MISSING

@@ -163,65 +163,69 @@ class Site(Record):
 
 
 class Scope(Record):
-    """`{"variable": column}`: the row's own text of that column, located in its input; or `{"segment":
-    "role[n]" | "role" | "eos"}`: a chat turn, or where a generated row stopped."""
-    variable: str | None = None
-    segment: str | None = None
+    """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
+    named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
+    `{"turn": "<role>[<n>]"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one)."""
+    model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
+    column: str | None = None
+    text: str | None = None
+    turn: str | None = None
 
     @model_validator(mode="after")
     def _one(self):
-        if (self.variable is None) == (self.segment is None):
-            raise ValueError("a scope is {'variable': column} or {'segment': 'role[n]' | 'role' | 'eos'}")
+        if [self.column, self.text, self.turn].count(None) != 2:
+            raise ValueError("a scope is one of {'column': '<dataset>.<column>'}, {'text': '<literal>'}, "
+                             "{'turn': '<role>[<n>]'}")
         return self
 
 
 class Pos(Record):
-    """`pos` names token positions within a scope.
+    """`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,
+    `index` picks positions within that.
 
     ```
-    pos := int                                    # the one shorthand: {"index": int}
-         | {"frame"?: "prompt" | "generated",     # default "prompt"
-            "scope"?: {"variable": column} | {"segment": "role[n]" | "role" | "eos"},
-            exactly one of "index": int | "span": [start, stop] | "all": true}
+    pos   := int                                   # shorthand: {"frame": 0, "index": int}
+           | {"frame"?: frame, "scope"?: scope, "index"?: index}
+    frame := int | [start, stop] | "generated" | "all" | "eos"         # default 0
+    scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+    index := int | [start, stop] | "all"                               # default "all"
     ```
 
-    Indices count the scope's tokens and may be negative (from its end); a span is half-open. The prompt's
-    tokens are the row's tokens that are not special (BOS is never one) and not padding. `variable` scopes
-    to the row's own text of that column, located in its input; `segment` to a chat turn (`user[1]` is the
-    second user message) or, in the generated frame, to where the row stopped (`eos`). In the prompt, text a
-    scope names that occurs twice in the row is refused. A turn has no meaning in the generated frame, nor
-    `eos` in the prompt.
+    **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
+    counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
+    prefill and every decode call, `"eos"` the call where the row stopped (the one that chose its EOS). A
+    position is where an input token sits, in a forward and in a generation alike: the prefill holds every
+    prompt token, its last position the distribution over generated token 0; under the cache decode call k
+    holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
+    row's calls end with the one that chose its last token, so the token it stopped on is never an input. The
+    prompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a
+    generation's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there
+    call 0 holds that one position.
 
-    The generated frame counts decode steps: index *k* is the forward that chose new token *k*, read at its
-    last position, so index 0 is the prompt call's last position. A row's steps are its continuation, its
-    new tokens up to and including its first EOS. A `variable` scope there is the row's text located in what
-    it said, `eos` the step that chose its first EOS. A row its scope or slice does not reach is
-    `alignment_missing`, and one whose text occurs twice in what it said `alignment_ambiguous`: results, not
-    errors.
+    **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
+    calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
+    prefixes; the scope is the tokens that overlap its one occurrence. `turn` is a chat turn, in call 0 only.
 
-    A slice is rectangular when both ends count from the same side (or it runs to the end from a negative
-    start): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is
-    ragged: a read then gives one entry per token, `{values, row, tok}`. In the generated frame a slice is
-    rectangular only unscoped and counted from the start at both ends (`index: 2`, `span: [0, 3]`), since
-    rows stop at different steps; a rectangular read holds NaN on a row that did not get that far, and a
-    ragged one's `tok` is the step.
+    **index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
+    half-open.
+
+    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
+    a span of calls, its index is an int or a span whose ends count from the same side, and it has no
+    `column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,
+    tok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a
+    row, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
+    Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or
+    `alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.
     """
-    model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("index", "span", "all")]})
-    frame: Literal["prompt", "generated"] = "prompt"
+    frame: Swept[int | tuple[int, int] | Literal["generated", "all", "eos"]] = 0
     scope: Scope | None = None
-    index: Swept[int] | None = None
-    span: Swept[tuple[int, int]] | None = None
-    all: Literal[True] | None = None
+    index: Swept[int | tuple[int, int] | Literal["all"]] = "all"
 
     @model_validator(mode="after")
     def _grammar(self):
-        if [self.index, self.span, self.all].count(None) != 2:
-            raise ValueError("a position takes exactly one of 'index', 'span', 'all'")
-        segment = self.scope.segment if self.scope else None
-        if segment == "eos" and self.frame == "prompt":
-            raise ValueError("segment 'eos' is where a row stopped generating; a prompt does not stop")
-        if segment not in (None, "eos") and self.frame == "generated":
-            raise ValueError(f"segment {segment!r} is a chat turn; a continuation has no turns")
+        if self.scope is not None and self.scope.turn is not None and self.frame != 0 \
+                and not isinstance(self.frame, Sweep):
+            raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
         return self
 
 
@@ -311,18 +315,19 @@ class Forward(Record):
 class Generate(Forward):
     """Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as
     a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
-    `do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the
-    `generated` frame reads decode steps, at each step's last position; how far a row got is what the engine
-    actually generated, up to and including the row's first EOS: the step's own `eos_token_id` when it gives
-    one, else the id the engine's generation stops on (its generation config's). The step's own value is the
+    `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
+    prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
+    generated token k on, through the cache. A row's calls are what the engine actually generated, up to the
+    one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
+    engine's generation stops on (its generation config's). The step's own value is the
     new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
     (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
     runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
     runs, naming the step.
 
-    Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prompt
-    call projects the head at the last position only and every decode step is a `[batch, 1, ...]` matmul, so
-    batch sizes 4 and 2 already differ by about 1e-7 at step 0."""
+    Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
+    projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
+    batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
 
@@ -431,9 +436,9 @@ class Axis(Record):
 class Run(Record):
     """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
-    the input or the step's name), and the token index, or in the generated frame the decode step, every
-    positioned read and write resolved to, per row (`alignment_missing` or `alignment_ambiguous` for a
-    generated row it does not reach). A swept step's are keyed by coordinate."""
+    the input or the step's name), and the position every read and write resolved to, per row (an index into
+    the row's prompt tokens, then its generated ones; `alignment_missing` or `alignment_ambiguous` for a row
+    it does not reach). A swept step's are keyed by coordinate."""
     engine: str
     remote: bool | str
     batch_size: int

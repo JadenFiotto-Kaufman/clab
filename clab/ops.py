@@ -18,7 +18,7 @@ ABOUT = """An op runs in three places, always as the same function:
 Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
 refused there (make it a step after the forward).
 
-A row a generated-frame read did not reach is missing all the way down: in a rectangular value it is NaN,
+A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
 every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
