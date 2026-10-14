@@ -14,12 +14,12 @@ document in these places:
   `"<dataset>.<column>[i]"`; `pos` stays as written and becomes a slice in the run.
 - §2: `plan.py` holds the models and `find_sweeps`; `compiler.py` is the transform (sweeps, inlining, names,
   layouts, datasets, bundles); `output.py` is `dump`, `load` and `table`; `registry.py` checks a document's
-  arguments against a function's signature; `engines/standard.py` also holds the refusal of unserved
-  components both engines use.
+  arguments against a function's signature; an op declares its group and, for `pca`, the featurizer its
+  bundle is for in `@op`.
 - §3: an engine loads its checkpoint in `__init__` from the plan's `model` block and registers by decorator
-  (`@engine("nnterp")`); `execute` refuses an uncompiled plan and a plan for another checkpoint, and both
-  engines refuse by name, before anything runs, every component they cannot serve (nnterp from its
-  `support()`). `readout` is nnterp's `project_on_vocab` and the hooks engine's final norm and head.
+  (`@engine("nnterp")`); `execute` refuses an uncompiled plan and a plan for another checkpoint; an engine
+  says what it cannot serve (`unserved()`, nnterp from its `support()`), and preflight refuses those
+  components by name, inside the session, before any forward. `readout` is nnterp's `project_on_vocab` and the hooks engine's final norm and head.
 - §5: positions resolve per row on the unpadded tokens in `steps.preflight`, are recorded in
   `plan.run.positions`, and are offset by each row's padding per batch. Scopes use the tokenizer's offset
   mapping; a chat is rendered through the template and its turns located by their content.
