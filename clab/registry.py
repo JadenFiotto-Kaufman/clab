@@ -49,12 +49,19 @@ def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:
         if key not in params:
             continue
         annotation = params[key].annotation
-        if get_origin(annotation) is Annotated or annotation is Any or isinstance(value, dict) and "sweep" in value:
+        named = get_origin(thing(annotation)) is Annotated
+        if named or annotation is Any or isinstance(value, dict) and "sweep" in value:
             continue
         try:
             TypeAdapter(annotation).validate_python(value, strict=True)
         except ValidationError:
             raise ValueError(f"{key}: {value!r} is not {spell(annotation)}") from None
+
+
+def thing(annotation: Any) -> Any:
+    """The thing an optional parameter names when given (`Value` of `Value | None`); any other annotation as it is."""
+    named = [a for a in get_args(annotation) if get_origin(a) is Annotated]
+    return named[0] if get_origin(annotation) in (Union, types.UnionType) and named else annotation
 
 
 def spell(annotation: Any, names: dict | None = None) -> str:

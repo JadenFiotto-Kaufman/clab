@@ -88,7 +88,9 @@ selector := int | [start, stop] | "all"                            # occurrence'
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
 counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
-prefill and every decode call, `"eos"` the call where the row stopped (the one that chose its EOS). A
+prefill and every decode call (in a `forward`, its one call: so a named intervention written at `"all"`
+is on in every call of whichever step names it), `"eos"` the call where the row stopped (the one that
+chose its EOS). A
 position is where an input token sits, in a forward and in a generation alike: the prefill holds every
 prompt token, its last position the distribution over generated token 0; under the cache decode call k
 holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -293,7 +295,9 @@ arguments of every op: the op runs on the value's coordinates in that featurizer
 `{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
 delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
 instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
-version of the value). `renormalize`'s reference is the value at the site before the step's writes.
+version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
+write, an operand may name a read of the same forward at a site the forward reaches before the write's
+(`patched.premix` in `patched`): it is that read's value in this batch, at the read's positions.
 
 ### Metrics
 
@@ -380,20 +384,21 @@ engine's business; the name says only what the value is.
 
 Featurizer kinds: the fields each kind takes, what an instance is, and how a value moves in and out of its space.
 
-A featurizer is a space a read or write happens in. Its kind's signature is its contract: the document fields
-it takes, with `width` (the feature width of the sites it is used at) and `bundle` (the tensors its `file_path`
-names) supplied by the run, and for a probe `labels` (its class list). An instance is a dict of tensors, never
-an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
-at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
-from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
-is fixed. It is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates of a
-value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`), and `apply` its version
-of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's masked value). An edit op in its space runs on its coordinates, and the change is written back as
-a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse autoencoder's
-error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name a
-featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over what the body's encodes of it saw in that run of the body, which the
-instance keeps while a fit trains it).
+A featurizer is a space a read or write happens in, or a function on a value. Its kind's signature is its
+contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
+and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
+`labels` (its class list). An instance is a dict of tensors, never an `nn.Module`, made where the model is: a
+declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
+`seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
+the plan and checks key by key against the document; a loaded one is fixed. It is called by the `featurizer`
+op in one of its kind's modes: `encode` gives its coordinates of a value `h` (the last axis becomes the
+kind's axis: `features`, or a probe's `classes`), and `apply` its version of `h` in `h`'s own layout (a
+subspace's projection, a dictionary's reconstruction, a gate's masked value, an adapter's adapted value). An
+edit op in its space runs on its coordinates, and the change is written back as a delta (`replace`), so an op
+that changes nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly. A fit
+trains an instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>`
+(a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over what the body's
+encodes of it saw in that run of the body, which the instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -469,6 +474,20 @@ those values, as it scores logits against a column of tokens. It has no way back
 read in mode `encode` and never written through.
 
 Modes: `encode` gives its coordinates, the last axis becoming classes.
+
+### `lora`
+
+- `rank: int or null = None`
+- `alpha: float or null = None`
+- `seed: int or null = None`
+- `file_path: str or null = None`
+
+A low-rank adapter, `A` `[width, rank]` and `B` `[rank, width]` at scale `alpha / rank`: loaded from its
+bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha` one a fit trains, drawn
+from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
+no coordinates, so its one mode is `apply`, and no edit runs in its space.
+
+Modes: `apply`(with: Value or null = None) gives its version of the value, in the value's own layout: `h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its axes after the positions flattened into the adapter's width. The addition lands on the live value..
 
 ## Names and scoping
 

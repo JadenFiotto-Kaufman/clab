@@ -1,19 +1,20 @@
 """Featurizer kinds: the fields each kind takes, what an instance is, and how a value moves in and out of its space.
 
-A featurizer is a space a read or write happens in. Its kind's signature is its contract: the document fields
-it takes, with `width` (the feature width of the sites it is used at) and `bundle` (the tensors its `file_path`
-names) supplied by the run, and for a probe `labels` (its class list). An instance is a dict of tensors, never
-an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
-at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
-from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
-is fixed. It is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates of a
-value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`), and `apply` its version
-of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's masked value). An edit op in its space runs on its coordinates, and the change is written back as
-a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse autoencoder's
-error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name a
-featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over what the body's encodes of it saw in that run of the body, which the
-instance keeps while a fit trains it).
+A featurizer is a space a read or write happens in, or a function on a value. Its kind's signature is its
+contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
+and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
+`labels` (its class list). An instance is a dict of tensors, never an `nn.Module`, made where the model is: a
+declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
+`seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
+the plan and checks key by key against the document; a loaded one is fixed. It is called by the `featurizer`
+op in one of its kind's modes: `encode` gives its coordinates of a value `h` (the last axis becomes the
+kind's axis: `features`, or a probe's `classes`), and `apply` its version of `h` in `h`'s own layout (a
+subspace's projection, a dictionary's reconstruction, a gate's masked value, an adapter's adapted value). An
+edit op in its space runs on its coordinates, and the change is written back as a delta (`replace`), so an op
+that changes nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly. A fit
+trains an instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>`
+(a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over what the body's
+encodes of it saw in that run of the body, which the instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -39,8 +40,9 @@ from safetensors import safe_open
 from torch import Tensor
 
 from . import registry
+from .registry import Value
 
-SUPPLIED = ("width", "bundle", "labels")
+SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"
 
 KINDS: dict[str, Callable] = {}
@@ -63,12 +65,12 @@ MODES: dict[str, dict] = {
 }
 
 
-def kind(saves: tuple, trains: tuple = (), axis: str = "features", header: tuple = ()):
+def kind(saves: tuple, trains: tuple = (), axis: str = "features", header: tuple = (), drawn: tuple = ()):
     """Register the decorated function as a featurizer kind under its own name, with what its bundle holds
-    (`saves`), what a fit trains (`trains`), the axis its coordinates are on, and the fields its bundle's
-    header records."""
+    (`saves`), what a fit trains (`trains`), the axis its coordinates are on, the fields its bundle's header
+    records, and the fields that draw one for a fit to train (`drawn`), which a `file_path` excludes."""
     def register(fn: Callable) -> Callable:
-        DECLARED[fn.__name__] = {"saves": saves, "trains": trains, "axis": axis, "header": header}
+        DECLARED[fn.__name__] = {"saves": saves, "trains": trains, "axis": axis, "header": header, "drawn": drawn}
         return registry.registers(KINDS)(fn)
     return register
 
@@ -213,7 +215,7 @@ def pca_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
 # -- sae ---------------------------------------------------------------------------------------------------
 
 
-@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"))
+@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"), drawn=("latents",))
 def sae(width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
         bundle: dict | None = None) -> dict:
     """A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
@@ -291,6 +293,35 @@ def linear_encode(f: dict, h: Tensor) -> Tensor:
     return h @ f["W"].to(h.dtype) + f["b"].to(h.dtype)
 
 
+# -- lora --------------------------------------------------------------------------------------------------
+
+
+@kind(saves=("A", "B"), trains=("A", "B"), header=("rank", "alpha"), drawn=("rank", "alpha"))
+def lora(width: int, rank: int | None = None, alpha: float | None = None, seed: int | None = None,
+         file_path: str | None = None, bundle: dict | None = None, header: dict | None = None) -> dict:
+    """A low-rank adapter, `A` `[width, rank]` and `B` `[rank, width]` at scale `alpha / rank`: loaded from its
+    bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha` one a fit trains, drawn
+    from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
+    no coordinates, so its one mode is `apply`, and no edit runs in its space."""
+    if bundle is not None:
+        assert header is not None
+        return {"kind": "lora", "A": bundle["A"], "B": bundle["B"],
+                "scale": float(header["alpha"]) / int(header["rank"])}
+    assert rank is not None and alpha is not None
+    generator = torch.Generator().manual_seed(seed or 0)
+    return {"kind": "lora", "A": torch.randn(width, rank, generator=generator) / width ** 0.5,
+            "B": torch.zeros(rank, width), "scale": alpha / rank}
+
+
+@of(APPLY, "lora")
+def lora_apply(f: dict, h: Tensor, with_: Value | None = None) -> Tensor:
+    """`h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site
+    of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its
+    axes after the positions flattened into the adapter's width. The addition lands on the live value."""
+    x = h if with_ is None else with_.flatten(h.dim() - 1).to(h.dtype)
+    return h + f["scale"] * ((x @ f["A"].to(h.dtype)) @ f["B"].to(h.dtype))
+
+
 # -- what every kind shares ------------------------------------------------------------------------------
 
 
@@ -307,9 +338,10 @@ def labels(rows: dict[str, list[dict]], column: str) -> list:
     return sorted({row[name] for row in rows[dataset]})
 
 
-def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None) -> dict:
+def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None,
+         header: dict | None = None) -> dict:
     """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`."""
-    supplied = {"width": width, "bundle": bundle, "labels": labels}
+    supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels}
     taken = inspect.signature(KINDS[kind]).parameters
     given = {**fields, "seed": seed if fields.get("seed") is None else fields["seed"]} if "seed" in taken else fields
     return KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})
@@ -418,7 +450,9 @@ def header(kind: str, fields: dict, model: Any, labels: list | None = None, site
     list), the model, and, when written, the site it was used at, its width and the document's name."""
     params = inspect.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
-    own = {k: json.dumps(given[k]) if isinstance(given[k], list) else str(given[k]) for k in DECLARED[kind]["header"]}
+    # A field a loading document leaves out (a lora's rank and alpha) is read from the header, not checked.
+    own = {k: json.dumps(given[k]) if isinstance(given[k], list) else str(given[k]) for k in DECLARED[kind]["header"]
+           if given[k] is not None}
     found = {"format": FORMAT, "kind": kind, **own, "model.key": model.key, "model.revision": model.revision,
              "model.dtype": model.dtype}
     if site is not None:

@@ -202,17 +202,23 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         for k in seen:
             if seen.count(k) > 1:
                 fail(f"{path}.{side}", f"two {side[:-1]}s named {k!r}")
-    records = {side: {k: access(cx, p, a, plan, spec, dataset, side == "writes") for p, k, a in given[side]}
-               for side in given}
-    for k, r in records["reads"].items():
-        cx.names[f"{name}.{k}"] = {"dims": r["dims"], "data": dataset, "kind": "value"}
+    reads = {k: access(cx, p, a, plan, spec, dataset, False, {}) for p, k, a in given["reads"]}
+    named = {f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value"} for k, r in reads.items()}
+    # A forward's writes may name its own reads, which the engine makes as the forward reaches them; a
+    # generation's land call by call, so they may not.
+    live = {n: reads[n.partition(".")[2]] for n in named} if spec.kind == "forward" else {}
+    cx.names.update(named if live else {})
+    records = {"writes": {k: access(cx, p, a, plan, spec, dataset, True, live) for p, k, a in given["writes"]},
+               "reads": reads}
+    cx.names.update(named)
     if spec.kind == "generate":
         cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), **records, "dataset": dataset}
 
 
-def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool) -> dict:
-    """One write or read: its site inlined, its positions checked against the step, its ops' layouts."""
+def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool, live: dict) -> dict:
+    """One write or read: its site inlined, its positions checked against the step, its ops' layouts. `live`
+    holds the reads of a write's own forward, by name, which its operands may name."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -225,8 +231,9 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
-    if frame != 0 and step.kind != "generate":
-        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0")
+    if frame not in (0, "all") and step.kind != "generate":
+        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0, or 'all' (the whole "
+             "timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
     if write and frame != 0:
@@ -251,7 +258,10 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         found = references(cx, plan, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
         if write:
-            operands(at, found, selection, within, ragged)
+            operands(at, found, selection, within, ragged, live, o.op == "featurizer")
+            for key, info in found.items():
+                if info["name"] in live:
+                    reached(f"{at}.{key}", info["name"], live[info["name"]], site)
         # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
         inner = dims[:-1] + ["features"] if within is not None else dims
         out = layout(at, o.op, arguments(o), inner, "write" if write else "read", kind)
@@ -277,6 +287,19 @@ def mode(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | N
     except ValueError as e:
         fail(path, f"featurizer {args['featurizer']!r}: {e}")
     return kind
+
+
+def reached(path: str, name: str, read: dict, site: Site) -> None:
+    """A write's operand from a read of its own forward is made before the write lands: one layer's read, at
+    a site the forward reaches first."""
+    component, layers = read["site"]["component"], read["site"].get("layers")
+    if layers == "all":
+        fail(path, f"{name!r} is read at every layer; an operand from the write's own forward is one layer's read")
+    if address.rank(component, layers) >= address.rank(site.component, site.layers):
+        fail(path, f"{name!r} is read at {component}" + (f" layer {layers}" if layers is not None else "") +
+             f", which the forward does not reach before this write's {site.component}" +
+             (f" layer {site.layers}" if site.layers is not None else "") +
+             "; an operand from the write's own forward is read at an earlier site")
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
@@ -316,13 +339,27 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
     return next(iter(datasets), None)
 
 
-def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool) -> None:
+def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool, live: dict,
+             call: bool) -> None:
     """Inside a write an operand stands for the selection: its own layout (in a featurizer's space, its
-    features), or one vector of its features; only the vector when the selection is ragged."""
+    features), or one vector of its features; only the vector when the selection is ragged, unless the operand
+    is a read of the write's own forward, which is gathered as the selection is. The `featurizer` op's
+    operands (`call`) are its mode's: laid out on the selection's rows and positions, whatever their
+    features, which the mode takes as it says."""
     own = selection[:-1] + ["features"] if featurizer is not None else selection
-    allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([] if ragged else [own])
+    lead = [a for a in selection if a in address.EXAMPLE_AXES]
     for key, info in found.items():
-        if info["kind"] == "value" and info["dims"] not in allowed:
+        if info["kind"] != "value":
+            continue
+        whole = not ragged or info["name"] in live
+        if call:
+            if [a for a in info["dims"] if a in address.EXAMPLE_AXES] != lead or not whole:
+                fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; the featurizer op's operand is "
+                     f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is a read of its "
+                                                           "own forward"))
+            continue
+        allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
+        if info["dims"] not in allowed:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's selection is {own}, "
                  f"so an operand is {' or '.join(map(str, allowed))}")
 
@@ -498,8 +535,11 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     fields = f.model_extra or {}
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
-    if f.kind == "sae" and (fields.get("latents") is None) == (fields.get("file_path") is None):
-        fail(path, "an sae is loaded from its bundle ('file_path') or drawn to be trained ('latents'): one of them")
+    drawn = featurizers.DECLARED[f.kind]["drawn"]
+    given = [k for k in drawn if fields.get(k) is not None]
+    if drawn and not (given == [] if fields.get("file_path") is not None else len(given) == len(drawn)):
+        fail(path, f"{name!r} ({f.kind}) is loaded from its bundle ('file_path') or drawn to be trained "
+             f"({' and '.join(map(repr, drawn))}): one of them")
     record = f.model_dump(exclude_defaults=True)
     if fields.get("file_path") is None:
         return record

@@ -1,0 +1,41 @@
+{
+  "description": "The apply half of lora_train.json: the adapter it trained and saved as `fit.lora`, loaded from its bundle (its rank and alpha read from the bundle's header, the rest checked key by key) and kept on as a named intervention. `adapted` declares it once at the root: the adapter's `apply` written at layer 0's output, at every position of every forward call (`frame: all`). A step that names the intervention runs the adapted model; one that does not runs the model itself, which is the comparison: `clean` and `adapted` score the held-out prompts' last-position logits as the logit of the counterfactual answer less the base answer's, and `answer` generates four tokens greedily from them with the adapter on at the prompt and at every decode call, decoded to text by `said`. Run lora_train.json with --out documents/artifacts first; this loads what it wrote. The model is random, so the numbers and the text demonstrate the mechanics and nothing else.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"test": {"path": "weekdays/data", "split": "test"}},
+  "sites": {
+    "target": {"component": "layer_output", "layers": 0},
+    "head": {"component": "lm_head_output"}
+  },
+  "featurizers": {"lora": {"kind": "lora", "file_path": "documents/artifacts/fit.lora.safetensors"}},
+  "interventions": {
+    "adapted": {
+      "writes": {
+        "adapt": {"site": "target", "pos": {"frame": "all", "index": "all"}, "ops": [{"op": "featurizer", "featurizer": "lora", "mode": "apply"}]}
+      }
+    }
+  },
+  "steps": {
+    "clean": {"kind": "forward", "input": "test.input", "reads": {"logits": {"site": "head", "pos": -1}}},
+    "adapted": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": "adapted",
+      "reads": {"logits": {"site": "head", "pos": -1}}
+    },
+    "clean_ld": {"kind": "op", "op": "logit_diff", "of": "clean.logits", "a": "test.cf_answer", "b": "test.base_answer"},
+    "adapted_ld": {"kind": "op", "op": "logit_diff", "of": "adapted.logits", "a": "test.cf_answer", "b": "test.base_answer"},
+    "answer": {
+      "kind": "generate",
+      "input": "test.input",
+      "interventions": "adapted",
+      "max_new_tokens": 4,
+      "do_sample": false
+    },
+    "said": {"kind": "op", "op": "decode", "of": "answer"}
+  },
+  "saves": ["clean_ld", "adapted_ld", "said"]
+}

@@ -217,7 +217,9 @@ class Pos(Record):
 
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
     counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
-    prefill and every decode call, `"eos"` the call where the row stopped (the one that chose its EOS). A
+    prefill and every decode call (in a `forward`, its one call: so a named intervention written at `"all"`
+    is on in every call of whichever step names it), `"eos"` the call where the row stopped (the one that
+    chose its EOS). A
     position is where an input token sits, in a forward and in a generation alike: the prefill holds every
     prompt token, its last position the distribution over generated token 0; under the cache decode call k
     holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A

@@ -123,7 +123,7 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
         if writes:
-            value = ops.write(value, component, writes)
+            value = ops.write(value, component, writes, got)
         for record in reads:
             keep(got, record, ops.select(value, component, record))
         return (value.flatten(-2) if flat else value), bool(writes)

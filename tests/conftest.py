@@ -21,8 +21,8 @@ UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
 # Documents that train or load a featurizer, pinned in test_fit.py.
-FIT = ["das", "das_apply", "dbm", "pca_control", "random_subspace", "sae_feature_ablation", "sae_train",
-       "sae_train_ablation"]
+FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "random_subspace",
+       "sae_feature_ablation", "sae_train", "sae_train_ablation"]
 GENERATE = ["generate_probe", "generated_answer"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
@@ -150,8 +150,8 @@ def engines():
 @pytest.fixture(scope="session")
 def corpus(tmp_path_factory) -> str:
     """A copy of the corpus whose `documents/artifacts` holds, beside the committed SAE fixture, stand-in bundles
-    for the three documents that load what another writes, each with the header its document checks; the
-    tensors are the first 8 unit vectors, a zero basis and a zero dictionary."""
+    for the four documents that load what another writes, each with the header its document checks; the
+    tensors are the first 8 unit vectors, a zero basis, a zero dictionary and a zero adapter."""
     root = tmp_path_factory.mktemp("corpus")
     shutil.copytree(DOCUMENTS, root / "documents")
     os.symlink(os.path.join(ROOT, "data"), root / "data")
@@ -168,7 +168,9 @@ def stand_ins(root: str) -> None:
              {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)}),
             ("fit.dictionary.safetensors", {"kind": "sae", "document": "sae_train"},
              {"W_enc": torch.zeros(16, 32), "b_enc": torch.zeros(32), "W_dec": torch.zeros(32, 16),
-              "b_dec": torch.zeros(16)})):
+              "b_dec": torch.zeros(16)}),
+            ("fit.lora.safetensors", {"kind": "lora", "rank": "4", "alpha": "8", "document": "lora_train"},
+             {"A": torch.zeros(16, 4), "B": torch.zeros(4, 16)})):
         save_file(tensors, os.path.join(root, "documents", "artifacts", file), metadata={**bundle_header(), **header})
 
 

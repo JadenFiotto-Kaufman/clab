@@ -1,9 +1,9 @@
-"""The six documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
+"""The documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
 per engine at one batch size, the engines agreeing to the bit; and the numbers that pin what a fit, a bundle
 and an op in a featurizer's space mean.
 
-`das`, `pca_harvest` and `sae_train` run first, into the corpus copy's `documents/artifacts`, because
-`das_apply`, `pca_control` and `sae_train_ablation` load what they write.
+`das`, `pca_harvest`, `sae_train` and `lora_train` run first, into the corpus copy's `documents/artifacts`,
+because `das_apply`, `pca_control`, `sae_train_ablation` and `lora_apply` load what they write.
 """
 
 import json
@@ -31,8 +31,8 @@ def corpus_copy(root) -> str:
 
 @pytest.fixture(scope="module")
 def ran(tmp_path_factory) -> dict:
-    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train` and `pca_harvest`
-    (on nnterp) into `documents/artifacts` first."""
+    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train`, `lora_train` and
+    `pca_harvest` (on nnterp) into `documents/artifacts` first."""
     root = corpus_copy(tmp_path_factory.mktemp("fits"))
     out = {}
 
@@ -50,6 +50,7 @@ def ran(tmp_path_factory) -> dict:
     artifacts = os.path.join(root, "documents", "artifacts")
     out["das", "nnterp"] = run("das", "nnterp", artifacts)
     out["sae_train", "nnterp"] = run("sae_train", "nnterp", artifacts)
+    out["lora_train", "nnterp"] = run("lora_train", "nnterp", artifacts)
     run("pca_harvest", "nnterp", artifacts)
     for name in FIT:
         for kind in ("nnterp", "hooks"):

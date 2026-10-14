@@ -70,7 +70,7 @@ class NnterpEngine:
                 host = envoy(model, component, layer)
                 value = getattr(host, component)
                 if here:
-                    value = ops.write(value, component, here)
+                    value = ops.write(value, component, here, got)
                     setattr(host, component, value)
                 for record in there:
                     got[record["name"]] = ops.select(value, component, record)
@@ -113,7 +113,7 @@ class NnterpEngine:
                             host = envoy(model, component, layer)
                             value = getattr(host, component)
                             if here:
-                                value = ops.write(value, component, here)
+                                value = ops.write(value, component, here, got)
                                 setattr(host, component, value)
                             for record in there:
                                 keep(got, record, ops.select(value, component, record))

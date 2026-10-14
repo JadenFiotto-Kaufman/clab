@@ -48,6 +48,21 @@ uv run clab run documents/sae_train.json --batch-size 2 --out documents/artifact
 uv run clab run documents/sae_train_ablation.json --batch-size 2                     # ablates latents 0 to 3
 ```
 
+A LoRA is a featurizer kind too: `lora_train.json` trains a rank-4 adapter at layer 0's output to say each
+training prompt's counterfactual answer, and `lora_apply.json` loads it and keeps it on as one named
+intervention, `adapted`, which the steps that should run the adapted model name (a forward and a generation)
+and the others leave out:
+
+```
+uv run clab run documents/lora_train.json --batch-size 2 --out documents/artifacts  # fit.lora.safetensors
+uv run clab run documents/lora_apply.json --batch-size 2                            # clean vs adapted, and text
+```
+
+A featurizer is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates and
+`apply` its version of the value, `{"op": "featurizer", "featurizer": "fit.lora", "mode": "apply"}`. An
+adapter across sites (o_proj) reads `attention_premix` in the same forward and applies at
+`attention_output`, naming that read as `with`.
+
 A fit's `eval` names its runs after training: `das.json`'s `{"held_out": {"train": "test"}, "train": {}}`
 gives `fit.held_out.iia` and `fit.train.iia`. `documents/artifacts/sae.safetensors`,
 the dictionary `sae_feature_ablation.json` loads, is a committed fixture (`uv run python tests/fixtures/sae.py`
@@ -124,6 +139,9 @@ named in every error.
   a bundle a featurizer loads, that featurizer's kind. A parameter annotated `Value`, `Tokens` or
   `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
+- **Featurizer kinds** (`clab/featurizers.py`, `@kind`) declare what their bundle holds and what a fit
+  trains; each mode a kind has (`encode`, `apply`) is one function in that mode's table (`@of(APPLY, "<kind>")`),
+  and the `featurizer` op reads the layout each mode produces from `MODES`.
 - **Step kinds** (`clab/steps.py`, `@kind`), **featurizer kinds** (`clab/featurizers.py`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
   plan's `model` block; `execute(plan, batch_size=, remote=)` is its one entry point.
@@ -150,7 +168,8 @@ arguments and axis behaviour (grouped as metrics, reductions and edits), every c
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
-`documents/` holds the corpus of 31 documents; `data/` their datasets.
+`documents/` holds the corpus: the 31 original documents and the example documents added since (35 in all);
+`data/` their datasets.
 
 ## Tests
 

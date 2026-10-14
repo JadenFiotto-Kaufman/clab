@@ -36,7 +36,9 @@ arguments of every op: the op runs on the value's coordinates in that featurizer
 `{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
 delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
 instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
-version of the value). `renormalize`'s reference is the value at the site before the step's writes.
+version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
+write, an operand may name a read of the same forward at a site the forward reaches before the write's
+(`patched.premix` in `patched`): it is that read's value in this batch, at the read's positions.
 """
 
 import inspect
@@ -78,7 +80,8 @@ def parameters(name: str, mode: str | None = None, kind: str | None = None) -> d
     those of its `mode` for a featurizer of `kind`, when both are given."""
     found = registry.spelled(OPS[name], SUPPLIED + ("of",))
     if name == "featurizer" and mode is not None and kind is not None:
-        found.update(registry.spelled(featurizers.mode(kind, mode), ("f", "h")))
+        own = registry.spelled(featurizers.mode(kind, mode), ("f", "h"))
+        found.update({k: p.replace(annotation=registry.thing(p.annotation)) for k, p in own.items()})
     return found
 
 
@@ -151,13 +154,14 @@ def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
     return index.reshape(shape).expand(size)
 
 
-def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
+def write(value: Tensor, component: str, writes: list[dict], got: dict | None = None) -> Tensor:
     """`value` with `writes` applied in listed order, out of place.
 
     Each write's ops run on its selection of the current value; `original` is
-    the selection as it was before any of these writes. An op with a `featurizer` (an instance) runs on the
-    selection's coordinates in its space, on the features its `select` keeps, and the change is written back
-    (`featurizers.within`). A write narrows at most
+    the selection as it was before any of these writes. An argument bound to a read of the same forward
+    (`{"live": <the read's name>}`) is that read's value in `got`, where the forward put it. An op with a
+    `featurizer` (an instance) runs on the selection's coordinates in its space, on the features its `select`
+    keeps, and the change is written back (`featurizers.within`). A write narrows at most
     one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
@@ -173,7 +177,8 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
             new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
             f, features = o["featurizer"], o.get("features")
-            args = o["args"]
+            args = {k: (got or {})[v["live"]] if isinstance(v, dict) and "live" in v else v
+                    for k, v in o["args"].items()}
             if f is None:
                 new = call(o["op"], new, args, original=original, dims=o["dims"])
                 continue
