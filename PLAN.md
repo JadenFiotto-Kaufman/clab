@@ -462,3 +462,8 @@ forward-only documents.
 - **`split` is a key**, not a path suffix: `{"path": "weekdays/data", "split":
   "train"}`. The `#split` form is gone; the corpus's four uses are migrated in
   M2.
+- **An op step holds exactly one op.** Chaining is the next step
+  (`"accuracy": {"kind": "op", "op": "mean", "of": "iia"}`). `ops` lists exist
+  only inside a read or a write, where they act on the live value within one
+  forward. Metrics stay per-example (`match` returns one 0/1 per row and
+  position); the number is a `mean` step after it.
