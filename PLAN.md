@@ -485,3 +485,17 @@ forward-only documents.
 - **No `metric` step kind.** Per-example scoring is a property an op declares
   (it keeps the rows axis); `FORMAT.md` groups ops as metrics, reductions and
   edits so the word is there for readers.
+- **Generated text is a `decode` op**, not a run attribute: a generate step's
+  value is its ids; `{"kind": "op", "op": "decode", "of": "answer"}` gives one
+  string per row (stopped at the row's first EOS; `"tokens": true` for the
+  token strings), saved by name like any value. `decode` takes the engine,
+  like `readout`. There is no `run.generated`.
+- **The manifest carries descriptive metadata only**: how each input
+  tokenized and which token (or decode step) every positioned read and write
+  resolved to per row — the coordinates of a value, filled in preflight and
+  the run, used by `plan.table` to label `pos_token`, `key_token`,
+  `step_token` and `alignment_missing`. Values are never recorded there.
+- **Every value with a rows axis knows its dataset**: compile annotates each
+  step with the dataset its rows are aligned to (a forward's or generate's
+  `input`; an op inherits it through `of`/`with`; two datasets in one op are
+  refused). `plan.table(name)` joins on that annotation.
