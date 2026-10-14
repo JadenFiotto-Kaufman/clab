@@ -53,7 +53,9 @@ document in these places:
   sits (decode call k holds generated token k-1), the "generated index k = the call that chose token k"
   convention, `variable`, `segment` and the `span`/`all` keys are gone, and writes land in every frame; a
   write beyond the prefill may take a `column`/`text` scope, found online call by call, landing at the call
-  fed the first occurrence's last token (index -1).
+  fed the last token of each occurrence it picks (index -1). A `column`/`text` scope picks its occurrences
+  with `occurrence` (default 0, the first; the frame/index selector) and may `strip` its text; ambiguity is
+  gone: a doubled text takes the occurrence asked for, and `alignment_ambiguous` no longer exists.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

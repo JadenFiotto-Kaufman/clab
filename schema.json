@@ -422,7 +422,7 @@
   },
   "Generate": {
    "additionalProperties": true,
-   "description": "Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as\na forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,\n`do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it\nselects is known by then: without a scope, a call, a span of calls or `generated` with an index counted\nfrom their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or\n`text` scope, decode calls only (a call, a span from 1 or `generated`) and index -1. A scoped write is\nfound online, decoding the inputs fed so far at each call, and lands at the call fed the first\noccurrence's last token (its earlier tokens were fed before the text was there to find); a later\noccurrence does not write again and records the row `alignment_ambiguous`, and a row that never says\nthe text is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's\ncalls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
+   "description": "Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as\na forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,\n`do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it\nselects is known by then: without a scope, a call, a span of calls or `generated` with an index counted\nfrom their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or\n`text` scope, decode calls only (a call, a span from 1 or `generated`), index -1 and an occurrence\ncounted from the first. A scoped write is found online, decoding the inputs fed so far at each call: it\nlands at the call fed the last token of each occurrence it picks, as that occurrence appears (its\nearlier tokens were fed before the text was there to find), and a row with fewer occurrences than it\npicks is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's\ncalls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
    "properties": {
     "kind": {
      "const": "generate",
@@ -2696,7 +2696,7 @@
   },
   "Pos": {
    "additionalProperties": false,
-   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos   := int                                   # shorthand: {\"frame\": 0, \"index\": int}\n       | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: index}\nframe := int | [start, stop] | \"generated\" | \"all\" | \"eos\"         # default 0\nscope := {\"column\": \"<dataset>.<column>\"} | {\"text\": \"<literal>\"} | {\"turn\": \"<role>[<n>]\"}\nindex := int | [start, stop] | \"all\"                               # default \"all\"\n```\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call; a span is half-open; `\"generated\"` is every decode call, `\"all\"` the\nprefill and every decode call, `\"eos\"` the call where the row stopped (the one that chose its EOS). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes; the scope is the tokens that overlap its one occurrence among them. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.\n\n**index** (default `\"all\"`): an int counts the scope's tokens (negative from the end), a span is\nhalf-open. It counts over the tokens of every call the frame selected, in order: `{\"frame\": [0, 3],\n\"index\": -1}` is one position, the last token of call 2, the same as `{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or\na span of calls, its index is an int or a span whose ends count from the same side, and it has no\n`column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,\ntok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a\nrow, or a rectangular index that does not fit, is refused by name before any forward: the data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or\n`alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.",
+   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos   := int                                   # shorthand: {\"frame\": 0, \"index\": int}\n       | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: index}\nframe := int | [start, stop] | \"generated\" | \"all\" | \"eos\"         # default 0\nscope := {\"column\": \"<dataset>.<column>\"} | {\"text\": \"<literal>\"} | {\"turn\": \"<role>[<n>]\"}\nindex := int | [start, stop] | \"all\"                               # default \"all\"\n```\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call; a span is half-open; `\"generated\"` is every decode call, `\"all\"` the\nprefill and every decode call, `\"eos\"` the call where the row stopped (the one that chose its EOS). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes. `occurrence` (default 0, the first) picks which of the text's occurrences among those tokens the\nscope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order,\nand `strip` strips the text of surrounding whitespace first. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.\n\n**index** (default `\"all\"`): an int counts the scope's tokens (negative from the end), a span is\nhalf-open. It counts over the tokens of every call the frame selected, in order: `{\"frame\": [0, 3],\n\"index\": -1}` is one position, the last token of call 2, the same as `{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or\na span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`\nscope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per\ntoken, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not\nhave, or a rectangular index that does not fit, is refused by name before any forward: the data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in\na rectangular read and absent from a ragged one.",
    "properties": {
     "frame": {
      "default": 0,
@@ -2767,7 +2767,7 @@
   },
   "Run": {
    "additionalProperties": false,
-   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` or `alignment_ambiguous` for a row\nit does not reach). A swept step's are keyed by coordinate.",
+   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A\nswept step's are keyed by coordinate.",
    "properties": {
     "engine": {
      "title": "Engine",
@@ -2829,7 +2829,7 @@
   },
   "Scope": {
    "additionalProperties": false,
-   "description": "`{\"column\": \"<dataset>.<column>\"}`: the row's own text of that column (an indexed input's variables are\nnamed whole: `pairs.counterfactual_inputs_variables[0].entity`); `{\"text\": \"<literal>\"}`: that text; or\n`{\"turn\": \"<role>[<n>]\"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).",
+   "description": "`{\"column\": \"<dataset>.<column>\"}`: the row's own text of that column (an indexed input's variables are\nnamed whole: `pairs.counterfactual_inputs_variables[0].entity`); `{\"text\": \"<literal>\"}`: that text; or\n`{\"turn\": \"<role>[<n>]\"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).\nA `column` or `text` scope also takes `occurrence`, which of the text's occurrences it is (the selector\n`frame` and `index` use: an int, negative from the last, a `[start, stop]` span or `\"all\"`; default 0,\nthe first), and `strip`, whether the text is stripped of surrounding whitespace before it is located.",
    "oneOf": [
     {
      "required": [
@@ -2883,6 +2883,35 @@
      ],
      "default": null,
      "title": "Turn"
+    },
+    "occurrence": {
+     "default": 0,
+     "oneOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "items": {
+        "type": "integer"
+       },
+       "maxItems": 2,
+       "minItems": 2,
+       "type": "array"
+      },
+      {
+       "const": "all",
+       "type": "string"
+      },
+      {
+       "$ref": "#/$defs/Sweep"
+      }
+     ],
+     "title": "Occurrence"
+    },
+    "strip": {
+     "default": false,
+     "title": "Strip",
+     "type": "boolean"
     }
    },
    "title": "Scope",

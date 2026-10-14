@@ -93,7 +93,7 @@ def landed(writes: list[dict], seen: list, tokenizer, call: int) -> list[dict]:
             continue
         if online["within"] is not None and call not in online["within"]:
             continue
-        rows = [positions.lands(text, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
+        rows = [positions.lands(online["scope"], text, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
                 for r, text in enumerate(online["texts"])]
         if any(rows):
             out.append({**w, "keep": torch.tensor(rows)[:, None]})

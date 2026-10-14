@@ -9,7 +9,7 @@ chose its last token, so that token is never an input.
 
 import re
 
-MISSING, AMBIGUOUS = "alignment_missing", "alignment_ambiguous"
+MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
 
 
@@ -54,10 +54,11 @@ def fixed(selector) -> int | None:
 
 def width(pos: dict) -> int | None:
     """A record's width on every row, or None when it is ragged: its frame names calls (an int or a span,
-    not a set each row has its own), its index picks a fixed number, and no text scope looks beyond the
-    prefill."""
-    textual = any(k in (pos["scope"] or {}) for k in TEXTUAL)
-    if isinstance(pos["frame"], str) or textual and not prefill(pos):
+    not a set each row has its own), its index picks a fixed number, and a text scope, if any, is one
+    occurrence in the prefill."""
+    scope = pos["scope"] or {}
+    textual = any(k in scope for k in TEXTUAL)
+    if isinstance(pos["frame"], str) or textual and (not prefill(pos) or fixed(scope["occurrence"]) != 1):
         return None
     return fixed(pos["index"])
 
@@ -113,16 +114,21 @@ def call_of(position: int, prompt: int) -> int:
 
 
 def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -> list[int]:
-    """Stage two: the tokens that overlap the one place the scope's text (or turn) occurs among them."""
+    """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text among
+    `tokens` (a turn is one place), in order."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
+    which = scope.get("occurrence", 0)
+    picked = select(which, len(found))
     what = f"{next(iter(scope))} {next(iter(scope.values()))!r}"
     if not found:
         raise Unaligned(MISSING, f"{what} is not in its input")
-    if len(found) > 1:
-        raise Unaligned(AMBIGUOUS, f"{what} occurs {len(found)} times in the row's input; a scope is one place")
-    return [t for t in tokens if t in found[0]]
+    if "turn" in scope and len(found) > 1:
+        raise Unaligned(MISSING, f"{what} names {len(found)} turns of the chat; a turn is one place")
+    if not picked or fixed(which) is not None and len(picked) != fixed(which):
+        raise Unaligned(MISSING, f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
+    return [t for t in tokens if any(t in found[i] for i in picked)]
 
 
 def indexed(index, tokens: list[int], width: int | None) -> list[int]:
@@ -160,6 +166,7 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, text:
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said[:-1]
+    text = text.strip() if text and scope.get("strip") else text
     spans = turns(row, scope["turn"]) if "turn" in scope else \
         [m.span() for m in re.finditer(re.escape(text), row["text"])] if text else []
     if spans and row["offsets"] is None:
@@ -172,15 +179,23 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, text:
     return found
 
 
-def lands(text: str, inputs: list[int], eos: set[int], tokenizer) -> bool:
-    """Whether a write scoped to `text` lands at the call fed `inputs[-1]`, given every input the row was fed
-    so far: the first place the text occurs in them ends on that token, and the row has not stopped."""
-    if not text or any(t in eos for t in inputs):
-        return False
+def ends(scope: dict, text: str | None, inputs: list[int], tokenizer) -> list[int]:
+    """Where the occurrences of the scope's text that its `occurrence` picks end among the inputs fed so far:
+    each one's last token, as an index into `inputs`. A non-negative pick names the same occurrence however
+    many follow, which is what lets a write find it online."""
+    text = text.strip() if text and scope.get("strip") else text
+    if not text or not inputs:
+        return []
     words, chars = char_spans(tokenizer, inputs)
-    m = re.search(re.escape(text), words)
-    return m is not None and max(j for j, (x, y) in enumerate(chars)
-                                 if x < m.end() and max(y, x + 1) > m.start()) == len(inputs) - 1
+    last = [max(j for j, (x, y) in enumerate(chars) if x < m.end() and max(y, x + 1) > m.start())
+            for m in re.finditer(re.escape(text), words)]
+    return [last[i] for i in select(scope["occurrence"], len(last))]
+
+
+def lands(scope: dict, text: str | None, inputs: list[int], eos: set[int], tokenizer) -> bool:
+    """Whether a write with this text scope lands at the call fed `inputs[-1]`, given every input the row was
+    fed so far: an occurrence it picks ends on that token, and the row has not stopped."""
+    return not any(t in eos for t in inputs) and len(inputs) - 1 in ends(scope, text, inputs, tokenizer)
 
 
 def turns(row: dict, turn: str) -> list[tuple[int, int]]:

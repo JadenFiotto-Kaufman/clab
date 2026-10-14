@@ -1,7 +1,7 @@
 """Generation: both generate documents' numbers pinned per engine at one batch size, the engines agreeing to
 the bit and `remote="local"` too; and the numbers that pin what a position means across calls: the prefill's
 last position is the forward's, decode call k holds generated token k-1 and its logits chose token k, a
-scoped read resolves per row from what the row said (missing, ambiguous, where it stopped), a call the run
+scoped read resolves per row from what the row said (which occurrence, missing, where it stopped), a call the run
 never made is missing, a write at a decode call changes the tokens from that call on, and `decode` stops at
 EOS.
 
@@ -124,16 +124,23 @@ def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engin
     assert "p_answer" not in rows[2] and rows[0]["p_answer"] == plan.results["p_answer"]["values"][0].item()
 
 
-def test_a_word_said_twice_is_ambiguous(engines):
-    """"er" occurs three times in what the model said (Handl-er, en-er-g, tossort-er); "subst" once."""
-    def change(d):
-        with open(os.path.join(ROOT, "data", "weekdays", "said.json")) as f:
-            rows = json.load(f)
-        d["data"]["prompts"] = {"rows": [{**rows[0], "said": "er"}, {**rows[1], "said": "subst"}]}
-        d["saves"] = ["p_answer"]
-    plan = run(engines, edited("generated_answer", change).compile())
-    assert plan.run.positions["answer.at_said"] == ["alignment_ambiguous", [10]]
-    assert [r.get("alignment_ambiguous") for r in plan.table("p_answer")] == [True, None]
+def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
+    """"er" ends twice on an input in what the model said (Handl-er, token 0; en-er-g, token 2; tossort-er
+    ends on token 5, the last, never an input); "subst" once. Occurrence 0 is the first, occurrence 1 the
+    second, which a row that says it once does not have."""
+    def change(occurrence):
+        def changed(d):
+            with open(os.path.join(ROOT, "data", "weekdays", "said.json")) as f:
+                rows = json.load(f)
+            d["data"]["prompts"] = {"rows": [{**rows[0], "said": "er"}, {**rows[1], "said": "subst"}]}
+            d["steps"]["answer"]["reads"]["at_said"]["pos"]["scope"]["occurrence"] = occurrence
+            d["saves"] = ["p_answer"]
+        return changed
+    first = run(engines, edited("generated_answer", change(0)).compile())
+    assert first.run.positions["answer.at_said"] == [[11], [10]]
+    second = run(engines, edited("generated_answer", change(1)).compile())
+    assert second.run.positions["answer.at_said"] == [[13], "alignment_missing"]
+    assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
 def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
@@ -226,7 +233,14 @@ def test_each_stage_narrows_the_one_before():
     beta = {"frame": "generated", "scope": {"text": "beta"}, "index": -1}
     assert resolved(beta, [*words, 1], tokenizer, "beta") == [1 + n]
     assert resolved(beta, [*words, 1], tokenizer, "gamma") == "alignment_missing"
-    assert resolved(beta, [*words, *words, 1], tokenizer, "beta") == "alignment_ambiguous"
+    twice = [*words, *words, 1]                                                          # beta at positions 3 and 5
+    assert resolved(beta, twice, tokenizer, "beta") == [3]
+    assert resolved({**beta, "scope": {"text": "beta", "occurrence": -1}}, twice, tokenizer, "beta") == [5]
+    every = {"frame": "generated", "scope": {"text": "beta", "occurrence": "all"}}
+    assert resolved(every, twice, tokenizer, "beta") == [3, 5]
+    assert resolved({**every, "index": -1}, twice, tokenizer, "beta") == [5]
+    assert resolved({**beta, "scope": {"text": "beta", "occurrence": 2}}, twice, tokenizer, "beta") == \
+        "alignment_missing"
     assert resolved(beta, [1, *words], tokenizer, "beta") == "alignment_missing"         # said after its EOS
     assert resolved(beta, words, tokenizer, "beta") == "alignment_missing"    # the last token, never an input
     assert resolved({"frame": 3, "index": -1}, [5, 1, 0, 0], tokenizer) == "alignment_missing"   # stopped first
@@ -489,8 +503,8 @@ def test_a_decode_call_writes_operand_is_checked_before_any_forward(engines):
 
 def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     """`beta` generated as token 1 sits at position 3 after a two-token prompt. A frame of every call finds it
-    there and no prompt position; with `beta` in the prompt too, every call's tokens hold two places, which
-    is ambiguous, while the generated calls alone hold one."""
+    there and no prompt position; with `beta` in the prompt too, every call's tokens hold two occurrences,
+    the prompt's first, while the generated calls alone hold one."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     words = tokenizer(" alpha beta", add_special_tokens=False)["input_ids"]
     every = {"frame": "all", "scope": {"text": "beta"}}
@@ -501,7 +515,9 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
         pos = {"frame": 0, "scope": None, "index": "all", **pos}
         hits = positions.occurrences(pos["scope"], row, said, tokenizer, "beta")
         return positions.resolve(pos, 2, [1], said, True, hits)
-    assert found(every) == "alignment_ambiguous"
+    assert found(every) == [1]
+    assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
+    assert found({**every, "scope": {"text": "beta", "occurrence": "all"}}) == [1, 3]
     assert found({**every, "frame": "generated"}) == [3]
 
 
@@ -572,21 +588,24 @@ def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
         assert other.run.positions == plan.run.positions, where
 
 
-def test_a_scoped_write_lands_at_the_first_occurrence_only(engines):
-    """`er` first ends on token 0 (`Handler`), fed to call 1: the write lands there once, exactly as
-    `{"frame": 1, "index": -1}` does, whether or not the row says `er` again after it; a row that does is
-    recorded ambiguous (not written again), one that does not at token 0's position."""
-    plan = edited("generated_answer", scoped_write("er", held=True)).compile()
-    for kind in ("nnterp", "hooks"):
-        scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
-
-        def at_one(d):
+def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
+    """`er` first ends on token 0 (`Handler`), fed to call 1, and next on token 2 (`▁energ`), fed to call 3:
+    occurrence 0 writes what `{"frame": 1, "index": -1}` does, once, and occurrence 1 what `{"frame": 3,
+    "index": -1}` does, not at the first."""
+    def at(pos):
+        def change(d):
             scoped_write("er", held=True)(d)
-            d["steps"]["swapped"]["writes"]["w"]["pos"] = {"frame": 1, "index": -1}
-        fixed = engines(kind, plan.model).execute(edited("generated_answer", at_one).compile(), batch_size=BATCH_SIZE)
-        assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), kind
-        where = scoped.run.positions["swapped.w"]
-        assert "alignment_ambiguous" in where and all(w in ("alignment_ambiguous", [p]) for w, p in zip(where, PROMPT))
+            d["steps"]["swapped"]["writes"]["w"]["pos"] = pos
+        return edited("generated_answer", change).compile()
+    for kind in ("nnterp", "hooks"):
+        for occurrence, call in ((0, 1), (1, 3)):
+            plan = at({"frame": "generated", "scope": {"text": "er", "occurrence": occurrence}, "index": -1})
+            scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+            fixed = engines(kind, plan.model).execute(at({"frame": call, "index": -1}), batch_size=BATCH_SIZE)
+            assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), (kind, occurrence)
+            assert scoped.run.positions["swapped.w"] == fixed.run.positions["swapped.w"] == \
+                [[p + call - 1] for p in PROMPT], (kind, occurrence)
+            assert torch.equal(scoped.results["swapped"][:, :call], scoped.results["clean"][:, :call])
 
 
 @pytest.mark.parametrize("pos, message", [
@@ -597,3 +616,89 @@ def test_a_scoped_write_lands_at_the_first_occurrence_only(engines):
 def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):
     with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
         edited("generate_probe", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=pos)).compile()
+
+
+def doubled(d, scope: dict, index):
+    """patching.json over inline rows that say `Friday` twice, reading layer 0 there and everywhere."""
+    d["data"] = {"pairs": {"rows": [
+        {"input": "Friday or Friday, tomorrow is", "counterfactual_inputs": ["x"], "cf_answer": " Sunday",
+         "base_answer": " Friday"},
+        {"input": "If it is Friday and it is Friday, then", "counterfactual_inputs": ["x"], "cf_answer": " Sunday",
+         "base_answer": " Friday"}]}}
+    d["steps"] = {"look": {"kind": "forward", "input": "pairs.input",
+                           "reads": {"there": {"site": "target", "pos": {"scope": scope, "index": index}},
+                                     "every": {"site": "target", "pos": {"index": "all"}}}}}
+    d["saves"] = ["look.there", "look.every"]
+
+
+@pytest.mark.parametrize("occurrence, index, picks", [
+    (0, -1, [0]), (1, -1, [1]), (-1, -1, [1]), ("all", "all", [0, 1]), ([0, 2], "all", [0, 1])])
+def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurrence, index, picks):
+    """Each row says `Friday` twice: `occurrence` picks which, the same selector `frame` and `index` use; an
+    int keeps the read rectangular, `"all"` or a span makes it ragged. Positions and values on both engines,
+    to the bit, are those of the read of every position there."""
+    scope = {"text": "Friday", "occurrence": occurrence}
+    plan = edited("patching", lambda d: doubled(d, scope, index)).compile()
+    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    for kind, filled in runs.items():
+        tokens = filled.run.tokens["pairs.input"]
+        fridays = [[i for i, t in enumerate(row) if t == "▁Friday"] for row in tokens]
+        assert all(len(f) == 2 for f in fridays)
+        assert filled.run.positions["look.there"] == [[f[i] for i in picks] for f in fridays], kind
+        there, every = filled.results["look.there"], filled.results["look.every"]
+        entries = list(zip(every["row"].tolist(), every["tok"].tolist()))
+        want = [every["values"][entries.index((r, f[i]))] for r, f in enumerate(fridays) for i in picks]
+        got = there["values"] if isinstance(there, dict) else there[:, 0]
+        assert torch.equal(got, torch.stack(want)), kind
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+
+
+def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
+    """`er` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `"all"` both."""
+    def change(d):
+        d["steps"]["answer"]["reads"] = {
+            "second": {"site": "head", "pos": {"frame": "generated", "scope": {"text": "er", "occurrence": 1},
+                                               "index": -1}},
+            "both": {"site": "head", "pos": {"frame": "generated", "scope": {"text": "er", "occurrence": "all"}}}}
+        d["steps"] = {"answer": d["steps"]["answer"]}
+        d["saves"] = ["answer.second", "answer.both"]
+    plan = edited("generated_answer", change).compile()
+    for kind in ("nnterp", "hooks"):
+        filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+        assert filled.run.positions["answer.second"] == [[p + 2] for p in PROMPT]
+        assert filled.run.positions["answer.both"] == [[p, p + 2] for p in PROMPT]    # the occurrences' tokens only
+        assert filled.results["answer.both"]["values"].shape == (8, 32000)
+
+
+@pytest.mark.parametrize("strip, found", [(False, False), (True, True)])
+def test_strip_locates_the_text_without_its_surrounding_space(engines, strip, found):
+    """` Friday` with its leading space is not in a prompt that starts with `Friday`; stripped, it is."""
+    def change(d):
+        doubled(d, {"text": " Friday", "strip": strip}, -1)
+        d["data"]["pairs"]["rows"] = [{**d["data"]["pairs"]["rows"][0], "input": "Friday comes, then"}]
+    plan = edited("patching", change).compile()
+    engine = engines("hooks", plan.model)
+    if not found:
+        with pytest.raises(ValueError, match=r"^look\.there: row 0: text ' Friday' is not in its input"):
+            engine.execute(plan, batch_size=BATCH_SIZE)
+        return
+    filled = engine.execute(plan, batch_size=BATCH_SIZE)
+    assert [filled.run.tokens["pairs.input"][0][i] for (i,) in filled.run.positions["look.there"]] == ["▁Friday"]
+
+
+@pytest.mark.parametrize("scope, message", [
+    ({"text": "er", "occurrence": -1}, r"\.scope\.occurrence: occurrence -1 counts from the last occurrence, which"),
+    ({"text": "er", "occurrence": [0, -1]}, r"\.scope\.occurrence: occurrence \[0, -1\] counts from the last"),
+])
+def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
+    def change(d):
+        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": "generated", "scope": scope, "index": -1}
+    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
+        edited("generate_probe", change).compile()
+
+
+def test_a_turn_takes_no_occurrence():
+    def change(d):
+        d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"]["occurrence"] = 1
+    with pytest.raises(PlanError, match=r"a turn is one place of the chat; it takes no occurrence or strip"):
+        edited("chat_turn", change)

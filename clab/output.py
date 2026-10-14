@@ -142,7 +142,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
     `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
     `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
-    read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`) true, with
+    read beyond the prefill did not reach gives one row, `alignment_missing` true, with
     no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
@@ -239,7 +239,7 @@ def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
 
 
 def unreached(place: dict | None, row: int | None) -> dict:
-    """`{"alignment_missing": True}` (or ambiguous) for a row a read beyond the prefill did not reach, else {}."""
+    """`{"alignment_missing": True}` for a row a read beyond the prefill did not reach, else {}."""
     resolved = place["positions"][row] if place and row is not None else None
     return {resolved: True} if isinstance(resolved, str) else {}
 

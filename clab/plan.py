@@ -171,17 +171,24 @@ Span = Annotated[list[int], Field(min_length=2, max_length=2)]
 class Scope(Record):
     """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
     named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
-    `{"turn": "<role>[<n>]"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one)."""
+    `{"turn": "<role>[<n>]"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).
+    A `column` or `text` scope also takes `occurrence`, which of the text's occurrences it is (the selector
+    `frame` and `index` use: an int, negative from the last, a `[start, stop]` span or `"all"`; default 0,
+    the first), and `strip`, whether the text is stripped of surrounding whitespace before it is located."""
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
     column: str | None = None
     text: str | None = None
     turn: str | None = None
+    occurrence: Swept[int | Span | Literal["all"]] = 0
+    strip: bool = False
 
     @model_validator(mode="after")
     def _one(self):
         if [self.column, self.text, self.turn].count(None) != 2:
             raise ValueError("a scope is one of {'column': '<dataset>.<column>'}, {'text': '<literal>'}, "
                              "{'turn': '<role>[<n>]'}")
+        if self.turn is not None and {"occurrence", "strip"} & self.model_fields_set:
+            raise ValueError("a turn is one place of the chat; it takes no occurrence or strip")
         return self
 
 
@@ -210,7 +217,9 @@ class Pos(Record):
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes; the scope is the tokens that overlap its one occurrence among them. The prompt and the generated
+    prefixes. `occurrence` (default 0, the first) picks which of the text's occurrences among those tokens the
+    scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order,
+    and `strip` strips the text of surrounding whitespace first. The prompt and the generated
     tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
     token is never an input to any call, so a word ending on it is `alignment_missing` (with
     `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.
@@ -220,12 +229,12 @@ class Pos(Record):
     "index": -1}` is one position, the last token of call 2, the same as `{"frame": 2, "index": -1}`.
 
     A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
-    a span of calls, its index is an int or a span whose ends count from the same side, and it has no
-    `column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,
-    tok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a
-    row, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
-    Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or
-    `alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.
+    a span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`
+    scope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per
+    token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not
+    have, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
+    Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
+    a rectangular read and absent from a ragged one.
     """
     frame: Swept[int | Span | Literal["generated", "all", "eos"]] = 0
     scope: Scope | None = None
@@ -330,11 +339,11 @@ class Generate(Forward):
     generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
     selects is known by then: without a scope, a call, a span of calls or `generated` with an index counted
     from their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or
-    `text` scope, decode calls only (a call, a span from 1 or `generated`) and index -1. A scoped write is
-    found online, decoding the inputs fed so far at each call, and lands at the call fed the first
-    occurrence's last token (its earlier tokens were fed before the text was there to find); a later
-    occurrence does not write again and records the row `alignment_ambiguous`, and a row that never says
-    the text is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
+    `text` scope, decode calls only (a call, a span from 1 or `generated`), index -1 and an occurrence
+    counted from the first. A scoped write is found online, decoding the inputs fed so far at each call: it
+    lands at the call fed the last token of each occurrence it picks, as that occurrence appears (its
+    earlier tokens were fed before the text was there to find), and a row with fewer occurrences than it
+    picks is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
     calls are what the engine actually generated, up to the
     one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
     engine's generation stops on (its generation config's). The step's own value is the
@@ -455,8 +464,8 @@ class Run(Record):
     """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
     the input or the step's name), and the position every read and write resolved to, per row (an index into
-    the row's prompt tokens, then its generated ones; `alignment_missing` or `alignment_ambiguous` for a row
-    it does not reach). A swept step's are keyed by coordinate."""
+    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
+    swept step's are keyed by coordinate."""
     engine: str
     remote: bool | str
     batch_size: int

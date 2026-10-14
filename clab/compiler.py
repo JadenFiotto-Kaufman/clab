@@ -369,7 +369,8 @@ def decided(path: str, pos: dict) -> None:
     known by then. Without a scope its calls must be known before the run (`positions.reach`). With a text
     scope it is found online, call by call, in the inputs fed so far, and lands at the call fed the first
     occurrence's last token: so its frame is decode calls only (a call, a span from 1 or 'generated'), and its
-    index -1, since the occurrence's earlier tokens were fed before the text was there to find."""
+    index -1, since the occurrence's earlier tokens were fed before the text was there to find; and which
+    occurrences it means count from the first."""
     frame, index = pos["frame"], pos["index"]
     if pos["scope"] is not None:
         if positions.reach({**pos, "index": "all"})[0]:
@@ -379,6 +380,10 @@ def decided(path: str, pos: dict) -> None:
         if index != -1:
             fail(f"{path}.index", f"index {index!r}: a scoped write lands at the call fed its text's last token, the "
                  "first call that can know the text is there; earlier tokens were already fed, so its index is -1")
+        which = pos["scope"].get("occurrence", 0)
+        if which != "all" and min(which if isinstance(which, list) else [which]) < 0:
+            fail(f"{path}.scope.occurrence", f"occurrence {which!r} counts from the last occurrence, which is known "
+                 "only when the row ends; a write lands as its call runs, so it counts from the first")
         return
     if not positions.reach(pos)[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "

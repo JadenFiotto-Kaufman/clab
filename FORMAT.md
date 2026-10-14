@@ -96,7 +96,9 @@ call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes; the scope is the tokens that overlap its one occurrence among them. The prompt and the generated
+prefixes. `occurrence` (default 0, the first) picks which of the text's occurrences among those tokens the
+scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order,
+and `strip` strips the text of surrounding whitespace first. The prompt and the generated
 tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
 token is never an input to any call, so a word ending on it is `alignment_missing` (with
 `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.
@@ -106,12 +108,12 @@ half-open. It counts over the tokens of every call the frame selected, in order:
 "index": -1}` is one position, the last token of call 2, the same as `{"frame": 2, "index": -1}`.
 
 A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
-a span of calls, its index is an int or a span whose ends count from the same side, and it has no
-`column`/`text` scope outside the prefill; otherwise it is ragged, one entry per token, `{values, row,
-tok}`, `tok` the position. In the prefill (`frame: 0`) a scope text that is absent or occurs twice in a
-row, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
-Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or
-`alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.
+a span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`
+scope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per
+token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not
+have, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
+Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
+a rectangular read and absent from a ragged one.
 
 ### `interventions.<name>`
 
@@ -161,11 +163,11 @@ prefill, and the decode calls, each at its one position. A write at decode call 
 generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
 selects is known by then: without a scope, a call, a span of calls or `generated` with an index counted
 from their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or
-`text` scope, decode calls only (a call, a span from 1 or `generated`) and index -1. A scoped write is
-found online, decoding the inputs fed so far at each call, and lands at the call fed the first
-occurrence's last token (its earlier tokens were fed before the text was there to find); a later
-occurrence does not write again and records the row `alignment_ambiguous`, and a row that never says
-the text is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
+`text` scope, decode calls only (a call, a span from 1 or `generated`), index -1 and an occurrence
+counted from the first. A scoped write is found online, decoding the inputs fed so far at each call: it
+lands at the call fed the last token of each occurrence it picks, as that occurrence appears (its
+earlier tokens were fed before the text was there to find), and a row with fewer occurrences than it
+picks is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
 calls are what the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
@@ -450,7 +452,7 @@ axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the 
 tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
 `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
 `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
-read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`) true, with
+read beyond the prefill did not reach gives one row, `alignment_missing` true, with
 no value. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document

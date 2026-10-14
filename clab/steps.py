@@ -196,6 +196,15 @@ def place(pos: dict, row: dict, encoded: dict, said: list[int], stopped: bool, t
     return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, stopped, found)
 
 
+def landings(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer) -> list[int] | str:
+    """Where a write with a text scope landed in one row, found as the engine found it: the inputs that end the
+    occurrences it picks, within its frame's calls; missing where there are none."""
+    found = positions.ends(pos["scope"], text(pos, row), said[:-1], tokenizer)
+    called = positions.reach({**pos, "index": "all"})[1]
+    got = [len(encoded["ids"]) + j for j in found if called is None or j + 1 in called]
+    return got or positions.MISSING
+
+
 def text(pos: dict, row: dict) -> str | None:
     """The text a record's scope names in one row: its column's (`<dataset>.<column path>`), or the literal."""
     scope = pos["scope"] or {}
@@ -322,8 +331,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
             pos = positions.parse(record.pos)
-            online = {"online": {"texts": [text(pos, row) for row in rows[chunk]], "eos": sorted(eos),
-                                 "within": calls}} if pos["scope"] else {}
+            online = {"online": {"scope": pos["scope"], "texts": [text(pos, row) for row in rows[chunk]],
+                                 "eos": sorted(eos), "within": calls}} if pos["scope"] else {}
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
                            "calls": None if online else calls, **online})
         for key, record in later.items():
@@ -349,8 +358,13 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                for key, record in first.items()}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in {**later, **beyond}.items():
-            where = [place(positions.parse(record.pos), row, e, x, bool(x) and x[-1] in eos, engine.tokenizer,
-                           head(step, record)) for row, e, x in zip(rows[chunk], encoded[chunk], said)]
+            pos = positions.parse(record.pos)
+            if key in beyond and pos["scope"]:
+                where = [landings(pos, row, e, x, engine.tokenizer)
+                         for row, e, x in zip(rows[chunk], encoded[chunk], said)]
+            else:
+                where = [place(pos, row, e, x, bool(x) and x[-1] in eos, engine.tokenizer, head(step, record))
+                         for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             resolved[f"{name}.{key}"] += where
             if key in later:
                 out[key] = stacked(record, [at_calls(engine, plan, record, got.get(f"{key}@{layer}#0"),

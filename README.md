@@ -39,7 +39,7 @@ saved value: the step that made it, its `dims`, its sweep axes and its shape (pe
 `table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
 generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
 dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
-`alignment_missing` (or `alignment_ambiguous`) in place of a value. Aligned output cuts long cells short;
+`alignment_missing` in place of a value. Aligned output cuts long cells short;
 `--csv` keeps them whole. Both are `Plan.load(out)` and one call, run from the corpus root (where the
 dataset files are).
 
