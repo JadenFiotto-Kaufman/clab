@@ -10,7 +10,7 @@ import os
 import time
 
 from .cli import describe
-from .compile import compile, load as load_document
+from .compiler import compile, load as load_document
 from .output import load, table, write
 
 __all__ = ["run", "load", "table", "describe", "compile"]

@@ -155,7 +155,12 @@
         "with": "noise.v_noise"
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -233,7 +238,12 @@
         "with": "clean.a0"
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -293,7 +303,12 @@
         "with": "clean.a1"
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -353,7 +368,12 @@
         "with": "ablated.a1"
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [

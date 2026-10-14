@@ -104,7 +104,12 @@
          "featurizer": "rot"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -147,7 +152,12 @@
          "featurizer": "rot"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -190,7 +200,12 @@
          "featurizer": "rot"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -234,7 +249,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": "rot",
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -296,7 +316,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": "rot",
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -358,7 +383,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": "rot",
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [

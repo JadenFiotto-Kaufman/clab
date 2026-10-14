@@ -12,15 +12,13 @@ its soft mask.
 
 from typing import Callable, Literal
 
+from .registry import registers
+
 SUPPLIED = ("width",)
 SCALARS = {"gate": ("mask",)}
 
 KINDS: dict[str, Callable] = {}
-
-
-def kind(fn: Callable) -> Callable:
-    KINDS[fn.__name__] = fn
-    return fn
+kind = registers(KINDS)
 
 
 @kind

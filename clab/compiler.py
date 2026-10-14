@@ -33,6 +33,7 @@ from typing import Any, Literal, NoReturn, Union, get_args, get_origin
 from safetensors import safe_open
 
 from . import address, data, featurizers, ops, positions
+from .registry import registers
 
 FORMAT = "clab/1"
 
@@ -182,20 +183,21 @@ def fields(fn, given: Any, path: str, skip: int = 0) -> dict:
 # -- step kinds ---------------------------------------------------------------
 
 KINDS: dict = {}
-
-
-def kind(fn):
-    KINDS[fn.__name__] = fn
-    return fn
+kind = registers(KINDS)
 
 
 @kind
 def forward(cx: dict, path: str, name: str, *, input: str, writes: dict | None = None, reads: dict | None = None,
             interventions: str | list[str] | None = None) -> dict:
-    """One forward over every row of a dataset input, in batches. `input` is `<dataset>.<column>` or
+    """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
     `<dataset>.<column>[i]`; `writes` land where they name before anything later reads them; each read binds
     `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed order, before the
-    step's own."""
+    step's own.
+
+    Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
+    row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
+    batch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can
+    differ in the last bits. Results reproduce to the bit at a fixed batch size."""
     inp = parse_input(cx, input, f"{path}.input")
     w, r = records(cx, path, inp, writes, reads, interventions, generated=False)
     for read in r:
@@ -223,7 +225,7 @@ def op(cx: dict, path: str, name: str, *, op: str, of: str, **arguments) -> dict
     """An op over a value earlier steps produced: `of` names it, and the op's arguments sit beside it (see Ops).
     The step's value is the op's result."""
     info = value_ref(cx, of, f"{path}.of", data=None, number=False)
-    record, dims = op_record(cx, path, {"op": op, **arguments}, info["dims"], site=False, data=info["data"])
+    record, dims = op_record(cx, path, {"op": op, **arguments}, info["dims"], "step", info["data"])
     returns = inspect.signature(ops.OPS[op]).return_annotation
     cx["names"][name] = {"kind": "op" if returns is not dict else "bundle", "dims": dims, "data": info["data"]}
     return {"kind": "op", "at": {}, "op": op, "args": {"of": of, **record["args"]}, "data": info["data"],
@@ -345,73 +347,72 @@ def records(cx: dict, path: str, inp: dict, writes, reads, interventions, genera
 
 def site_record(cx: dict, path: str, name: str, spec: Any, inp: dict, generated: bool, write: bool) -> dict:
     """One write or read: where it lands (`site`, `pos`) and the ops it runs there."""
-    fields(access_block, spec, path)
-    where = spec["site"]
+    access = access_block(**fields(access_block, spec, path))
+    where = access["site"]
     if isinstance(where, str):
         declared = cx["doc"].get("sites", {})
         if where not in declared:
             fail(f"{path}.site", f"no site {where!r}; declared: {', '.join(declared) or 'none'}")
-        where, site_path = declared[where], f"sites.{spec['site']}"
+        where, site_path = declared[where], f"sites.{access['site']}"
     else:
         site_path = f"{path}.site"
-    s = fields(site_block, where, site_path)
+    s = site_block(**fields(site_block, where, site_path))
     component = s["component"]
     if component not in address.COMPONENTS:
         fail(f"{site_path}.component", f"unknown component {component!r}; valid: {', '.join(address.COMPONENTS)}")
     meaning = address.COMPONENTS[component]
-    per_layer = meaning["host"] != "model"
-    if per_layer and "layers" not in s:
+    if meaning["per_layer"] and s["layers"] is None:
         fail(site_path, f"{component} is a block's value and needs 'layers'")
-    if not per_layer and "layers" in s:
+    if not meaning["per_layer"] and s["layers"] is not None:
         fail(f"{site_path}.layers", f"{component} is the model's own value and takes no layers")
-    narrow = {k: list(v) for k, v in s.items() if k in ("heads", "units")}
+    narrow = {k: list(s[k]) for k in ("heads", "units") if s[k] is not None}
     if len(narrow) > 1:
         fail(site_path, "a site narrows one axis: heads or units, not both")
     for k in narrow:
         if k not in meaning["narrow"]:
             fail(f"{site_path}.{k}", f"{component} is narrowed by {', '.join(meaning['narrow'])}, not {k}")
     try:
-        pos = positions.parse(spec["pos"])
+        pos = positions.parse(access["pos"])
     except ValueError as e:
         fail(f"{path}.pos", str(e))
     if pos["frame"] == "generated" and not generated:
         fail(f"{path}.pos", "the generated frame is a generate step's; a forward has only its prompt")
     variable = (pos["scope"] or {}).get("variable")
-    if variable is not None and pos["frame"] == "prompt":
-        if inp["index"] is None:
-            column_ref(cx, f"{inp['data']}.{variable}", f"{path}.pos.scope.variable", inp["data"])
-        else:
-            column, i = f"{inp['column']}_variables", inp["index"]
-            entries = [r.get(column) for r in cx["rows"][inp["data"]]]
-            if any(not isinstance(e, list) or len(e) <= i or variable not in e[i] for e in entries):
-                fail(f"{path}.pos.scope.variable", f"no {variable!r} in {column}[{i}] on every row")
+    if variable is not None and pos["frame"] == "prompt" and inp["index"] is not None:
+        column, i = f"{inp['column']}_variables", inp["index"]
+        entries = [r.get(column) for r in cx["rows"][inp["data"]]]
+        if any(not isinstance(e, list) or len(e) <= i or variable not in e[i] for e in entries):
+            fail(f"{path}.pos.scope.variable", f"no {variable!r} in {column}[{i}] on every row")
     elif variable is not None:
         column_ref(cx, f"{inp['data']}.{variable}", f"{path}.pos.scope.variable", inp["data"])
-    layer = s.get("layers")
-    dims = address.dims(component, layer, positions.ragged(pos))
+    dims = address.dims(component, s["layers"], positions.ragged(pos))
     if pos["frame"] == "generated" and pos["scope"] is not None and not positions.ragged(pos):
         dims = ["entries" if a == "rows" else a for a in dims]
-    record = {"name": name, "component": component, "layer": layer, "select": narrow, "pos": pos}
-    chain = []
-    for i, o in enumerate(spec.get("ops") or []):
+    record = {"name": name, "component": component, "layer": s["layers"], "select": narrow, "pos": pos}
+    selection, chain = dims, []
+    for i, o in enumerate(access["ops"] or []):
         if isinstance(o, dict) and o.get("op") == "readout" and not meaning["stream"]:
             fail(f"{path}.ops[{i}]", f"readout projects a residual-stream value; {component} is not one")
-        rec, out = op_record(cx, f"{path}.ops[{i}]", o, dims, site=True, data=inp["data"])
-        if write and out != dims:
+        rec, out = op_record(cx, f"{path}.ops[{i}]", o, dims, "write" if write else "read", inp["data"])
+        if write and out != selection:
             fail(f"{path}.ops[{i}]", f"{o['op']!r} turns {dims} into {out}; a write's ops keep the value's layout")
         chain.append(rec)
         dims = out
     return {**record, "ops": chain, "dims": dims}
 
 
-def op_record(cx: dict, path: str, spec: Any, dims: list[str], site: bool, data: str | None) -> tuple[dict, list]:
-    """One op with its arguments bound and checked against its signature, and the layout of what it returns."""
+def op_record(cx: dict, path: str, spec: Any, dims: list[str], where: str, data: str | None) -> tuple[dict, list]:
+    """One op with its arguments bound and checked against its signature, and the layout of what it returns.
+
+    `where` is `"step"`, `"read"` or `"write"`; inside a read or write the record also carries `dims`, the
+    layout it acts on, and the op's `featurizer` and `features`."""
     if not isinstance(spec, dict) or spec.get("op") not in ops.OPS:
         fail(f"{path}.op", f"unknown op {spec.get('op') if isinstance(spec, dict) else spec!r}; "
              f"valid: {', '.join(ops.OPS)}")
     name = spec["op"]
     params = ops.parameters(name)
     given = {k: v for k, v in spec.items() if k != "op"}
+    site = where != "step"
     space = {"featurizer": None, "features": None}
     if site:
         for key in space:
@@ -419,13 +420,19 @@ def op_record(cx: dict, path: str, spec: Any, dims: list[str], site: bool, data:
                 space[key] = given.pop(key)
         if space["featurizer"] is not None:
             featurizer_ref(cx, space["featurizer"], f"{path}.featurizer")
-        if space["features"] is not None and not fits(space["features"], list[int]):
-            fail(f"{path}.features", f"{space['features']!r} is not a list of ints")
-    elif "original" in inspect.signature(ops.OPS[name]).parameters:
-        fail(f"{path}.op", f"{name!r} restores the value a site had before its writes; it runs inside a write")
+        if space["features"] is not None:
+            if space["featurizer"] is None:
+                fail(f"{path}.features", "features are a featurizer's latents; name the 'featurizer' they belong to")
+            if not fits(space["features"], list[int]):
+                fail(f"{path}.features", f"{space['features']!r} is not a list of ints")
+    if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
+        fail(f"{path}.op", f"{name!r} restores the value a site had before its writes; it runs only inside a write")
     for key in given:
         if key not in params:
             fail(f"{path}.{key}", f"{name!r} takes no {key!r}; its arguments: {', '.join(params) or 'none'}")
+    # Inside a write an operand stands for the selection: its own layout, or one vector of its features.
+    layout = dims[:-1] + ["features"] if space["featurizer"] is not None else dims
+    operand = [layout, [a for a in layout if a not in address.EXAMPLE_AXES]]
     args = {}
     for key, p in params.items():
         if key not in given:
@@ -433,15 +440,18 @@ def op_record(cx: dict, path: str, spec: Any, dims: list[str], site: bool, data:
                 fail(path, f"{name!r} needs {key!r}")
             args[key] = p.default
             continue
-        value, where = given[key], f"{path}.{key}"
+        value, at = given[key], f"{path}.{key}"
         if p.annotation == ops.Value:
-            value_ref(cx, value, where, data=data, number=True)
+            info = value_ref(cx, value, at, data=data, number=True)
+            if where == "write" and info["kind"] != "number" and info["dims"] not in operand:
+                fail(at, f"{value!r} is laid out {info['dims']}; this write's selection is {layout}, so an operand "
+                     f"is {operand[0]} or {operand[1]}")
         elif p.annotation == ops.Tokens:
-            column_ref(cx, value, where, data)
+            column_ref(cx, value, at, data)
         elif p.annotation == ops.Featurizer:
-            featurizer_ref(cx, value, where)
+            featurizer_ref(cx, value, at)
         elif not fits(value, p.annotation):
-            fail(where, f"{value!r} is not {spell(p.annotation)}")
+            fail(at, f"{value!r} is not {spell(p.annotation)}")
         args[key] = value
     try:
         out = ops.out_dims(name, dims, args)
@@ -451,7 +461,8 @@ def op_record(cx: dict, path: str, spec: Any, dims: list[str], site: bool, data:
     if site and {"rows", "entries"} & set(gone):
         fail(f"{path}.op", f"{name!r} aggregates over rows, and inside a read or write it sees one batch; "
              f"make it a step after the forward")
-    return {"op": name, "args": args, **space}, out
+    record = {"op": name, "args": args, **({**space, "dims": dims} if site else {})}
+    return record, out
 
 
 def value_ref(cx: dict, value: Any, path: str, data: str | None, number: bool) -> dict:

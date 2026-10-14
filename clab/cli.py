@@ -12,9 +12,9 @@ import os
 import sys
 
 from . import address, featurizers, ops, positions
-from .compile import (KINDS, ROOT, access_block, check_names, data_block, early_stop_block, eval_block,
+from .compiler import (KINDS, ROOT, access_block, check_names, data_block, early_stop_block, eval_block,
                       find_sweeps, model_block, optimizer_block, place, points, save_slots, site_block)
-from .compile import spell as spell_type
+from .compiler import spell as spell_type
 
 WHAT = ("ops", "steps", "components", "featurizers", "pos")
 
@@ -72,7 +72,7 @@ def describe(what: str | None = None) -> str:
     if what in (None, "components"):
         lines = ["components:"]
         for name, c in address.COMPONENTS.items():
-            narrow = ", ".join(["layers"] * (c["host"] != "model") + list(c["narrow"]))
+            narrow = ", ".join(["layers"] * c["per_layer"] + list(c["narrow"]))
             lines.append(f"  {name:24} [{', '.join(c['dims'])}]  narrowed by {narrow}  — {c['meaning']}")
         sections.append("\n".join(lines))
     if what in (None, "featurizers"):
@@ -128,7 +128,7 @@ def markdown() -> str:
     parts += ["## Components\n", doc(address) + "\n",
               table([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
                     + [[f"`{n}`", ", ".join(c["dims"]),
-                        ", ".join(["layers"] * (c["host"] != "model") + list(c["narrow"])), c["meaning"]]
+                        ", ".join(["layers"] * c["per_layer"] + list(c["narrow"])), c["meaning"]]
                        for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, fn in featurizers.KINDS.items():
@@ -142,11 +142,13 @@ def markdown() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .engines import ENGINES
+
     parser = argparse.ArgumentParser(prog="clab")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run a document end to end")
     run.add_argument("document")
-    run.add_argument("--engine", default="nnterp", choices=("nnterp", "hooks"))
+    run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--remote", default="no", choices=("no", "local", "yes"))
     run.add_argument("--batch-size", type=int, default=8)

@@ -2,9 +2,8 @@
 
 A component's name is nnterp's name for the same value, and its `dims` are
 nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
-an attention pattern). `host` says where nnterp serves it: on the model
-(`model`), on block *i* (`layer`), or on block *i*'s `self_attn` or `mlp`.
-`narrow` maps each narrowing key a site may carry to the axis it indexes.
+an attention pattern). `per_layer` says it is a block's value, so a site names
+its `layers`. `narrow` maps each narrowing key a site may carry to the axis it indexes.
 `stream` marks the residual-stream values `readout` may project.
 
 A selection of a component (what a read binds, and what a write's ops see) is
@@ -17,56 +16,56 @@ engine's business; the name says only what the value is.
 R = ["batch", "seq", "hidden_size"]
 
 COMPONENTS: dict[str, dict] = {
-    "token_embeddings": {"meaning": "the embedding module's output", "host": "model",
+    "token_embeddings": {"meaning": "the embedding module's output", "per_layer": False,
                          "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "layer_input": {"meaning": "the residual stream entering block i", "host": "layer",
+    "layer_input": {"meaning": "the residual stream entering block i", "per_layer": True,
                     "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "attention_norm_output": {"meaning": "the normed stream the attention is called with", "host": "layer",
+    "attention_norm_output": {"meaning": "the normed stream the attention is called with", "per_layer": True,
                               "dims": R, "narrow": {"units": "hidden_size"}, "stream": False},
-    "attention_queries": {"meaning": "queries after projection, head split and RoPE", "host": "self_attn",
+    "attention_queries": {"meaning": "queries after projection, head split and RoPE", "per_layer": True,
                           "dims": ["batch", "num_heads", "seq", "qk_head_dim"], "narrow": {"heads": "num_heads"},
                           "stream": False},
-    "attention_keys": {"meaning": "keys, before repeat_kv", "host": "self_attn",
+    "attention_keys": {"meaning": "keys, before repeat_kv", "per_layer": True,
                        "dims": ["batch", "num_kv_heads", "seq", "qk_head_dim"], "narrow": {"heads": "num_kv_heads"},
                        "stream": False},
-    "attention_values": {"meaning": "values, before repeat_kv", "host": "self_attn",
+    "attention_values": {"meaning": "values, before repeat_kv", "per_layer": True,
                          "dims": ["batch", "num_kv_heads", "seq", "head_dim"], "narrow": {"heads": "num_kv_heads"},
                          "stream": False},
-    "attention_scores": {"meaning": "scaled, masked scores entering the softmax", "host": "self_attn",
+    "attention_scores": {"meaning": "scaled, masked scores entering the softmax", "per_layer": True,
                          "dims": ["batch", "num_heads", "query", "key"], "narrow": {"heads": "num_heads"},
                          "stream": False},
-    "attention_probabilities": {"meaning": "the pattern the values are mixed with", "host": "self_attn",
+    "attention_probabilities": {"meaning": "the pattern the values are mixed with", "per_layer": True,
                                 "dims": ["batch", "num_heads", "query", "key"], "narrow": {"heads": "num_heads"},
                                 "stream": False},
-    "attention_head_outputs": {"meaning": "each head's output, before the output projection", "host": "self_attn",
+    "attention_head_outputs": {"meaning": "each head's output, before the output projection", "per_layer": True,
                                "dims": ["batch", "seq", "num_heads", "head_dim"], "narrow": {"heads": "num_heads"},
                                "stream": False},
-    "attention_premix": {"meaning": "every head's result as the output projection takes it", "host": "self_attn",
+    "attention_premix": {"meaning": "every head's result as the output projection takes it", "per_layer": True,
                          "dims": ["batch", "seq", "num_heads", "head_dim"], "narrow": {"heads": "num_heads"},
                          "stream": False},
-    "attention_output": {"meaning": "what attention adds to the stream", "host": "self_attn",
+    "attention_output": {"meaning": "what attention adds to the stream", "per_layer": True,
                          "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "layer_mid": {"meaning": "the stream between the sublayers", "host": "layer",
+    "layer_mid": {"meaning": "the stream between the sublayers", "per_layer": True,
                   "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "mlp_norm_output": {"meaning": "the normed stream entering the MLP", "host": "layer",
+    "mlp_norm_output": {"meaning": "the normed stream entering the MLP", "per_layer": True,
                         "dims": R, "narrow": {"units": "hidden_size"}, "stream": False},
-    "mlp_input": {"meaning": "what the MLP is called with", "host": "layer",
+    "mlp_input": {"meaning": "what the MLP is called with", "per_layer": True,
                   "dims": R, "narrow": {"units": "hidden_size"}, "stream": False},
-    "mlp_activation": {"meaning": "act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one", "host": "mlp",
+    "mlp_activation": {"meaning": "act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one", "per_layer": True,
                        "dims": ["batch", "seq", "intermediate_size"], "narrow": {"units": "intermediate_size"},
                        "stream": False},
-    "mlp_neurons": {"meaning": "what the down projection sums", "host": "mlp",
+    "mlp_neurons": {"meaning": "what the down projection sums", "per_layer": True,
                     "dims": ["batch", "seq", "intermediate_size"], "narrow": {"units": "intermediate_size"},
                     "stream": False},
-    "mlp_output": {"meaning": "what the MLP adds to the stream", "host": "mlp",
+    "mlp_output": {"meaning": "what the MLP adds to the stream", "per_layer": True,
                    "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "layer_output": {"meaning": "the residual stream leaving block i", "host": "layer",
+    "layer_output": {"meaning": "the residual stream leaving block i", "per_layer": True,
                      "dims": R, "narrow": {"units": "hidden_size"}, "stream": True},
-    "final_norm_output": {"meaning": "the final norm's output, what the head projects", "host": "model",
+    "final_norm_output": {"meaning": "the final norm's output, what the head projects", "per_layer": False,
                           "dims": R, "narrow": {"units": "hidden_size"}, "stream": False},
-    "lm_head_output": {"meaning": "the head's own projection", "host": "model",
+    "lm_head_output": {"meaning": "the head's own projection", "per_layer": False,
                        "dims": ["batch", "seq", "vocab_size"], "narrow": {"units": "vocab_size"}, "stream": False},
-    "logits": {"meaning": "what the model returns, after any softcap", "host": "model",
+    "logits": {"meaning": "what the model returns, after any softcap", "per_layer": False,
                "dims": ["batch", "seq", "vocab_size"], "narrow": {"units": "vocab_size"}, "stream": False},
 }
 
@@ -90,8 +89,3 @@ def dims(component: str, layers: str | int | None, ragged: bool) -> list[str]:
     lead = ["layers"] if layers == "all" else []
     return lead + (["entries"] if ragged else ["rows", "pos"]) + rest
 
-
-def nnterp_name(component: str) -> str:
-    """The dotted name nnterp's `support()` and `rank()` know the component by."""
-    host = COMPONENTS[component]["host"]
-    return f"{host}.{component}" if host in ("self_attn", "mlp") else component

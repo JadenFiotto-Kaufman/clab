@@ -7,7 +7,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 import pytest  # noqa: E402
 
-from clab.compile import compile, load  # noqa: E402
+from clab.compiler import compile, load  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")

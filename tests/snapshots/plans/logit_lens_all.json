@@ -52,7 +52,13 @@
        "op": "readout",
        "args": {},
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "layers",
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [

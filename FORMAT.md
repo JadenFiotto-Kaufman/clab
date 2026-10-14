@@ -66,10 +66,15 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`; the last entry may be `s
 - `reads: dict or null = None`
 - `interventions: str or list of str or null = None`
 
-One forward over every row of a dataset input, in batches. `input` is `<dataset>.<column>` or
+One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
 `<dataset>.<column>[i]`; `writes` land where they name before anything later reads them; each read binds
 `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed order, before the
 step's own.
+
+Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
+row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
+batch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can
+differ in the last bits. Results reproduce to the bit at a fixed batch size.
 
 ### `generate`
 
@@ -195,9 +200,8 @@ The locations clab allows: what each component means, its layout, and what narro
 
 A component's name is nnterp's name for the same value, and its `dims` are
 nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
-an attention pattern). `host` says where nnterp serves it: on the model
-(`model`), on block *i* (`layer`), or on block *i*'s `self_attn` or `mlp`.
-`narrow` maps each narrowing key a site may carry to the axis it indexes.
+an attention pattern). `per_layer` says it is a block's value, so a site names
+its `layers`. `narrow` maps each narrowing key a site may carry to the axis it indexes.
 `stream` marks the residual-stream values `readout` may project.
 
 A selection of a component (what a read binds, and what a write's ops see) is

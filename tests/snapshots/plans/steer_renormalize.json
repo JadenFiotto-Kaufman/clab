@@ -139,7 +139,12 @@
         "scale": 4.0
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -223,7 +228,12 @@
         "scale": 4.0
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -248,7 +258,12 @@
        "op": "renormalize",
        "args": {},
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [

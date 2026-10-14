@@ -63,7 +63,12 @@
         "op": "readout",
         "args": {},
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -104,7 +109,12 @@
         "op": "readout",
         "args": {},
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [

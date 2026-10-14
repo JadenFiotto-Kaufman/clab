@@ -1,11 +1,9 @@
 """The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-The engine holds its model and the plan's model block, nothing else: inside
-the session they are the only client-side objects, and nnsight ships every
-name a block closes over to wherever the block runs.
+The engine holds its model and nothing else: inside the session the engine
+and its model are the only client-side objects, and nnsight ships every name a
+block closes over to wherever the block runs.
 """
-
-from typing import cast
 
 import nnsight
 import torch
@@ -13,15 +11,12 @@ from nnterp import StandardizedTransformer
 from torch import Tensor
 
 from .. import ops, steps
-from ..address import COMPONENTS, nnterp_name
-
-SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "intermediate_size", "vocab_size")
+from .standard import SIZES, by_site, envoy, nnterp_name
 
 
 class NnterpEngine:
-    def __init__(self, model: StandardizedTransformer, config: dict):
+    def __init__(self, model: StandardizedTransformer):
         self.model = model
-        self.config = config
 
     def execute(self, plan: dict, *, batch_size: int = 8, remote: bool | str = False) -> dict:
         """The whole document in one session; the filled plan is the one thing that comes home."""
@@ -40,11 +35,7 @@ class NnterpEngine:
     def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]:
         """One trace over the batch, visiting each site in forward order: writes first, then the reads there."""
         model = self.model
-        sites: dict[tuple, tuple[list, list]] = {}
-        for record in writes:
-            sites.setdefault((record["component"], record["layer"]), ([], []))[0].append(record)
-        for record in reads:
-            sites.setdefault((record["component"], record["layer"]), ([], []))[1].append(record)
+        sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
         inputs = {k: batch[k] for k in ("input_ids", "attention_mask", "position_ids")}
@@ -68,18 +59,9 @@ class NnterpEngine:
         raise NotImplementedError("M2")
 
 
-def envoy(model: StandardizedTransformer, component: str, layer: int | None):
-    """The envoy nnterp serves the component on."""
-    host = COMPONENTS[component]["host"]
-    if host == "model":
-        return model
-    block = model.layers[cast(int, layer)]
-    return block if host == "layer" else getattr(block, host)
-
-
 def load(model: dict) -> NnterpEngine:
     """The checkpoint the plan pins, on the CPU."""
     extra = {"attn_implementation": model["attn_implementation"]} if model["attn_implementation"] else {}
     loaded = StandardizedTransformer(model["key"], revision=model["revision"], dtype=getattr(torch, model["dtype"]),
                                      device="cpu", dispatch=True, **extra)
-    return NnterpEngine(loaded, model)
+    return NnterpEngine(loaded)

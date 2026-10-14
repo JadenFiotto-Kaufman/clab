@@ -11,6 +11,7 @@ torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
 LOGITS = torch.randn(3, 1, 7)                  # rows, pos, vocab
 IDS = torch.tensor([1, 4, 6])
+DIMS = ["rows", "pos", "hidden_size"]
 
 
 def test_every_op_registered_itself_under_its_own_name():
@@ -91,8 +92,8 @@ def test_out_dims_follows_each_ops_declaration():
 
 def record(start: int, width: int, value, ops_=None) -> dict:
     positions = torch.arange(start, start + width).expand(3, width)
-    return {"positions": positions, "select": {}, "dims": ["rows", "pos", "hidden_size"],
-            "ops": ops_ or [{"op": "swap", "args": {"with": value}, "featurizer": None}]}
+    return {"positions": positions, "select": {},
+            "ops": ops_ or [{"op": "swap", "args": {"with": value}, "featurizer": None, "dims": DIMS}]}
 
 
 def test_a_window_write_and_three_single_writes_are_one_tensor():
@@ -106,8 +107,8 @@ def test_a_window_write_and_three_single_writes_are_one_tensor():
 
 def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
-    steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "featurizer": None}])
-    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "featurizer": None}])
+    steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "featurizer": None, "dims": DIMS}])
+    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "featurizer": None, "dims": DIMS}])
     out = ops.write(value, "layer_output", [steer, restore])
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])
@@ -118,8 +119,8 @@ def test_select_narrows_one_axis_and_write_puts_it_back():
     value = torch.randn(2, 3, 4, 2)                      # batch, seq, num_heads, head_dim (attention_premix)
     head = {"positions": torch.tensor([[2], [2]]), "select": {2: torch.tensor([1])}}
     assert torch.equal(ops.select(value, "attention_premix", head), value[:, 2:3, 1:2])
-    out = ops.write(value, "attention_premix", [{**head, "dims": [], "ops": [
-        {"op": "swap", "args": {"with": 0.0}, "featurizer": None}]}])
+    out = ops.write(value, "attention_premix", [{**head, "ops": [
+        {"op": "swap", "args": {"with": 0.0}, "featurizer": None, "dims": ["rows", "pos", "num_heads", "head_dim"]}]}])
     assert torch.equal(out[:, 2, 1], torch.zeros(2, 2))
     out[:, 2, 1] = value[:, 2, 1]
     assert torch.equal(out, value)

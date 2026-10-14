@@ -36,6 +36,7 @@ import torch
 from torch import Tensor
 
 from .address import EXAMPLE_AXES, pos_axis
+from .registry import registers
 
 Value = Annotated[Tensor, "a named value, or a number"]
 Tokens = Annotated[Tensor, "a dataset column, one token per row"]
@@ -51,9 +52,8 @@ AXES: dict[str, dict] = {}
 
 def op(needs: tuple = (), removes: tuple | str = (), adds: tuple = ()):
     def register(fn: Callable) -> Callable:
-        OPS[fn.__name__] = fn
         AXES[fn.__name__] = {"needs": needs, "removes": removes, "adds": adds}
-        return fn
+        return registers(OPS)(fn)
     return register
 
 
@@ -108,13 +108,16 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
     """`value` with `writes` applied in listed order, out of place.
 
     Each write's ops run on its selection of the current value; `original` is
-    the selection as it was before any of these writes.
+    the selection as it was before any of these writes. A write narrows at most
+    one dimension of its selection.
     """
     axis = pos_axis(component)
     before = value.movedim(axis, 1)
     x = before.clone()
     rows = torch.arange(x.shape[0])[:, None]
     for w in writes:
+        if len(w["select"]) > 1:
+            raise ValueError(f"write {w['name']!r} narrows {len(w['select'])} dimensions; a write narrows one")
         pos = w["positions"]
         current, original = x[rows, pos], before[rows, pos]
         new = current
@@ -123,7 +126,7 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
         for o in w["ops"]:
             if o["featurizer"] is not None:
                 raise NotImplementedError(f"M4: op {o['op']!r} in the space of featurizer {o['featurizer']!r}")
-            new = call(o["op"], new, o["args"], original=original, dims=w["dims"])
+            new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
         for dim, index in w["select"].items():
             new = current.index_copy(dim, index, new.to(current.dtype))
         x[rows, pos] = new.to(x.dtype)

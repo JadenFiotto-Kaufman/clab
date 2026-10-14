@@ -239,7 +239,13 @@
          "with": "counterfactual.their_pattern"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -306,7 +312,13 @@
          "with": "counterfactual.their_pattern"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -373,7 +385,13 @@
          "with": "counterfactual.their_pattern"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -440,7 +458,13 @@
          "with": "counterfactual.their_pattern"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [

@@ -238,7 +238,13 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "head_dim"
+        ]
        }
       ],
       "dims": [
@@ -305,7 +311,13 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "head_dim"
+        ]
        }
       ],
       "dims": [
@@ -372,7 +384,13 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "head_dim"
+        ]
        }
       ],
       "dims": [
@@ -439,7 +457,13 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "head_dim"
+        ]
        }
       ],
       "dims": [

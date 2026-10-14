@@ -48,3 +48,8 @@ uvx pyright
 ```
 
 `CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`.
+
+Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
+longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's
+shape, and a trailing partial batch (a smaller matrix) can differ in the last bits. The snapshots pin the
+batch size for that reason.

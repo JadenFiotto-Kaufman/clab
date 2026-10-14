@@ -18,9 +18,9 @@ from torch import Tensor
 from transformers import AutoModelForCausalLM
 
 from .. import ops, steps
-from ..address import COMPONENTS, nnterp_name
-from ..compile import points
-from .nnterp import SIZES, envoy
+from ..address import COMPONENTS
+from ..compiler import points
+from .standard import SIZES, by_site, envoy, nnterp_name
 
 
 class HooksEngine:
@@ -41,11 +41,7 @@ class HooksEngine:
 
     def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]:
         """One call of the model with a hook at every site the records name; the hooks are removed after."""
-        sites: dict[tuple, tuple[list, list]] = {}
-        for record in writes:
-            sites.setdefault((record["component"], record["layer"]), ([], []))[0].append(record)
-        for record in reads:
-            sites.setdefault((record["component"], record["layer"]), ([], []))[1].append(record)
+        sites = by_site(writes, reads)
         got: dict[str, Tensor] = {}
         handles = [hook(self.model, self.config, component, layer, here, there, got)
                    for (component, layer), (here, there) in sites.items()]
@@ -114,7 +110,7 @@ def refuse(plan: dict, sites: dict) -> None:
 
 def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict:
     """Where the component is on the native model: per layer, the module whose output or input nnterp's key names."""
-    per_layer = COMPONENTS[component]["host"] != "model"
+    per_layer = COMPONENTS[component]["per_layer"]
     reason_for = support.get(nnterp_name(component))
     paths, boundary = {}, None
     for layer in (range(shell.num_layers) if per_layer else [None]):
@@ -140,7 +136,7 @@ def load(model: dict) -> HooksEngine:
     extra = {"attn_implementation": model["attn_implementation"]} if model["attn_implementation"] else {}
     shell = StandardizedTransformer(model["key"], revision=model["revision"], dispatch=False, device_map=None, **extra)
     support = shell.support()
-    config = {"model": model, "sizes": {k: getattr(shell, k) for k in SIZES},
+    config = {"sizes": {k: getattr(shell, k) for k in SIZES},
               "sites": {c: reach(shell, c, support) for c in COMPONENTS}}
     loaded = AutoModelForCausalLM.from_pretrained(model["key"], revision=model["revision"],
                                                   dtype=getattr(torch, model["dtype"]), **extra)

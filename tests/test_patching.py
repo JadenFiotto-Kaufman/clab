@@ -9,7 +9,7 @@ import torch
 
 import clab
 from clab.cli import main
-from clab.compile import compile, points
+from clab.compiler import compile, points
 from clab.output import write
 from conftest import document, plan_of, snapshot
 
@@ -176,10 +176,10 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
 def test_unserved_kinds_refuse_by_name_before_anything_runs(engines):
     plan = plan_of("das")
     engine = engines("hooks", plan["model"])
-    with pytest.raises(NotImplementedError, match="step 'fit' is a fit step; fit steps are served from M4"):
+    with pytest.raises(NotImplementedError, match="fit: fit steps land in M4"):
         engine.execute(plan)
     plan = plan_of("generated_answer")
-    with pytest.raises(NotImplementedError, match="step 'answer' is a generate step; generate steps are served from M3"):
+    with pytest.raises(NotImplementedError, match="answer: generate steps land in M3"):
         engines("hooks", plan["model"]).execute(plan)
 
 

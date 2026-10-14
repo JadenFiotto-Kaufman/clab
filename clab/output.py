@@ -15,7 +15,7 @@ import platform
 import torch
 from safetensors.torch import load_file, save_file
 
-from .compile import dims_of, place, points
+from .compiler import dims_of, place, points
 
 AXIS = {"rows": "row", "layers": "layer"}
 
@@ -57,7 +57,8 @@ def written(plan: dict, name: str, point: dict, out: str, saves: list) -> dict:
         else:
             save_file({key: value.contiguous()}, os.path.join(out, file),
                       metadata={"dims": json.dumps(dims), "at": json.dumps(at)})
-        described = {"file": file, "dims": dims, "shape": list(value.shape), "dtype": str(value.dtype).removeprefix("torch.")}
+        described = {"file": file, "kind": "table" if file.endswith(".json") else "tensor", "dims": dims,
+                     "shape": list(value.shape), "dtype": str(value.dtype).removeprefix("torch.")}
         result[key] = {"save": slot["save"], "value": described}
         saves.append({"name": key, "step": name, "at": at, "file": file})
     return {**point, "result": result}
@@ -88,12 +89,13 @@ def value_at(out: str, key: str, described: dict) -> torch.Tensor:
 
 
 def table(plan: dict, name: str) -> list[dict]:
-    """One flat table over every point of a saved value: a row per element, each with its point's coordinates."""
+    """One flat table over every point of a saved value: a row per element, its point's coordinates under `at`
+    (kept apart from the row's own axes, which a sweep label may share: `pos_sweep.json` sweeps `pos`)."""
     rows = []
     for point in points(plan["steps"][name.partition(".")[0]]):
         value = point["result"][name]["value"]
         at = coordinates(plan, point["at"])
-        rows += [{**at, **row} for row in flatten(plan, point, value, dims_of(plan, name))]
+        rows += [{"at": at, **row} for row in flatten(plan, point, value, dims_of(plan, name))]
     return rows
 
 

@@ -9,7 +9,7 @@ import pprint
 
 import pytest
 
-from clab.compile import CompileError, compile, points
+from clab.compiler import CompileError, compile, points
 from conftest import DOCUMENTS, ROOT, document, plan_of, snapshot
 
 NAMES = sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(DOCUMENTS, "*.json")))

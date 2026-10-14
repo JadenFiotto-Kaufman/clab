@@ -108,7 +108,12 @@
         "with": 0.0
        },
        "featurizer": null,
-       "features": null
+       "features": null,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [

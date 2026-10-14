@@ -108,7 +108,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -180,7 +185,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
@@ -252,7 +262,12 @@
          "with": "counterfactual.v_cf"
         },
         "featurizer": null,
-        "features": null
+        "features": null,
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
