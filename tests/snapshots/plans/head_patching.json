@@ -1,5 +1,5 @@
 {
- "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix`, the output projection's input, served per head as (num_heads, head_dim) — every head's result side by side — so a site narrows it by `heads`, and this runs on the hooks engine too, which reaches it at the projection's input; `attention_head_outputs` is the same tensor read inside the attention's forward, which nnterp serves under eager attention only; with `attn_implementation: eager` it gives the same numbers bit for bit.",
+ "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix`, the output projection's input, served per head as (num_heads, head_dim) — every head's result side by side — so a site selects on its `num_heads` axis, and this runs on the hooks engine too, which reaches it at the projection's input; `attention_head_outputs` is the same tensor read inside the attention's forward, which nnterp serves under eager attention only; with `attn_implementation: eager` it gives the same numbers bit for bit.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -21,9 +21,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        0
-       ]
+       "select": {
+        "num_heads": [
+         0
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -35,7 +37,7 @@
      }
     },
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs"
    },
@@ -47,9 +49,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        1
-       ]
+       "select": {
+        "num_heads": [
+         1
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -61,7 +65,7 @@
      }
     },
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs"
    },
@@ -73,9 +77,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        2
-       ]
+       "select": {
+        "num_heads": [
+         2
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -87,7 +93,7 @@
      }
     },
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs"
    },
@@ -99,9 +105,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        3
-       ]
+       "select": {
+        "num_heads": [
+         3
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -113,7 +121,7 @@
      }
     },
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs"
    }
@@ -127,9 +135,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        0
-       ]
+       "select": {
+        "num_heads": [
+         0
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -154,7 +164,7 @@
      }
     },
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs"
    },
@@ -166,9 +176,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        1
-       ]
+       "select": {
+        "num_heads": [
+         1
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -193,7 +205,7 @@
      }
     },
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs"
    },
@@ -205,9 +217,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        2
-       ]
+       "select": {
+        "num_heads": [
+         2
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -232,7 +246,7 @@
      }
     },
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs"
    },
@@ -244,9 +258,11 @@
       "site": {
        "component": "attention_premix",
        "layers": 0,
-       "heads": [
-        3
-       ]
+       "select": {
+        "num_heads": [
+         3
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -271,7 +287,7 @@
      }
     },
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs"
    }
@@ -282,7 +298,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -296,7 +312,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -310,7 +326,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -324,7 +340,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs",
     "dims": [
@@ -340,7 +356,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -355,7 +371,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -370,7 +386,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -385,7 +401,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs",
     "dims": [
@@ -404,8 +420,8 @@
  "document": "documents/head_patching.json",
  "compiled": true,
  "sweeps": {
-  "heads": {
-   "path": "sites.target.heads",
+  "num_heads": {
+   "path": "sites.target.select.num_heads",
    "values": [
     [
      0

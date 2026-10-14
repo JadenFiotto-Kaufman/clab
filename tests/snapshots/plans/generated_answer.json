@@ -53,7 +53,8 @@
    },
    "dataset": "prompts",
    "max_new_tokens": 6,
-   "min_new_tokens": 6
+   "min_new_tokens": 6,
+   "do_sample": false
   },
   "p_answer": {
    "kind": "op",

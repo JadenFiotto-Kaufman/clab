@@ -3,7 +3,7 @@
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-    "dtype": "fp32"
+    "dtype": "float32"
   },
   "data": {"prompts": {"path": "weekdays/train"}},
   "steps": {

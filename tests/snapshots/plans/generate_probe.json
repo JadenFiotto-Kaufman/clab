@@ -31,7 +31,8 @@
    },
    "dataset": "pairs",
    "max_new_tokens": 3,
-   "min_new_tokens": 3
+   "min_new_tokens": 3,
+   "do_sample": false
   },
   "patched": [
    {
@@ -73,7 +74,8 @@
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    },
    {
     "kind": "generate",
@@ -114,7 +116,8 @@
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    },
    {
     "kind": "generate",
@@ -155,7 +158,8 @@
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    }
   ],
   "p_answer": [
