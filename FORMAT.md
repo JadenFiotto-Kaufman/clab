@@ -206,7 +206,7 @@ Ops). The step's value is the op's result; a step holds exactly one op, and chai
 - `optimizer: optimizer`
 - `steps: object of step`
 - `early_stop: early_stop or null = None`
-- `eval: eval or null = None`
+- `eval: object of object of str = {}`
 
 Train the featurizers `train` names, inside the run, through the frozen model.
 
@@ -216,18 +216,21 @@ optimizer over its trainable tensors with it. Each epoch sets a gate's temperatu
 and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
 weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
 featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
-model's weights are never touched. After each epoch the body runs over every training row in scoring
-mode (gates hard, no gradients): each body op's mean is that epoch's entry of `<fit>.history.<op>`, and
-`early_stop` is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are
-restored, and the body runs once more, scored, under `eval`'s substitution (on the training rows without
-one). The body's forwards run in batches of `batch_size`, whatever the run's batch size.
+model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
+back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
+in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
+that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
+is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
+the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
+"test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
+body's forwards run in batches of `batch_size`, whatever the run's batch size.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
 is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
-featurizer (saved as its bundle), `<fit>.<op>` a body op and `<fit>.<step>.<read>` a body read, both from
-the eval run, and `<fit>.history.<op>` the body op's mean per epoch run, `[epochs]`. A sweep over any of
-the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<read>` a body value from
+the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
+of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
 list of points.
 
 ### `fit` blocks
@@ -248,12 +251,6 @@ The fit's optimizer, over the trained featurizers' parameters only.
 
 End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
 scored on the training rows after each epoch.
-
-`eval`:
-
-- `data: object of str`
-
-After the fit, run the body once with each dataset `data` maps read as the other (`{"train": "test"}`).
 
 ## Derived fields
 
@@ -390,7 +387,9 @@ from its bundle, which compile reads into the plan and checks key by key against
 is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
 is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
 autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask).
+a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over what the body's `encode` reads of it saw in that run of the body, which
+the instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -401,7 +400,7 @@ before any forward.
 
 Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
 value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
-has one, `SETTLE`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
+has one, `SETTLE`, `PROJECT`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
 
 ### `subspace`
 
@@ -434,10 +433,16 @@ coordinates are centred on the mean.
 
 ### `sae`
 
-- `file_path: str`
+- `latents: int or null = None`
+- `file_path: str or null = None`
+- `seed: int or null = None`
 
-A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle; its coordinates are
-the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its error term exactly.
+A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
+dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
+`W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
+both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
+error term exactly. Its scalars, over every vector the body's `encode` reads of it saw in that run of the
+body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
 ### `linear`
 

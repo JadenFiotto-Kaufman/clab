@@ -198,7 +198,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
         if member.partition(".")[0] in ("history", *points(plan.steps[thing])[0].train):
             return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
                     for row in elements(value, dims_of(plan, name), None)]
-        return rows_of(evaluated(plan, thing, name), member, columns)
+        return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
     entry, dims = plan.steps[thing], dims_of(plan, name)
     source, used = provenance(plan, name)
     dataset = points(entry)[0].dataset
@@ -219,17 +219,17 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
 
 
 def dataset_of(plan: Plan, name: str) -> str | None:
-    """The dataset a saved value has a row per example of, if any: its step's, or for a fit's member the one its
-    body's step read under eval."""
+    """The dataset a saved value has a row per example of, if any: its step's, or for a member of a fit's named
+    eval the one its body's step read under that eval."""
     if not {"rows", "entries"} & set(dims_of(plan, name)):
         return None
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
     if step.kind != "fit":
         return step.dataset
-    swap = step.eval.data if step.eval else {}
-    inner = step.steps[member.partition(".")[0]].dataset
-    return swap.get(inner, inner) if inner is not None else None
+    label, _, rest = member.partition(".")
+    inner = step.steps[rest.partition(".")[0]].dataset
+    return step.eval[label].get(inner, inner) if inner is not None else None
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
@@ -242,18 +242,19 @@ def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
 
 
 def evaluated(plan: Plan, fit: str, name: str) -> Plan:
-    """The plan as the fit's eval run saw it, for tabling its member `name` (`<fit>.<step>...`): its body's view
-    under eval, and the run record of the body's records and inputs under the names the body gives them."""
-    fits = points(plan.steps[fit])
-    swap = fits[0].eval.data if fits[0].eval else {}
+    """The plan as the fit's named eval saw it, for tabling its member `name` (`<fit>.<eval>.<member>`): its
+    body's view under that eval's substitution, and the run record of the body's records and inputs under the
+    names the body gives them."""
+    label, _, member = name.partition(".")[2].partition(".")
+    swap = points(plan.steps[fit])[0].eval[label]
     assert plan.run is not None
     tokens = dict(plan.run.tokens)
     for a, b in swap.items():
         tokens.update({f"{a}.{k.partition('.')[2]}": v for k, v in plan.run.tokens.items() if k.partition(".")[0] == b})
     run = plan.run.model_copy(update={"tokens": tokens, "positions": {
-        k.removeprefix(f"{fit}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.")}})
-    return body_view(plan, fit, held=True).model_copy(update={
-        "run": run, "results": {name.partition(".")[2]: plan.results[name]}, "saves": [name.partition(".")[2]]})
+        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
+    return body_view(plan, fit, swap=swap).model_copy(update={
+        "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 
 
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:

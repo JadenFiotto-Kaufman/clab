@@ -29,11 +29,11 @@ RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, o
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
 STEPS = {name: model for name, model in plan.KINDS.items()}
-FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop, "eval": plan.Eval}
+FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 
 
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
-         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop", plan.Eval: "eval",
+         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
          plan.Entry: "step"}
 
 

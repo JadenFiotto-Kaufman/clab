@@ -236,7 +236,7 @@ def readout(of: Tensor, engine: Any) -> Tensor:
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("features",))
 def encode(of: Tensor, featurizer: Featurizer) -> Tensor:
     """The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class)."""
-    return featurizers.encode(featurizer, of)
+    return featurizers.read(featurizer, of)
 
 
 # -- reductions ----------------------------------------------------------------

@@ -54,10 +54,12 @@ def run(engine, plan: Plan, batch_size: int) -> None:
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
     positions = dict(found["positions"])
-    for fit, by_point in found["bodies"].items():        # a body's records, as its eval run resolved them
+    for fit, by_point in found["bodies"].items():        # a body's records, as each eval run resolved them
         for sources in by_point.values():
-            for where, resolved in sources["eval"][1]["positions"].items():
-                positions[f"{fit}.{where}"] = {**positions.get(f"{fit}.{where}", {}), **resolved}
+            for label, (_, body) in sources["evals"].items():
+                for where, resolved in body["positions"].items():
+                    key = f"{fit}.{label}.{where}"
+                    positions[key] = {**positions.get(key, {}), **resolved}
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
 
@@ -80,9 +82,9 @@ def preflight(engine, plan: Plan) -> dict:
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
     room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
-    fit point the same for its body (`bodies`): over its training rows (`train`) and under its `eval`
-    substitution (`eval`), each beside the plan the body runs in, which holds the body's steps and, under
-    eval, each substituted dataset's rows under the body's name for it.
+    fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
+    `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
+    each substituted dataset's rows under the body's name for it.
 
     Refuses by name (`<step>.<record>`): a component the engine does not serve; a layer or a `select`
     outside the model's sizes (on `key`, outside the input's shortest row); a generate option its
@@ -106,13 +108,12 @@ def preflight(engine, plan: Plan) -> dict:
             if step.kind != "fit":
                 continue
             within = body_view(plan, name, step.at)
-            sources = {"train": (within, prepare(engine, within, step.steps, {}, classes))}
-            if step.eval:
-                held = body_view(plan, name, step.at, held=True)
-                sources["eval"] = (held, prepare(engine, held, step.steps, step.eval.data, classes))
-            else:
-                sources["eval"] = sources["train"]
-            for _, body in sources.values():
+            sources: dict = {"train": (within, prepare(engine, within, step.steps, {}, classes)), "evals": {}}
+            for label, swap in step.eval.items():
+                held = body_view(plan, name, step.at, swap)
+                sources["evals"][label] = (held, prepare(engine, held, step.steps, swap, classes)) if swap \
+                    else sources["train"]
+            for _, body in [sources["train"], *sources["evals"].values()]:
                 body["widths"] = found["widths"]
             put(found["bodies"], name, step.at, sources)
     return found
@@ -497,8 +498,8 @@ OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch
 
 @kind
 def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
-    """Train the featurizers `train` names, then score the body once under `eval` (`plan.Fit` says what each
-    part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
+    """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
+    each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
     weights never hold a gradient."""
     sources = lookup(found["bodies"], name, step.at)
@@ -509,7 +510,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if s.kind == "op"]
     n = len(sources["train"][0].data[next(iter(datasets(step)))].rows or [])
-    history: dict = {o: [] for o in body_ops}
+    scalars = [(f, sc) for f, inst in trained.items() for sc in featurizers.SCALARS.get(inst["kind"], {})]
+    history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
     for epoch in range(step.epochs):
         for f in trained.values():
@@ -528,6 +530,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
                 p.grad = g
             opt.step()
             opt.zero_grad()
+            for f in trained.values():
+                featurizers.project(f)
         for f in trained.values():
             featurizers.settle(f)
         scored = body_run(engine, name, step, state, trained, sources["train"], None)
@@ -535,6 +539,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
                 history[o].append(overall(value))
+        for f, sc in scalars:
+            history[f"{f}.{sc}"].append(featurizers.scalar(trained[f], sc))
         if step.early_stop is None:
             kept = snapshot(trained)
             continue
@@ -548,16 +554,18 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     for f, inst in trained.items():
         inst.update(kept[f] if kept else {})
         featurizers.settle(inst)
-    final = body_run(engine, name, step, state, trained, sources["eval"], None)
+    for label in step.eval:
+        final = body_run(engine, name, step, state, trained, sources["evals"][label], None)
+        for key, s in step.steps.items():
+            members = ([key] if s.kind == "op" else []) + [f"{key}.{read}" for read in getattr(s, "reads", {})]
+            for member in members:
+                put(state, f"{name}.{label}.{member}", step.at, lookup(final, member, step.at))
     for f, inst in trained.items():
+        inst.pop("seen", None)
         put(state, f"{name}.{f}", step.at, inst)
-    for key, s in step.steps.items():
-        if s.kind == "op":
-            put(state, f"{name}.{key}", step.at, lookup(final, key, step.at))
-            if history[key]:
-                put(state, f"{name}.history.{key}", step.at, torch.stack(history[key]))
-        for read in getattr(s, "reads", {}):
-            put(state, f"{name}.{key}.{read}", step.at, lookup(final, f"{key}.{read}", step.at))
+    for key, values in history.items():
+        if values:
+            put(state, f"{name}.history.{key}", step.at, torch.stack(values))
 
 
 def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple, index: list[int] | None) -> dict:
@@ -569,6 +577,7 @@ def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple,
     body = dict(state)
     for f, inst in trained.items():
         inst["training"] = index is not None
+        inst["seen"] = []
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
     with torch.set_grad_enabled(index is not None):
@@ -607,7 +616,7 @@ def overall(value: Tensor) -> Tensor:
 
 def snapshot(trained: dict) -> dict:
     """Each trained featurizer as it is now, its tensors detached copies: what restoring the epoch puts back."""
-    return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in inst.items()}
+    return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in inst.items() if k != "seen"}
             for f, inst in trained.items()}
 
 

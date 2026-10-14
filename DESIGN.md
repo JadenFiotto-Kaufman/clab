@@ -74,7 +74,11 @@ document in these places:
   minibatch), its datasets have as many rows as each other, and it holds no fit. The `linear` probe's scores
   are on a `classes` axis, which metrics score as they score `vocab_size`, a column resolved against the
   probe's class list, which preflight checks every scored column against over the training and the eval rows;
-  a probe is never written through. `table` refuses to join values with rows of two datasets. The hooks engine serves `fit`: gradients flow
+  a probe is never written through. `table` refuses to join values with rows of two datasets. A fit's `eval` names its runs after training (PLAN §11 "Ratified after M4"):
+  each is a body view and its own prepared rows, and a member `<fit>.<eval>.<member>` tables over that eval's
+  rows. A drawn `sae` (`latents`) trains; its scalars read what the body's `encode` reads of it saw in that run
+  of the body, which the instance keeps (`seen`) only while its fit trains it; its decoder rows are projected
+  back to unit norm after each optimizer step. The hooks engine serves `fit`: gradients flow
   through its hooks, and both engines agree to the bit (**verified**, every fit document).
 
 For ratification before any code is written. Present tense throughout: this is

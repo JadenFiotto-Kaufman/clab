@@ -9,7 +9,9 @@ from its bundle, which compile reads into the plan and checks key by key against
 is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
 is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
 autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask).
+a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over what the body's `encode` reads of it saw in that run of the body, which
+the instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -20,7 +22,7 @@ before any forward.
 
 Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
 value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
-has one, `SETTLE`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
+has one, `SETTLE`, `PROJECT`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
 """
 
 import inspect
@@ -42,6 +44,7 @@ DECLARED: dict[str, dict] = {}
 ENCODE: dict[str, Callable] = {}
 REPLACE: dict[str, Callable] = {}
 SETTLE: dict[str, Callable] = {}
+PROJECT: dict[str, Callable] = {}
 ANNEAL: dict[str, Callable] = {}
 SCALARS: dict[str, dict[str, Callable]] = {}
 
@@ -176,12 +179,47 @@ def pca_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
 # -- sae ---------------------------------------------------------------------------------------------------
 
 
-@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"))
-def sae(width: int, file_path: str, bundle: dict | None = None) -> dict:
-    """A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle; its coordinates are
-    the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its error term exactly."""
-    assert bundle is not None
-    return {"kind": "sae", **bundle}
+@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"))
+def sae(width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
+        bundle: dict | None = None) -> dict:
+    """A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
+    dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
+    `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
+    both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
+    error term exactly. Its scalars, over every vector the body's `encode` reads of it saw in that run of the
+    body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
+    if bundle is not None:
+        return {"kind": "sae", **bundle}
+    assert latents is not None
+    generator = torch.Generator().manual_seed(seed or 0)
+    w_dec = torch.randn(latents, width, generator=generator)
+    return {"kind": "sae", "W_enc": torch.randn(width, latents, generator=generator) / width ** 0.5,
+            "b_enc": torch.zeros(latents), "W_dec": w_dec / w_dec.norm(dim=1, keepdim=True), "b_dec": torch.zeros(width)}
+
+
+@of(PROJECT, "sae")
+def sae_project(f: dict) -> None:
+    f["W_dec"].div_(f["W_dec"].norm(dim=1, keepdim=True))
+
+
+def seen(f: dict) -> tuple[Tensor, Tensor]:
+    """The vectors (`[n, width]`) and latents the body's `encode` reads of `f` saw in this run of the body."""
+    if not f.get("seen"):
+        raise ValueError("an sae's scalars are over what the body's encode reads of it saw; this body has none")
+    return (torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in f["seen"]]),
+            torch.cat([z.reshape(-1, z.shape[-1]) for _, z in f["seen"]]))
+
+
+def sae_reconstruction(f: dict) -> Tensor:
+    h, z = seen(f)
+    return (h - (z @ f["W_dec"].to(h.dtype) + f["b_dec"].to(h.dtype))).pow(2).sum(-1).mean()
+
+
+def sae_l1(f: dict) -> Tensor:
+    return seen(f)[1].abs().mean()
+
+
+SCALARS["sae"] = {"reconstruction": sae_reconstruction, "l1": sae_l1}
 
 
 @of(ENCODE, "sae")
@@ -261,6 +299,22 @@ def settle(f: dict) -> None:
     known(f, KINDS, "kind")
     if f["kind"] in SETTLE:
         SETTLE[f["kind"]](f)
+
+
+def project(f: dict) -> None:
+    """Put a featurizer back onto its constraint after an optimizer step (an sae's decoder rows at unit norm)."""
+    known(f, KINDS, "kind")
+    if f["kind"] in PROJECT:
+        PROJECT[f["kind"]](f)
+
+
+def read(f: dict, h: Tensor) -> Tensor:
+    """`encode` as a read: the coordinates, kept beside `h` on the instance while a fit watches it (`seen`), for
+    the scalars the fit's objective names."""
+    z = encode(f, h)
+    if "seen" in f:
+        f["seen"].append((h, z))
+    return z
 
 
 def anneal(f: dict, epoch: int, epochs: int) -> None:

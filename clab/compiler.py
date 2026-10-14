@@ -151,7 +151,7 @@ def footprint(cx: Compiling, where: tuple) -> list[tuple]:
                         found.append(("interventions", n))
                         walk(doc.get("interventions", {}).get(n))
                 if k in ("featurizer", "train"):
-                    found.extend(("featurizers", n) for n in named if n in doc.get("featurizers", {}))
+                    found.extend(("featurizers", n) for n in named if isinstance(n, str) and n in doc.get("featurizers", {}))
                 walk(v)
         elif isinstance(value, list):
             for v in value:
@@ -332,7 +332,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str) -> lis
 
 def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under `eval`'s substitution too), and a value with a row per example it uses
+    as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
     is one the body makes. It trains featurizers that have something to train, and holds no fit."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
@@ -371,24 +371,32 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
-    for a, b in (spec.eval.data.items() if spec.eval else []):
-        for d in (a, b):
-            if d not in cx.rows:
-                fail(f"{path}.eval.data", f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
-    swapped = spec.eval.data if spec.eval else {}
-    for side in ({}, swapped):
+    for label, swap in spec.eval.items():
+        where = f"{path}.eval.{label}"
+        if label == "history" or label in spec.train or "." in label:
+            fail(where, f"{label!r} names the fit's history or a featurizer it trains, or has a dot; an eval's name "
+                 "is its own")
+        for a, b in swap.items():
+            for d in (a, b):
+                if d not in cx.rows:
+                    fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
+    for label, side in {"": {}, **spec.eval}.items():
         counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
         if len(set(counts.values())) > 1:
-            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (" under eval" if side else "") +
-                 "; it runs over minibatches of the same rows of each, so they have as many")
+            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
+                 + "; it runs over minibatches of the same rows of each, so they have as many")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
+        for scalar in featurizers.SCALARS.get(kind_of(plan, f), {}):
+            cx.names[f"{name}.history.{f}.{scalar}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
     for n, s in body.items():
         if s["kind"] == "op":
-            cx.names[f"{name}.{n}"] = inner[n]
             cx.names[f"{name}.history.{n}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
-        for read in s.get("reads", {}):
-            cx.names[f"{name}.{n}.{read}"] = inner[f"{n}.{read}"]
+        members = ([n] if s["kind"] == "op" else []) + [f"{n}.{read}" for read in s.get("reads", {})]
+        for label, swap in spec.eval.items():
+            for member in members:
+                info = inner[member]
+                cx.names[f"{name}.{label}.{member}"] = {**info, "data": swap.get(info["data"], info["data"])}
     return {**spec.model_dump(exclude_defaults=True), "steps": body}
 
 
@@ -477,6 +485,8 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     fields = f.model_extra or {}
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
+    if f.kind == "sae" and (fields.get("latents") is None) == (fields.get("file_path") is None):
+        fail(path, "an sae is loaded from its bundle ('file_path') or drawn to be trained ('latents'): one of them")
     record = f.model_dump(exclude_defaults=True)
     if fields.get("file_path") is None:
         return record
