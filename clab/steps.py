@@ -123,12 +123,13 @@ def preflight(engine, plan: Plan) -> dict:
                 for o in record.ops:
                     refuse_later(where, o.op, space(o))
                     check_tokens(engine, plan, where, o.op, arguments(o))
-                if not positions.prefill(positions.parse(record.pos)):
-                    continue        # resolved from what each row generates, in the run
-                resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer,
-                                   head(step, record))
-                put(found["positions"], where, step.at, resolved)
-                shape = (len(resolved[0]), {axis: len(v) for axis, v in (site.select or {}).items()})
+                pos, select = positions.parse(record.pos), {axis: len(v) for axis, v in (site.select or {}).items()}
+                if positions.prefill(pos):
+                    resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
+                    put(found["positions"], where, step.at, resolved)
+                    shape = (len(resolved[0]), select)
+                else:               # resolved in the run, from what each row generates; one position a call
+                    shape = (positions.width(pos) or 1, select)
                 put(shapes, where, step.at, shape)
                 for o in record.ops if side == "writes" else []:
                     check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
@@ -159,23 +160,40 @@ def stops(engine, step) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict], tokenizer,
-            head_only: bool) -> list[list[int]]:
+def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict],
+            tokenizer) -> list[list[int]]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a rectangular index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row."""
-    pos, special = positions.parse(record.pos), set(tokenizer.all_special_ids)
+    pos = positions.parse(record.pos)
     found = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
         try:
-            got = positions.resolve(pos, enc, None, set(), special, tokenizer, text(pos, row), head_only)
+            got = place(pos, row, enc, [], False, tokenizer, head(step, record))
         except ValueError as e:
-            raise ValueError(f"{where}: row {i}: {e}") from None
+            why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
+                "that is all call 0 holds of it" if head(step, record) else ""
+            raise ValueError(f"{where}: row {i}: {e}{why}") from None
         if write and not got:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              "one to write")
         found.append(list(got))
     return found
+
+
+def prompted(encoded: dict, tokenizer, head_only: bool) -> list[int]:
+    """The positions a row's prefill holds: its prompt tokens that are not special, or its last token alone
+    (`head_only`) where the prefill computes only that."""
+    ids, special = encoded["ids"], set(tokenizer.all_special_ids)
+    return [len(ids) - 1] if head_only else [i for i, t in enumerate(ids) if t not in special]
+
+
+def place(pos: dict, row: dict, encoded: dict, said: list[int], stopped: bool, tokenizer,
+          head_only: bool) -> list[int] | str:
+    """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: the positions
+    its prefill holds and where the scope's text occurs."""
+    found = positions.occurrences(pos["scope"], encoded, said, tokenizer, text(pos, row))
+    return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, stopped, found)
 
 
 def text(pos: dict, row: dict) -> str | None:
@@ -285,7 +303,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     `plan.run.positions` and each row's continuation, as token strings, in `plan.run.tokens[<step>]`. A
     batch whose rows all stopped early makes fewer calls; its ids are filled after their EOS to the longest
     batch's."""
-    eos, rows, special = stops(engine, step), plan.data[step.dataset].rows or [], set(engine.tokenizer.all_special_ids)
+    eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
     encoded = found["inputs"][step.input]["rows"]
     first = {k: r for k, r in step.reads.items() if positions.prefill(positions.parse(r.pos))}
     later = {k: r for k, r in step.reads.items() if k not in first}
@@ -295,23 +313,23 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         n = chunk.stop - chunk.start
         sites, writes, reads = bind(engine, plan, name, step, first, state, found, chunk, pads, set(beyond))
         for key, record in beyond.items():
-            pos, edits = positions.parse(record.pos), [edit(engine, plan, record, o, state, step.at, chunk)
-                                                        for o in record.ops]
-            if positions.with_prefill(pos):
-                where = [positions.held([0], e, [], special, head(step, record)) for e in encoded[chunk]]
+            holds, calls, _ = positions.reach(positions.parse(record.pos))
+            edits = [edit(engine, plan, record, o, state, step.at, chunk) for o in record.ops]
+            if holds:
+                where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
-                           "calls": positions.calls(pos)})
+                           "calls": calls})
         for key, record in later.items():
-            pos = positions.parse(record.pos)
+            holds, calls, _ = positions.reach(positions.parse(record.pos))
             for layer in layers(engine, record):
-                if positions.with_prefill(pos):
+                if holds:
                     whole = [list(range(len(e["ids"]))) for e in encoded[chunk]]
                     reads.append({**site(record, whole, pads, head(step, record)), "name": f"{key}@{layer}#0",
                                   "layer": layer})
                 reads.append({**decoding(record, n, pads), "name": f"{key}@{layer}", "layer": layer,
-                              "calls": positions.calls(pos)})
+                              "calls": calls})
         with torch.no_grad():
             ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
@@ -324,11 +342,10 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
                                           state, step.at) for layer in layers(engine, record)])
                for key, record in first.items()}
+        said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in {**later, **beyond}.items():
-            pos = positions.parse(record.pos)
-            where = [positions.resolve(pos, e, ids[i].tolist(), set(eos), special, engine.tokenizer, text(pos, row),
-                                       head(step, record))
-                     for i, (row, e) in enumerate(zip(rows[chunk], encoded[chunk]))]
+            where = [place(positions.parse(record.pos), row, e, x, bool(x) and x[-1] in eos, engine.tokenizer,
+                           head(step, record)) for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             resolved[f"{name}.{key}"] += where
             if key in later:
                 out[key] = stacked(record, [at_calls(engine, plan, record, got.get(f"{key}@{layer}#0"),
@@ -339,12 +356,12 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         new.append(ids)
     joined(state, name, step, parts)
     width = max(x.shape[1] for x in new)
-    ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=eos[0]) for x in new])
+    ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
     put(state, name, step.at, ids)
     for where, per_row in resolved.items():
         put(found["positions"], where, step.at, per_row)
     put(found["said"], name, step.at,
-        [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, set(eos))) for x in ids.tolist()])
+        [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 
 @kind
@@ -460,7 +477,7 @@ def joined(state: dict, name: str, step, parts: list[dict]) -> None:
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
          at: dict) -> Any:
     """One layer of a prefill read in one batch: its entries when it is ragged, then its ops."""
-    if positions.ragged(positions.parse(record.pos)):
+    if positions.width(positions.parse(record.pos)) is None:
         keep = site["keep"]
         value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
                  "tok": site["tok"][keep]}
@@ -477,7 +494,7 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
     its ops. A rectangular read is `[rows, width, ...]`, NaN on a row it does not reach; a ragged one
     `{values, row, tok}`, `tok` the position, with no entries for such a row."""
     pos = positions.parse(record.pos)
-    asked = positions.calls(pos)
+    _, asked, _ = positions.reach(pos)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes, select = engine.sizes(), record.site.select or {}
     rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
@@ -485,14 +502,14 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
 
     def at_position(i: int, p: int) -> Tensor:
-        prompt = len(encoded[i]["ids"])
-        if p < prompt:
+        call = positions.call_of(p, len(encoded[i]["ids"]))
+        if call == 0:
             assert whole is not None
             return whole[i, 0 if head_only else p]
-        return by_call[p - prompt + 1][i, 0]
+        return by_call[call][i, 0]
 
-    if not positions.ragged(pos):
-        blank = torch.full((positions.width(pos), *rest), float("nan"), dtype=dtype)
+    if (width := positions.width(pos)) is not None:
+        blank = torch.full((width, *rest), float("nan"), dtype=dtype)
         value = torch.stack([blank if isinstance(got, str) else torch.stack([at_position(i, p) for p in got])
                              for i, got in enumerate(where)])
     else:
@@ -506,7 +523,7 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
 
 def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice) -> Any:
     """A read's value with its ops applied in listed order."""
-    dims = address.dims(record.site.component, None, positions.ragged(positions.parse(record.pos)))
+    dims = address.dims(record.site.component, None, positions.width(positions.parse(record.pos)) is None)
     for o in record.ops:
         value = apply(engine, o.op, value, bound(engine, plan, o.op, arguments(o), state, at, rows, value), dims)
         dims = ops.out_dims(o.op, dims, arguments(o))

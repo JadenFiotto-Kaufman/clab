@@ -122,12 +122,12 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
         "input": "If today is Monday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) is not in its input"),
+     r"patched.patch: row 0: column 'pairs.entity' is not in its input"),
     ("entity_patch", lambda d: d["data"].update(pairs={"rows": [{
         "input": "Friday or Friday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) occurs 2 times in the row's input; a scope is one "
+     r"patched.patch: row 0: column 'pairs.entity' occurs 2 times in the row's input; a scope is one "
      r"place"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(turn="user"),
      r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input"),

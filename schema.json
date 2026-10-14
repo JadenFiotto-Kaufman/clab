@@ -2705,16 +2705,11 @@
        "type": "integer"
       },
       {
+       "items": {
+        "type": "integer"
+       },
        "maxItems": 2,
        "minItems": 2,
-       "prefixItems": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "integer"
-        }
-       ],
        "type": "array"
       },
       {
@@ -2749,16 +2744,11 @@
        "type": "integer"
       },
       {
+       "items": {
+        "type": "integer"
+       },
        "maxItems": 2,
        "minItems": 2,
-       "prefixItems": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "integer"
-        }
-       ],
        "type": "array"
       },
       {

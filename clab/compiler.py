@@ -218,7 +218,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         decided(f"{path}.pos", pos)
     if "column" in scope:
         text_ref(cx, scope["column"], f"{path}.pos.scope.column", dataset)
-    ragged = positions.ragged(pos)
+    ragged = positions.width(pos) is None
     dims = selection = address.dims(site.component, site.layers, ragged)
     for i, o in enumerate(spec.ops):
         at = f"{path}.ops[{i}]"
@@ -365,19 +365,16 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
 
 
 def decided(path: str, pos: dict) -> None:
-    """A write beyond the prefill lands at each call it selects as that call runs, so which calls and which
-    positions must be known before the call: a fixed frame (no negative call, no `eos`), no scope, and of a
-    decode call's one position, all of it (a single call may also say 0 or -1)."""
-    frame, index = pos["frame"], pos["index"]
-    if frame == "eos" or isinstance(frame, int) and frame < 0 or isinstance(frame, list) and min(frame) < 0:
-        fail(f"{path}.frame", f"frame {frame!r} is known only once the row has stopped; a write lands as its call "
-             "runs, so its frame is a call, a span from the start or 'generated' or 'all'")
+    """A write beyond the prefill lands at each call it selects as that call runs, so it takes no scope (the
+    text a scope names may not be generated yet), and the calls it lands at must be known before the run
+    (`positions.reach`)."""
     if pos["scope"] is not None:
         fail(f"{path}.scope", "a write beyond the prefill lands as its call runs, before the text a scope names "
              "is all generated; it takes no scope")
-    if index != "all" and not (isinstance(frame, int) and index in (0, -1)):
-        fail(f"{path}.index", f"index {index!r}: a decode call holds one position, so a write over several calls "
-             "takes index 'all' (a single call also 0 or -1)")
+    if not positions.reach(pos)[2]:
+        fail(path, f"frame {pos['frame']!r} with index {pos['index']!r} names calls that depend on how far each row "
+             "gets; a write lands as its call runs, so it names a call, a span of calls or 'generated' with an "
+             "index counted from their start (or -1 of a single call), or the prefill with them and index 'all'")
 
 
 def text_ref(cx: Compiling, value, path: str, dataset: str) -> None:

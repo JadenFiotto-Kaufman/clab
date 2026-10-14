@@ -187,8 +187,11 @@ def prompt_of(ids: list[int]) -> dict:
 
 
 def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, prompt: int = 2):
-    return positions.resolve({"frame": 0, "scope": None, "index": "all", **pos}, prompt_of([1] + [5] * (prompt - 1)),
-                             said, {1}, {1}, tokenizer, text)
+    """`pos` (defaults filled) resolved in a row of a `prompt`-token prompt that generated `said`, EOS 1."""
+    pos = {"frame": 0, "scope": None, "index": "all", **pos}
+    row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
+    found = positions.occurrences(pos["scope"], row, said, tokenizer, text)
+    return positions.resolve(pos, prompt, list(range(1, prompt)), said, bool(said) and said[-1] == 1, found)
 
 
 def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
@@ -200,7 +203,7 @@ def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
     assert text == "say 🍐 now"
     assert [text[a:b] for a, b in spans] == ["say", " ", "", "", "", "🍐", " now"]
     pear = {"frame": "generated", "scope": {"text": "🍐"}}
-    assert resolved(pear, ids, tokenizer, "🍐") == [4, 5, 6, 7]          # generated tokens 2..5, after a 2-token prompt
+    assert resolved(pear, ids, tokenizer, "🍐") == [4, 5, 6, 7]          # tokens 2..5, after a 2-token prompt
     assert resolved({**pear, "index": -1}, ids, tokenizer, "🍐") == [7]
 
 
@@ -225,20 +228,25 @@ def test_each_stage_narrows_the_one_before():
     assert resolved(beta, [*words, 1], tokenizer, "gamma") == "alignment_missing"
     assert resolved(beta, [*words, *words, 1], tokenizer, "beta") == "alignment_ambiguous"
     assert resolved(beta, [1, *words], tokenizer, "beta") == "alignment_missing"         # said after its EOS
-    assert resolved(beta, words, tokenizer, "beta") == "alignment_missing"               # its last token, never an input
+    assert resolved(beta, words, tokenizer, "beta") == "alignment_missing"    # the last token, never an input
     assert resolved({"frame": 3, "index": -1}, [5, 1, 0, 0], tokenizer) == "alignment_missing"   # stopped first
     assert resolved({"frame": 2, "index": -1}, [5, 6, 7], tokenizer) == [3]
 
 
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "eos"}),
-     r"steps\.patched\.writes\.patch\.pos\.frame: frame 'eos' is known only once the row has stopped"),
+     r"steps\.patched\.writes\.patch\.pos: frame 'eos' with index 'all' names calls that depend on how far each "
+     r"row gets"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos\.frame: frame -1 is known only once the row has stopped"),
+     r"steps\.patched\.writes\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
      r"steps\.patched\.writes\.patch\.pos\.scope: a write beyond the prefill lands as its call runs"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "generated", "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos\.index: index -1: a decode call holds one position"),
+     r"steps\.patched\.writes\.patch\.pos: frame 'generated' with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": [1, 4], "index": -1}),
+     r"steps\.patched\.writes\.patch\.pos: frame \[1, 4\] with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "all", "index": 0}),
+     r"steps\.patched\.writes\.patch\.pos: frame 'all' with index 0 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["reads"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
      r"steps\.patched\.reads\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
@@ -380,7 +388,8 @@ def test_rows_that_stop_at_different_calls(engines):
     missing all the way down (NaN in `match`, -1 from `argmax`, left out of the mean); a read beyond the
     prefill takes a prompt position from the prefill's own; on both engines and at batch sizes 1, 2 and 4, to
     the bit."""
-    runs = {(kind, size): steered(engines, kind, size, held=False) for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
+    runs = {(kind, size): steered(engines, kind, size, held=False)
+            for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
     plan = runs["nnterp", 2]
     v, positions = plan.results, plan.run.positions
     assert v["answer"].tolist() == [[4598, 1, 1, 1, 1, 1], [4598, 25148, 18190, 28667, 28189, 9555],
@@ -390,7 +399,8 @@ def test_rows_that_stop_at_different_calls(engines):
     assert positions["answer.at_stop"] == [[11], "alignment_missing", [11], "alignment_missing"]
     assert positions["answer.at1"] == [[p] for p in PROMPT]
     assert positions["answer.at2"] == ["alignment_missing", [10], [10], [10]]
-    assert not v["answer.at1"].isnan().any() and v["answer.at2"][0].isnan().all() and not v["answer.at2"][1:].isnan().any()
+    assert not v["answer.at1"].isnan().any() and v["answer.at2"][0].isnan().all()
+    assert not v["answer.at2"][1:].isnan().any()
     assert v["iia"][0].isnan().all() and v["top"][:, 0].tolist() == [-1, 18190, 18190, 1325]
     assert torch.equal(v["acc"], v["iia"][1:].mean())
     assert torch.equal(v["answer.resid0"], v["answer.resid"])          # the prompt's last token, either way
@@ -456,3 +466,78 @@ def test_a_write_at_a_call_a_row_never_reaches_skips_that_row(engines):
         assert where["swapped.w"] == ["alignment_missing", [10], [10], [10]], kind
         assert torch.equal(v["swapped"][0], v["clean"][0]) and v["clean"][0].tolist()[:2] == [4598, 1]
         assert (v["swapped"][1:, 2] != v["clean"][1:, 2]).any()
+
+
+def test_a_decode_call_writes_operand_is_checked_before_any_forward(engines):
+    """A decode call holds one position, so an operand read three tokens wide cannot be written there: refused
+    by name before the generation, not as a size error inside it."""
+    def change(d):
+        d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = {"index": [-4, -1]}
+        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": 2, "index": -1}
+    plan = edited("generate_probe", change).compile()
+    engine = engines("hooks", plan.model)
+    calls = []
+    original = engine.generate
+    engine.generate = lambda *args: calls.append(1) or original(*args)
+    try:
+        with pytest.raises(ValueError, match=r"^patched\.patch: operand 'counterfactual\.v_cf' is 3 token\(s\) wide"):
+            engine.execute(plan)
+    finally:
+        del engine.generate
+    assert calls == []
+
+
+def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
+    """`beta` generated as token 1 sits at position 3 after a two-token prompt. A frame of every call finds it
+    there and no prompt position; with `beta` in the prompt too, every call's tokens hold two places, which
+    is ambiguous, while the generated calls alone hold one."""
+    tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
+    words = tokenizer(" alpha beta", add_special_tokens=False)["input_ids"]
+    every = {"frame": "all", "scope": {"text": "beta"}}
+    assert resolved(every, [*words, 1], tokenizer, "beta") == [3]
+    row, said = {"ids": [1, 5], "offsets": [(0, 0), (0, 4)], "text": "beta", "turns": []}, [*words, 1]
+
+    def found(pos):
+        pos = {"frame": 0, "scope": None, "index": "all", **pos}
+        hits = positions.occurrences(pos["scope"], row, said, tokenizer, "beta")
+        return positions.resolve(pos, 2, [1], said, True, hits)
+    assert found(every) == "alignment_ambiguous"
+    assert found({**every, "frame": "generated"}) == [3]
+
+
+def test_a_span_of_calls_with_every_position_is_ragged(engines):
+    """`{"frame": [1, 4]}` reads calls 1 to 3 of each row: the Thursday row stopped after call 1, so it has
+    one entry and the others three."""
+    plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
+        d["steps"]["answer"]["reads"].update(span={"site": "head", "pos": {"frame": [1, 4]}}),
+        d["saves"].append("answer.span")))
+    assert plan.run.positions["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
+    value = plan.results["answer.span"]
+    assert value["row"].tolist() == [0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
+    assert value["tok"].tolist() == [11, 9, 10, 11, 9, 10, 11, 9, 10, 11] and value["values"].shape == (10, 32000)
+    assert torch.equal(value["values"][[0, 1]], plan.results["answer.at1"][:2, 0])     # call 1 of rows 0 and 1
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engines, kind):
+    """`{"frame": [2, 3], "index": -1}` (one call) and `{"frame": [1, 4], "index": 1}` (the second of calls 1
+    to 3) both name call 2, so they write what `{"frame": 2, "index": -1}` does."""
+    def at(pos):
+        def change(d):
+            written(d)
+            d["steps"]["swapped"]["writes"]["w"]["pos"] = pos
+        return engines(kind, plan_of("generated_answer").model).execute(
+            edited("generated_answer", change).compile(), batch_size=BATCH_SIZE)
+    base = at({"frame": 2, "index": -1})
+    for pos in ({"frame": [2, 3], "index": -1}, {"frame": [1, 4], "index": 1}):
+        other = at(pos)
+        assert torch.equal(other.results["swapped"], base.results["swapped"]), pos
+        assert other.run.positions["swapped.w"] == base.run.positions["swapped.w"], pos
+
+
+def test_a_scope_the_prefills_head_does_not_hold_says_why(engines):
+    plan = edited("generate_probe", lambda d: d["steps"]["patched"]["reads"]["logits"].update(
+        pos={"scope": {"text": "today"}, "index": -1})).compile()
+    with pytest.raises(ValueError, match=r"^patched\.logits: row 0: text 'today' is not in its input; a "
+                                         r"generation's prefill computes lm_head_output at its last position only"):
+        engines("hooks", plan.model).execute(plan)

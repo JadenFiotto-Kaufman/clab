@@ -432,14 +432,14 @@ per row, which
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
-A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose
-step is not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers:
-"all"`, the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index
-into the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it
-for a read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step
-used (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A
-ragged value gives a row per entry. A row a read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
-true, with no value. A value with no rows axis gives a row per element with its axis indices.
+A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
+not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token
+axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into the row's prompt
+tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
+`key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
+`value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
+read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`) true, with
+no value. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document
 

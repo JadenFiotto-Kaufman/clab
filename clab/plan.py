@@ -87,6 +87,8 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, Sweep) or isinstance(value, dict) and "sweep" in value
     if isinstance(member, type) and issubclass(member, BaseModel):
         return isinstance(value, member) or isinstance(value, dict) and "sweep" not in value
+    if get_origin(member) is Annotated:
+        member = get_args(member)[0]
     if get_origin(member) is Literal:
         return isinstance(value, tuple(type(a) for a in get_args(member)))
     if get_origin(member) in (list, tuple):
@@ -162,6 +164,10 @@ class Site(Record):
         return self
 
 
+# A half-open `[start, stop]`, each end negative from the end.
+Span = Annotated[list[int], Field(min_length=2, max_length=2)]
+
+
 class Scope(Record):
     """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
     named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
@@ -217,9 +223,9 @@ class Pos(Record):
     Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing` (or
     `alignment_ambiguous`), NaN in a rectangular read and absent from a ragged one.
     """
-    frame: Swept[int | tuple[int, int] | Literal["generated", "all", "eos"]] = 0
+    frame: Swept[int | Span | Literal["generated", "all", "eos"]] = 0
     scope: Scope | None = None
-    index: Swept[int | tuple[int, int] | Literal["all"]] = "all"
+    index: Swept[int | Span | Literal["all"]] = "all"
 
     @model_validator(mode="after")
     def _grammar(self):

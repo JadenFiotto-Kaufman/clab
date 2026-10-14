@@ -136,14 +136,14 @@ JOIN = ("at", "row", "layer", "pos", "key")
 def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict]:
     """The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
-    A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose
-    step is not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers:
-    "all"`, the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index
-    into the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it
-    for a read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step
-    used (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A
-    ragged value gives a row per entry. A row a read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`)
-    true, with no value. A value with no rows axis gives a row per element with its axis indices."""
+    A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
+    not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token
+    axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into the row's prompt
+    tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
+    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
+    `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
+    read beyond the prefill did not reach gives one row, `alignment_missing` (or `alignment_ambiguous`) true, with
+    no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -261,8 +261,7 @@ def label(place: dict | None, row: int, index: int, axis: str) -> dict:
     that sits there, and for a read in a generation the forward `call` that holds it."""
     if place is None:
         return {axis: index}
-    prompt = len(place["prompt"][row])
-    call = {"call": 0 if index < prompt else index - prompt + 1} if place["beyond"] else {}
+    call = {"call": positions.call_of(index, len(place["prompt"][row]))} if place["beyond"] else {}
     return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
 
 
@@ -296,7 +295,8 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
 def located(plan: Plan, source: str, at: dict) -> dict:
     """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
     tokens (the prompt's, then in a generation what each row generated), whether it was read in a
-    generation (whose positions are labelled with their call), the positions each row resolved to, and the keys it selects."""
+    generation (whose positions are labelled with their call), the positions each row resolved to, and the keys
+    it selects."""
     assert plan.run is not None
     thing, _, member = source.partition(".")
     producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
