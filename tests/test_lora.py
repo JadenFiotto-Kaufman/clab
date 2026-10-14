@@ -217,10 +217,8 @@ def test_an_intervention_naming_a_steps_read_as_its_own_is_refused(tmp_path):
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["writes"]["adapt"]["ops"][0].update(mode="encode"),
      r"featurizer 'fit\.lora': kind 'lora' has no mode 'encode'; its modes: apply"),
-    (lambda d: d["featurizers"]["lora"].update(file_path="documents/artifacts/fit.lora.safetensors"),
-     r"featurizers\.lora: 'lora' \(lora\) is loaded from its bundle \('file_path'\) or drawn to be trained "
-     r"\('rank' and 'alpha'\): one of them"),
-    (lambda d: d["featurizers"]["lora"].pop("alpha"), r"'lora' \(lora\) is loaded from its bundle"),
+    (lambda d: d["featurizers"]["lora"].pop("alpha"),
+     r"featurizers\.lora: a 'lora' featurizer drawn without a bundle needs 'alpha'; or load one with 'file_path'"),
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["writes"]["adapt"]["ops"].__setitem__(
         0, {"op": "scale", "factor": 2.0, "featurizer": "fit.lora"}),
      r"'fit\.lora' is a 'lora' featurizer, which has no coordinates to edit and write back into the value; call it "
@@ -306,3 +304,32 @@ def test_a_live_operand_the_engine_had_not_read_is_named():
     from clab import ops
     with pytest.raises(ValueError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
         ops.live({}, {"live": "premix@0"})
+
+
+# -- loading: a document may state the kind's declaration fields, and each it states is checked ---------------
+
+
+def loading(corpus: str, name: str, featurizer: str, fields: dict) -> Plan:
+    with open(os.path.join(corpus, "documents", f"{name}.json")) as f:
+        doc = json.load(f)
+    doc["featurizers"][featurizer].update(fields)
+    return Plan(**doc, document=os.path.join(corpus, "documents", f"{name}.json")).compile()
+
+
+@pytest.mark.parametrize("name, featurizer, fields", [
+    ("lora_apply", "lora", {}), ("lora_apply", "lora", {"rank": 4, "alpha": 8}), ("lora_apply", "lora", {"alpha": 8.0}),
+    ("das_apply", "rot", {"k": 8}), ("pca_control", "rot", {}),
+])
+def test_a_loading_document_may_state_its_declaration_fields(corpus, name, featurizer, fields):
+    assert loading(corpus, name, featurizer, fields).compiled
+
+
+@pytest.mark.parametrize("name, featurizer, fields, message", [
+    ("lora_apply", "lora", {"rank": 2}, r"header 'rank' is '4'; this document expects '2'"),
+    ("lora_apply", "lora", {"alpha": 16}, r"header 'alpha' is '8'; this document expects '16'"),
+    ("das_apply", "rot", {"k": 4}, r"header 'k' is '8'; this document expects '4'"),
+    ("sae_feature_ablation", "dictionary", {"latents": 32}, r"header 'latents' is None; this document expects '32'"),
+])
+def test_a_stated_field_the_header_disagrees_with_is_refused_naming_it(corpus, name, featurizer, fields, message):
+    with pytest.raises(PlanError, match=message):
+        loading(corpus, name, featurizer, fields)

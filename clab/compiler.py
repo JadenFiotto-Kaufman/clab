@@ -567,11 +567,10 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     fields = f.model_extra or {}
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
-    drawn = featurizers.DECLARED[f.kind]["drawn"]
-    given = [k for k in drawn if fields.get(k) is not None]
-    if drawn and not (given == [] if fields.get("file_path") is not None else len(given) == len(drawn)):
-        fail(path, f"{name!r} ({f.kind}) is loaded from its bundle ('file_path') or drawn to be trained "
-             f"({' and '.join(map(repr, drawn))}): one of them")
+    missing = [k for k in featurizers.DECLARED[f.kind]["drawn"] if fields.get(k) is None]
+    if fields.get("file_path") is None and missing:
+        fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
+             "load one with 'file_path'")
     record = f.model_dump(exclude_defaults=True)
     if fields.get("file_path") is None:
         return record

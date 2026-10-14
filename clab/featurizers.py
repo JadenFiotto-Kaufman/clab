@@ -68,7 +68,8 @@ MODES: dict[str, dict] = {
 def kind(saves: tuple, trains: tuple = (), axis: str = "features", header: tuple = (), drawn: tuple = ()):
     """Register the decorated function as a featurizer kind under its own name, with what its bundle holds
     (`saves`), what a fit trains (`trains`), the axis its coordinates are on, the fields its bundle's header
-    records, and the fields that draw one for a fit to train (`drawn`), which a `file_path` excludes."""
+    records, and the fields one drawn without a `file_path` needs (`drawn`). A document that loads one from
+    its `file_path` may state any of the header's fields, and each it states is checked against the header."""
     def register(fn: Callable) -> Callable:
         DECLARED[fn.__name__] = {"saves": saves, "trains": trains, "axis": axis, "header": header, "drawn": drawn}
         return registry.registers(KINDS)(fn)
@@ -98,15 +99,16 @@ class Temperature(TypedDict):
 # -- subspace ------------------------------------------------------------------------------------------
 
 
-@kind(saves=("basis",), trains=("theta",), header=("k", "parametrization"))
-def subspace(width: int, k: int, parametrization: Literal["cayley"] = "cayley", seed: int | None = None,
-             file_path: str | None = None, bundle: dict | None = None) -> dict:
+@kind(saves=("basis",), trains=("theta",), header=("k", "parametrization"), drawn=("k",))
+def subspace(width: int, k: int | None = None, parametrization: Literal["cayley"] = "cayley",
+             seed: int | None = None, file_path: str | None = None, bundle: dict | None = None) -> dict:
     """A rank-`k` subspace: the first `k` columns of a rotation `origin @ cayley(theta)`. `origin` is a
     Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains) starts at zero, so an
     untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
     `[width, k]` basis."""
     if bundle is not None:
         return {"kind": "subspace", "basis": bundle["basis"]}
+    assert k is not None
     generator = torch.Generator().manual_seed(seed or 0)
     q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
     f = {"kind": "subspace", "k": k, "origin": (q * r.diagonal().sign()).float(), "theta": torch.zeros(width, width)}
@@ -188,7 +190,7 @@ SCALARS["gate"] = {"mask": lambda f: torch.sigmoid(f["theta"] / f["T"]).mean()}
 
 
 @kind(saves=("basis", "mean"), header=("k",))
-def pca(width: int, k: int, file_path: str, bundle: dict | None = None) -> dict:
+def pca(width: int, file_path: str, k: int | None = None, bundle: dict | None = None) -> dict:
     """The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
     coordinates are centred on the mean."""
     assert bundle is not None
@@ -215,7 +217,8 @@ def pca_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
 # -- sae ---------------------------------------------------------------------------------------------------
 
 
-@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"), drawn=("latents",))
+@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"), header=("latents",),
+      drawn=("latents",))
 def sae(width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
         bundle: dict | None = None) -> dict:
     """A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
@@ -450,9 +453,9 @@ def header(kind: str, fields: dict, model: Any, labels: list | None = None, site
     list), the model, and, when written, the site it was used at, its width and the document's name."""
     params = inspect.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
-    # A field a loading document leaves out (a lora's rank and alpha) is read from the header, not checked.
-    own = {k: json.dumps(given[k]) if isinstance(given[k], list) else str(given[k]) for k in DECLARED[kind]["header"]
-           if given[k] is not None}
+    # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
+    own = {k: json.dumps(v) if isinstance(v, list) else str(int(v)) if isinstance(v, float) and v.is_integer()
+           else str(v) for k in DECLARED[kind]["header"] if (v := given[k]) is not None}
     found = {"format": FORMAT, "kind": kind, **own, "model.key": model.key, "model.revision": model.revision,
              "model.dtype": model.dtype}
     if site is not None:

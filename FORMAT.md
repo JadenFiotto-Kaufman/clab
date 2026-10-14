@@ -419,7 +419,7 @@ instance, the value and the mode's own arguments.
 
 ### `subspace`
 
-- `k: int`
+- `k: int or null = None`
 - `parametrization: one of 'cayley' = 'cayley'`
 - `seed: int or null = None`
 - `file_path: str or null = None`
@@ -444,8 +444,8 @@ Modes: `encode` gives its coordinates, the last axis becoming features; `apply` 
 
 ### `pca`
 
-- `k: int`
 - `file_path: str`
+- `k: int or null = None`
 
 The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
 coordinates are centred on the mean.
