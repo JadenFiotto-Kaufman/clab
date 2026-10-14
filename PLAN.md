@@ -606,7 +606,9 @@ when the owner asks for open items.
   skipped there and recorded as missing. Both engines agree to the bit.
   A write beyond the prefill may take a `column`/`text` scope: it is
   resolved online, call by call, from the growing continuation, and lands
-  at the calls fed the first occurrence's selected tokens; a later second
+  at the call fed the first occurrence's last token (`index: -1` is the
+  only index a scoped generated write can have: a word is known only once
+  its last token has been fed); a later second
   occurrence is reported as `alignment_ambiguous`, not re-applied; a row
   that never says the text is recorded missing. Refused for writes, because
   unknown until the row ends: a negative index over several calls, `"eos"`,
