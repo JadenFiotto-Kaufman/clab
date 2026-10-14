@@ -499,3 +499,16 @@ forward-only documents.
   step with the dataset its rows are aligned to (a forward's or generate's
   `input`; an op inherits it through `of`/`with`; two datasets in one op are
   refused). `plan.table(name)` joins on that annotation.
+- **`plan.table(*names)`** joins several saved values wide on their shared
+  axes (`at`, `row`, `pos`), one column per name, plus the dataset columns
+  the step used (`columns=` to choose). A name not in `saves` is refused:
+  "`answer` was not saved; add it to saves". A value with no rows axis tables
+  one dict per element with its axis indices.
+- **A dataset may be a pinned HuggingFace spec** (`{"hf": "org/name",
+  "revision": ..., "split": ..., "take": N}`; an unpinned one is refused):
+  compile keeps the spec; rows materialize wherever `plan.data[name].rows` is
+  first touched — in preflight inside the session on a run, on the client
+  during analysis — from the same spec. The manifest records each dataset's
+  `n_rows` and a hash of its example ids so a re-materialization mismatch is
+  an error. Naming a dataset in `saves` brings its rows home. M2 declares the
+  field; loading from the hub lands when a document needs it.
