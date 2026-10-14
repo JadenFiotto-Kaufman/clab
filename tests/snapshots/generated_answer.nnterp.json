@@ -4,26 +4,26 @@
   "results": {
    "p_answer": {
     "values": [
-     3.0088249332038686e-05,
-     3.15998840960674e-05
+     2.9666021873708814e-05,
+     3.234780524508096e-05
     ],
     "row": [
      0,
      1
     ],
     "tok": [
-     1,
-     2
+     12,
+     11
     ]
    }
   },
   "positions": {
    "answer.at_said": [
     [
-     1
+     12
     ],
     [
-     2
+     11
     ],
     "alignment_missing",
     "alignment_missing"
