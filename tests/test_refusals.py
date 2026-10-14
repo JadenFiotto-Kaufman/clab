@@ -30,6 +30,17 @@ def test_select_names_an_axis_the_component_publishes(change, message):
         edited("patching", change)
 
 
+@pytest.mark.parametrize("where", ["site", "op"])
+def test_an_empty_select_is_refused(where):
+    def change(d):
+        if where == "site":
+            d["sites"]["target"]["select"] = {"hidden_size": []}
+        else:
+            d["steps"]["patched"]["writes"]["patch"]["ops"][0].update(featurizer="rot", select={"features": []})
+    with pytest.raises(PlanError, match=r"select (hidden_size|features): an empty list selects nothing"):
+        edited("patching", change)
+
+
 def test_a_write_selects_on_one_axis():
     def change(d):
         d["sites"]["target"].update(component="attention_premix", select={"num_heads": [0], "head_dim": [0]})
@@ -134,10 +145,10 @@ def test_what_needs_the_model_is_checked_before_any_forward(engines, name, chang
     assert re.match(message, text) and forwards == 0, text
 
 
-def test_a_select_on_the_key_axis_is_refused(engines):
-    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": [0]})).compile()
+def test_a_select_on_key_outside_the_shortest_row_is_refused(engines):
+    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": [9]})).compile()
     text, forwards = refused(engines, plan, kind="nnterp")
-    assert text.startswith("clean.pattern: select on 'key' indexes the padded batch's keys") and forwards == 0, text
+    assert text == "clean.pattern: select key [9] outside the 9 tokens of the input's shortest row" and forwards == 0
 
 
 def test_an_operand_of_another_width_is_refused(engines):

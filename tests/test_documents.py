@@ -236,7 +236,8 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
         assert sorted(f.keys()) == ["basis", "mean"]
         assert f.metadata() == {"format": "clab/1", "kind": "pca", "k": "4",
                                 "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-                                "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
+                                "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+                                "model.dtype": "float32"}
 
 
 def test_the_cli_runs_remote_local(tmp_path, filled):
@@ -322,3 +323,32 @@ def test_pca_control_compiles_against_the_basis_pca_harvest_writes(engines, tmp_
     assert same(points(compiled.featurizers["rot"])[0].bundle, basis)
     compiled.write(str(tmp_path / "documents" / "written.json"))
     assert same(points(Plan(str(tmp_path / "documents" / "written.json")).featurizers["rot"])[0].bundle, basis)
+
+
+def test_select_on_key_counts_each_rows_own_tokens(engines):
+    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: [0,
+    1]}` is each row's own first two keys (BOS and the first prompt token), and a write there zeroes exactly
+    those, wherever each row's padding puts them."""
+    def change(d):
+        pattern = {"component": "attention_probabilities", "layers": 0}
+        d["steps"] = {
+            "clean": {"kind": "forward", "input": "pairs.input",
+                      "reads": {"all": {"site": pattern, "pos": -1},
+                                "first": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
+            "zeroed": {"kind": "forward", "input": "pairs.input",
+                       "writes": {"zero": {"site": {**pattern, "select": {"key": [0]}}, "pos": -1,
+                                           "ops": [{"op": "swap", "with": 0.0}]}},
+                       "reads": {"all": {"site": pattern, "pos": -1}}}}
+        d["saves"] = ["clean.all", "clean.first", "zeroed.all"]
+    plan = engines("nnterp", plan_of("attention_knockout").model).execute(
+        edited("attention_knockout", change).compile(), batch_size=BATCH_SIZE)
+    values, tokens = plan.results, plan.run.tokens["pairs.input"]
+    width = max(map(len, tokens))
+    pads = [width - len(t) for t in tokens]
+    assert pads == [0, 2, 2, 2]
+    for r, pad in enumerate(pads):
+        assert torch.equal(values["clean.first"][r], values["clean.all"][r][..., pad:pad + 2])
+        zeroed, clean = values["zeroed.all"][r], values["clean.all"][r]
+        assert zeroed[..., pad].eq(0).all() and not clean[..., pad].eq(0).all()
+        assert torch.equal(zeroed[..., :pad], clean[..., :pad])
+    assert [r["key_token"] for r in plan.table("clean.first") if r["row"] == 1] == ["<s>", "▁If"]

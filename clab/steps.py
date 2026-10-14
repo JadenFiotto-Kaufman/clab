@@ -113,11 +113,11 @@ def preflight(engine, plan: Plan) -> dict:
                 if isinstance(site.layers, int) and not 0 <= site.layers < sizes["num_layers"]:
                     raise ValueError(f"{where}: layer {site.layers}; the model has {sizes['num_layers']} layers")
                 for axis, index in (site.select or {}).items():
-                    if axis == "key":
-                        raise NotImplementedError(f"{where}: select on 'key' indexes the padded batch's keys, "
-                                                  "which differ per row; it lands when positions can name keys")
-                    if any(not 0 <= i < sizes[axis] for i in index):
-                        raise ValueError(f"{where}: select {axis} {index} outside the model's {sizes[axis]}")
+                    shortest = min(len(e["ids"]) for e in encoded)
+                    size, what = (shortest, f"the {shortest} tokens of the input's shortest row") if axis == "key" \
+                        else (sizes[axis], f"the model's {sizes[axis]}")
+                    if any(not 0 <= i < size for i in index):
+                        raise ValueError(f"{where}: select {axis} {index} outside {what}")
                 for o in record.ops:
                     refuse_later(where, o.op, space(o))
                     check_tokens(engine, plan, where, o.op, arguments(o))
@@ -268,7 +268,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         sites, writes, reads = bind(engine, plan, name, step, prompt, state, found, chunk, pads)
         last = torch.full((chunk.stop - chunk.start, 1), -1)
-        reads += [{"component": record.site.component, "positions": last, "select": selection(record),
+        reads += [{"component": record.site.component, "positions": last, "select": selection(record, pads),
                    "name": f"{key}@{layer}", "layer": layer, "steps": positions.asked(positions.parse(record.pos))}
                   for key, record in later.items() for layer in layers(engine, record)]
         with torch.no_grad():
@@ -318,14 +318,17 @@ def site(record, rows: list[list[int]], pads: list[int]) -> dict:
     width = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
              for row, pad in zip(rows, pads)]
-    return {"component": record.site.component, "positions": torch.tensor(index), "select": selection(record),
+    return {"component": record.site.component, "positions": torch.tensor(index), "select": selection(record, pads),
             "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows])}
 
 
-def selection(record) -> dict:
-    """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps."""
+def selection(record, pads: list[int]) -> dict:
+    """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps. On
+    the `key` axis an index counts the row's own tokens, so each row's is shifted by its padding (`[rows, n]`),
+    as a position is."""
     layout = address.dims(record.site.component, None, False)
-    return {layout.index(axis): torch.tensor(v) for axis, v in (record.site.select or {}).items()}
+    return {layout.index(axis): torch.tensor([[i + pad for i in v] for pad in pads] if axis == "key" else v)
+            for axis, v in (record.site.select or {}).items()}
 
 
 def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> dict:

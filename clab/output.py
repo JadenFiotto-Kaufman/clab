@@ -49,6 +49,7 @@ def dump(plan: Plan, out: str) -> None:
                            "axes": list(points(entry)[0].at), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True)
+    manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
         if "path" in d or "hf" in d:
             del d["rows"]
@@ -244,12 +245,13 @@ def unreached(place: dict | None, row: int | None) -> dict:
 
 def token(place: dict | None, row: int, axis: str, k: int) -> dict:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
-    (the padded batch's keys) less the row's padding; None on a padding key."""
+    through its `select` (the row's own token indices) or, unselected, the padded batch's keys less the row's
+    padding; None on a padding key."""
     if place is None:
         return {axis: k}
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis)
-    index = k - (place["width"] - len(place["tokens"][row]))
+    index = place["keys"][k] if place["keys"] is not None else k - (place["width"] - len(place["tokens"][row]))
     return {axis: None} if index < 0 else label(place, row, index, axis)
 
 
@@ -291,7 +293,7 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
 
 def located(plan: Plan, source: str, at: dict) -> dict:
     """For the read `source` at the point agreeing with `at`: its frame, the rows' tokens (the prompt's, or
-    what a generate step's rows generated) and the positions each row resolved to."""
+    what a generate step's rows generated), the positions each row resolved to, and the keys it selects."""
     assert plan.run is not None
     thing, _, member = source.partition(".")
     producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
@@ -300,7 +302,8 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     if frame == "generated" and producer.at:
         tokens = tokens[labelled(plan, producer.at)]
     resolved = plan.run.positions[source]
-    return {"frame": frame, "tokens": tokens, "width": max(map(len, tokens)),
+    keys = (producer.reads[member].site.select or {}).get("key")
+    return {"frame": frame, "tokens": tokens, "width": max(map(len, tokens)), "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved}
 
 

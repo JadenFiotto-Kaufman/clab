@@ -154,9 +154,11 @@ class Site(Record):
                              if address.COMPONENTS[self.component]["per_layer"]
                              else f"{self.component} is the model's own value and takes no layers")
         valid = address.selectable(self.component)
-        for axis in self.select or {}:
+        for axis, index in (self.select or {}).items():
             if axis not in valid:
                 raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
+            if index == []:
+                raise ValueError(f"select {axis}: an empty list selects nothing")
         return self
 
 
@@ -237,9 +239,11 @@ class Op(Record):
         ops.check(self.op, arguments(self))
         if self.select is not None and space(self) is None:
             raise ValueError("select on an op narrows a featurizer's space; name the 'featurizer' it runs in")
-        for axis in self.select or {}:
+        for axis, index in (self.select or {}).items():
             if axis != "features":
                 raise ValueError(f"a featurizer's space has no axis {axis!r} to select; its axes: features")
+            if index == []:
+                raise ValueError(f"select {axis}: an empty list selects nothing")
         return self
 
 

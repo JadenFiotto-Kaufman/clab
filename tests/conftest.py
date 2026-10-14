@@ -118,7 +118,7 @@ def corpus(tmp_path_factory) -> str:
     os.symlink(os.path.join(ROOT, "data"), root / "data")
     (root / "documents" / "artifacts").mkdir(exist_ok=True)
     model = {"model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
-             "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
+             "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32"}
     for file, header, tensors in (
             ("fit.rot.safetensors", {"kind": "subspace", "k": "8"}, {"basis": torch.zeros(16, 8)}),
             ("basis.safetensors", {"kind": "pca", "k": "4"}, {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)}),

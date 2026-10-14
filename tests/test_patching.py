@@ -127,6 +127,7 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": [],
                                           "shape": [4, 1], "dtype": "float32"}
     assert "rows" not in manifest["data"]["pairs"]
+    assert manifest["model"]["dtype"] == "float32"               # recorded though it is the default
 
 
 def test_a_table_labels_each_row(filled, tmp_path, monkeypatch):

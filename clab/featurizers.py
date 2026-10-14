@@ -70,6 +70,7 @@ def check(kind: str, fields: dict) -> None:
 def header(kind: str, fields: dict, model: Any) -> dict[str, str]:
     """A bundle's header, written beside its tensors: what made it, for the featurizer that loads it to check."""
     return {"format": FORMAT, "kind": kind, "model.key": model.key, "model.revision": model.revision,
+            "model.dtype": model.dtype,
             **{k: str(v) for k, v in fields.items() if k == "k"}}
 
 

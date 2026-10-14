@@ -109,13 +109,28 @@ def select(value: Tensor, component: str, record: dict) -> Tensor:
     """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)`.
 
     `record["positions"]` is `[rows, width]` token indices; `record["select"]`
-    maps a dimension of that layout to the indices kept along it.
+    maps a dimension of that layout to the indices kept along it: one list for
+    every row, or (`[rows, n]`, on the `key` axis) each row's own.
     """
     x = value.movedim(pos_axis(component), 1)
     x = x[torch.arange(x.shape[0])[:, None], record["positions"]]
     for dim, index in record["select"].items():
-        x = x.index_select(dim, index)
+        x = take(x, dim, index)
     return x
+
+
+def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """`x` at `index` along `dim`: the same indices on every row, or (`[rows, n]`) each row's own."""
+    return x.index_select(dim, index) if index.dim() == 1 else x.gather(dim, per_row(x, dim, index))
+
+
+def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter."""
+    shape = [1] * x.dim()
+    shape[0], shape[dim] = index.shape
+    size = list(x.shape)
+    size[dim] = index.shape[1]
+    return index.reshape(shape).expand(size)
 
 
 def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
@@ -135,13 +150,15 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
         current, original = x[rows, pos], before[rows, pos]
         new = current
         for dim, index in w["select"].items():
-            new, original = new.index_select(dim, index), original.index_select(dim, index)
+            new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
             if o["featurizer"] is not None:
                 raise NotImplementedError(f"M4: op {o['op']!r} in the space of featurizer {o['featurizer']!r}")
             new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
         for dim, index in w["select"].items():
-            new = current.index_copy(dim, index, new.to(current.dtype))
+            new = new.to(current.dtype)
+            new = current.index_copy(dim, index, new) if index.dim() == 1 else \
+                current.scatter(dim, per_row(new, dim, index), new)
         keep = w.get("keep", torch.ones(pos.shape, dtype=torch.bool))
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(x.dtype)[keep]
     return x.movedim(1, axis)
