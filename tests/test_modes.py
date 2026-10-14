@@ -107,3 +107,25 @@ def test_describe_shows_the_op_and_each_kinds_modes():
     assert "featurizer(featurizer: Featurizer, mode: str, ...)  [its mode's (see Featurizer kinds)]" in text
     assert "modes: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "encode(" not in text.replace("featurizer(", "")
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_write_after_one_in_a_featurizers_space_sees_the_sites_original_value(engines, kind):
+    """Two writes at one site: a swap in a subspace's coordinates, then `renormalize`, whose reference is the
+    value before the site's writes. It restores the norm the swap changed; it must not see the first write's
+    coordinates (a `[rows, pos, k]` tensor) as that value."""
+    from test_fit import TINY
+    site = {"component": "layer_output", "layers": 0}
+    doc = {"model": TINY, "data": {"train": {"path": "weekdays/data", "split": "train"}},
+           "featurizers": {"rot": {"kind": "subspace", "k": 4, "seed": 0}},
+           "steps": {"clean": {"kind": "forward", "input": "train.input", "reads": {"h": {"site": site, "pos": -1}}},
+                     "patched": {"kind": "forward", "input": "train.input",
+                                 "writes": {"zero": {"site": site, "pos": -1, "ops": [
+                                                {"op": "swap", "with": 0.0, "featurizer": "rot"}]},
+                                            "renorm": {"site": site, "pos": -1, "ops": [{"op": "renormalize"}]}},
+                                 "reads": {"h": {"site": site, "pos": -1}}}},
+           "saves": ["clean.h", "patched.h"]}
+    plan = Plan(**doc).compile()
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert not torch.allclose(values["patched.h"], values["clean.h"])
+    torch.testing.assert_close(values["patched.h"].norm(dim=-1), values["clean.h"].norm(dim=-1), atol=1e-6, rtol=0)
