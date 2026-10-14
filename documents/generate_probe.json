@@ -1,9 +1,9 @@
 {
-  "description": "Generation: the interchange at layer 0 of the prompt, then three greedy tokens, with the head read at each decode step — {'frame': 'generated', 'index': k}, swept so each step is a point. Does a patch made once at the prefill still move what the model says two tokens later? It reaches the continuation only through the cache. `patched` — the step itself — is the ids it generated, saved beside the metric.",
+  "description": "Generation: the interchange at layer 0 of the prompt, then three greedy tokens, with the head read at the last position of calls 0, 1 and 2 — {'frame': k, 'index': -1}, swept so each call is a point: the prefill's last prompt token, then generated tokens 0 and 1 as inputs, whose logits are the distributions over tokens 0, 1 and 2. Does a patch made once at the prefill still move what the model says two tokens later? It reaches the continuation only through the cache. `patched` — the step itself — is the ids it generated, saved beside the metric.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-    "dtype": "fp32"
+    "dtype": "float32"
   },
   "data": {"pairs": {"path": "weekdays/train"}},
   "sites": {
@@ -28,7 +28,7 @@
       "writes": {
         "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
       },
-      "reads": {"logits": {"site": "head", "pos": {"frame": "generated", "index": {"sweep": [0, 1, 2]}}}}
+      "reads": {"logits": {"site": "head", "pos": {"frame": {"sweep": [0, 1, 2]}, "index": -1}}}
     },
     "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
   },

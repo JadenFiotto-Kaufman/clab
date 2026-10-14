@@ -18,6 +18,10 @@ ABOUT = """An op runs in three places, always as the same function:
 Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
 refused there (make it a step after the forward).
 
+A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
+every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
+token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it); **reductions** remove the rows axis; **edits** keep the
 value's layout and change its contents; **transforms** turn each example's value into another of a
@@ -25,10 +29,10 @@ different layout (logits from a residual stream, tokens from logits, text from i
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
 dataset column of one token per row, resolved through the value's own vocabulary; `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `features` are
-arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the `features`
-given) and the change is written back. `renormalize`'s reference is the value at the site before the
-step's writes.
+featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
+arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
+`{"select": {"features": [...]}}` keeps) and the change is written back. `renormalize`'s reference is the
+value at the site before the step's writes.
 """
 
 import inspect
@@ -47,7 +51,8 @@ Featurizer = Annotated[dict, "Featurizer"]
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-SUPPLIED = ("engine", "original", "dims")
+# `eos`: the ids the generation `of` came from stops on.
+SUPPLIED = ("engine", "original", "dims", "eos")
 
 OPS: dict[str, Callable] = {}
 GROUPS = ("metrics", "reductions", "edits", "transforms")
@@ -109,13 +114,28 @@ def select(value: Tensor, component: str, record: dict) -> Tensor:
     """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)`.
 
     `record["positions"]` is `[rows, width]` token indices; `record["select"]`
-    maps a dimension of that layout to the indices kept along it.
+    maps a dimension of that layout to the indices kept along it: one list for
+    every row, or (`[rows, n]`, on the `key` axis) each row's own.
     """
     x = value.movedim(pos_axis(component), 1)
     x = x[torch.arange(x.shape[0])[:, None], record["positions"]]
     for dim, index in record["select"].items():
-        x = x.index_select(dim, index)
+        x = take(x, dim, index)
     return x
+
+
+def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """`x` at `index` along `dim`: the same indices on every row, or (`[rows, n]`) each row's own."""
+    return x.index_select(dim, index) if index.dim() == 1 else x.gather(dim, per_row(x, dim, index))
+
+
+def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter."""
+    shape = [1] * x.dim()
+    shape[0], shape[dim] = index.shape
+    size = list(x.shape)
+    size[dim] = index.shape[1]
+    return index.reshape(shape).expand(size)
 
 
 def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
@@ -123,7 +143,7 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
 
     Each write's ops run on its selection of the current value; `original` is
     the selection as it was before any of these writes. A write narrows at most
-    one dimension of its selection. A ragged write's rows are padded to one
+    one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
     axis = pos_axis(component)
@@ -131,19 +151,19 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
     x = before.clone()
     rows = torch.arange(x.shape[0])[:, None]
     for w in writes:
-        if len(w["select"]) > 1:
-            raise ValueError(f"write {w['name']!r} narrows {len(w['select'])} dimensions; a write narrows one")
         pos = w["positions"]
         current, original = x[rows, pos], before[rows, pos]
         new = current
         for dim, index in w["select"].items():
-            new, original = new.index_select(dim, index), original.index_select(dim, index)
+            new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
             if o["featurizer"] is not None:
                 raise NotImplementedError(f"M4: op {o['op']!r} in the space of featurizer {o['featurizer']!r}")
             new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
         for dim, index in w["select"].items():
-            new = current.index_copy(dim, index, new.to(current.dtype))
+            new = new.to(current.dtype)
+            new = current.index_copy(dim, index, new) if index.dim() == 1 else \
+                current.scatter(dim, per_row(new, dim, index), new)
         keep = w.get("keep", torch.ones(pos.shape, dtype=torch.bool))
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(x.dtype)[keep]
     return x.movedim(1, axis)
@@ -212,9 +232,11 @@ def encode(of: Tensor, featurizer: Featurizer) -> Tensor:
 
 @op("reductions", removes="over")
 def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """The mean over the axes `over` names; by default every axis but the feature axes."""
+    """The mean over the axes `over` names, of the rows that have a value (a missing row is NaN); by default
+    over every axis but the feature axes."""
     over = over if over is not None else [a for a in dims if a in EXAMPLE_AXES]
-    return of.mean(dim=[dims.index(a) for a in over])
+    axes = [dims.index(a) for a in over]
+    return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
 
 
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")
@@ -222,6 +244,7 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict:
     """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
     first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
     x = of.reshape(-1, of.shape[-1]).double()
+    x = x[~x.isnan().any(-1)]
     if x.shape[0] <= k:
         raise ValueError(f"pca of {x.shape[0]} vectors has no rank-{k} basis; it needs more than {k}")
     mean = x.mean(0)
@@ -235,39 +258,53 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict:
 # -- metrics: logits in, one number per row and position out -------------------
 
 
-def _pick(x: Tensor, ids: Tensor) -> Tensor:
-    index = ids.reshape(*ids.shape, 1, 1).expand(*x.shape[:-1], 1)
-    return x.gather(-1, index).squeeze(-1)
+def _missing(of: Tensor) -> Tensor:
+    """Where a value is missing, per vector: NaN anywhere along its last axis."""
+    return of.isnan().any(-1)
+
+
+def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
+    """One id per row (`[rows]`), shaped to broadcast against `x` along its rows (or entries) axis."""
+    shape = [1] * x.dim()
+    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = -1
+    return ids.reshape(shape)
+
+
+def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
+    return x.gather(-1, _per_row(ids, x, dims).expand(*x.shape[:-1], 1)).squeeze(-1)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def match(of: Tensor, expected: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """1 where the most likely token is `expected`, else 0."""
-    return (of.argmax(-1) == expected.reshape(*expected.shape, 1)).to(of.dtype)
+    hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
+    return hit.masked_fill(_missing(of), float("nan"))
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def logit_diff(of: Tensor, a: Tokens, b: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
+               token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `a` less the logit of `b`."""
-    return _pick(of, a) - _pick(of, b)
+    return _pick(of, a, dims) - _pick(of, b, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def token_prob(of: Tensor, token: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The probability of `token`."""
-    return _pick(of.softmax(-1), token)
+    return _pick(of.softmax(-1), token, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def token_logit(of: Tensor, token: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `token`."""
-    return _pick(of, token)
+    return _pick(of, token, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
-def cross_entropy(of: Tensor, target: Tokens, token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
+                  token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The negative log-probability of `target`, in nats."""
-    return -_pick(of.log_softmax(-1), target)
+    return -_pick(of.log_softmax(-1), target, dims)
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
@@ -290,21 +327,23 @@ def top_k(of: Tensor, k: int) -> dict:
     """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
     `tokens`, decoded."""
     probs, ids = of.softmax(-1).topk(k, dim=-1)
-    return {"ids": ids, "probs": probs}
+    missing = _missing(of)[..., None]
+    return {"ids": ids.masked_fill(missing, -1), "probs": probs.masked_fill(missing, float("nan"))}
 
 
 @op("transforms", needs=("vocab_size",), removes=("vocab_size",))
 def argmax(of: Tensor) -> Tensor:
-    """The id of the most likely token."""
-    return of.argmax(-1)
+    """The id of the most likely token (-1 where the value is missing)."""
+    return of.argmax(-1).masked_fill(_missing(of), -1)
 
 
 @op("transforms", needs=("new",), removes=("new",))
-def decode(of: Tensor, engine: Any, tokens: bool = False) -> list:
-    """Each row's generated ids as text, stopped at the row's first EOS; with `tokens`, as its token strings."""
-    tokenizer = engine.tokenizer
+def decode(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) -> list:
+    """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
+    with `tokens`, as its token strings."""
+    tokenizer, stops = engine.tokenizer, set(eos)
     out = []
     for ids in of.tolist():
-        ids = ids[:ids.index(tokenizer.eos_token_id)] if tokenizer.eos_token_id in ids else ids
+        ids = next((ids[:i] for i, t in enumerate(ids) if t in stops), ids)
         out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
     return out

@@ -1,5 +1,9 @@
-"""`clab run`, `clab describe` and `clab schema`: a thin command line over `clab.run`, and the format read off
-the code.
+"""`clab run`, `clab show`, `clab table`, `clab describe` and `clab schema`: a thin command line over
+`clab.run` and a run's output directory, and the format read off the code.
+
+`show` prints what a run's directory holds (each result with its step, dims, axes and shape, and how the
+run ran); `table` prints `plan.table(...)` over its saved values, aligned or as CSV. Both are `Plan.load`
+and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
 models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
@@ -7,7 +11,9 @@ models), the ops and their signatures, the components, the featurizer kinds and 
 """
 
 import argparse
+import csv
 import inspect
+import io
 import json
 import os
 import sys
@@ -136,7 +142,7 @@ def describe(what: str | None = None) -> str:
     if what in (None, "components"):
         lines = ["components:"]
         for name, c in address.COMPONENTS.items():
-            narrow = ", ".join(["layers"] * c["per_layer"] + list(c["narrow"]))
+            narrow = ", ".join(["layers"] * c["per_layer"] + address.selectable(name))
             lines.append(f"  {name:24} [{', '.join(c['dims'])}]  narrowed by {narrow}  — {c['meaning']}")
         sections.append("\n".join(lines))
     if what in (None, "featurizers"):
@@ -181,7 +187,8 @@ def markdown() -> str:
     parts += ["## Derived fields\n",
               "Fields a document leaves out, which compile (or, for `run`, the engine) fills:\n",
               "\n".join(f"- `{model.__name__}`: {', '.join(derived(model))}"
-                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.OpStep, plan.Featurizer)
+                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.Generate, plan.OpStep,
+                                      plan.Featurizer)
                         if derived(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:
@@ -191,7 +198,7 @@ def markdown() -> str:
                            for n, fn in ops.OPS.items() if ops.DECLARED[n]["group"] == group])]
     parts += ["## Components\n", doc(address) + "\n",
               table([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
-                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + list(c["narrow"])),
+                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + address.selectable(n)),
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, fn in featurizers.KINDS.items():
@@ -205,6 +212,52 @@ def markdown() -> str:
     return "\n".join(parts)
 
 
+def show(filled: "plan.Plan") -> str:
+    """A filled plan as text: how it ran, then each result with the step that made it, its dims, its sweep
+    axes and its shape (per coordinate when swept)."""
+    run = filled.run
+    assert run is not None
+    lines = [f"{plan.name(filled)}: run on {run.engine}, remote {run.remote}, batch size {run.batch_size}, "
+             f"started {run.started}, {run.seconds} s",
+             "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
+    rows = [["result", "step", "dims", "axes", "shape"]]
+    for name in filled.saves:
+        entry = filled.steps[name.partition(".")[0]]
+        value = filled.results[name]
+        if isinstance(entry, list):
+            value = {plan.labelled(filled, p.at): value[plan.coordinate(filled, p.at)] for p in entry}
+        rows.append([name, name.partition(".")[0], ", ".join(plan.dims_of(filled, name)),
+                     ", ".join(plan.points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
+    return "\n".join(lines + ["  " + line for line in aligned(rows)])
+
+
+def cell(value: Any) -> str:
+    """A table cell as text: a string as it is, anything else (`at` included) as compact JSON."""
+    if isinstance(value, str):
+        return value
+    return "" if value is None else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def aligned(rows: list[list[str]], width: int | None = None) -> list[str]:
+    """Rows of cells padded into columns, newlines inside a cell written `\\n`; a cell longer than `width` is
+    cut short with an ellipsis."""
+    rows = [[c.replace("\n", "\\n") for c in row] for row in rows]
+    rows = [[c if width is None or len(c) <= width else c[:width - 1] + "…" for c in row] for row in rows]
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
+    return ["  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in rows]
+
+
+def tabulated(rows: list[dict], as_csv: bool) -> str:
+    """`plan.table` rows as text: aligned columns, or CSV with every cell whole."""
+    columns = list(dict.fromkeys(k for row in rows for k in row))
+    cells = [columns] + [[cell(row.get(c)) for c in columns] for row in rows]
+    if not as_csv:
+        return "\n".join(aligned(cells, 48))
+    buffer = io.StringIO()
+    csv.writer(buffer, lineterminator="\n").writerows(cells)
+    return buffer.getvalue().rstrip("\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     from .engines import ENGINES
 
@@ -216,6 +269,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--remote", default="no", choices=("no", "local", "yes"))
     run.add_argument("--batch-size", type=int, default=8)
+    look = commands.add_parser("show", help="print what a run's output directory holds")
+    look.add_argument("out")
+    rows = commands.add_parser("table", help="print saved values of a run's output directory as one table")
+    rows.add_argument("out")
+    rows.add_argument("names", nargs="+")
+    rows.add_argument("--csv", action="store_true", help="CSV on stdout, every cell whole")
     tell = commands.add_parser("describe", help="print the format's tables, read off the code")
     tell.add_argument("what", nargs="?", choices=WHAT)
     tell.add_argument("--markdown", action="store_true", help="write FORMAT.md")
@@ -232,6 +291,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "schema":
         print(json.dumps(schema(), indent=1, ensure_ascii=False))
+        return 0
+    if args.command in ("show", "table"):
+        try:
+            filled = plan.Plan.load(args.out)
+            print(show(filled) if args.command == "show" else tabulated(filled.table(*args.names), args.csv))
+        except (ValueError, OSError) as e:
+            print(f"clab: {e}", file=sys.stderr)
+            return 1
         return 0
 
     import clab

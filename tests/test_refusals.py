@@ -10,11 +10,42 @@ from conftest import edited, plan_of
 # -- the plan and compile ---------------------------------------------------------------------------------
 
 
-def test_features_need_a_featurizer():
+def test_select_on_an_op_needs_a_featurizer():
     def change(d):
-        d["steps"]["patched"]["writes"]["patch"]["ops"][0]["features"] = [0]
-    with pytest.raises(PlanError, match=r"ops\[0\]: features are a featurizer's latents"):
+        d["steps"]["patched"]["writes"]["patch"]["ops"][0]["select"] = {"features": [0]}
+    with pytest.raises(PlanError, match=r"ops\[0\]: select on an op narrows a featurizer's space"):
         edited("patching", change)
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["sites"]["target"].update(select={"heads": [0]}),
+     r"sites\.target: layer_output has no axis 'heads' to select; its axes: hidden_size$"),
+    (lambda d: d["sites"]["target"].update(component="attention_premix", select={"units": [0]}),
+     r"sites\.target: attention_premix has no axis 'units' to select; its axes: num_heads, head_dim$"),
+    (lambda d: d["sites"]["target"].update(heads=[0]),
+     r"sites\.target: unknown field 'heads'; valid: component, layers, select$"),
+])
+def test_select_names_an_axis_the_component_publishes(change, message):
+    with pytest.raises(PlanError, match=message):
+        edited("patching", change)
+
+
+@pytest.mark.parametrize("where", ["site", "op"])
+def test_an_empty_select_is_refused(where):
+    def change(d):
+        if where == "site":
+            d["sites"]["target"]["select"] = {"hidden_size": []}
+        else:
+            d["steps"]["patched"]["writes"]["patch"]["ops"][0].update(featurizer="rot", select={"features": []})
+    with pytest.raises(PlanError, match=r"select (hidden_size|features): an empty list selects nothing"):
+        edited("patching", change)
+
+
+def test_a_write_selects_on_one_axis():
+    def change(d):
+        d["sites"]["target"].update(component="attention_premix", select={"num_heads": [0], "head_dim": [0]})
+    with pytest.raises(PlanError, match=r"writes\.patch\.site\.select: a write selects on one axis"):
+        edited("patching", change).compile()
 
 
 def test_an_operand_must_have_the_writes_layout():
@@ -37,10 +68,11 @@ def test_renormalize_runs_only_inside_a_write(where):
         edited("patching", change).compile()
 
 
-def test_the_generated_frame_is_a_generate_steps():
+def test_a_forward_makes_one_call():
     def change(d):
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": "generated", "index": 0}
-    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos: the generated frame is a generate step's"):
+        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 1, "index": -1}
+    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos\.frame: a forward makes one call, the "
+                                        r"prefill; frame is 0"):
         edited("patching", change).compile()
 
 
@@ -71,7 +103,6 @@ def refused(engines, plan, kind: str = "hooks"):
 @pytest.mark.parametrize("name, message", [
     ("random_subspace", "counterfactual.v_cf: op 'encode' lands in M4"),
     ("das", "fit: fit steps land in M4"),
-    ("generated_answer", "answer: generate steps land in M3"),
 ])
 def test_unserved_documents_refuse_before_any_forward(engines, name, message):
     text, forwards = refused(engines, plan_of(name))
@@ -80,8 +111,8 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
 
 @pytest.mark.parametrize("name, change, message", [
     ("patching", lambda d: d["sites"]["target"].update(layers=99), "counterfactual.v_cf: layer 99; the model has 2 layers"),
-    ("patching", lambda d: d["sites"]["target"].update(units=[999]),
-     r"counterfactual.v_cf: units \[999\] outside the model's 16 \(hidden_size\)"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": [999]}),
+     r"counterfactual.v_cf: select hidden_size \[999\] outside the model's 16"),
     ("patching", lambda d: d["steps"]["patched"]["reads"].update(scored={
         "site": {"component": "lm_head_output"}, "pos": -1, "ops": [{"op": "match", "expected": "pairs.input"}]}),
      "patched.scored: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens"),
@@ -91,28 +122,35 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
         "input": "If today is Monday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: variable 'entity' \('Friday'\) is not in its input"),
-    ("entity_patch", lambda d: d["data"].update(pairs={"rows": [{
+     r"patched.patch: row 0: column 'pairs.entity' is not in its input"),
+    ("entity_patch", lambda d: (d["data"].update(pairs={"rows": [{
         "input": "Friday or Friday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: variable 'entity' \('Friday'\) occurs 2 times in the row's input; a scope is one place"),
-    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(segment="user"),
-     r"blanked.blank: row 0: segment 'user' occurs 2 times in the row's input"),
-    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(segment="user[2]"),
-     r"blanked.blank: row 0: segment 'user\[2\]' is not in its input"),
-    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"span": [9, -1]},
+        d["steps"]["patched"]["writes"]["patch"]["pos"]["scope"].update(occurrence=2)),
+     r"patched.patch: row 0: column 'pairs.entity' occurs 2 times in the row's input; it has no occurrence 2"),
+    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(turn="system"),
+     r"blanked.blank: row 0: the row has no 'system' message"),
+    ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(occurrence=2),
+     r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input; it has no occurrence 2"),
+    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [9, -1]},
                                                                            ops=[{"op": "swap", "with": 0.0}]),
      r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
     ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],
                                                              "base_answer": " Friday"}]}),
      r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=20),
-     r"patched.patch: row 0: tokens \[20:21\] do not fit its 10 scope tokens"),
+     r"patched.patch: row 0: tokens 20 do not fit its 10 scope tokens"),
 ])
 def test_what_needs_the_model_is_checked_before_any_forward(engines, name, change, message):
     text, forwards = refused(engines, edited(name, change).compile())
     assert re.match(message, text) and forwards == 0, text
+
+
+def test_a_select_on_key_outside_the_shortest_row_is_refused(engines):
+    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": [9]})).compile()
+    text, forwards = refused(engines, plan, kind="nnterp")
+    assert text == "clean.pattern: select key [9] outside the 9 tokens of the input's shortest row" and forwards == 0
 
 
 def test_an_operand_of_another_width_is_refused(engines):
@@ -134,3 +172,30 @@ def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
 def test_the_aligned_pattern_dataset_passes_the_check(engines):
     plan = plan_of("attention_pattern_patching")
     engines("nnterp", plan.model).execute(plan, batch_size=2)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("key, why", [("device", "the engine places its model itself"),
+                                      ("device_map", "the engine places its model itself"),
+                                      ("dispatch", "the engine places its model itself"),
+                                      ("torch_dtype", "the dtype is spelled `dtype`")])
+def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
+    from clab.engines import ENGINES
+    plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
+    with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {why}$"):
+        ENGINES[kind](plan.model)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
+    from clab.engines import ENGINES
+    plan = edited("patching", lambda d: d["model"].update(attn_implementation="nonsense"))
+    with pytest.raises(ValueError, match=f"^model.attn_implementation: the {kind} engine's loader rejects it: "):
+        ENGINES[kind](plan.model)
+
+
+def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch():
+    plan = plan_of("attention_knockout")
+    assert plan.model.dtype == "float32" and plan.model.model_extra == {"attn_implementation": "eager"}
+    with pytest.raises(PlanError, match=r"model\.dtype: Input should be 'float32', 'float16' or 'bfloat16'"):
+        edited("patching", lambda d: d["model"].update(dtype="fp32"))

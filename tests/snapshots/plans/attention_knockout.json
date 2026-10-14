@@ -42,9 +42,11 @@
       "site": {
        "component": "attention_probabilities",
        "layers": 0,
-       "heads": [
-        0
-       ]
+       "select": {
+        "num_heads": [
+         0
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -69,7 +71,7 @@
      }
     },
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs"
    },
@@ -81,9 +83,11 @@
       "site": {
        "component": "attention_probabilities",
        "layers": 0,
-       "heads": [
-        1
-       ]
+       "select": {
+        "num_heads": [
+         1
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -108,7 +112,7 @@
      }
     },
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs"
    },
@@ -120,9 +124,11 @@
       "site": {
        "component": "attention_probabilities",
        "layers": 0,
-       "heads": [
-        2
-       ]
+       "select": {
+        "num_heads": [
+         2
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -147,7 +153,7 @@
      }
     },
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs"
    },
@@ -159,9 +165,11 @@
       "site": {
        "component": "attention_probabilities",
        "layers": 0,
-       "heads": [
-        3
-       ]
+       "select": {
+        "num_heads": [
+         3
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -186,7 +194,7 @@
      }
     },
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs"
    }
@@ -197,7 +205,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -211,7 +219,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -225,7 +233,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -239,7 +247,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs",
     "dims": [
@@ -255,7 +263,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 0
+     "num_heads": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -270,7 +278,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 1
+     "num_heads": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -285,7 +293,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 2
+     "num_heads": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -300,7 +308,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "heads": 3
+     "num_heads": 3
     },
     "dataset": "pairs",
     "dims": [
@@ -320,8 +328,8 @@
  "document": "documents/attention_knockout.json",
  "compiled": true,
  "sweeps": {
-  "heads": {
-   "path": "sites.one_head.heads",
+  "num_heads": {
+   "path": "sites.one_head.select.num_heads",
    "values": [
     [
      0

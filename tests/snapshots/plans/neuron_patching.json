@@ -1,5 +1,5 @@
 {
- "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site names `units` — single features of `mlp_activation` — and the sweep is over which. `heads` on an attention site (head_patching.json) is the same narrowing at a coarser grain: a site's positions, and a part of its feature axis.",
+ "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site selects on `mlp_activation`'s `intermediate_size` axis — single neurons — and the sweep is over which. `num_heads` on an attention site (head_patching.json) is the same `select` at a coarser grain: a site's positions, and a part of its feature axis.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -21,12 +21,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        0,
-        1,
-        2,
-        3
-       ]
+       "select": {
+        "intermediate_size": [
+         0,
+         1,
+         2,
+         3
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -37,7 +39,7 @@
      }
     },
     "at": {
-     "units": 0
+     "intermediate_size": 0
     },
     "dataset": "pairs"
    },
@@ -49,12 +51,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        4,
-        5,
-        6,
-        7
-       ]
+       "select": {
+        "intermediate_size": [
+         4,
+         5,
+         6,
+         7
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -65,7 +69,7 @@
      }
     },
     "at": {
-     "units": 1
+     "intermediate_size": 1
     },
     "dataset": "pairs"
    },
@@ -77,12 +81,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        8,
-        9,
-        10,
-        11
-       ]
+       "select": {
+        "intermediate_size": [
+         8,
+         9,
+         10,
+         11
+        ]
+       }
       },
       "pos": -1,
       "dims": [
@@ -93,7 +99,7 @@
      }
     },
     "at": {
-     "units": 2
+     "intermediate_size": 2
     },
     "dataset": "pairs"
    }
@@ -107,12 +113,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        0,
-        1,
-        2,
-        3
-       ]
+       "select": {
+        "intermediate_size": [
+         0,
+         1,
+         2,
+         3
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -137,7 +145,7 @@
      }
     },
     "at": {
-     "units": 0
+     "intermediate_size": 0
     },
     "dataset": "pairs"
    },
@@ -149,12 +157,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        4,
-        5,
-        6,
-        7
-       ]
+       "select": {
+        "intermediate_size": [
+         4,
+         5,
+         6,
+         7
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -179,7 +189,7 @@
      }
     },
     "at": {
-     "units": 1
+     "intermediate_size": 1
     },
     "dataset": "pairs"
    },
@@ -191,12 +201,14 @@
       "site": {
        "component": "mlp_activation",
        "layers": 0,
-       "units": [
-        8,
-        9,
-        10,
-        11
-       ]
+       "select": {
+        "intermediate_size": [
+         8,
+         9,
+         10,
+         11
+        ]
+       }
       },
       "pos": -1,
       "ops": [
@@ -221,7 +233,7 @@
      }
     },
     "at": {
-     "units": 2
+     "intermediate_size": 2
     },
     "dataset": "pairs"
    }
@@ -232,7 +244,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "units": 0
+     "intermediate_size": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -246,7 +258,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "units": 1
+     "intermediate_size": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -260,7 +272,7 @@
     "op": "match",
     "of": "patched.logits",
     "at": {
-     "units": 2
+     "intermediate_size": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -276,7 +288,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "units": 0
+     "intermediate_size": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -291,7 +303,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "units": 1
+     "intermediate_size": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -306,7 +318,7 @@
     "op": "logit_diff",
     "of": "patched.logits",
     "at": {
-     "units": 2
+     "intermediate_size": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -325,8 +337,8 @@
  "document": "documents/neuron_patching.json",
  "compiled": true,
  "sweeps": {
-  "units": {
-   "path": "sites.target.units",
+  "intermediate_size": {
+   "path": "sites.target.select.intermediate_size",
    "values": [
     [
      0,

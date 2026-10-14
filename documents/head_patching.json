@@ -1,13 +1,13 @@
 {
-  "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix`, the output projection's input, served per head as (num_heads, head_dim) — every head's result side by side — so a site narrows it by `heads`, and this runs on the hooks engine too, which reaches it at the projection's input; `attention_head_outputs` is the same tensor read inside the attention's forward, which nnterp serves under eager attention only; with `attn_implementation: eager` it gives the same numbers bit for bit.",
+  "description": "Head-by-head activation patching: the interchange of patching.json, but of ONE attention head's result at a time, swept over the four heads of layer 0. The site is `attention_premix`, the output projection's input, served per head as (num_heads, head_dim) — every head's result side by side — so a site selects on its `num_heads` axis, and this runs on the hooks engine too, which reaches it at the projection's input; `attention_head_outputs` is the same tensor read inside the attention's forward, which nnterp serves under eager attention only; with `attn_implementation: eager` it gives the same numbers bit for bit.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-    "dtype": "fp32"
+    "dtype": "float32"
   },
   "data": {"pairs": {"path": "weekdays/train"}},
   "sites": {
-    "target": {"component": "attention_premix", "layers": 0, "heads": {"sweep": [[0], [1], [2], [3]]}},
+    "target": {"component": "attention_premix", "layers": 0, "select": {"num_heads": {"sweep": [[0], [1], [2], [3]]}}},
     "head": {"component": "lm_head_output"}
   },
   "steps": {

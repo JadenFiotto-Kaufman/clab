@@ -10,8 +10,10 @@ the header that featurizer checks.
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
-The plan's `run` holds how each input tokenized and which token every positioned read and write resolved
-to, which `table` uses to label positions. Values are never in the manifest.
+The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
+position (an index into the row's prompt tokens, then its generated ones) every read and write resolved to
+per row, which
+`table` uses to label positions. Values are never in the manifest.
 """
 
 import itertools
@@ -23,7 +25,7 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch import Tensor
 
-from . import data, featurizers, ops
+from . import data, featurizers, ops, positions
 from .plan import Plan, arguments, coordinate, corpus_root, dims_of, labelled, points
 
 
@@ -48,6 +50,7 @@ def dump(plan: Plan, out: str) -> None:
                            "axes": list(points(entry)[0].at), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True)
+    manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
         if "path" in d or "hf" in d:
             del d["rows"]
@@ -99,11 +102,13 @@ def nested(value: dict[str, Tensor]) -> dict:
 
 
 def describe(value: Any, what: str) -> Any:
+    """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a list's
+    length (and no dtype)."""
     if isinstance(value, Tensor):
         return list(value.shape) if what == "shape" else str(value.dtype).removeprefix("torch.")
     if isinstance(value, dict):
         return {k: describe(v, what) for k, v in value.items()}
-    return None
+    return [len(value)] if isinstance(value, list) and what == "shape" else None
 
 
 def restored(value: Any, dtype: Any) -> Any:
@@ -131,12 +136,14 @@ JOIN = ("at", "row", "layer", "pos", "key")
 def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict]:
     """The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
-    A value with a rows axis gives a row per example and token: `at` (its point's coordinates, when its step
-    is swept), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token axes
-    with their tokens (`pos`/`pos_token`, the index into the row's tokens a position resolved to;
-    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose),
-    and `value`: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A
-    value with no rows axis gives a row per element with its axis indices."""
+    A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
+    not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token
+    axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into the row's prompt
+    tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
+    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
+    `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
+    read beyond the prefill did not reach gives one row, `alignment_missing` true, with
+    no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -144,7 +151,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
         return rows_of(plan, names[0], columns)
     joined: list[dict] = []
     for name in names:
-        rows = [{**{k: v for k, v in row.items() if k != "value"}, name: row["value"]}
+        rows = [{**{k: v for k, v in row.items() if k != "value"}, **({name: row["value"]} if "value" in row else {})}
                 for row in rows_of(plan, name, columns)]
         joined = join(joined, rows) if joined else rows
     return joined
@@ -154,13 +161,13 @@ def join(left: list[dict], right: list[dict]) -> list[dict]:
     """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
     beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
     def axes(rows: list[dict]) -> list[str]:
-        return [k for k in JOIN if rows and k in rows[0]]
+        return [k for k in JOIN if any(k in row for row in rows)]
     many, few = (left, right) if len(axes(left)) >= len(axes(right)) else (right, left)
     shared = [k for k in axes(many) if k in axes(few)]
     by_key: dict = {}
     for row in few:
-        by_key.setdefault(json.dumps([row[k] for k in shared]), []).append(row)
-    pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row[k] for k in shared]), [])]
+        by_key.setdefault(json.dumps([row.get(k) for k in shared]), []).append(row)
+    pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row.get(k) for k in shared]), [])]
     merged = [{**a, **b} if many is left else {**b, **a} for a, b in pairs]
     return [{"at": m.pop("at"), **m} if "at" in m else m for m in merged]
 
@@ -180,51 +187,82 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
                 example = examples[row["row"]]
                 row = {**({"example_id": example["example_id"]} if "example_id" in example else {}), **row,
                        **{c: example[c] for c in (columns if columns is not None else used)}}
-            out.append({**at, **row})
+            value = {"value": row.pop("value")} if "value" in row else {}
+            out.append({**at, **row, **value})                      # the value last, as in a joined table
     return out
 
 
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
     if isinstance(value, dict) and "tok" in value:
-        stack = value["values"] if "layers" in dims else value["values"][None]
-        return [{**({"layer": l} if "layers" in dims else {}), "row": r, "pos": t,
-                 **({"pos_token": place["tokens"][r][t]} if place else {}), "value": stack[l, i].tolist()}
-                for l in range(stack.shape[0])
-                for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist()))]
+        return entries(value, dims, place)
     if isinstance(value, dict) and "rows" not in dims:
         raise ValueError("a bundle has no rows to table; read it from plan.results")
     first = next(iter(value.values())) if isinstance(value, dict) else value
     shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
+    # The axes a row is per: the example and token axes, or every axis of a value with no rows.
     axes = [i for i, a in enumerate(dims) if a in ("layers", "rows", "pos", "key") or "rows" not in dims]
-    out = []
+    out, marked = [], set()
     for index in itertools.product(*(range(shape[i]) for i in axes)):
         at = dict(zip(axes, index))
-        row: dict = {}
-        for i, k in at.items():
-            axis = dims[i]
-            if axis in ("pos", "key"):
-                row.update(token(place, at[dims.index("rows")], axis, k))
-            else:
-                row[{"rows": "row", "layers": "layer"}.get(axis, axis)] = k
-        if row.get("key", 0) is None:
+        whole = {{"rows": "row", "layers": "layer"}.get(dims[i], dims[i]): k for i, k in at.items()
+                 if dims[i] not in ("pos", "key")}
+        if mark := unreached(place, whole.get("row")):
+            if tuple(whole.items()) not in marked:      # one row says so, in place of its tokens
+                marked.add(tuple(whole.items()))
+                out.append({**whole, **mark})
             continue
+        row: dict = dict(whole)
+        for i, k in at.items():
+            if dims[i] in ("pos", "key"):
+                row.update(token(place, at[dims.index("rows")], dims[i], k))
+        if row.get("key", 0) is None:
+            continue                                    # a padding key
         pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
         row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
         out.append(row)
     return out
 
 
+def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
+    """A ragged value's rows: one per entry (per layer under `layers: "all"`), labelled with its row and the
+    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach."""
+    stack = value["values"] if "layers" in dims else value["values"][None]
+    out = []
+    for layer in range(stack.shape[0]):
+        for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist())):
+            row = {"layer": layer} if "layers" in dims else {}
+            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": stack[layer, i].tolist()})
+    marks = [{"row": r, **unreached(place, r)} for r in range(len(place["positions"]))
+             if unreached(place, r)] if place else []
+    return sorted(out + marks, key=lambda row: row["row"]) if marks else out
+
+
+def unreached(place: dict | None, row: int | None) -> dict:
+    """`{"alignment_missing": True}` for a row a read beyond the prefill did not reach, else {}."""
+    resolved = place["positions"][row] if place and row is not None else None
+    return {resolved: True} if isinstance(resolved, str) else {}
+
+
 def token(place: dict | None, row: int, axis: str, k: int) -> dict:
-    """Index `k` on a token axis as the token it is in the row's tokens: `pos` through the read's resolved
-    positions, `key` (the padded batch's keys) less the row's padding; None on a padding key."""
+    """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
+    through its `select` (the row's own token indices) or, unselected, the padded batch's keys less the row's
+    padding; None on a padding key."""
     if place is None:
         return {axis: k}
-    tokens = place["tokens"][row]
-    index = place["positions"][row][k] if axis == "pos" else k - (place["width"] - len(tokens))
-    if index < 0:
-        return {axis: None}
-    return {axis: index, f"{axis}_token": tokens[index]}
+    if axis == "pos":
+        return label(place, row, place["positions"][row][k], axis)
+    index = place["keys"][k] if place["keys"] is not None else k - (place["width"] - len(place["prompt"][row]))
+    return {axis: None} if index < 0 else label(place, row, index, axis)
+
+
+def label(place: dict | None, row: int, index: int, axis: str) -> dict:
+    """A row's position `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`), the token
+    that sits there, and for a read in a generation the forward `call` that holds it."""
+    if place is None:
+        return {axis: index}
+    call = {"call": positions.call_of(index, len(place["prompt"][row]))} if place["beyond"] else {}
+    return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
 
 
 def part(value: Any, pick: tuple) -> Any:
@@ -255,13 +293,22 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
 
 
 def located(plan: Plan, source: str, at: dict) -> dict:
-    """For the read `source` at the point agreeing with `at`: the rows' tokens and resolved positions."""
+    """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
+    tokens (the prompt's, then in a generation what each row generated), whether it was read in a
+    generation (whose positions are labelled with their call), the positions each row resolved to, and the keys
+    it selects."""
     assert plan.run is not None
-    producer = next(p for p in points(plan.steps[source.partition(".")[0]])
-                    if all(at.get(k) == i for k, i in p.at.items()))
+    thing, _, member = source.partition(".")
+    producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
+    prompt = plan.run.tokens[producer.input]
+    said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
+    if said is not None and producer.at:
+        said = said[labelled(plan, producer.at)]
     resolved = plan.run.positions[source]
-    tokens = plan.run.tokens[producer.input]
-    return {"tokens": tokens, "width": max(map(len, tokens)),
+    keys = (producer.reads[member].site.select or {}).get("key")
+    return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
+            "beyond": producer.kind == "generate",
+            "width": max(map(len, prompt)), "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved}
 
 

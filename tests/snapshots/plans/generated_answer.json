@@ -1,5 +1,5 @@
 {
- "description": "The continuation frame, read where the model said the row's own text. `said` is a word this checkpoint does say in its first six tokens for two of these rows and does not for the other two — the weights are random, so what it says is gibberish and the column was written to match it; on a real model `said` would be the answer. `at_said` is {'frame': 'generated', 'index': -1, 'scope': {'variable': 'said'}}: the last token of that word in what this row generated. Whether the model said it at all is a reported result — two rows score and two come back `alignment_missing` — rather than an exception that ends the run. `at_stop` asks where the row stopped; the step holds EOS off (`min_new_tokens` is its bound), so no row stops and every row says so.",
+ "description": "The generated calls, read where the model said the row's own text. `said` is a word this checkpoint does say in its first six tokens for two of these rows and does not for the other two — the weights are random, so what it says is gibberish and the column was written to match it; on a real model `said` would be the answer. `at_said` is {'frame': 'generated', 'scope': {'column': 'prompts.said'}, 'index': -1}: the last token of that word in what this row generated, where it sits as an input (the decode call after the one that chose it, whose logits are the distribution over the next token). Whether the model said it at all is a reported result — two rows score and two come back `alignment_missing` — rather than an exception that ends the run. `at_stop` is {'frame': 'eos'}, the call where the row stopped; the step holds EOS off (`min_new_tokens` is its bound), so no row stops and every row says so.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -23,13 +23,12 @@
      "pos": {
       "frame": "generated",
       "scope": {
-       "variable": "said"
+       "column": "prompts.said"
       },
       "index": -1
      },
      "dims": [
-      "rows",
-      "pos",
+      "entries",
       "vocab_size"
      ]
     },
@@ -38,22 +37,18 @@
       "component": "lm_head_output"
      },
      "pos": {
-      "frame": "generated",
-      "scope": {
-       "segment": "eos"
-      },
-      "index": -1
+      "frame": "eos"
      },
      "dims": [
-      "rows",
-      "pos",
+      "entries",
       "vocab_size"
      ]
     }
    },
    "dataset": "prompts",
    "max_new_tokens": 6,
-   "min_new_tokens": 6
+   "min_new_tokens": 6,
+   "do_sample": false
   },
   "p_answer": {
    "kind": "op",
@@ -61,8 +56,7 @@
    "of": "answer.at_said",
    "dataset": "prompts",
    "dims": [
-    "rows",
-    "pos"
+    "entries"
    ],
    "token": "prompts.cf_answer"
   }

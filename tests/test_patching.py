@@ -1,6 +1,5 @@
 """patching.json end to end: its numbers per engine, the engines' agreement, remote, the way home, the output."""
 
-import io
 import json
 import os
 
@@ -10,7 +9,7 @@ import torch
 import clab
 from clab import Plan
 from clab.cli import main
-from conftest import BATCH_SIZE, ROOT, document, edited, plan_of, same, snapshot
+from conftest import BATCH_SIZE, ROOT, document, edited, plan_of, same, snapshot, stand_in
 
 SAVED = ["iia", "logit_diff"]
 
@@ -71,42 +70,13 @@ def test_remote_local_is_bit_equal_to_local(engines, filled):
 
 
 def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
-    """The way home, against this design's own model of a server (DESIGN.md section 10(b)), not nnsight's server
-    code: serialize the session, run the *deserialized* tracer with the model's persistent objects, take what its
-    outermost boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it and
-    push it into the caller's frame as RemoteBackend._push does. It shows a filled `Plan` survives that trip
-    whole, pickled by class reference with nothing of clab shipped by value; only a real server (M5) shows the
-    rest."""
+    """The way home, against this design's own model of a server (`conftest.stand_in`), not nnsight's server
+    code. It shows a filled `Plan` survives that trip whole, pickled by class reference with nothing of clab
+    shipped by value; only a real server (M5) shows the rest."""
     import cloudpickle
-    from nnsight.schema.request import RequestModel
-    from nnsight.tracing.backend import Backend
-    from nnsight.tracing.tracer import _saves, mark
-    from nnsight.tracing.util import push
 
-    engine = engines("nnterp", plan_of("patching").model)
-    trip = {}
-
-    class StandIn(Backend):
-        def __call__(self, tracer):
-            blob = RequestModel.serialize(tracer, compress=False)
-            trip["by_reference"] = b"clab.plan" in blob and b"_make_skeleton_class" not in blob
-            server = RequestModel.deserialize(blob, engine.model._remoteable_persistent_objects(), compress=False)
-            assert server.info is not None
-            server.execute(server.info.code)
-            result = {k: v for k, v in server.info.frame.f_locals.items() if id(v) in _saves()}
-            buffer = io.BytesIO()
-            torch.save(result, buffer)
-            buffer.seek(0)
-            result = torch.load(buffer, weights_only=False)
-            trip.update(names=sorted(result), types=[type(v).__name__ for v in result.values()])
-            for value in result.values():
-                mark(value)
-            assert tracer.info is not None
-            push(tracer.info.frame, result)
-
-    monkeypatch.setattr(type(engine.model), "_remote_backend", lambda self, *args: StandIn())
     plan = plan_of("patching")
-    home = engine.execute(plan, batch_size=BATCH_SIZE, remote=True)
+    home, trip = stand_in(engines("nnterp", plan.model), plan, monkeypatch)
     assert trip == {"by_reference": True, "names": ["plan"], "types": ["Plan"]}
     assert not any(m.split(".")[0] in ("clab", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
     assert home is not plan and plan.results == {}                 # what came back is the server's copy
@@ -127,6 +97,7 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": [],
                                           "shape": [4, 1], "dtype": "float32"}
     assert "rows" not in manifest["data"]["pairs"]
+    assert manifest["model"]["dtype"] == "float32"               # recorded though it is the default
 
 
 def test_a_table_labels_each_row(filled, tmp_path, monkeypatch):
@@ -198,9 +169,6 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
 def test_unserved_kinds_refuse_by_name_before_anything_runs(engines):
     plan = plan_of("das")
     with pytest.raises(NotImplementedError, match="fit: fit steps land in M4"):
-        engines("hooks", plan.model).execute(plan)
-    plan = plan_of("generated_answer")
-    with pytest.raises(NotImplementedError, match="answer: generate steps land in M3"):
         engines("hooks", plan.model).execute(plan)
 
 

@@ -1,5 +1,5 @@
 {
- "description": "Generation: the interchange at layer 0 of the prompt, then three greedy tokens, with the head read at each decode step — {'frame': 'generated', 'index': k}, swept so each step is a point. Does a patch made once at the prefill still move what the model says two tokens later? It reaches the continuation only through the cache. `patched` — the step itself — is the ids it generated, saved beside the metric.",
+ "description": "Generation: the interchange at layer 0 of the prompt, then three greedy tokens, with the head read at the last position of calls 0, 1 and 2 — {'frame': k, 'index': -1}, swept so each call is a point: the prefill's last prompt token, then generated tokens 0 and 1 as inputs, whose logits are the distributions over tokens 0, 1 and 2. Does a patch made once at the prefill still move what the model says two tokens later? It reaches the continuation only through the cache. `patched` — the step itself — is the ids it generated, saved beside the metric.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -31,7 +31,8 @@
    },
    "dataset": "pairs",
    "max_new_tokens": 3,
-   "min_new_tokens": 3
+   "min_new_tokens": 3,
+   "do_sample": false
   },
   "patched": [
    {
@@ -58,8 +59,7 @@
        "component": "lm_head_output"
       },
       "pos": {
-       "frame": "generated",
-       "index": 0
+       "index": -1
       },
       "dims": [
        "rows",
@@ -69,11 +69,12 @@
      }
     },
     "at": {
-     "index": 0
+     "frame": 0
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    },
    {
     "kind": "generate",
@@ -99,8 +100,8 @@
        "component": "lm_head_output"
       },
       "pos": {
-       "frame": "generated",
-       "index": 1
+       "frame": 1,
+       "index": -1
       },
       "dims": [
        "rows",
@@ -110,11 +111,12 @@
      }
     },
     "at": {
-     "index": 1
+     "frame": 1
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    },
    {
     "kind": "generate",
@@ -140,8 +142,8 @@
        "component": "lm_head_output"
       },
       "pos": {
-       "frame": "generated",
-       "index": 2
+       "frame": 2,
+       "index": -1
       },
       "dims": [
        "rows",
@@ -151,11 +153,12 @@
      }
     },
     "at": {
-     "index": 2
+     "frame": 2
     },
     "dataset": "pairs",
     "max_new_tokens": 3,
-    "min_new_tokens": 3
+    "min_new_tokens": 3,
+    "do_sample": false
    }
   ],
   "p_answer": [
@@ -164,7 +167,7 @@
     "op": "token_prob",
     "of": "patched.logits",
     "at": {
-     "index": 0
+     "frame": 0
     },
     "dataset": "pairs",
     "dims": [
@@ -178,7 +181,7 @@
     "op": "token_prob",
     "of": "patched.logits",
     "at": {
-     "index": 1
+     "frame": 1
     },
     "dataset": "pairs",
     "dims": [
@@ -192,7 +195,7 @@
     "op": "token_prob",
     "of": "patched.logits",
     "at": {
-     "index": 2
+     "frame": 2
     },
     "dataset": "pairs",
     "dims": [
@@ -210,8 +213,8 @@
  "document": "documents/generate_probe.json",
  "compiled": true,
  "sweeps": {
-  "index": {
-   "path": "steps.patched.reads.logits.pos.index",
+  "frame": {
+   "path": "steps.patched.reads.logits.pos.frame",
    "values": [
     0,
     1,

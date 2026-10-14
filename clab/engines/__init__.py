@@ -4,7 +4,8 @@ An engine loads its checkpoint in `__init__` from a plan's `model` block and reg
 `@engine("<name>")`. `execute(plan, ...)` is the single entry point and the only method an engine that
 ignores `steps.py` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine:
 one batch through the model with writes applied and reads gathered (`forward`), a generation (`generate`),
-the model's own unembedding (`readout`), what it cannot serve (`unserved`), its sizes and its tokenizer. An
+the model's own unembedding (`readout`), what it cannot serve (`unserved`), its sizes, its tokenizer, and the
+ids its generation stops on (`eos`). An
 engine holds its model and its configuration, nothing else: `spec` is the model block it loaded, and `name`
 the name it registered under.
 """
@@ -25,7 +26,7 @@ class Engine(Protocol):
     def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]: ...
 
     def generate(self, batch: dict, writes: list[dict], reads: list[dict],
-                 options: dict) -> tuple[Tensor, dict[str, Tensor]]: ...
+                 options: dict) -> tuple[Tensor, dict[str, Any]]: ...
 
     def readout(self, hidden: Tensor) -> Tensor: ...
 
@@ -35,6 +36,9 @@ class Engine(Protocol):
 
     @property
     def tokenizer(self) -> Any: ...
+
+    @property
+    def eos(self) -> list[int]: ...
 
 
 ENGINES: dict[str, Callable[[Model], Engine]] = {}
@@ -48,7 +52,5 @@ def engine(name: str) -> Callable:
         return cls
     return register
 
-
-DTYPES = {"fp32": "float32", "fp16": "float16", "bf16": "bfloat16"}
 
 from . import hooks, nnterp  # noqa: E402,F401

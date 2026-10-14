@@ -21,9 +21,7 @@
       "component": "layer_output",
       "layers": 0
      },
-     "pos": {
-      "all": true
-     },
+     "pos": {},
      "dims": [
       "entries",
       "hidden_size"
