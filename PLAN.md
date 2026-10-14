@@ -540,3 +540,25 @@ forward-only documents.
   <name>... [--csv]`** (`plan.table(...)` printed). Both are `Plan.load` plus
   one method.
 - `table` omits `at` on an unswept value (stated in FORMAT.md).
+
+## 12. Roadmap (deferred, not scheduled)
+
+Raised and agreed as worth doing; not assigned to a milestone. Bring them up
+when the owner asks for open items.
+
+- **Provenance in `manifest.json`** — the source document's `sha256`; a
+  `sha256` per loaded bundle; `device`, CPU thread count, GPU name/driver and
+  deterministic-algorithms flag; a run `seed` set at session start
+  (`execute(seed=0)`) for sampled generation; the command line; on remote
+  runs the server's versions and job id (M5). And **`clab rerun <out>
+  [--check]`**: a dump is runnable as-is, and `--check` compares every result
+  to the original bit-for-bit, naming any difference and the manifest fields
+  that differ.
+- **Hub datasets** (`hf` spec; rows materialize where first touched; naming a
+  dataset in `saves`).
+- **`fit` eval as named substitutions** (`fit.held_out.iia`, `fit.train.iia`)
+  to remove the root repetition in das/dbm — after M4 has run one fit.
+- **Probes** via the `linear` featurizer and label-vocabulary metrics (M4+).
+- **Named sweeps** to zip two different fields, if a document ever needs it.
+- Readability: the `cx` dict threaded through `compiler.py`;
+  `output.elements`.
