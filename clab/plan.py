@@ -400,24 +400,38 @@ class Optimizer(Record):
 
 
 class EarlyStop(Record):
-    """End the fit after `patience` epochs without improvement of a body op's mean, scored on the training data."""
+    """End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
+    scored on the training rows after each epoch."""
     metric: str
     mode: Literal["max", "min"]
     patience: Swept[int]
 
 
-class Eval(Record):
-    """After the fit, run the body once with each dataset `data` maps read as the other (`{"train": "test"}`)."""
-    data: dict[str, str]
-
-
 class Fit(Record):
-    """Train the featurizers `train` names. Each epoch runs the body `steps` over minibatches of `batch_size`
-    rows and minimizes the weighted sum `objective` (`{term: weight}`; a term is a body op, averaged, or a
-    trained featurizer's scalar, `<featurizer>.<scalar>`). Inside the body a trained featurizer's name and
-    `<fit>.<featurizer>` are the one being trained. Afterwards `<fit>.<featurizer>` is the trained one,
-    `<fit>.<op>` a body op under `eval`, `<fit>.<step>.<read>` a body read, and `<fit>.history.<op>` the
-    body op's mean per epoch."""
+    """Train the featurizers `train` names, inside the run, through the frozen model.
+
+    Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
+    optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
+    `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
+    and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
+    weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
+    featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
+    model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
+    back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
+    in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
+    that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
+    is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
+    the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
+    "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
+    body's forwards run in batches of `batch_size`, whatever the run's batch size.
+
+    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
+    name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
+    is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
+    featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<read>` a body value from
+    the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
+    of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+    list of points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]
@@ -427,7 +441,9 @@ class Fit(Record):
     optimizer: Optimizer
     steps: "dict[str, Entry]"
     early_stop: EarlyStop | None = None
-    eval: Eval | None = None
+    eval: dict[str, dict[str, str]] = {}
+    """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
+    it trained on"""
     at: dict[str, int] = derived({}, AT)
 
 
@@ -459,6 +475,8 @@ class Featurizer(Record):
     at: dict[str, int] = derived({}, AT)
     bundle: SkipJsonSchema[dict[str, Tensor] | None] = derived(
         None, "the tensors of the bundle `file_path` names, checked against its header", exclude=True)
+    header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
+                                                  "checks the model's width against")
 
     @model_validator(mode="after")
     def _fields(self):
@@ -548,7 +566,9 @@ class Plan(Record):
             for f in points(entry):
                 fields = f.model_extra or {}
                 if fields.get("file_path") is not None and f.bundle is None:
-                    f.bundle = featurizers.bundle(corpus_root(self), f.kind, fields, self.model)
+                    classes = featurizers.labels({n: d.rows or [] for n, d in self.data.items()}, fields["classes"]) \
+                        if "classes" in fields else None
+                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model, classes)
         return self
 
     @field_serializer("document", when_used="json")
@@ -627,6 +647,11 @@ def points(entry: Any) -> list:
     return entry if isinstance(entry, list) else [entry]
 
 
+def agreeing(entry: Any, at: dict) -> Any:
+    """The point of `entry` that agrees with the point `at` on the entry's own axes."""
+    return next(p for p in points(entry) if all(at.get(k) == i for k, i in p.at.items()))
+
+
 def coordinate(plan: Plan, at: dict) -> Any:
     """A point's key in a swept result: its axis's value (a list as a tuple), or the tuple of its axes' values
     in axis order."""
@@ -641,12 +666,76 @@ def labelled(plan: Plan, at: dict, labels: bool = True) -> str:
 
 
 def dims_of(plan: Plan, name: str) -> list[str]:
-    """The axes of the value `name`: a step's value, or a step's read."""
+    """The axes of the value `name`: a step's value, a step's read, or a fit's member (a trained featurizer,
+    saved as its bundle, has none; `history.<op>` is per epoch)."""
+    return dims_in(plan.steps, name)
+
+
+def dims_in(steps: dict, name: str) -> list[str]:
     thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
+    step = points(steps[thing])[0]
+    if step.kind == "fit":
+        inner, _, rest = member.partition(".")
+        return [] if inner in step.train else ["epochs"] if inner == "history" else dims_in(step.steps, rest)
     if member:
         return step.reads[member].dims
     return ["rows", "new"] if step.kind == "generate" else step.dims
+
+
+def walk(steps: dict, prefix: str = ""):
+    """Every step and point, a fit's body steps after the fit, each with its dotted name."""
+    for name, entry in steps.items():
+        for step in points(entry):
+            yield prefix + name, step
+            if step.kind == "fit":
+                yield from walk(step.steps, f"{prefix}{name}.")
+
+
+def declared(plan: Plan, ref: str) -> str:
+    """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
+    return ref if ref in plan.featurizers else ref.partition(".")[2]
+
+
+def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = None) -> Plan:
+    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
+    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
+    dataset a substitution `swap` maps read under the body's name for it."""
+    entry = plan.steps[fit]
+    fits = [agreeing(entry, at)] if at is not None else points(entry)
+    one = at is not None or not isinstance(entry, list)
+    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
+    swap = swap or {}
+    return plan.model_copy(update={"steps": {**plan.steps, **steps},
+                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
+
+
+def probe_of(plan: Plan, name: str) -> str:
+    """The probe whose `encode` made value `name`'s `classes` axis, as referenced where it was encoded."""
+    thing, _, member = name.partition(".")
+    step = points(plan.steps[thing])[0]
+    if step.kind == "op":
+        return probe_of(plan, step.of)
+    if step.kind == "fit":
+        return probe_of(body_view(plan, thing), member.partition(".")[2])
+    return next(o.featurizer for o in reversed(step.reads[member].ops) if o.op == "encode" and o.featurizer)
+
+
+def kind_of(plan: Plan, ref: str) -> str:
+    """The kind of the featurizer a reference names."""
+    return points(plan.featurizers[declared(plan, ref)])[0].kind
+
+
+def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, "Op"]]]:
+    """Every op that runs in a declared featurizer's space or encodes with it, by featurizer: the record's
+    dotted name, its site, its step's point and the op."""
+    found: dict[str, list] = {}
+    for name, step in walk(plan.steps):
+        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
+            for o in record.ops:
+                if o.featurizer is not None:
+                    found.setdefault(declared(plan, o.featurizer), []).append(
+                        (f"{name}.{key}", record.site, step.at, o))
+    return found
 
 
 # -- sweeps ---------------------------------------------------------------------

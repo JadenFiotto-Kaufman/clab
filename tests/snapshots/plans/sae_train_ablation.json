@@ -1,0 +1,374 @@
+{
+ "description": "Ablate latents of the dictionary sae_train.json trained, as sae_feature_ablation.json does with the fixture: the residual stream at layer 0 is read through the trained sparse autoencoder, error term kept exactly, and in `zeroed` one latent at a time is set to zero at the last position (`select: {features: [j]}`, swept). A latent that was already zero on a prompt changes nothing there, to the bit; `base.latents`, saved, says which were. Run sae_train.json with --out documents/artifacts first; this loads what it wrote, its header checked key by key. The model is random, so the latents mean nothing.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "featurizers": {
+  "dictionary": {
+   "kind": "sae",
+   "header": {
+    "component": "layer_output",
+    "document": "sae_train",
+    "format": "clab/1",
+    "kind": "sae",
+    "layer": "0",
+    "model.dtype": "float32",
+    "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "width": "16"
+   },
+   "file_path": "documents/artifacts/fit.dictionary.safetensors"
+  }
+ },
+ "steps": {
+  "base": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "reads": {
+    "latents": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "encode",
+       "featurizer": "dictionary"
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "features"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "zeroed": [
+   {
+    "kind": "forward",
+    "input": "prompts.input",
+    "writes": {
+     "ablate": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "dictionary",
+        "select": {
+         "features": [
+          0
+         ]
+        },
+        "with": 0.0
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "features": 0
+    },
+    "dataset": "prompts"
+   },
+   {
+    "kind": "forward",
+    "input": "prompts.input",
+    "writes": {
+     "ablate": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "dictionary",
+        "select": {
+         "features": [
+          1
+         ]
+        },
+        "with": 0.0
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "features": 1
+    },
+    "dataset": "prompts"
+   },
+   {
+    "kind": "forward",
+    "input": "prompts.input",
+    "writes": {
+     "ablate": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "dictionary",
+        "select": {
+         "features": [
+          2
+         ]
+        },
+        "with": 0.0
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "features": 2
+    },
+    "dataset": "prompts"
+   },
+   {
+    "kind": "forward",
+    "input": "prompts.input",
+    "writes": {
+     "ablate": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "featurizer": "dictionary",
+        "select": {
+         "features": [
+          3
+         ]
+        },
+        "with": 0.0
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "features": 3
+    },
+    "dataset": "prompts"
+   }
+  ],
+  "logit_diff": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 0
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 1
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 2
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 3
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer"
+   }
+  ],
+  "p_answer": [
+   {
+    "kind": "op",
+    "op": "token_prob",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 0
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "token": "prompts.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "token_prob",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 1
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "token": "prompts.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "token_prob",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 2
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "token": "prompts.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "token_prob",
+    "of": "zeroed.logits",
+    "at": {
+     "features": 3
+    },
+    "dataset": "prompts",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "token": "prompts.cf_answer"
+   }
+  ]
+ },
+ "saves": [
+  "logit_diff",
+  "p_answer",
+  "base.latents"
+ ],
+ "document": "documents/sae_train_ablation.json",
+ "compiled": true,
+ "sweeps": {
+  "features": {
+   "path": "steps.zeroed.writes.ablate.ops.0.select.features",
+   "values": [
+    [
+     0
+    ],
+    [
+     1
+    ],
+    [
+     2
+    ],
+    [
+     3
+    ]
+   ]
+  }
+ }
+}

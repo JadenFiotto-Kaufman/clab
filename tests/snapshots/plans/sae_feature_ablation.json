@@ -14,6 +14,17 @@
  "featurizers": {
   "dictionary": {
    "kind": "sae",
+   "header": {
+    "component": "layer_output",
+    "document": "sae",
+    "format": "clab/1",
+    "kind": "sae",
+    "layer": "0",
+    "model.dtype": "float32",
+    "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "width": "16"
+   },
    "file_path": "documents/artifacts/sae.safetensors"
   }
  },

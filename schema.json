@@ -153,7 +153,7 @@
   },
   "EarlyStop": {
    "additionalProperties": false,
-   "description": "End the fit after `patience` epochs without improvement of a body op's mean, scored on the training data.",
+   "description": "End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,\nscored on the training rows after each epoch.",
    "properties": {
     "metric": {
      "title": "Metric",
@@ -187,24 +187,6 @@
    "title": "EarlyStop",
    "type": "object"
   },
-  "Eval": {
-   "additionalProperties": false,
-   "description": "After the fit, run the body once with each dataset `data` maps read as the other (`{\"train\": \"test\"}`).",
-   "properties": {
-    "data": {
-     "additionalProperties": {
-      "type": "string"
-     },
-     "title": "Data",
-     "type": "object"
-    }
-   },
-   "required": [
-    "data"
-   ],
-   "title": "Eval",
-   "type": "object"
-  },
   "Featurizer": {
    "additionalProperties": true,
    "description": "A space a read or write happens in: `{\"kind\": <kind>, ...its fields}` (see Featurizer kinds).",
@@ -222,7 +204,7 @@
   },
   "Fit": {
    "additionalProperties": false,
-   "description": "Train the featurizers `train` names. Each epoch runs the body `steps` over minibatches of `batch_size`\nrows and minimizes the weighted sum `objective` (`{term: weight}`; a term is a body op, averaged, or a\ntrained featurizer's scalar, `<featurizer>.<scalar>`). Inside the body a trained featurizer's name and\n`<fit>.<featurizer>` are the one being trained. Afterwards `<fit>.<featurizer>` is the trained one,\n`<fit>.<op>` a body op under `eval`, `<fit>.<step>.<read>` a body read, and `<fit>.history.<op>` the\nbody op's mean per epoch.",
+   "description": "Train the featurizers `train` names, inside the run, through the frozen model.\n\nEach trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the\noptimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body\n`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`\nand the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the\nweighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained\nfeaturizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the\nmodel's weights are never touched. After each optimizer step a featurizer with a constraint is projected\nback onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row\nin scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is\nthat epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`\nis judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and\nthe body runs once, scored, per named substitution of `eval`, in listed order: `{\"held_out\": {\"train\":\n\"test\"}, \"train\": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The\nbody's forwards run in batches of `batch_size`, whatever the run's batch size.\n\nThe body is a scope of its own that sees every value produced before the fit; a trained featurizer's\nname and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses\nis one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained\nfeaturizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<read>` a body value from\nthe run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any\nof the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a\nlist of points.",
    "properties": {
     "kind": {
      "const": "fit",
@@ -341,15 +323,16 @@
      "default": null
     },
     "eval": {
-     "anyOf": [
-      {
-       "$ref": "#/$defs/Eval"
+     "additionalProperties": {
+      "additionalProperties": {
+       "type": "string"
       },
-      {
-       "type": "null"
-      }
-     ],
-     "default": null
+      "type": "object"
+     },
+     "default": {},
+     "description": "each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data\nit trained on",
+     "title": "Eval",
+     "type": "object"
     }
    },
    "required": [

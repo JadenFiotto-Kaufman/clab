@@ -206,14 +206,32 @@ Ops). The step's value is the op's result; a step holds exactly one op, and chai
 - `optimizer: optimizer`
 - `steps: object of step`
 - `early_stop: early_stop or null = None`
-- `eval: eval or null = None`
+- `eval: object of object of str = {}`
 
-Train the featurizers `train` names. Each epoch runs the body `steps` over minibatches of `batch_size`
-rows and minimizes the weighted sum `objective` (`{term: weight}`; a term is a body op, averaged, or a
-trained featurizer's scalar, `<featurizer>.<scalar>`). Inside the body a trained featurizer's name and
-`<fit>.<featurizer>` are the one being trained. Afterwards `<fit>.<featurizer>` is the trained one,
-`<fit>.<op>` a body op under `eval`, `<fit>.<step>.<read>` a body read, and `<fit>.history.<op>` the
-body op's mean per epoch.
+Train the featurizers `train` names, inside the run, through the frozen model.
+
+Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
+optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
+`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
+and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
+weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
+featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
+model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
+back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
+in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
+that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
+is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
+the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
+"test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
+body's forwards run in batches of `batch_size`, whatever the run's batch size.
+
+The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
+name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
+is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
+featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<read>` a body value from
+the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
+of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
+list of points.
 
 ### `fit` blocks
 
@@ -231,13 +249,8 @@ The fit's optimizer, over the trained featurizers' parameters only.
 - `mode: one of 'max', 'min'`
 - `patience: int or a sweep`
 
-End the fit after `patience` epochs without improvement of a body op's mean, scored on the training data.
-
-`eval`:
-
-- `data: object of str`
-
-After the fit, run the body once with each dataset `data` maps read as the other (`{"train": "test"}`).
+End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
+scored on the training rows after each epoch.
 
 ## Derived fields
 
@@ -249,7 +262,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
-- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header)
+- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against)
 
 ## Ops
 
@@ -272,23 +285,25 @@ value's layout and change its contents; **transforms** turn each example's value
 different layout (logits from a residual stream, tokens from logits, text from ids).
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
-dataset column of one token per row, resolved through the value's own vocabulary; `Featurizer` a
+dataset column, resolved through the value's own vocabulary: one token per row against logits, or one of a
+probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
 featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
 arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": [...]}}` keeps) and the change is written back. `renormalize`'s reference is the
-value at the site before the step's writes.
+`{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
+delta, so an op that changes no coordinate changes nothing to the bit. `encode` reads the coordinates
+themselves. `renormalize`'s reference is the value at the site before the step's writes.
 
 ### Metrics
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `match` | `expected: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size; removes vocab_size | 1 where the most likely token is `expected`, else 0. |
-| `logit_diff` | `a: Tokens`, `b: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size; removes vocab_size | The logit of `a` less the logit of `b`. |
-| `token_prob` | `token: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size; removes vocab_size | The probability of `token`. |
-| `token_logit` | `token: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size; removes vocab_size | The logit of `token`. |
-| `cross_entropy` | `target: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size; removes vocab_size | The negative log-probability of `target`, in nats. |
-| `kl` | `against: Value` | needs vocab_size; removes vocab_size | KL(of ‖ against) between the two next-token distributions, in nats. |
-| `js` | `against: Value` | needs vocab_size; removes vocab_size | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
+| `match` | `expected: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected`, else 0. |
+| `logit_diff` | `a: Tokens`, `b: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size or classes; removes its vocabulary axis | The logit of `a` less the logit of `b`. |
+| `token_prob` | `token: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token`. |
+| `token_logit` | `token: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
+| `cross_entropy` | `target: Tokens`, `token_form: one of 'spaced', 'bare' = 'spaced'` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target`, in nats. |
+| `kl` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats. |
+| `js` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
 
 ### Reductions
 
@@ -314,7 +329,7 @@ value at the site before the step's writes.
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
-| `encode` | `featurizer: Featurizer` | needs hidden_size; removes hidden_size; adds features | The value's coordinates in `featurizer`'s space. |
+| `encode` | `featurizer: Featurizer` | needs hidden_size; removes hidden_size; adds features | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class). |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
 | `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
 | `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
@@ -361,16 +376,31 @@ engine's business; the name says only what the value is.
 
 ## Featurizer kinds
 
-Featurizer kinds: the fields each kind takes, and what it is.
+Featurizer kinds: the fields each kind takes, what an instance is, and how a value moves in and out of its space.
 
-A featurizer is a space a read or write happens in. Its kind's signature is
-its contract: the document fields it takes, with `width` (the feature width
-of the sites it is used at) supplied by the run. An instance is built where
-the model is, at first use: drawn from its `seed` (else the fit's seed, else
-0), or from the bundle a `file_path` names, which compile reads into the plan
-and checks key by key against the document. A fit's objective may name a
-featurizer's scalar as `<featurizer>.<scalar>`: a gate's `mask` is the mean of
-its soft mask.
+A featurizer is a space a read or write happens in. Its kind's signature is its contract: the document fields
+it takes, with `width` (the feature width of the sites it is used at) and `bundle` (the tensors its `file_path`
+names) supplied by the run, and for a probe `labels` (its class list). An instance is a dict of tensors, never
+an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
+at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
+from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
+is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
+is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
+autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
+a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over what the body's `encode` reads of it saw in that run of the body, which
+the instance keeps while a fit trains it).
+
+A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
+saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
+`layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
+saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
+fields and the model when the plan compiles, the site at every use, and `width` against the model's size
+before any forward.
+
+Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
+value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
+has one, `SETTLE`, `PROJECT`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
 
 ### `subspace`
 
@@ -379,34 +409,50 @@ its soft mask.
 - `seed: int or null = None`
 - `file_path: str or null = None`
 
-A rank-`k` subspace: a Haar-random rotation, Cayley-parametrized, its first `k` columns the basis.
+A rank-`k` subspace: the first `k` columns of a rotation `origin @ cayley(theta)`. `origin` is a
+Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains) starts at zero, so an
+untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
+`[width, k]` basis.
 
 ### `gate`
 
-- `temperature: dict or null = None`
+- `temperature: {start: float, end: float} or null = None`
+- `file_path: str or null = None`
 
-A mask over units, soft (σ(θ/T)) while a fit trains it and hard (θ > 0) when scored.
-
-`temperature: {"start", "end"}` anneals T linearly over the fit's epochs.
+A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a fit trains it, hard
+(θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
+(default 1).
 
 ### `pca`
 
 - `k: int`
 - `file_path: str`
 
-The top-`k` principal directions and mean a `pca` op saved, loaded from its bundle.
+The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
+coordinates are centred on the mean.
 
 ### `sae`
 
-- `file_path: str`
+- `latents: int or null = None`
+- `file_path: str or null = None`
+- `seed: int or null = None`
 
-A sparse autoencoder with its error term kept exactly, loaded from its bundle.
+A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
+dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
+`W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
+both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
+error term exactly. Its scalars, over every vector the body's `encode` reads of it saw in that run of the
+body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
 ### `linear`
 
 - `classes: str`
+- `file_path: str or null = None`
 
-A probe, `h @ W + b`; its output axis is the distinct values of the `classes` column, sorted.
+A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
+the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
+those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
+read with `encode` and never written through.
 
 ## Names and scoping
 
@@ -441,8 +487,8 @@ One file per save, named after it: `<name>.safetensors` when the value is a tens
 bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
-nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`) carries
-the header that featurizer checks.
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
+fit's trained featurizer) carries the header that featurizer checks.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the

@@ -1,0 +1,105 @@
+{
+  "description": "Ablate latents of the dictionary sae_train.json trained, as sae_feature_ablation.json does with the fixture: the residual stream at layer 0 is read through the trained sparse autoencoder, error term kept exactly, and in `zeroed` one latent at a time is set to zero at the last position (`select: {features: [j]}`, swept). A latent that was already zero on a prompt changes nothing there, to the bit; `base.latents`, saved, says which were. Run sae_train.json with --out documents/artifacts first; this loads what it wrote, its header checked key by key. The model is random, so the latents mean nothing.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {
+    "prompts": {
+      "path": "weekdays/train"
+    }
+  },
+  "sites": {
+    "target": {
+      "component": "layer_output",
+      "layers": 0
+    },
+    "head": {
+      "component": "lm_head_output"
+    }
+  },
+  "featurizers": {
+    "dictionary": {
+      "kind": "sae",
+      "file_path": "documents/artifacts/fit.dictionary.safetensors"
+    }
+  },
+  "steps": {
+    "base": {
+      "kind": "forward",
+      "input": "prompts.input",
+      "reads": {
+        "latents": {
+          "site": "target",
+          "pos": -1,
+          "ops": [
+            {
+              "op": "encode",
+              "featurizer": "dictionary"
+            }
+          ]
+        }
+      }
+    },
+    "zeroed": {
+      "kind": "forward",
+      "input": "prompts.input",
+      "writes": {
+        "ablate": {
+          "site": "target",
+          "pos": -1,
+          "ops": [
+            {
+              "op": "swap",
+              "with": 0.0,
+              "featurizer": "dictionary",
+              "select": {
+                "features": {
+                  "sweep": [
+                    [
+                      0
+                    ],
+                    [
+                      1
+                    ],
+                    [
+                      2
+                    ],
+                    [
+                      3
+                    ]
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      "reads": {
+        "logits": {
+          "site": "head",
+          "pos": -1
+        }
+      }
+    },
+    "logit_diff": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "zeroed.logits",
+      "a": "prompts.cf_answer",
+      "b": "prompts.base_answer"
+    },
+    "p_answer": {
+      "kind": "op",
+      "op": "token_prob",
+      "of": "zeroed.logits",
+      "token": "prompts.cf_answer"
+    }
+  },
+  "saves": [
+    "logit_diff",
+    "p_answer",
+    "base.latents"
+  ]
+}

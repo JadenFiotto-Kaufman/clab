@@ -100,15 +100,6 @@ def refused(engines, plan, kind: str = "hooks"):
     return str(caught.value), len(calls)
 
 
-@pytest.mark.parametrize("name, message", [
-    ("random_subspace", "counterfactual.v_cf: op 'encode' lands in M4"),
-    ("das", "fit: fit steps land in M4"),
-])
-def test_unserved_documents_refuse_before_any_forward(engines, name, message):
-    text, forwards = refused(engines, plan_of(name))
-    assert text.startswith(message) and forwards == 0, text
-
-
 @pytest.mark.parametrize("name, change, message", [
     ("patching", lambda d: d["sites"]["target"].update(layers=99), "counterfactual.v_cf: layer 99; the model has 2 layers"),
     ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": [999]}),

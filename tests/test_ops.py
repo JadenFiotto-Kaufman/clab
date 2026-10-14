@@ -114,7 +114,7 @@ def test_out_dims_follows_each_ops_declaration():
     assert ops.out_dims("match", ["rows", "pos", "vocab_size"], {}) == ["rows", "pos"]
     assert ops.out_dims("mean", ["entries", "hidden_size"], {"over": None}) == ["hidden_size"]
     assert ops.out_dims("readout", ["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "rows", "pos", "vocab_size"]
-    with pytest.raises(ValueError, match="needs a value with a 'vocab_size' axis"):
+    with pytest.raises(ValueError, match="needs a value with a 'vocab_size' or 'classes' axis"):
         ops.out_dims("match", ["rows", "pos", "hidden_size"], {})
 
 

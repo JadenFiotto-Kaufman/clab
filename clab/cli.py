@@ -29,11 +29,11 @@ RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, o
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
 STEPS = {name: model for name, model in plan.KINDS.items()}
-FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop, "eval": plan.Eval}
+FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 
 
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
-         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop", plan.Eval: "eval",
+         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
          plan.Entry: "step"}
 
 
@@ -68,8 +68,14 @@ def summary(thing) -> str:
 
 def axes(name: str) -> str:
     a = ops.DECLARED[name]
-    parts = [f"{verb} {', '.join(a[verb]) if isinstance(a[verb], tuple) else 'the axes `' + a[verb] + '` names'}"
-             for verb in ("needs", "removes", "adds") if a[verb]]
+
+    def listed(verb: str) -> str:
+        if not isinstance(a[verb], tuple):
+            return f"the axes `{a[verb]}` names"
+        if verb == "removes" and a[verb] == ops.VOCABULARY:
+            return "its vocabulary axis"
+        return ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb])
+    parts = [f"{verb} {listed(verb)}" for verb in ("needs", "removes", "adds") if a[verb]]
     return "; ".join(parts) or "keeps the layout"
 
 

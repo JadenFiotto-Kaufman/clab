@@ -237,7 +237,8 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
         assert f.metadata() == {"format": "clab/1", "kind": "pca", "k": "4",
                                 "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
                                 "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
-                                "model.dtype": "float32"}
+                                "model.dtype": "float32", "component": "layer_output", "layer": "0", "width": "16",
+                                "document": "pca_harvest"}
 
 
 def test_the_cli_runs_remote_local(tmp_path, filled):

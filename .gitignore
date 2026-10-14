@@ -3,3 +3,5 @@ __pycache__/
 uv.lock
 out/
 clab.egg-info/
+documents/artifacts/*
+!documents/artifacts/sae.safetensors

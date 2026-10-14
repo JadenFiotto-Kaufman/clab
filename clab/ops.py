@@ -28,11 +28,13 @@ value's layout and change its contents; **transforms** turn each example's value
 different layout (logits from a residual stream, tokens from logits, text from ids).
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
-dataset column of one token per row, resolved through the value's own vocabulary; `Featurizer` a
+dataset column, resolved through the value's own vocabulary: one token per row against logits, or one of a
+probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
 featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
 arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": [...]}}` keeps) and the change is written back. `renormalize`'s reference is the
-value at the site before the step's writes.
+`{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
+delta, so an op that changes no coordinate changes nothing to the bit. `encode` reads the coordinates
+themselves. `renormalize`'s reference is the value at the site before the step's writes.
 """
 
 import inspect
@@ -42,7 +44,7 @@ from typing import Annotated, Any, Callable, Literal
 import torch
 from torch import Tensor
 
-from . import registry
+from . import featurizers, registry
 from .address import EXAMPLE_AXES, pos_axis
 
 Value = Annotated[Tensor, "Value"]
@@ -53,6 +55,8 @@ Featurizer = Annotated[dict, "Featurizer"]
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
 # `eos`: the ids the generation `of` came from stops on.
 SUPPLIED = ("engine", "original", "dims", "eos")
+# A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
+VOCABULARY = ("vocab_size", "classes")
 
 OPS: dict[str, Callable] = {}
 GROUPS = ("metrics", "reductions", "edits", "transforms")
@@ -95,8 +99,9 @@ def out_dims(name: str, dims: list[str], args: dict) -> list[str]:
     """The axes of op `name`'s result, on a value laid out `dims`."""
     axes = DECLARED[name]
     for axis in axes["needs"]:
-        if axis not in dims:
-            raise ValueError(f"{name!r} needs a value with a {axis!r} axis; this one is {dims}")
+        if not set(axis if isinstance(axis, tuple) else (axis,)) & set(dims):
+            raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, axis)) if isinstance(axis, tuple) else repr(axis)} "
+                             f"axis; this one is {dims}")
     removes = axes["removes"]
     if isinstance(removes, str):
         removes = args.get(removes)
@@ -142,7 +147,9 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
     """`value` with `writes` applied in listed order, out of place.
 
     Each write's ops run on its selection of the current value; `original` is
-    the selection as it was before any of these writes. A write narrows at most
+    the selection as it was before any of these writes. An op with a `featurizer` (an instance) runs on the
+    selection's coordinates in its space, on the features its `select` keeps, and the change is written back
+    (`featurizers.within`). A write narrows at most
     one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
@@ -157,9 +164,14 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
-            if o["featurizer"] is not None:
-                raise NotImplementedError(f"M4: op {o['op']!r} in the space of featurizer {o['featurizer']!r}")
-            new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
+            f, features = o["featurizer"], o.get("features")
+            if f is None:
+                new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
+                continue
+            before = featurizers.encode(f, original)
+            before = before if features is None else before.index_select(-1, features)
+            new = featurizers.within(f, new, lambda z, o=o, before=before: call(
+                o["op"], z, o["args"], original=before, dims=o["dims"]), features)
         for dim, index in w["select"].items():
             new = new.to(current.dtype)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \
@@ -223,8 +235,8 @@ def readout(of: Tensor, engine: Any) -> Tensor:
 
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("features",))
 def encode(of: Tensor, featurizer: Featurizer) -> Tensor:
-    """The value's coordinates in `featurizer`'s space."""
-    raise NotImplementedError("M4")
+    """The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class)."""
+    return featurizers.read(featurizer, of)
 
 
 # -- reductions ----------------------------------------------------------------
@@ -274,47 +286,47 @@ def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
     return x.gather(-1, _per_row(ids, x, dims).expand(*x.shape[:-1], 1)).squeeze(-1)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """1 where the most likely token is `expected`, else 0."""
     hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
     return hit.masked_fill(_missing(of), float("nan"))
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
                token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `a` less the logit of `b`."""
     return _pick(of, a, dims) - _pick(of, b, dims)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The probability of `token`."""
     return _pick(of.softmax(-1), token, dims)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The logit of `token`."""
     return _pick(of, token, dims)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
                   token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """The negative log-probability of `target`, in nats."""
     return -_pick(of.log_softmax(-1), target, dims)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def kl(of: Tensor, against: Value) -> Tensor:
     """KL(of ‖ against) between the two next-token distributions, in nats."""
     p, q = of.log_softmax(-1), against.log_softmax(-1)
     return (p.exp() * (p - q)).sum(-1)
 
 
-@op("metrics", needs=("vocab_size",), removes=("vocab_size",))
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def js(of: Tensor, against: Value) -> Tensor:
     """The Jensen–Shannon divergence between the two distributions, in nats (at most log 2)."""
     p, q = of.log_softmax(-1), against.log_softmax(-1)

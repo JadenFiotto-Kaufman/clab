@@ -1,5 +1,5 @@
 {
-  "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of 16 pairs: the counterfactual read through the rotation, and swapped into the base in its space. The same two declared interventions are then scored on the training pairs after it. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one — and the held-out run is the body with `test` in place of `train`.",
+  "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of up to 16 pairs (the training split has 2, so one minibatch an epoch): the counterfactual read through the rotation, and swapped into the base in its space. After training, the body runs once per named eval: `held_out`, with `test` in place of `train`, and `train`, on the pairs it trained on; `fit.held_out.iia` and `fit.train.iia` are the body's iia in each. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -38,7 +38,7 @@
       "seed": 0,
       "optimizer": {"name": "adamw", "lr": 0.001, "weight_decay": 0.0},
       "early_stop": {"metric": "iia", "mode": "max", "patience": 3},
-      "eval": {"data": {"train": "test"}},
+      "eval": {"held_out": {"train": "test"}, "train": {}},
       "steps": {
         "counterfactual": {
           "kind": "forward",
@@ -60,17 +60,7 @@
           "target": "train.cf_answer"
         }
       }
-    },
-    "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": "cf_read"},
-    "patched": {"kind": "forward", "input": "train.input", "interventions": "das"},
-    "iia": {
-      "kind": "op",
-      "op": "logit_diff",
-      "of": "patched.logits",
-      "a": "train.cf_answer",
-      "b": "train.base_answer"
-    },
-    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"}
+    }
   },
-  "saves": ["fit.iia", "iia", "ce", "fit.rot"]
+  "saves": ["fit.held_out.iia", "fit.train.iia", "fit.train.ce", "fit.rot"]
 }
