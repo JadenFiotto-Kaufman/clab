@@ -604,6 +604,13 @@ when the owner asks for open items.
   `"generated"` applies it at each call independently; the operand is
   `[rows, 1, ...]` or a broadcast vector; a row that already stopped is
   skipped there and recorded as missing. Both engines agree to the bit.
+  A write beyond the prefill may take a `column`/`text` scope: it is
+  resolved online, call by call, from the growing continuation, and lands
+  at the calls fed the first occurrence's selected tokens; a later second
+  occurrence is reported as `alignment_ambiguous`, not re-applied; a row
+  that never says the text is recorded missing. Refused for writes, because
+  unknown until the row ends: a negative index over several calls, `"eos"`,
+  and negative frames.
 - `variable`, `segment`, `span`, `all` (as keys), `prompt` and the old
   "generated index k = the call that chose token k" convention are gone.
   Migration round four touches every document with a dict `pos` and the
