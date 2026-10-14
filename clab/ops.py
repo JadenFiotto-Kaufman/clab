@@ -16,12 +16,18 @@ it appends (`adds`). Compile reads these to lay out every value, and refuses an
 op inside a read or write that aggregates over `rows`: there it sees one batch,
 so it must act per example (make it a step after the forward).
 
+Ops fall in three groups by what they do to the rows axis: **metrics** keep
+it (one value per example: `match` returns a 0/1 per row and position, and the
+number is a `mean` step after it), **reductions** remove it, **edits** keep
+the whole layout.
+
 A parameter's annotation says how a document fills it: `Value` is a named
 value or a number, `Tokens` a dataset column of one token per row (resolved
 through the value's own vocabulary, inside the run), `Featurizer` a
 featurizer's name; anything else is a literal. Three parameters are filled by
-the run, never by a document: `engine`, `original` (inside a write, the value
-at the site before its writes) and `dims` (the axis names of `of`). A trailing
+the run, never by a document: `engine` (the engine running the document: the
+op reads its model or tokenizer), `original` (inside a write, the value at the
+site before its writes) and `dims` (the axis names of `of`). A trailing
 underscore is dropped from a parameter's document spelling (`with_` is
 `"with"`). Inside a read or write, `featurizer` and `features` are arguments of
 every op: the op runs on the value's coordinates in that featurizer's space
@@ -35,12 +41,12 @@ from typing import Annotated, Any, Callable, Literal
 import torch
 from torch import Tensor
 
+from . import registry
 from .address import EXAMPLE_AXES, pos_axis
-from .registry import registers
 
-Value = Annotated[Tensor, "a named value, or a number"]
-Tokens = Annotated[Tensor, "a dataset column, one token per row"]
-Featurizer = Annotated[dict, "a featurizer's name"]
+Value = Annotated[Tensor, "Value"]
+Tokens = Annotated[Tensor, "Tokens"]
+Featurizer = Annotated[dict, "Featurizer"]
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
@@ -53,14 +59,28 @@ AXES: dict[str, dict] = {}
 def op(needs: tuple = (), removes: tuple | str = (), adds: tuple = ()):
     def register(fn: Callable) -> Callable:
         AXES[fn.__name__] = {"needs": needs, "removes": removes, "adds": adds}
-        return registers(OPS)(fn)
+        return registry.registers(OPS)(fn)
     return register
 
 
 def parameters(name: str) -> dict[str, inspect.Parameter]:
     """An op's parameters by document spelling, without `of` and the supplied ones."""
-    params = list(inspect.signature(OPS[name]).parameters.values())[1:]
-    return {p.name.rstrip("_"): p for p in params if p.name not in SUPPLIED}
+    return registry.spelled(OPS[name], SUPPLIED + ("of",))
+
+
+def check(name: str, args: dict) -> None:
+    """Op `name` exists and `args` bind to its signature."""
+    if name not in OPS:
+        raise ValueError(f"unknown op {name!r}; valid: {', '.join(OPS)}")
+    registry.check(OPS[name], args, SUPPLIED + ("of",), repr(name))
+
+
+def group(name: str) -> str:
+    """`metrics`, `reductions` or `edits`, read off the op's axis declaration."""
+    axes = AXES[name]
+    if not (axes["needs"] or axes["removes"] or axes["adds"]):
+        return "edits"
+    return "reductions" if axes["removes"] == "over" or "rows" in axes["removes"] else "metrics"
 
 
 def call(name: str, value: Any, args: dict, **supplied: Any) -> Any:
@@ -181,7 +201,7 @@ def project_out(of: Tensor, direction: Value) -> Tensor:
 
 @op(needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))
 def readout(of: Tensor, engine: Any) -> Tensor:
-    """The model's own unembedding of a residual-stream value (the logit lens)."""
+    """The model's own readout of a residual-stream value, its final norm and head (the logit lens)."""
     return engine.readout(of)
 
 
@@ -203,8 +223,17 @@ def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 
 @op(needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",))
 def pca(of: Tensor, k: int, dims: list[str]) -> dict:
-    """The top-`k` principal directions and the mean, as a bundle for a `pca` featurizer."""
-    raise NotImplementedError("M2")
+    """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
+    first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
+    x = of.reshape(-1, of.shape[-1]).double()
+    if x.shape[0] <= k:
+        raise ValueError(f"pca of {x.shape[0]} vectors has no rank-{k} basis; it needs more than {k}")
+    mean = x.mean(0)
+    _, _, vh = torch.linalg.svd(x - mean, full_matrices=False)
+    # An SVD's singular vectors are unique only up to sign; fix it so the largest entry of each is positive.
+    basis = vh[:k].T
+    basis = basis * basis.gather(0, basis.abs().argmax(0, keepdim=True)).sign()
+    return {"basis": basis.to(of.dtype).contiguous(), "mean": mean.to(of.dtype)}
 
 
 # -- metrics: logits in, one number per row and position out -------------------
@@ -262,5 +291,24 @@ def js(of: Tensor, against: Value) -> Tensor:
 
 @op(needs=("vocab_size",), removes=("vocab_size",), adds=("k",))
 def top_k(of: Tensor, k: int) -> dict:
-    """The `k` most likely tokens and their probabilities, decoded."""
-    raise NotImplementedError("M2")
+    """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
+    `tokens`, decoded."""
+    probs, ids = of.softmax(-1).topk(k, dim=-1)
+    return {"ids": ids, "probs": probs}
+
+
+@op(needs=("vocab_size",), removes=("vocab_size",))
+def argmax(of: Tensor) -> Tensor:
+    """The id of the most likely token."""
+    return of.argmax(-1)
+
+
+@op(needs=("new",), removes=("new",))
+def decode(of: Tensor, engine: Any, tokens: bool = False) -> list:
+    """Each row's generated ids as text, stopped at the row's first EOS; with `tokens`, as its token strings."""
+    tokenizer = engine.tokenizer
+    out = []
+    for ids in of.tolist():
+        ids = ids[:ids.index(tokenizer.eos_token_id)] if tokenizer.eos_token_id in ids else ids
+        out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
+    return out

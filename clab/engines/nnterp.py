@@ -1,9 +1,11 @@
 """The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-The engine holds its model and nothing else: inside the session the engine
-and its model are the only client-side objects, and nnsight ships every name a
-block closes over to wherever the block runs.
+The engine holds its model and nothing else: inside the session the engine and its model are the only
+client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
 """
+
+import time
+from typing import Any
 
 import nnsight
 import torch
@@ -11,18 +13,33 @@ from nnterp import StandardizedTransformer
 from torch import Tensor
 
 from .. import ops, steps
-from .standard import SIZES, by_site, envoy, nnterp_name
+from ..address import COMPONENTS
+from ..plan import Model, Plan
+from . import DTYPES, engine
+from .standard import SIZES, by_site, envoy, nnterp_name, refuse
 
 
+@engine("nnterp")
 class NnterpEngine:
-    def __init__(self, model: StandardizedTransformer):
-        self.model = model
+    name: str
 
-    def execute(self, plan: dict, *, batch_size: int = 8, remote: bool | str = False) -> dict:
-        """The whole document in one session; the filled plan is the one thing that comes home."""
+    def __init__(self, model: Model):
+        """The checkpoint `model` pins, on the CPU."""
+        extra: dict[str, Any] = {"attn_implementation": model.attn_implementation} if model.attn_implementation else {}
+        self.spec = model
+        self.model = StandardizedTransformer(model.key, revision=model.revision, device="cpu", dispatch=True,
+                                             dtype=getattr(torch, DTYPES[model.dtype]), **extra)
+
+    def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
+        """The whole plan in one session; the filled plan is the one thing that comes home."""
+        started = steps.begin(self, plan, batch_size, remote)
+        support = self.model.support()
+        refuse(plan, {c: support.get(nnterp_name(c)) for c in COMPONENTS}, "nnterp")
         with self.model.session(remote=remote):
             steps.run(self, plan, batch_size)
             nnsight.save(plan)
+        assert plan.run is not None
+        plan.run.seconds = round(time.time() - started, 3)
         return plan
 
     @property
@@ -56,12 +73,5 @@ class NnterpEngine:
         raise NotImplementedError("M3")
 
     def readout(self, hidden: Tensor) -> Tensor:
-        raise NotImplementedError("M2")
-
-
-def load(model: dict) -> NnterpEngine:
-    """The checkpoint the plan pins, on the CPU."""
-    extra = {"attn_implementation": model["attn_implementation"]} if model["attn_implementation"] else {}
-    loaded = StandardizedTransformer(model["key"], revision=model["revision"], dtype=getattr(torch, model["dtype"]),
-                                     device="cpu", dispatch=True, **extra)
-    return NnterpEngine(loaded)
+        """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
+        return self.model.project_on_vocab(hidden)
