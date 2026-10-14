@@ -7,7 +7,8 @@
  "data": {
   "sample": {
    "path": "pile/data/sample",
-   "sha256": "91fa58a2ea5513316a2ed2a65c6922650f341a75802db18fac28a9d9de72d791"
+   "sha256": "91fa58a2ea5513316a2ed2a65c6922650f341a75802db18fac28a9d9de72d791",
+   "n_rows": 3
   }
  },
  "steps": {

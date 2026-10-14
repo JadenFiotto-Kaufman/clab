@@ -8,7 +8,8 @@
  "data": {
   "pairs": {
    "path": "weekdays_aligned/data",
-   "sha256": "37624f0e308a1ed7496ad05cbc4291cb11ec96a28d2a63d6ee5d87d9127e1e84"
+   "sha256": "37624f0e308a1ed7496ad05cbc4291cb11ec96a28d2a63d6ee5d87d9127e1e84",
+   "n_rows": 6
   }
  },
  "steps": {

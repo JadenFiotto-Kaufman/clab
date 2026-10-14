@@ -19,15 +19,18 @@ def test_every_op_registered_itself_under_its_own_name():
                             "encode", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
                             "cross_entropy", "kl", "js", "top_k", "argmax", "decode"}
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
-    assert set(ops.AXES) == set(ops.OPS)
+    assert set(ops.DECLARED) == set(ops.OPS)
 
 
-def test_ops_group_by_what_they_do_to_the_rows():
-    groups = {name: ops.group(name) for name in ops.OPS}
+def test_each_op_declares_its_group_and_bundle():
+    groups = {name: ops.DECLARED[name]["group"] for name in ops.OPS}
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
                                                                "normalize", "project_out"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "pca"}
-    assert groups["match"] == groups["top_k"] == groups["readout"] == "metrics"
+    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "top_k", "argmax", "decode"}
+    assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
+                                                                 "cross_entropy", "kl", "js"}
+    assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
 
 
 def test_an_ops_arguments_bind_to_its_signature():
@@ -112,6 +115,18 @@ def record(start: int, width: int, value, ops_=None) -> dict:
     positions = torch.arange(start, start + width).expand(3, width)
     return {"positions": positions, "select": {},
             "ops": ops_ or [{"op": "swap", "args": {"with": value}, "featurizer": None, "dims": DIMS}]}
+
+
+def test_a_ragged_write_writes_only_the_positions_it_keeps():
+    value = torch.randn(2, 4, 5)
+    ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
+              "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "featurizer": None, "dims": DIMS}]}
+    out = ops.write(value, "layer_output", [ragged])
+    assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
+    unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
+    assert torch.equal(out[unwritten], value[unwritten])
+    empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
+    assert torch.equal(ops.write(value, "layer_output", [empty]), value)
 
 
 def test_a_window_write_and_three_single_writes_are_one_tensor():

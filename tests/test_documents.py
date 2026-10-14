@@ -186,11 +186,11 @@ def test_a_chat_turn_scope_is_the_turns_own_tokens(filled):
     assert [tokens[r][i] for r, (i,) in enumerate(run.positions["blanked.logits"])] == ["]"] * 4
 
 
-def test_top_k_saves_its_tokens(filled, tmp_path):
+def test_top_k_saves_its_tokens_as_text(filled, tmp_path):
     plan = filled["readout", "nnterp"]
     top3 = plan.results["top3"]
     assert top3["ids"].shape == top3["probs"].shape == (4, 1, 3)
-    assert len(top3["tokens"][0][0]) == 3 and all(isinstance(t, str) for t in top3["tokens"][0][0])
+    assert len(top3["tokens"][0][0]) == 3 and "▁" not in "".join(top3["tokens"][0][0])     # decoded text
     plan.dump(str(tmp_path))
     assert sorted(os.listdir(tmp_path)) == ["manifest.json", "p_answer.safetensors", "top3.json"]
     back = Plan.load(str(tmp_path)).results["top3"]
@@ -253,3 +253,72 @@ def test_every_point_has_at():
         for entry in plan_of(name).steps.values():
             swept = isinstance(entry, list)
             assert all(bool(p.at) == swept for p in points(entry)), name
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
+    """A window from prompt token 5 to the end is four tokens on the 10-token row and two on the others: zeros
+    land there, and every other position (padding and BOS included) keeps its value."""
+    def change(d, write):
+        d["steps"]["patched"]["writes"] = {"zero": {"site": "target", "pos": {"span": [5, -1]},
+                                                    "ops": [{"op": "swap", "with": 0.0}]}} if write else {}
+        d["steps"]["patched"]["reads"]["all"] = {"site": "target", "pos": {"all": True}}
+        d["saves"] = ["patched.all"]
+    written, clean = (edited("patching", lambda d, w=w: change(d, w)).compile() for w in (True, False))
+    engine = engines(kind, written.model)
+    after = engine.execute(written, batch_size=BATCH_SIZE).results["patched.all"]
+    before = engine.execute(clean, batch_size=BATCH_SIZE).results["patched.all"]
+    zeroed = (after["values"] == 0).all(-1)
+    assert after["tok"][zeroed].tolist() == [6, 7, 8, 9, 6, 7, 6, 7, 6, 7]       # prompt tokens 5.. -1, after BOS
+    assert torch.equal(after["values"][~zeroed], before["values"][~zeroed])
+
+
+def test_a_swept_value_joins_an_unswept_one_beside_each_point(engines):
+    def change(d):
+        d["steps"]["clean"] = {"kind": "forward", "input": "pairs.input",
+                               "reads": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+        d["steps"]["clean_ld"] = {"kind": "op", "op": "logit_diff", "of": "clean.logits", "a": "pairs.cf_answer",
+                                  "b": "pairs.base_answer"}
+        d["saves"] = ["logit_diff", "clean_ld"]
+    plan = edited("pos_sweep", change).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows = filled.table("logit_diff", "clean_ld", columns=[])
+    assert len(rows) == 12 and [r["at"] for r in rows] == [{"pos": p} for p in (-1, -2, -3) for _ in range(4)]
+    clean = filled.results["clean_ld"].flatten().tolist()
+    assert [r["clean_ld"] for r in rows] == clean * 3
+    assert filled.table("clean_ld", "logit_diff", columns=[]) == rows
+
+
+def test_bare_spells_the_answer_without_its_space_on_gpt2(engines):
+    """On GPT-2 " one" and "one" (and " is"/"is", " a"/"a") are different single tokens, so `token_form: bare`
+    changes the number."""
+    def change(d):
+        d["data"]["pairs"] = {"rows": [{**row, "cf_answer": answer, "base_answer": " one"} for row, answer in
+                                       zip(ROWS, (" one", " is", " a", " one"))]}
+        d["steps"]["spaced"] = {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
+        d["steps"]["bare"] = {**d["steps"]["spaced"], "token_form": "bare"}
+        d["saves"] = ["patched.logits", "spaced", "bare"]
+    plan = edited("gpt2_reach", change).compile()
+    engine = engines("nnterp", plan.model)
+    values = engine.execute(plan, batch_size=BATCH_SIZE).results
+    probs = values["patched.logits"][:, 0].softmax(-1)
+    rows = plan.data["pairs"].rows or []
+    assert len({engine.tokenizer(r["cf_answer"].strip())["input_ids"][0] for r in rows}) == 3
+    for form, text in (("spaced", lambda a: a), ("bare", str.strip)):
+        ids = [engine.tokenizer(text(r["cf_answer"]), add_special_tokens=False)["input_ids"] for r in rows]
+        assert all(len(i) == 1 for i in ids)
+        expected = probs[torch.arange(len(rows)), torch.tensor([i[0] for i in ids])]
+        torch.testing.assert_close(values[form][:, 0], expected)
+    assert not torch.allclose(values["spaced"], values["bare"])
+
+
+def test_pca_control_compiles_against_the_basis_pca_harvest_writes(engines, tmp_path, filled):
+    import shutil
+    shutil.copytree(os.path.join(os.path.dirname(document("patching"))), tmp_path / "documents")
+    os.symlink(os.path.join(os.path.dirname(os.path.dirname(document("patching"))), "data"), tmp_path / "data")
+    filled["pca_harvest", "nnterp"].dump(str(tmp_path / "documents" / "artifacts"))
+    compiled = Plan(str(tmp_path / "documents" / "pca_control.json")).compile()
+    basis = filled["pca_harvest", "nnterp"].results["basis"]
+    assert same(points(compiled.featurizers["rot"])[0].bundle, basis)
+    compiled.write(str(tmp_path / "documents" / "written.json"))
+    assert same(points(Plan(str(tmp_path / "documents" / "written.json")).featurizers["rot"])[0].bundle, basis)

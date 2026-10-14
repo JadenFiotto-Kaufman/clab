@@ -8,7 +8,8 @@
   "test": {
    "path": "weekdays/data",
    "split": "test",
-   "sha256": "0ba4fcc8fb6b3cdce5ef2c459d9e9d0e16e55480910f26a4342e11b59dfe9d46"
+   "sha256": "0ba4fcc8fb6b3cdce5ef2c459d9e9d0e16e55480910f26a4342e11b59dfe9d46",
+   "n_rows": 2
   }
  },
  "featurizers": {

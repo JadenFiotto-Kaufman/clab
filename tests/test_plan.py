@@ -19,12 +19,12 @@ def step(plan: Plan, name: str) -> Any:
 
 
 def compiled_form(plan: Plan) -> dict:
-    """What a compiled plan holds, rows aside (they are the data files') and its document path relative."""
+    """What a compiled plan holds, as written: rows aside (they are the data files')."""
     dump = plan.model_dump(mode="json", exclude_defaults=True)
     for d in dump["data"].values():
         if "path" in d:
             del d["rows"]
-    return {**dump, "document": os.path.relpath(dump["document"], os.path.dirname(os.path.dirname(dump["document"])))}
+    return dump
 
 
 def test_the_corpus_is_31_documents():
@@ -56,6 +56,39 @@ def test_a_plan_pickles_and_rebuilds_from_its_dump():
     plan = plan_of("pos_sweep")
     assert pickle.loads(pickle.dumps(plan)) == plan
     assert Plan(**plan.model_dump()) == plan
+
+
+def test_a_root_featurizer_is_not_a_save():
+    with pytest.raises(PlanError, match=r"saves\[0\]: 'rot' names no step's value"):
+        edited("random_subspace", lambda d: d.update(saves=["rot"])).compile()
+
+
+def test_a_compiled_plan_holds_no_sweep():
+    with pytest.raises(PlanError, match="a compiled plan holds no sweep"):
+        Plan(**{**Plan(document("pos_sweep")).model_dump(), "compiled": True})
+
+
+def test_a_written_or_dumped_document_path_is_relative_to_the_corpus():
+    plan = plan_of("patching")
+    assert os.path.isabs(plan.document or "")
+    assert plan.model_dump(mode="json")["document"] == "documents/patching.json"
+    assert plan.data["pairs"].n_rows == 4
+
+
+@pytest.mark.parametrize("name", ["pca_control", "das_apply"])
+def test_a_compiled_plan_loads_its_bundles_again_from_their_files(corpus, name):
+    path = os.path.join(corpus, "documents", f"{name}.json")
+    compiled = Plan(path).compile()
+    bundle = points(compiled.featurizers["rot"])[0].bundle
+    assert bundle
+    written = os.path.join(corpus, "documents", f"{name}.compiled.json")
+    compiled.write(written)
+    with open(written) as f:
+        assert all("bundle" not in x for x in json.load(f)["featurizers"].values())   # no tensors in a document
+    for again in (Plan(written), Plan(**compiled.model_dump())):
+        assert again.compiled
+        back = points(again.featurizers["rot"])[0].bundle
+        assert back is not None and back.keys() == bundle.keys() and all(back[k].equal(bundle[k]) for k in bundle)
 
 
 def test_repr_says_the_state():
@@ -142,7 +175,14 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
     (lambda d: d["steps"]["patched"].update(kind="trace"),
      r"steps\.patched: unknown step kind 'trace'; valid: forward, generate, op, fit"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": 1, "all": True}),
-     r"steps\.patched\.writes\.patch\.pos.*a position takes exactly one of 'index', 'span', 'all'"),
+     r"steps\.patched\.writes\.patch\.pos: a position takes exactly one of 'index', 'span', 'all'$"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"idx": -1}),
+     r"steps\.patched\.writes\.patch\.pos: unknown field 'idx'; valid: frame, scope, index, span, all$"),
+    (lambda d: d["sites"]["target"].update(layers="two"), r"sites\.target\.layers: Input should be 'all'$"),
+    (lambda d: d["steps"]["patched"]["reads"]["logits"].update(site={"component": "nope"}),
+     r"steps\.patched\.reads\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
+    (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
+     r"data\.pairs: 'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
@@ -164,7 +204,11 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
     (lambda d: d["steps"]["patched"]["writes"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
      r"steps\.patched\.writes\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
      r"known: counterfactual\.v_cf"),
-    (lambda d: d.update(saves=["iia", "nothing"]), r"saves\[1\]: 'nothing' names no value"),
+    (lambda d: d.update(saves=["iia", "nothing"]), r"saves\[1\]: 'nothing' names no step's value; a save is a step "
+                                                   r"or a step's member: counterfactual\.v_cf, iia, logit_diff, "
+                                                   r"patched\.logits$"),
+    (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
+    (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' is a dataset; hub datasets and dataset saves land later$"),
     (lambda d: d["sites"]["target"].update(layers="all"),
      r"steps\.patched\.writes\.patch\.site: a write names its layer"),
 ])

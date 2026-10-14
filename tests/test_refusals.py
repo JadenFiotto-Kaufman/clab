@@ -101,6 +101,12 @@ def test_unserved_documents_refuse_before_any_forward(engines, name, message):
      r"blanked.blank: row 0: segment 'user' occurs 2 times in the row's input"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(segment="user[2]"),
      r"blanked.blank: row 0: segment 'user\[2\]' is not in its input"),
+    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"span": [9, -1]},
+                                                                           ops=[{"op": "swap", "with": 0.0}]),
+     r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
+    ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],
+                                                             "base_answer": " Friday"}]}),
+     r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=20),
      r"patched.patch: row 0: tokens \[20:21\] do not fit its 10 scope tokens"),
 ])

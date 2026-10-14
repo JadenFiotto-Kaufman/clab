@@ -7,7 +7,8 @@
  "data": {
   "chats": {
    "path": "weekdays/chat",
-   "sha256": "a2d624a7641ddb4bcc02bcbdc55014e72ad0ef08a3049ef664fcf4b5ddf53bb0"
+   "sha256": "a2d624a7641ddb4bcc02bcbdc55014e72ad0ef08a3049ef664fcf4b5ddf53bb0",
+   "n_rows": 4
   }
  },
  "steps": {

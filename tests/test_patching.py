@@ -10,7 +10,7 @@ import torch
 import clab
 from clab import Plan
 from clab.cli import main
-from conftest import BATCH_SIZE, document, edited, plan_of, same, snapshot
+from conftest import BATCH_SIZE, ROOT, document, edited, plan_of, same, snapshot
 
 SAVED = ["iia", "logit_diff"]
 
@@ -120,7 +120,8 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert sorted(os.listdir(tmp_path)) == ["iia.safetensors", "logit_diff.safetensors", "manifest.json"]
     back = Plan.load(str(tmp_path))
     assert same(back.results, plan.results)
-    assert back.model_dump(exclude={"data"}) == plan.model_dump(exclude={"data"})
+    assert back.model_dump(exclude={"data", "document"}) == plan.model_dump(exclude={"data", "document"})
+    assert back.document == "documents/patching.json"             # recorded relative to the corpus root
     assert back.data["pairs"].rows is None and back.data["pairs"].sha256 == plan.data["pairs"].sha256
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": [],
@@ -128,8 +129,9 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert "rows" not in manifest["data"]["pairs"]
 
 
-def test_a_table_labels_each_row(filled, tmp_path):
+def test_a_table_labels_each_row(filled, tmp_path, monkeypatch):
     filled["hooks"].dump(str(tmp_path))
+    monkeypatch.chdir(ROOT)                                   # a loaded plan's corpus root is where it is read
     rows = Plan.load(str(tmp_path)).table("logit_diff")       # the rows come back from the data file
     assert rows[0] == {"row": 0, "pos": 10, "pos_token": "▁is", "value": filled["hooks"].results["logit_diff"][0, 0].item(),
                        "input": "If today is Thursday, tomorrow is", "cf_answer": " Sunday", "base_answer": " Friday"}

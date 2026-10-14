@@ -7,7 +7,8 @@
  "data": {
   "prompts": {
    "path": "weekdays/train",
-   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
   }
  },
  "featurizers": {

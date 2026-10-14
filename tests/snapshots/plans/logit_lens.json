@@ -1,5 +1,5 @@
 {
- "description": "The logit lens as one document: at every layer, push the residual stream at the answer position through the model's final norm and head and read what it would say if that were its last layer. the `readout` op is the projection; the layer sweep is the lens; `token_prob` on the answer is what to plot against depth. Two layers here, so two points.",
+ "description": "The logit lens as one document: at every layer, push the residual stream at the answer position through the model's final norm and head and read what it would say if that were its last layer. The `readout` op is the projection; the layer sweep is the lens; `token_prob` on the answer is what to plot against depth. Two layers here, so two points.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -7,7 +7,8 @@
  "data": {
   "prompts": {
    "path": "weekdays/train",
-   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55"
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
   }
  },
  "steps": {
