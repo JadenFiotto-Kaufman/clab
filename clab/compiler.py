@@ -60,15 +60,16 @@ def compile(plan: Plan) -> Plan:
                                 "n_rows": len(rows[n])} for n in rows}})
 
 
-@dataclass(frozen=True)
+@dataclass
 class Compiling:
     """What compiling an entry needs beside the entry, passed to every function that resolves a name.
 
-    Fixed for the whole compile: the document as a dict (`doc`), the corpus root, each dataset's rows, each
-    sweep's label by document path (`sweeps`) and its values by label (`values`). Growing as entries
-    compile, in document order: each name produced so far, `{dims, data, kind}` (`names`; a fit's body
-    compiles in a copy, its own scope), each entry's sweep axes (`axes_of`), and the names the entry being
-    compiled references (`refs`), which decide the axes it inherits."""
+    Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
+    document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document
+    order: each name produced so far, `{dims, data, kind}` (`names`), each entry's sweep axes (`axes_of`),
+    and the names the entry being compiled references (`refs`), which decide the axes it inherits. A fit's
+    body compiles in a copy whose `names` is its own scope; it shares `refs`, since what the body references
+    is what the fit references, and `axes_of`."""
     doc: dict
     root: str
     rows: dict

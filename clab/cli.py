@@ -231,16 +231,16 @@ def show(filled: "plan.Plan") -> str:
 
 
 def cell(value: Any) -> str:
-    """A table cell as text: a string as it is, a coordinate dict as `index=0`, anything else as compact JSON."""
+    """A table cell as text: a string as it is, anything else (`at` included) as compact JSON."""
     if isinstance(value, str):
         return value
-    if isinstance(value, dict) and all(not isinstance(v, (dict, list)) for v in value.values()):
-        return ",".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in value.items())
     return "" if value is None else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def aligned(rows: list[list[str]], width: int | None = None) -> list[str]:
-    """Rows of cells padded into columns; a cell longer than `width` is cut short with an ellipsis."""
+    """Rows of cells padded into columns, newlines inside a cell written `\\n`; a cell longer than `width` is
+    cut short with an ellipsis."""
+    rows = [[c.replace("\n", "\\n") for c in row] for row in rows]
     rows = [[c if width is None or len(c) <= width else c[:width - 1] + "…" for c in row] for row in rows]
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     return ["  ".join(c.ljust(w) for c, w in zip(row, widths)).rstrip() for row in rows]

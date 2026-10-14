@@ -186,7 +186,8 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
                 example = examples[row["row"]]
                 row = {**({"example_id": example["example_id"]} if "example_id" in example else {}), **row,
                        **{c: example[c] for c in (columns if columns is not None else used)}}
-            out.append({**at, **row})
+            value = {"value": row.pop("value")} if "value" in row else {}
+            out.append({**at, **row, **value})                      # the value last, as in a joined table
     return out
 
 

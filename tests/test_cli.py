@@ -33,8 +33,8 @@ def test_table_prints_aligned_columns_or_csv(out, capsys, monkeypatch):
     assert len(lines) == 13
     assert main(["table", out, "p_answer", "--csv"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == "at,row,step,step_token,value,input,cf_answer" and len(lines) == 13
-    assert lines[5].startswith("index=1,0,1,▁substr,")
+    assert lines[0] == "at,row,step,step_token,input,cf_answer,value" and len(lines) == 13
+    assert lines[5].startswith('"{""index"":1}",0,1,▁substr,')
 
 
 def test_table_refuses_a_name_that_was_not_saved(out, capsys):
