@@ -96,8 +96,10 @@ call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes. A list of columns or texts locates every occurrence of each, ordered by position (start, then
-end). `occurrence` (default 0, the first of any) picks which of those occurrences among the tokens the
+prefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where
+they end, then where they start: where an occurrence becomes known and where index -1 lands, so a write
+found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
+(default 0, the first of any) picks which of those occurrences among the tokens the
 scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order
 (their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
 whitespace first. The prompt and the generated

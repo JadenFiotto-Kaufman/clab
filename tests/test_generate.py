@@ -740,6 +740,22 @@ def test_overlapping_texts_take_the_union_of_their_tokens(engines):
     assert got == sorted(set(got)) and [tokens[i] for i in got] == ["▁this", "▁is"]
 
 
+def test_occurrences_are_ordered_by_where_they_end():
+    """`b` inside `abc` ends first, so it is occurrence 0 and `abc` occurrence 1, in the prompt, in the
+    generated inputs and online alike; of two that end together, the one that starts first comes first."""
+    tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
+    scope = {"text": ["abc", "b"], "occurrence": 0}
+    assert positions.located(scope, ["abc", "b"], "xabcx") == [(2, 3), (1, 4)]
+    assert positions.located(scope, ["bc", "abc"], "xabcx") == [(1, 4), (2, 4)]
+    ids = tokenizer("x a b c x", add_special_tokens=False)["input_ids"]
+    words = tokenizer.decode(ids)
+    spans = positions.located(scope, ["a b c", "b"], words)
+    assert [words[a:b] for a, b in spans] == ["b", "a b c"]
+    first, second = (positions.ends({**scope, "occurrence": k}, ["a b c", "b"], ids, tokenizer) for k in (0, 1))
+    assert first[0] < second[0]                                     # `b` is known before `a b c` is
+    assert positions.lands({**scope, "occurrence": 0}, ["a b c", "b"], ids[:first[0] + 1], set(), tokenizer)
+
+
 def test_a_list_of_columns_takes_the_first_of_either(engines):
     """`["pairs.number", "pairs.entity"]`: the number comes first on one row, the entity on the other."""
     rows = [{"input": "Friday has 3 meetings", "entity": "Friday", "number": "3"},

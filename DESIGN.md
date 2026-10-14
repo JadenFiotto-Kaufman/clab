@@ -56,7 +56,7 @@ document in these places:
   fed the last token of each occurrence it picks (index -1). A `column`/`text` scope picks its occurrences
   with `occurrence` (default 0, the first; the frame/index selector) and may `strip` its text; ambiguity is
   gone: a doubled text takes the occurrence asked for, and `alignment_ambiguous` no longer exists. `column`
-  and `text` may be lists, whose occurrences are taken together in order of position.
+  and `text` may be lists, whose occurrences are taken together, ordered by where each ends.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

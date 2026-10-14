@@ -162,7 +162,7 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
     """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
     occurrence of any of its texts (`texts`: the columns' or the literals) in the prompt, by the tokenizer's
     offsets, then in the generated inputs, by decoding growing prefixes; each part's in order of position
-    (start, then end). A token with an empty span (part of a split character) covers the character it begins."""
+    (end, then start). A token with an empty span (part of a split character) covers the character it begins."""
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said[:-1]
@@ -178,9 +178,11 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
 
 def located(scope: dict, texts: list[str], words: str) -> list[tuple[int, int]]:
     """Every character span in `words` where one of `texts` occurs (each stripped first under `strip`), in
-    order of start, then end."""
+    order of end, then start: where an occurrence becomes known, so a write found online, a read and the run
+    record count them alike."""
     texts = [t.strip() if scope.get("strip") else t for t in texts]
-    return sorted(m.span() for t in texts if t for m in re.finditer(re.escape(t), words))
+    spans = [m.span() for t in texts if t for m in re.finditer(re.escape(t), words)]
+    return sorted(spans, key=lambda span: (span[1], span[0]))
 
 
 def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:

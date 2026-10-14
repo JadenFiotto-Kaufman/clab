@@ -173,8 +173,8 @@ class Scope(Record):
     named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
     `{"turn": "<role>[<n>]"}`: a chat turn (`user[1]` is the second user message; a bare `user` the only one).
     `column` and `text` may each be a list: the scope's texts are then every one listed (a string is the
-    one-element list), their occurrences together, ordered by position (start, then end). A `column` or `text`
-    scope also takes `occurrence`, which of those occurrences it is (the selector
+    one-element list), their occurrences together, ordered by where each ends. A `column` or `text` scope
+    also takes `occurrence`, which of those occurrences it is (the selector
     `frame` and `index` use: an int, negative from the last, a `[start, stop]` span or `"all"`; default 0,
     the first), and `strip`, whether the text is stripped of surrounding whitespace before it is located."""
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
@@ -221,8 +221,10 @@ class Pos(Record):
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes. A list of columns or texts locates every occurrence of each, ordered by position (start, then
-    end). `occurrence` (default 0, the first of any) picks which of those occurrences among the tokens the
+    prefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where
+    they end, then where they start: where an occurrence becomes known and where index -1 lands, so a write
+    found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
+    (default 0, the first of any) picks which of those occurrences among the tokens the
     scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order
     (their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
     whitespace first. The prompt and the generated
