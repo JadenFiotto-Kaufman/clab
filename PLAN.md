@@ -512,3 +512,31 @@ forward-only documents.
   `n_rows` and a hash of its example ids so a re-materialization mismatch is
   an error. Naming a dataset in `saves` brings its rows home. M2 declares the
   field; loading from the hub lands when a document needs it.
+
+### Ratified after M2 (2026-10-14)
+
+- **`model` knows three keys** — `key`, `revision`, `dtype` (spelled torch's
+  way: `float32`, `bfloat16`; the document and the plan use the same
+  spelling) — and every other key is passed to the engine's loader untouched
+  (`attn_implementation`, `device_map`, ...). An engine's loader refuses what
+  it cannot honor. `schema.json` allows additional properties on `model`.
+- **`generate` owns `input`, `writes`, `reads`, `interventions`**; every other
+  key is forwarded to the engine's `generate` as-is (`max_new_tokens`,
+  `do_sample`, `temperature`, ...), sweepable like any value. The generated
+  frame's bound is what the engine actually generated: a read at a step a row
+  never reached is `alignment_missing`.
+- **One narrowing primitive, `select`**: `{"select": {<axis>: [indices]}}` on a
+  site or on an op in a featurizer's space, keyed by the axis names every
+  component publishes (`num_heads`, `intermediate_size`, `hidden_size`,
+  `key`, `features`, ...). `heads`, `units` and `features` are gone; compile
+  checks the axis exists on that component. `layers` stays (an address, not
+  an axis: int, list, or `"all"`), and so does `pos`. Six corpus documents
+  migrate (head_patching, neuron_patching, sae_feature_ablation, the three
+  attention-interior ones).
+- **Op groups stay** as the one-word label on `@op` that `describe` and
+  `FORMAT.md` print under; nothing branches on it.
+- **CLI gains `clab show <out>`** (each result with its step, dims, axes,
+  shape; the run's engine, batch size, versions) **and `clab table <out>
+  <name>... [--csv]`** (`plan.table(...)` printed). Both are `Plan.load` plus
+  one method.
+- `table` omits `at` on an unswept value (stated in FORMAT.md).
