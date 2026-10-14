@@ -10,15 +10,20 @@ featurizer's scalar as `<featurizer>.<scalar>`: a gate's `mask` is the mean of
 its soft mask.
 """
 
-from typing import Callable, Literal
+import os
+from typing import Any, Callable, Literal
 
-from .registry import registers
+from safetensors import safe_open
+from torch import Tensor
+
+from . import registry
 
 SUPPLIED = ("width",)
+FORMAT = "clab/1"
 SCALARS = {"gate": ("mask",)}
 
 KINDS: dict[str, Callable] = {}
-kind = registers(KINDS)
+kind = registry.registers(KINDS)
 
 
 @kind
@@ -53,3 +58,33 @@ def sae(width: int, file_path: str) -> dict:
 def linear(width: int, classes: str) -> dict:
     """A probe, `h @ W + b`; its output axis is the distinct values of the `classes` column, sorted."""
     raise NotImplementedError("M4")
+
+
+def check(kind: str, fields: dict) -> None:
+    """Featurizer kind `kind` exists and `fields` bind to its signature."""
+    if kind not in KINDS:
+        raise ValueError(f"unknown featurizer kind {kind!r}; valid: {', '.join(KINDS)}")
+    registry.check(KINDS[kind], fields, SUPPLIED, repr(kind))
+
+
+def header(kind: str, fields: dict, model: Any) -> dict[str, str]:
+    """A bundle's header, written beside its tensors: what made it, for the featurizer that loads it to check."""
+    return {"format": FORMAT, "kind": kind, "model.key": model.key, "model.revision": model.revision,
+            **{k: str(v) for k, v in fields.items() if k == "k"}}
+
+
+def bundle(root: str, kind: str, fields: dict, model: Any) -> dict[str, Tensor]:
+    """The tensors of the bundle `fields["file_path"]` names under `root`, its header checked key by key against
+    the featurizer that loads it and the plan's `model`."""
+    file = os.path.join(root, fields["file_path"])
+    if not os.path.exists(file):
+        raise ValueError(f"{fields['file_path']} does not exist under the corpus root; run the document that "
+                         "writes it first")
+    with safe_open(file, "pt") as f:
+        found = f.metadata() or {}
+        tensors = {k: f.get_tensor(k) for k in f.keys()}
+    for key, value in header(kind, fields, model).items():
+        if found.get(key) != value:
+            raise ValueError(f"{fields['file_path']}: header {key!r} is {found.get(key)!r}; this document "
+                             f"expects {value!r}")
+    return tensors

@@ -8,6 +8,7 @@ dependencies = [
     "nnterp",
     "torch",
     "safetensors",
+    "pydantic",
 ]
 
 [project.scripts]

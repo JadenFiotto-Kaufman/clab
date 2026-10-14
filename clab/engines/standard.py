@@ -1,9 +1,11 @@
 """How nnterp reaches clab's components, which both engines read: the envoy that serves each, its dotted name
-there, the sizes, and a forward's records grouped by site."""
+there, the sizes, a forward's records grouped by site, and the refusal of what an engine cannot serve."""
 
 from typing import cast
 
 from ..address import COMPONENTS
+from ..plan import Plan
+from ..steps import walk
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "intermediate_size", "vocab_size")
 
@@ -43,3 +45,15 @@ def by_site(writes: list[dict], reads: list[dict]) -> dict[tuple, tuple[list, li
         for record in records:
             sites.setdefault((record["component"], record["layer"]), ([], []))[side].append(record)
     return sites
+
+
+def refuse(plan: Plan, reasons: dict, engine: str) -> None:
+    """Every component the plan reads or writes that the engine cannot serve, by name, before anything runs.
+    `reasons` maps a component to None (served), why not, or why not per layer (nnterp's `support()` shape)."""
+    for name, step in walk(plan.steps):
+        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
+            reason, layers = reasons.get(record.site.component), record.site.layers
+            if isinstance(reason, dict):
+                reason = next((r for l, r in reason.items() if r and layers in (l, "all")), None)
+            if reason:
+                raise ValueError(f"{name}.{key}: the {engine} engine does not serve {record.site.component}: {reason}")

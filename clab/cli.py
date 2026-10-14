@@ -1,51 +1,63 @@
-"""`clab run` and `clab describe`: a thin command line over `clab.run`, and the format read off the code.
+"""`clab run`, `clab describe` and `clab schema`: a thin command line over `clab.run`, and the format read off
+the code.
 
-`describe` prints the registries by introspection: the ops and their
-signatures, the step kinds and their fields, the components, the featurizer
-kinds and the position grammar. `describe --markdown` renders all of it as
-`FORMAT.md`, the format's one-page reference.
+`describe` prints the format's tables by introspection: the records and their fields (from the plan's
+models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
+`describe --markdown` renders all of it as `FORMAT.md`; `schema` prints the plan's JSON Schema.
 """
 
 import argparse
 import inspect
+import json
 import os
 import sys
+from typing import Any
 
-from . import address, featurizers, ops, positions
-from .compiler import (KINDS, ROOT, access_block, check_names, data_block, early_stop_block, eval_block,
-                      find_sweeps, model_block, optimizer_block, place, points, save_slots, site_block)
-from .compiler import spell as spell_type
+from pydantic import BaseModel
 
-WHAT = ("ops", "steps", "components", "featurizers", "pos")
+from . import address, compiler, featurizers, ops, output, plan
+from .registry import spell as spell_type
 
-
-def spell(annotation) -> str:
-    for name in ("Value", "Tokens", "Featurizer"):
-        if annotation == getattr(ops, name):
-            return name
-    return spell_type(annotation)
+WHAT = ("records", "steps", "ops", "components", "featurizers", "pos")
+RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
+           "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
+           "`interventions.<name>`": plan.Interventions}
+STEPS = {name: model for name, model in plan.KINDS.items()}
+FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop, "eval": plan.Eval}
 
 
-def signature(fn, skip: int = 0, hide: tuple = ()) -> list[str]:
-    """Each parameter a document may give, in its document spelling: `name: type = default`."""
+NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
+         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop", plan.Eval: "eval",
+         plan.Entry: "step"}
+
+
+def spell(annotation: Any) -> str:
+    return spell_type(annotation, NAMES)
+
+
+def fields(model: type[BaseModel]) -> list[str]:
+    """Each field a document writes: `name: type = default`."""
     out = []
-    for p in list(inspect.signature(fn).parameters.values())[skip:]:
-        if p.name in hide:
+    for name in plan.documented(model):
+        if name == "kind":
             continue
-        if p.kind is p.VAR_KEYWORD:
-            out.append("...the op's arguments")
-            continue
-        text = f"{p.name.rstrip('_')}: {spell(p.annotation)}"
-        out.append(text if p.default is p.empty else f"{text} = {p.default!r}")
+        field = model.model_fields[name]
+        text = f"{name}: {spell(field.annotation)}"
+        out.append(text if field.is_required() else f"{text} = {field.default!r}")
     return out
+
+
+def derived(model: type[BaseModel]) -> list[str]:
+    return [f"`{name}` ({' '.join((f.description or '').split())})" for name, f in model.model_fields.items()
+            if name not in plan.documented(model)]
 
 
 def doc(thing) -> str:
     return inspect.getdoc(thing) or ""
 
 
-def summary(fn) -> str:
-    return " ".join(doc(fn).split())
+def summary(thing) -> str:
+    return " ".join(doc(thing).split())
 
 
 def axes(name: str) -> str:
@@ -55,19 +67,33 @@ def axes(name: str) -> str:
     return "; ".join(parts) or "keeps the layout"
 
 
+def arguments(name: str) -> list[str]:
+    out = []
+    for key, p in ops.parameters(name).items():
+        text = f"{key}: {spell_type(p.annotation)}"
+        out.append(text if p.default is p.empty else f"{text} = {p.default!r}")
+    return out
+
+
 def describe(what: str | None = None) -> str:
-    """The format's tables, read off the code: one of `ops`, `steps`, `components`, `featurizers`, `pos`, or all."""
+    """The format's tables, read off the code: one of `records`, `steps`, `ops`, `components`, `featurizers`,
+    `pos`, or all of them."""
     sections = []
+    if what in (None, "records"):
+        sections.append("\n".join(["records:"] + [f"  {name.replace('`', '')}({', '.join(fields(model))})"
+                                                  for name, model in RECORDS.items()]))
     if what in (None, "steps"):
         lines = ["step kinds:"]
-        for name, fn in KINDS.items():
-            lines += [f"  {name}({', '.join(signature(fn, skip=3))})", f"      {summary(fn)}"]
+        for name, model in {**STEPS, **FIT}.items():
+            lines += [f"  {name}({', '.join(fields(model))})", f"      {summary(model)}"]
         sections.append("\n".join(lines))
     if what in (None, "ops"):
         lines = ["ops (`of` is the value acted on; inside a read or write, the selection there):"]
-        for name, fn in ops.OPS.items():
-            lines += [f"  {name}({', '.join(signature(fn, skip=1, hide=ops.SUPPLIED))})  [{axes(name)}]",
-                      f"      {summary(fn)}"]
+        for group in ("metrics", "reductions", "edits"):
+            lines.append(f"  {group}:")
+            for name, fn in ops.OPS.items():
+                if ops.group(name) == group:
+                    lines += [f"    {name}({', '.join(arguments(name))})  [{axes(name)}]", f"        {summary(fn)}"]
         sections.append("\n".join(lines))
     if what in (None, "components"):
         lines = ["components:"]
@@ -78,21 +104,22 @@ def describe(what: str | None = None) -> str:
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
         for name, fn in featurizers.KINDS.items():
-            lines += [f"  {name}({', '.join(signature(fn, hide=featurizers.SUPPLIED))})", f"      {summary(fn)}"]
+            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+                      for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
+            lines += [f"  {name}({', '.join(params)})", f"      {summary(fn)}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
-        sections.append("pos:\n" + doc(positions.parse))
+        sections.append("pos:\n" + doc(plan.Pos))
     return "\n\n".join(sections)
 
 
 def markdown() -> str:
     """FORMAT.md: the one-page reference, generated from the code (`clab describe --markdown`)."""
 
-    def block(fn, skip=0, hide=()):
-        rows = signature(fn, skip, hide)
-        return "\n".join(f"- `{r}`" for r in rows) + "\n\n" + doc(fn) + "\n"
+    def block(model) -> str:
+        return "\n".join(f"- `{f}`" for f in fields(model)) + "\n\n" + doc(model) + "\n"
 
-    def table(rows):
+    def table(rows) -> str:
         return "\n".join("| " + " | ".join(r) + " |" for r in rows) + "\n"
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,42 +128,42 @@ def markdown() -> str:
     parts = [
         "# The clab format\n",
         "Generated by `clab describe --markdown` from the code; a test fails when this file and the code "
-        "disagree. A document is one JSON object that declares a complete experiment; `clab run DOC` runs it.\n",
+        "disagree. A document is one JSON object that declares a complete experiment; `clab run DOC` runs it. "
+        "Its JSON Schema is `schema.json` (`clab schema`).\n",
+        doc(plan) + "\n",
         "## Root keys\n",
-        table([["key", "holds"], ["---", "---"]] + [[f"`{k}`", v] for k, v in ROOT.items()]),
-        "### `model`\n", block(model_block),
-        "### `data.<name>`\n", block(data_block),
-        "### `sites.<name>`, or a `site` inline\n", block(site_block),
-        "### `interventions.<name>`\n",
-        "A bundle of `writes` and `reads` (each by name), pulled into a step by `\"interventions\": \"<name>\"` "
-        "or a list of names. A thing declared at the root (`sites`, `interventions`, `featurizers`) is "
-        "referenced by name, or the same thing is written inline where it is used once.\n",
-        "### A write or a read\n", block(access_block),
-        "Several writes at one site compose in listed order on one copy of the value; a read at a written "
-        "site observes the writes.\n",
-        "## Step kinds\n",
-        "Each entry of `steps` is `{\"kind\": <kind>, ...fields}`; the last entry may be `saves`.\n",
+        table([["key", "holds"], ["---", "---"]] + [[f"`{k}`", plan.Plan.model_fields[k].description or ""]
+                                                    for k in plan.documented(plan.Plan)]),
     ]
-    for name, fn in KINDS.items():
-        parts += [f"### `{name}`\n", block(fn, skip=3)]
-    parts += ["### `fit` blocks\n", "`optimizer`:\n", block(optimizer_block), "`early_stop`:\n",
-              block(early_stop_block), "`eval`:\n", block(eval_block)]
-    parts += ["## Ops\n", doc(ops) + "\n",
-              table([["op", "arguments", "axes", "what"], ["---", "---", "---", "---"]]
-                    + [[f"`{n}`", ", ".join(f"`{a}`" for a in signature(fn, 1, ops.SUPPLIED)) or "—", axes(n),
-                        summary(fn)] for n, fn in ops.OPS.items()])]
+    for name, model in RECORDS.items():
+        parts += [f"### {name}\n", block(model)]
+    parts += ["## Step kinds\n", "Each entry of `steps` is `{\"kind\": <kind>, ...fields}`.\n"]
+    for name, model in STEPS.items():
+        parts += [f"### `{name}`\n", block(model)]
+    parts += ["### `fit` blocks\n"] + [part for name, model in FIT.items() for part in (f"`{name}`:\n", block(model))]
+    parts += ["## Derived fields\n",
+              "Fields a document leaves out, which compile (or, for `run`, the engine) fills:\n",
+              "\n".join(f"- `{model.__name__}`: {', '.join(derived(model))}"
+                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.OpStep, plan.Featurizer)
+                        if derived(model)) + "\n"]
+    parts += ["## Ops\n", doc(ops) + "\n"]
+    for group in ("metrics", "reductions", "edits"):
+        parts += [f"### {group.capitalize()}\n",
+                  table([["op", "arguments", "axes", "what"], ["---", "---", "---", "---"]]
+                        + [[f"`{n}`", ", ".join(f"`{a}`" for a in arguments(n)) or "—", axes(n), summary(fn)]
+                           for n, fn in ops.OPS.items() if ops.group(n) == group])]
     parts += ["## Components\n", doc(address) + "\n",
               table([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
-                    + [[f"`{n}`", ", ".join(c["dims"]),
-                        ", ".join(["layers"] * c["per_layer"] + list(c["narrow"])), c["meaning"]]
-                       for n, c in address.COMPONENTS.items()])]
+                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + list(c["narrow"])),
+                        c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, fn in featurizers.KINDS.items():
-        parts += [f"### `{name}`\n", block(fn, hide=featurizers.SUPPLIED)]
-    parts += ["## Positions\n", doc(positions.parse) + "\n",
-              "## Names and scoping\n", doc(check_names) + "\n",
-              "## Sweeps\n", doc(find_sweeps) + "\n",
-              "## Saves\n", doc(save_slots) + "\n",
+        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
+                  for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
+        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n"]
+    parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
+              "## Sweeps\n", doc(plan.find_sweeps) + "\n",
+              "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",
               "## A worked document\n", "`documents/patching.json`:\n", "```json\n" + example + "```\n"]
     return "\n".join(parts)
 
@@ -155,6 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     tell = commands.add_parser("describe", help="print the format's tables, read off the code")
     tell.add_argument("what", nargs="?", choices=WHAT)
     tell.add_argument("--markdown", action="store_true", help="write FORMAT.md")
+    commands.add_parser("schema", help="print the plan's JSON Schema")
     args = parser.parse_args(argv)
 
     if args.command == "describe":
@@ -165,20 +193,25 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(describe(args.what))
         return 0
+    if args.command == "schema":
+        print(json.dumps(plan.Plan.model_json_schema(), indent=1, ensure_ascii=False))
+        return 0
 
     import clab
 
     remote = {"no": False, "local": "local", "yes": True}[args.remote]
     name = os.path.splitext(os.path.basename(args.document))[0]
     out = args.out or os.path.join("out", name)
-    plan = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, remote=remote)
+    try:
+        clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, remote=remote)
+    except (ValueError, NotImplementedError) as e:
+        print(f"clab: {e}", file=sys.stderr)
+        return 1
     print(f"{name} on {args.engine} (batch size {args.batch_size}, remote {args.remote}) -> {out}")
-    for entry_name, entry in plan["steps"].items():
-        for point in points(entry):
-            for key, slot in point["result"].items():
-                value = slot["value"]
-                where = place(plan, point["at"], slot["save"])
-                print(f"  {where:28} {key:16} {list(value.shape)}  mean {value.float().mean().item():.6g}")
+    with open(os.path.join(out, "manifest.json")) as f:
+        described = json.load(f)["results"]
+    for key, d in described.items():
+        print(f"  {d['file']:28} {d['step']:16} {json.dumps(d['shape'])}")
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
 
