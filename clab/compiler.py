@@ -217,7 +217,9 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
     if write and frame != 0:
         decided(f"{path}.pos", pos)
     if "column" in scope:
-        text_ref(cx, scope["column"], f"{path}.pos.scope.column", dataset)
+        for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
+            text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
+                     dataset)
     ragged = positions.width(pos) is None
     dims = selection = address.dims(site.component, site.layers, ragged)
     for i, o in enumerate(spec.ops):

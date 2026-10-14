@@ -158,44 +158,52 @@ def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int], stoppe
 # -- where a scope's text occurs ----------------------------------------------------------------------
 
 
-def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, text: str | None) -> list[set[int]]:
+def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[str]) -> list[set[int]]:
     """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
-    occurrence of the text (`text`: the column's or the literal) in the prompt, by the tokenizer's offsets,
-    and in the generated inputs, by decoding growing prefixes. A token with an empty span (part of a split
-    character) covers the character it begins."""
+    occurrence of any of its texts (`texts`: the columns' or the literals) in the prompt, by the tokenizer's
+    offsets, then in the generated inputs, by decoding growing prefixes; each part's in order of position
+    (start, then end). A token with an empty span (part of a split character) covers the character it begins."""
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said[:-1]
-    text = text.strip() if text and scope.get("strip") else text
-    spans = turns(row, scope["turn"]) if "turn" in scope else \
-        [m.span() for m in re.finditer(re.escape(text), row["text"])] if text else []
+    spans = turns(row, scope["turn"]) if "turn" in scope else located(scope, texts, row["text"])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
-    if any(k in scope for k in TEXTUAL) and text and inputs:
+    if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        found += [{prompt + j for j, (x, y) in enumerate(chars) if x < m.end() and max(y, x + 1) > m.start()}
-                  for m in re.finditer(re.escape(text), words)]
+        found += [covering(chars, a, b, prompt) for a, b in located(scope, texts, words)]
     return found
 
 
-def ends(scope: dict, text: str | None, inputs: list[int], tokenizer) -> list[int]:
-    """Where the occurrences of the scope's text that its `occurrence` picks end among the inputs fed so far:
-    each one's last token, as an index into `inputs`. A non-negative pick names the same occurrence however
-    many follow, which is what lets a write find it online."""
-    text = text.strip() if text and scope.get("strip") else text
-    if not text or not inputs:
+def located(scope: dict, texts: list[str], words: str) -> list[tuple[int, int]]:
+    """Every character span in `words` where one of `texts` occurs (each stripped first under `strip`), in
+    order of start, then end."""
+    texts = [t.strip() if scope.get("strip") else t for t in texts]
+    return sorted(m.span() for t in texts if t for m in re.finditer(re.escape(t), words))
+
+
+def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:
+    """The tokens (`offset` + their index) whose spans overlap characters `a` to `b`; a token with an empty
+    span covers the character it begins."""
+    return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
+
+
+def ends(scope: dict, texts: list[str], inputs: list[int], tokenizer) -> list[int]:
+    """Where the occurrences that the scope's `occurrence` picks, among those of any of its texts, end among
+    the inputs fed so far: each one's last token, as an index into `inputs`. A non-negative pick names the
+    same occurrence however many follow, which is what lets a write find it online."""
+    if not inputs:
         return []
     words, chars = char_spans(tokenizer, inputs)
-    last = [max(j for j, (x, y) in enumerate(chars) if x < m.end() and max(y, x + 1) > m.start())
-            for m in re.finditer(re.escape(text), words)]
+    last = [max(covering(chars, a, b)) for a, b in located(scope, texts, words)]
     return [last[i] for i in select(scope["occurrence"], len(last))]
 
 
-def lands(scope: dict, text: str | None, inputs: list[int], eos: set[int], tokenizer) -> bool:
+def lands(scope: dict, texts: list[str], inputs: list[int], eos: set[int], tokenizer) -> bool:
     """Whether a write with this text scope lands at the call fed `inputs[-1]`, given every input the row was
     fed so far: an occurrence it picks ends on that token, and the row has not stopped."""
-    return not any(t in eos for t in inputs) and len(inputs) - 1 in ends(scope, text, inputs, tokenizer)
+    return not any(t in eos for t in inputs) and len(inputs) - 1 in ends(scope, texts, inputs, tokenizer)
 
 
 def turns(row: dict, turn: str) -> list[tuple[int, int]]:

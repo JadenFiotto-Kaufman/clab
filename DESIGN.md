@@ -55,7 +55,8 @@ document in these places:
   write beyond the prefill may take a `column`/`text` scope, found online call by call, landing at the call
   fed the last token of each occurrence it picks (index -1). A `column`/`text` scope picks its occurrences
   with `occurrence` (default 0, the first; the frame/index selector) and may `strip` its text; ambiguity is
-  gone: a doubled text takes the occurrence asked for, and `alignment_ambiguous` no longer exists.
+  gone: a doubled text takes the occurrence asked for, and `alignment_ambiguous` no longer exists. `column`
+  and `text` may be lists, whose occurrences are taken together in order of position.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

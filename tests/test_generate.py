@@ -197,7 +197,7 @@ def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, pro
     """`pos` (defaults filled) resolved in a row of a `prompt`-token prompt that generated `said`, EOS 1."""
     pos = {"frame": 0, "scope": None, "index": "all", **pos}
     row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
-    found = positions.occurrences(pos["scope"], row, said, tokenizer, text)
+    found = positions.occurrences(pos["scope"], row, said, tokenizer, [text] if text else [])
     return positions.resolve(pos, prompt, list(range(1, prompt)), said, bool(said) and said[-1] == 1, found)
 
 
@@ -513,7 +513,7 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
 
     def found(pos):
         pos = {"frame": 0, "scope": None, "index": "all", **pos}
-        hits = positions.occurrences(pos["scope"], row, said, tokenizer, "beta")
+        hits = positions.occurrences(pos["scope"], row, said, tokenizer, ["beta"])
         return positions.resolve(pos, 2, [1], said, True, hits)
     assert found(every) == [1]
     assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
@@ -702,3 +702,74 @@ def test_a_turn_takes_no_occurrence():
         d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"]["occurrence"] = 1
     with pytest.raises(PlanError, match=r"a turn is one place of the chat; it takes no occurrence or strip"):
         edited("chat_turn", change)
+
+
+def listed(d, rows: list[dict], reads: dict):
+    """patching.json over inline `rows`, one forward reading layer 0 at each of `reads` (name -> pos)."""
+    d["data"] = {"pairs": {"rows": [{"counterfactual_inputs": ["x"], "cf_answer": " Sunday", "base_answer": " Friday",
+                                     **row} for row in rows]}}
+    d["steps"] = {"look": {"kind": "forward", "input": "pairs.input",
+                           "reads": {k: {"site": "target", "pos": pos} for k, pos in reads.items()}}}
+    d["saves"] = [f"look.{k}" for k in reads]
+
+
+def test_a_list_of_texts_takes_its_occurrences_in_order(engines):
+    """`["Larry", "Bob"]` over rows that name Bob first and Larry first: occurrence 0 is whichever comes first
+    in the row, 1 the other, `"all"` both, on both engines to the bit."""
+    rows = [{"input": "Bob met Larry, then"}, {"input": "Larry met Bob, then"}]
+    both = ["Larry", "Bob"]
+    reads = {"first": {"scope": {"text": both}}, "second": {"scope": {"text": both, "occurrence": 1}},
+             "all": {"scope": {"text": both, "occurrence": "all"}},
+             "bob": {"scope": {"text": "Bob"}}, "larry": {"scope": {"text": "Larry"}}}
+    plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
+    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    where = runs["nnterp"].run.positions
+    bob, larry = where["look.bob"], where["look.larry"]
+    assert where["look.first"] == [bob[0], larry[1]] and where["look.second"] == [larry[0], bob[1]]
+    assert where["look.all"] == [sorted(b + l) for b, l in zip(bob, larry)]
+    assert same(runs["nnterp"].results, runs["hooks"].results)
+    assert runs["nnterp"].run.positions == runs["hooks"].run.positions
+
+
+def test_overlapping_texts_take_the_union_of_their_tokens(engines):
+    """`is` occurs inside `this` and on its own: `"all"` of `["this", "is"]` holds each token once."""
+    reads = {"all": {"scope": {"text": ["this", "is"], "occurrence": "all"}}, "every": {"index": "all"}}
+    plan = edited("patching", lambda d: listed(d, [{"input": "this is it, then"}], reads)).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    (got,), tokens = filled.run.positions["look.all"], filled.run.tokens["pairs.input"][0]
+    assert got == sorted(set(got)) and [tokens[i] for i in got] == ["▁this", "▁is"]
+
+
+def test_a_list_of_columns_takes_the_first_of_either(engines):
+    """`["pairs.number", "pairs.entity"]`: the number comes first on one row, the entity on the other."""
+    rows = [{"input": "Friday has 3 meetings", "entity": "Friday", "number": "3"},
+            {"input": "There are 2 on Monday", "entity": "Monday", "number": "2"}]
+    reads = {"first": {"scope": {"column": ["pairs.number", "pairs.entity"]}},
+             "entity": {"scope": {"column": "pairs.entity"}}, "number": {"scope": {"column": "pairs.number"}}}
+    plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    where = filled.run.positions
+    assert where["look.first"] == [where["look.entity"][0], where["look.number"][1]]
+
+
+def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
+    """Steered, rows say different things: `["energ", "Friday"]` is `▁energ` (token 2, fed to call 3) on the
+    rows that say it and `▁Friday` (token 0, fed to call 1) on the Sunday row; the Thursday row stops before
+    either and is missing. A read finds them there and a write lands there, on both engines."""
+    texts = ["energ", "Friday"]
+    pos = {"frame": "generated", "scope": {"text": texts}, "index": -1}
+
+    def change(d):
+        written(d, held=False)
+        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": pos, "ops": [{"op": "scale", "factor": 0.0}]}
+        d["steps"]["clean"]["reads"] = {"found": {"site": "head", "pos": pos}}
+        d["saves"] += ["clean.found"]
+    for kind in ("nnterp", "hooks"):
+        plan = steered(engines, kind, BATCH_SIZE, held=False, change=change)
+        v, where = plan.results, plan.run.positions
+        assert where["clean.found"] == ["alignment_missing", [9 + 2], [9 + 2], [9 + 0]], kind     # P + token
+        assert where["swapped.w"] == where["clean.found"], kind
+        assert torch.equal(v["swapped"][0], v["clean"][0])
+        for row, call in ((1, 3), (3, 1)):
+            assert torch.equal(v["swapped"][row, :call], v["clean"][row, :call]), (kind, row)
+            assert v["swapped"][row, call] != v["clean"][row, call], (kind, row)

@@ -96,9 +96,11 @@ call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes. `occurrence` (default 0, the first) picks which of the text's occurrences among those tokens the
-scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order,
-and `strip` strips the text of surrounding whitespace first. The prompt and the generated
+prefixes. A list of columns or texts locates every occurrence of each, ordered by position (start, then
+end). `occurrence` (default 0, the first of any) picks which of those occurrences among the tokens the
+scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order
+(their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
+whitespace first. The prompt and the generated
 tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
 token is never an input to any call, so a word ending on it is `alignment_missing` (with
 `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a chat turn, in call 0 only.

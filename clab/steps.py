@@ -192,25 +192,28 @@ def place(pos: dict, row: dict, encoded: dict, said: list[int], stopped: bool, t
           head_only: bool) -> list[int] | str:
     """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: the positions
     its prefill holds and where the scope's text occurs."""
-    found = positions.occurrences(pos["scope"], encoded, said, tokenizer, text(pos, row))
+    found = positions.occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
     return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, stopped, found)
 
 
 def landings(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer) -> list[int] | str:
     """Where a write with a text scope landed in one row, found as the engine found it: the inputs that end the
     occurrences it picks, within its frame's calls; missing where there are none."""
-    found = positions.ends(pos["scope"], text(pos, row), said[:-1], tokenizer)
+    found = positions.ends(pos["scope"], texts(pos, row), said[:-1], tokenizer)
     called = positions.reach({**pos, "index": "all"})[1]
     got = [len(encoded["ids"]) + j for j in found if called is None or j + 1 in called]
     return got or positions.MISSING
 
 
-def text(pos: dict, row: dict) -> str | None:
-    """The text a record's scope names in one row: its column's (`<dataset>.<column path>`), or the literal."""
+def texts(pos: dict, row: dict) -> list[str]:
+    """The texts a record's scope names in one row: its columns' (each `<dataset>.<column path>`), or the
+    literals; a single one is the one-element case."""
     scope = pos["scope"] or {}
     if "column" in scope:
-        return str(data.lookup(row, scope["column"].partition(".")[2]))
-    return scope.get("text")
+        columns = scope["column"] if isinstance(scope["column"], list) else [scope["column"]]
+        return [str(data.lookup(row, c.partition(".")[2])) for c in columns]
+    given = scope.get("text")
+    return [] if given is None else given if isinstance(given, list) else [given]
 
 
 def head(step, record) -> bool:
@@ -331,7 +334,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
             pos = positions.parse(record.pos)
-            online = {"online": {"scope": pos["scope"], "texts": [text(pos, row) for row in rows[chunk]],
+            online = {"online": {"scope": pos["scope"], "texts": [texts(pos, row) for row in rows[chunk]],
                                  "eos": sorted(eos), "within": calls}} if pos["scope"] else {}
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
                            "calls": None if online else calls, **online})
