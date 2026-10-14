@@ -1,0 +1,334 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "two_observes",
+  "path": "documents/two_observes.json",
+  "sha256": "67e8f8fda664f459378893956ca619d70f3478c45d4ca8d2d42d05199140bd83"
+ },
+ "description": "Two experiments at one site over the same rows, and the baseline they share. `interventions` declares interchange patching and mean ablation at the last position of layer 0; nothing there runs until a step lists it. `clean` runs the un-intervened model, scores it, and reads the activation `mean` averages. `patched` lists `patching`, whose operand is `counterfactual.v_cf`; `ablated` lists `ablation`, whose operand is `mean`, the step before it. Each metric is a step with its own name, and the save paths put the two experiments' tables in compare/patching/ and compare/ablation/. Tiny CPU Llama, so the numbers demonstrate the mechanism and nothing else.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "clean": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "acts",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "clean_ld": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "clean.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "clean_ld": {
+     "save": "clean.json",
+     "value": null
+    }
+   }
+  },
+  "mean": {
+   "kind": "op",
+   "at": {},
+   "op": "mean",
+   "args": {
+    "of": "clean.acts",
+    "over": null
+   },
+   "data": "pairs",
+   "dims": [
+    "hidden_size"
+   ],
+   "result": {}
+  },
+  "counterfactual": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "counterfactual_inputs",
+    "index": 0,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_cf",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "patched": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "patch",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_cf"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "iia": {
+   "kind": "op",
+   "at": {},
+   "op": "match",
+   "args": {
+    "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "iia": {
+     "save": "compare/patching/iia.json",
+     "value": null
+    }
+   }
+  },
+  "patching_ld": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "patching_ld": {
+     "save": "compare/patching/logit_diff.json",
+     "value": null
+    }
+   }
+  },
+  "ablated": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "ablate",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "mean"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "ablation_ld": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "ablated.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "ablation_ld": {
+     "save": "compare/ablation/logit_diff.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

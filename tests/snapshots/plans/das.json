@@ -1,0 +1,364 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "das",
+  "path": "documents/das.json",
+  "sha256": "bd2ea5561be13a210f41ad3ae7faeb20332f89df966794172f70d712a580bdf8"
+ },
+ "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of 16 pairs: the counterfactual read through the rotation, and swapped into the base in its space. The same two declared interventions are then scored on the training pairs after it. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one — and the held-out run is the body with `test` in place of `train`.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "train": {
+   "path": "weekdays/data",
+   "split": "train",
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  },
+  "test": {
+   "path": "weekdays/data",
+   "split": "test",
+   "columns": []
+  }
+ },
+ "featurizers": {
+  "rot": {
+   "kind": "subspace",
+   "k": 8,
+   "parametrization": "cayley",
+   "seed": null,
+   "file_path": null,
+   "bundle": null,
+   "at": {}
+  }
+ },
+ "sweeps": {},
+ "steps": {
+  "fit": {
+   "kind": "fit",
+   "at": {},
+   "train": [
+    "rot"
+   ],
+   "objective": {
+    "ce": 1.0
+   },
+   "epochs": 10,
+   "batch_size": 16,
+   "seed": 0,
+   "optimizer": {
+    "name": "adamw",
+    "lr": 0.001,
+    "weight_decay": 0.0
+   },
+   "early_stop": {
+    "metric": "iia",
+    "mode": "max",
+    "patience": 3
+   },
+   "eval": {
+    "data": {
+     "train": "test"
+    }
+   },
+   "steps": {
+    "counterfactual": {
+     "kind": "forward",
+     "at": {},
+     "input": {
+      "data": "train",
+      "column": "counterfactual_inputs",
+      "index": 0,
+      "variables": null
+     },
+     "writes": [],
+     "reads": [
+      {
+       "name": "v_cf",
+       "component": "layer_output",
+       "layer": 0,
+       "select": {},
+       "pos": {
+        "frame": "prompt",
+        "scope": null,
+        "start": -1,
+        "stop": null
+       },
+       "ops": [
+        {
+         "op": "encode",
+         "args": {
+          "featurizer": "fit.rot"
+         },
+         "featurizer": null,
+         "features": null
+        }
+       ],
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
+      }
+     ],
+     "result": {}
+    },
+    "patched": {
+     "kind": "forward",
+     "at": {},
+     "input": {
+      "data": "train",
+      "column": "input",
+      "index": null,
+      "variables": null
+     },
+     "writes": [
+      {
+       "name": "patch",
+       "component": "layer_output",
+       "layer": 0,
+       "select": {},
+       "pos": {
+        "frame": "prompt",
+        "scope": null,
+        "start": -1,
+        "stop": null
+       },
+       "ops": [
+        {
+         "op": "swap",
+         "args": {
+          "with": "counterfactual.v_cf"
+         },
+         "featurizer": "fit.rot",
+         "features": null
+        }
+       ],
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      }
+     ],
+     "reads": [
+      {
+       "name": "logits",
+       "component": "lm_head_output",
+       "layer": null,
+       "select": {},
+       "pos": {
+        "frame": "prompt",
+        "scope": null,
+        "start": -1,
+        "stop": null
+       },
+       "ops": [],
+       "dims": [
+        "rows",
+        "pos",
+        "vocab_size"
+       ]
+      }
+     ],
+     "result": {}
+    },
+    "iia": {
+     "kind": "op",
+     "at": {},
+     "op": "logit_diff",
+     "args": {
+      "of": "patched.logits",
+      "a": "train.cf_answer",
+      "b": "train.base_answer",
+      "token_form": "spaced"
+     },
+     "data": "train",
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "result": {}
+    },
+    "ce": {
+     "kind": "op",
+     "at": {},
+     "op": "cross_entropy",
+     "args": {
+      "of": "patched.logits",
+      "target": "train.cf_answer",
+      "token_form": "spaced"
+     },
+     "data": "train",
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "result": {}
+    }
+   },
+   "result": {
+    "fit.iia": {
+     "save": "held_out_iia.json",
+     "value": null
+    },
+    "fit.rot": {
+     "save": "rot.safetensors",
+     "value": null
+    }
+   }
+  },
+  "counterfactual": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "train",
+    "column": "counterfactual_inputs",
+    "index": 0,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_cf",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "encode",
+       "args": {
+        "featurizer": "fit.rot"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "features"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "patched": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "train",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "patch",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_cf"
+       },
+       "featurizer": "fit.rot",
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "iia": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "patched.logits",
+    "a": "train.cf_answer",
+    "b": "train.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "train",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "iia": {
+     "save": "iia.json",
+     "value": null
+    }
+   }
+  },
+  "ce": {
+   "kind": "op",
+   "at": {},
+   "op": "cross_entropy",
+   "args": {
+    "of": "patched.logits",
+    "target": "train.cf_answer",
+    "token_form": "spaced"
+   },
+   "data": "train",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "ce": {
+     "save": "ce.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

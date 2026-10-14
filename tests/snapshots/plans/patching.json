@@ -1,0 +1,166 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "patching",
+  "path": "documents/patching.json",
+  "sha256": "5b815a2e6093663d93d622a66a891e903cc776a3f2ba89bcee9d7cb900e9a8dc"
+ },
+ "description": "The smallest real interchange: read the residual stream at the last token of the counterfactual prompt, swap it into the same place on the base prompt, and score what the model then says. Two forwards over the same pairs, and two metrics of the second: four steps. The head is a site written in place, because nothing else names it.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "counterfactual_inputs",
+    "index": 0,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_cf",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "patched": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "patch",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_cf"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "iia": {
+   "kind": "op",
+   "at": {},
+   "op": "match",
+   "args": {
+    "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "iia": {
+     "save": "iia.json",
+     "value": null
+    }
+   }
+  },
+  "logit_diff": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "logit_diff": {
+     "save": "logit_diff.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

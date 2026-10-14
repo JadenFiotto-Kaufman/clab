@@ -1,0 +1,494 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "hydra_effect",
+  "path": "documents/hydra_effect.json",
+  "sha256": "b1dbfaab60ad98f9da934e6766ff1804ebcbcabcfccc9d5f92d75adde53bf126"
+ },
+ "description": "The hydra effect (McGrath et al. 2023, arXiv:2307.15771) on the tiny Llama: resample-ablate layer 0's attention at the final token, then measure each downstream layer's direct effect by injecting that layer's attention output as the final residual and reading the head. Reads taken inside one intervened forward are the operands of writes in another — `ablated.a1` is layer 1's attention *under the ablation* — which is a chain of calls, each step naming the one before.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "sample": {
+   "path": "pile/data/sample",
+   "split": null,
+   "columns": [
+    "example_id",
+    "input",
+    "ml_token",
+    "resample_input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "noise": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "resample_input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_noise",
+     "component": "attention_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "clean": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    },
+    {
+     "name": "a0",
+     "component": "attention_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "a1",
+     "component": "attention_output",
+     "layer": 1,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "ablated": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "resample",
+     "component": "attention_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "noise.v_noise"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    },
+    {
+     "name": "a1",
+     "component": "attention_output",
+     "layer": 1,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "inj0_clean": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "inject",
+     "component": "layer_output",
+     "layer": 1,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "clean.a0"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "inj1_clean": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "inject",
+     "component": "layer_output",
+     "layer": 1,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "clean.a1"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "inj1_abl": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "sample",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "inject",
+     "component": "layer_output",
+     "layer": 1,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "ablated.a1"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "te_clean": {
+   "kind": "op",
+   "at": {},
+   "op": "token_logit",
+   "args": {
+    "of": "clean.logits",
+    "token": "sample.ml_token",
+    "token_form": "spaced"
+   },
+   "data": "sample",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "te_clean": {
+     "save": "te_clean.json",
+     "value": null
+    }
+   }
+  },
+  "te_abl": {
+   "kind": "op",
+   "at": {},
+   "op": "token_logit",
+   "args": {
+    "of": "ablated.logits",
+    "token": "sample.ml_token",
+    "token_form": "spaced"
+   },
+   "data": "sample",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "te_abl": {
+     "save": "te_abl.json",
+     "value": null
+    }
+   }
+  },
+  "de0_c": {
+   "kind": "op",
+   "at": {},
+   "op": "token_logit",
+   "args": {
+    "of": "inj0_clean.logits",
+    "token": "sample.ml_token",
+    "token_form": "spaced"
+   },
+   "data": "sample",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "de0_c": {
+     "save": "de0_clean.json",
+     "value": null
+    }
+   }
+  },
+  "de1_c": {
+   "kind": "op",
+   "at": {},
+   "op": "token_logit",
+   "args": {
+    "of": "inj1_clean.logits",
+    "token": "sample.ml_token",
+    "token_form": "spaced"
+   },
+   "data": "sample",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "de1_c": {
+     "save": "de1_clean.json",
+     "value": null
+    }
+   }
+  },
+  "de1_a": {
+   "kind": "op",
+   "at": {},
+   "op": "token_logit",
+   "args": {
+    "of": "inj1_abl.logits",
+    "token": "sample.ml_token",
+    "token_form": "spaced"
+   },
+   "data": "sample",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "de1_a": {
+     "save": "de1_abl.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

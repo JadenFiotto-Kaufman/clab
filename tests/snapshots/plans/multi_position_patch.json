@@ -1,0 +1,256 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "multi_position_patch",
+  "path": "documents/multi_position_patch.json",
+  "sha256": "4331c13b69bdc536e21c7fb283b6a217c4cee4a31523ff8d6b8d92335125ea87"
+ },
+ "description": "Three swaps on ONE site at disjoint positions, in one forward: the counterfactual's -4, -3 and -2 at layer 0, each read and each written on its own. window_patch.json is the same experiment as one write of the window {'span': [-4, -1]}, and the two produce the same logits to the bit — which is the test of what a window is. An effect carried jointly by several positions can read nothing at every layer when each position is patched alone.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "base_answer",
+    "cf_answer",
+    "counterfactual_inputs",
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "counterfactual_inputs",
+    "index": 0,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "v_m4",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -4,
+      "stop": -3
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "v_m3",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -3,
+      "stop": -2
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "v_m2",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -2,
+      "stop": -1
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "patched": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "pairs",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [
+    {
+     "name": "at_m4",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -4,
+      "stop": -3
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_m4"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "at_m3",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -3,
+      "stop": -2
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_m3"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    },
+    {
+     "name": "at_m2",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -2,
+      "stop": -1
+     },
+     "ops": [
+      {
+       "op": "swap",
+       "args": {
+        "with": "counterfactual.v_m2"
+       },
+       "featurizer": null,
+       "features": null
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   ],
+   "reads": [
+    {
+     "name": "logits",
+     "component": "lm_head_output",
+     "layer": null,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": -1,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "iia": {
+   "kind": "op",
+   "at": {},
+   "op": "match",
+   "args": {
+    "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "iia": {
+     "save": "iia.json",
+     "value": null
+    }
+   }
+  },
+  "logit_diff": {
+   "kind": "op",
+   "at": {},
+   "op": "logit_diff",
+   "args": {
+    "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "token_form": "spaced"
+   },
+   "data": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "result": {
+    "logit_diff": {
+     "save": "logit_diff.json",
+     "value": null
+    }
+   }
+  }
+ }
+}

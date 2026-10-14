@@ -1,0 +1,79 @@
+{
+ "format": "clab/1",
+ "document": {
+  "name": "pca_harvest",
+  "path": "documents/pca_harvest.json",
+  "sha256": "3e1c3b279f41ddfd05e7ab00407805d37d65e5dc763c6271b48b5595819b5558"
+ },
+ "description": "The first half of a PCA control: read the residual stream at EVERY token of the training prompts — a ragged read, ~36 vectors from 4 rows, the tokenizer's own BOS not among them because it is not a token of the prompt — and reduce it to its top-4 principal directions, an orthonormal (16, 4) basis, saved as a bundle a later document loads as a `pca` featurizer. Nothing is trained; the basis is what the data says. (One position per row would be 4 vectors, and four vectors have no rank-4 PCA; the compiler says so.)",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+  "dtype": "float32",
+  "attn_implementation": null
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "split": null,
+   "columns": [
+    "input"
+   ]
+  }
+ },
+ "featurizers": {},
+ "sweeps": {},
+ "steps": {
+  "harvest": {
+   "kind": "forward",
+   "at": {},
+   "input": {
+    "data": "prompts",
+    "column": "input",
+    "index": null,
+    "variables": null
+   },
+   "writes": [],
+   "reads": [
+    {
+     "name": "acts",
+     "component": "layer_output",
+     "layer": 0,
+     "select": {},
+     "pos": {
+      "frame": "prompt",
+      "scope": null,
+      "start": 0,
+      "stop": null
+     },
+     "ops": [],
+     "dims": [
+      "entries",
+      "hidden_size"
+     ]
+    }
+   ],
+   "result": {}
+  },
+  "basis": {
+   "kind": "op",
+   "at": {},
+   "op": "pca",
+   "args": {
+    "of": "harvest.acts",
+    "k": 4
+   },
+   "data": "prompts",
+   "dims": [
+    "hidden_size",
+    "k"
+   ],
+   "result": {
+    "basis": {
+     "save": "pca.safetensors",
+     "value": null
+    }
+   }
+  }
+ }
+}
