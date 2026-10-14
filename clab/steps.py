@@ -18,8 +18,8 @@ import torch
 from torch import Tensor
 
 from . import address, data, featurizers, ops, positions
-from .plan import (Plan, Run, agreeing, arguments, coordinate, dims_of, kind_of, labelled, points, space, uses,
-                   walk)
+from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, kind_of, labelled,
+                   points, probe_of, space, uses, walk)
 from .registry import registers
 
 KINDS: dict = {}
@@ -95,28 +95,33 @@ def preflight(engine, plan: Plan) -> dict:
     not say, or with a `select` outside its features; and a trained featurizer used at no site.
     """
     refuse(engine, plan)
-    found = prepare(engine, plan, plan.steps, {})
+    rows = {n: d.rows or [] for n, d in plan.data.items()}
+    classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
+               for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
+    found = prepare(engine, plan, plan.steps, {}, classes)
     found["widths"] = widths(engine, plan)
     found["bodies"] = {}
     for name, entry in plan.steps.items():
         for step in points(entry):
             if step.kind != "fit":
                 continue
-            within = plan.model_copy(update={"steps": {**plan.steps, **step.steps}})
-            swap = step.eval.data if step.eval else {}
-            held = within.model_copy(update={"data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
-            sources = {"train": (within, prepare(engine, within, step.steps, {}))}
-            sources["eval"] = (held, prepare(engine, held, step.steps, swap)) if swap else sources["train"]
+            within = body_view(plan, name, step.at)
+            sources = {"train": (within, prepare(engine, within, step.steps, {}, classes))}
+            if step.eval:
+                held = body_view(plan, name, step.at, held=True)
+                sources["eval"] = (held, prepare(engine, held, step.steps, step.eval.data, classes))
+            else:
+                sources["eval"] = sources["train"]
             for _, body in sources.values():
                 body["widths"] = found["widths"]
             put(found["bodies"], name, step.at, sources)
     return found
 
 
-def prepare(engine, plan: Plan, steps: dict, swap: dict) -> dict:
+def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
     """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
     the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
-    `{"train": "test"}` records `train.input` as `test.input`)."""
+    `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
     found: dict = {"inputs": {}, "positions": {}, "said": {}}
@@ -126,7 +131,9 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict) -> dict:
             if step.kind == "fit":
                 continue
             if step.kind == "op":
-                if "classes" not in dims_of(plan, step.of):
+                if "classes" in dims_of(plan, step.of):
+                    check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
+                else:
                     check_tokens(engine, plan, name, step.op, arguments(step))
                 if step.op == "pca" and step.of in found["positions"]:
                     n = sum(map(len, lookup(found["positions"], step.of, step.at)))
@@ -160,11 +167,14 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict) -> dict:
                             if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
                         if any(not 0 <= i < size for i in index):
                             raise ValueError(f"{where}: select {axis} {index} outside {what}")
-                    probe = False                       # past a probe's encode, a column names its classes
+                    probe = None                        # past a probe's encode, a column names its classes
                     for o in record.ops:
-                        if not probe:
+                        if probe is None:
                             check_tokens(engine, plan, where, o.op, arguments(o))
-                        probe = probe or o.op == "encode" and kind_of(plan, o.featurizer or "") == "linear"
+                        else:
+                            check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
+                        if o.op == "encode" and kind_of(plan, o.featurizer or "") == "linear":
+                            probe = o.featurizer
                     pos, select = positions.parse(record.pos), {a: len(v) for a, v in (site.select or {}).items()}
                     if positions.prefill(pos):
                         resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
@@ -214,10 +224,8 @@ def instance(plan: Plan, spec, width: int, seed: int | None) -> dict:
     """A featurizer point `spec` made: from its bundle, or drawn from its seed, else `seed`; a probe's class
     list from its `classes` column."""
     fields = spec.model_extra or {}
-    labels = None
-    if "classes" in fields:
-        dataset, _, column = fields["classes"].partition(".")
-        labels = sorted({row[column] for row in plan.data[dataset].rows or []})
+    labels = featurizers.labels({n: d.rows or [] for n, d in plan.data.items()}, fields["classes"]) \
+        if "classes" in fields else None
     return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels)
 
 
@@ -328,6 +336,20 @@ def check_tokens(engine, plan: Plan, where: str, name: str, args: dict) -> None:
                 tokens(engine, plan, args[key], args.get("token_form", "spaced"), None)
             except ValueError as e:
                 raise ValueError(f"{where}: {e}") from None
+
+
+def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict, swap: dict) -> None:
+    """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
+    dataset it reads (named as the run reads it: under eval, the substituted one)."""
+    vocabulary = classes[declared(plan, probe)]
+    for key, p in ops.parameters(name).items():
+        if p.annotation == ops.Tokens and key in args:
+            dataset, _, column = args[key].partition(".")
+            for i, row in enumerate(plan.data[dataset].rows or []):
+                if row[column] not in vocabulary:
+                    raise ValueError(f"{where}: {key} is {column!r} of {swap.get(dataset, dataset)!r}, whose row {i} "
+                                     f"is {row[column]!r}, not one of the classes of probe {declared(plan, probe)!r}: "
+                                     f"{vocabulary}")
 
 
 def check_operands(plan: Plan, where: str, o, shape: tuple, step, component: str, inputs: dict, shapes: dict) -> None:
@@ -460,7 +482,8 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     """The op over the whole value `of` names. `top_k`'s value also holds its tokens, decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
-    vocabulary = classes(plan, state, step.of, step.at) if "classes" in dims_of(plan, step.of) else None
+    vocabulary = lookup(state, probe_of(plan, step.of), step.at)["classes"] if "classes" in dims_of(plan, step.of) \
+        else None
     value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
                                              vocabulary),
                   dims_of(plan, step.of), stops(engine, producer) if producer.kind == "generate" else engine.eos)
@@ -491,8 +514,12 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     for epoch in range(step.epochs):
         for f in trained.values():
             featurizers.anneal(f, epoch, step.epochs)
+        # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
         order = torch.randperm(n, generator=torch.Generator().manual_seed(step.seed * 1_000_003 + epoch)).tolist()
         for lo in range(0, n, step.batch_size):
+            with torch.enable_grad():
+                for f in trained.values():
+                    featurizers.settle(f)
             body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + step.batch_size])
             with torch.enable_grad():
                 loss = sum(weight * term(body, trained, t, step.at) for t, weight in step.objective.items())
@@ -501,23 +528,26 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
                 p.grad = g
             opt.step()
             opt.zero_grad()
+        for f in trained.values():
+            featurizers.settle(f)
         scored = body_run(engine, name, step, state, trained, sources["train"], None)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
                 history[o].append(overall(value))
         if step.early_stop is None:
-            kept = snapshot(params)
+            kept = snapshot(trained)
             continue
         score, mode = history[step.early_stop.metric][-1], step.early_stop.mode
         if best is None or (score > best if mode == "max" else score < best):
-            best, since, kept = score, 0, snapshot(params)
+            best, since, kept = score, 0, snapshot(trained)
         else:
             since += 1
             if since >= step.early_stop.patience:
                 break
-    for p, value in zip(params, kept or []):
-        p.requires_grad_(False).copy_(value)
+    for f, inst in trained.items():
+        inst.update(kept[f] if kept else {})
+        featurizers.settle(inst)
     final = body_run(engine, name, step, state, trained, sources["eval"], None)
     for f, inst in trained.items():
         put(state, f"{name}.{f}", step.at, inst)
@@ -575,8 +605,10 @@ def overall(value: Tensor) -> Tensor:
     return value.float().nanmean() if value.isnan().any() else value.float().mean()
 
 
-def snapshot(params: list[Tensor]) -> list[Tensor]:
-    return [p.detach().clone() for p in params]
+def snapshot(trained: dict) -> dict:
+    """Each trained featurizer as it is now, its tensors detached copies: what restoring the epoch puts back."""
+    return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in inst.items()}
+            for f, inst in trained.items()}
 
 
 # -- binding a record to one batch ------------------------------------------------------------------------
@@ -748,7 +780,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
             dims = ops.out_dims(o.op, dims, arguments(o))
         if o.op == "encode":
             probe = args["featurizer"]
-            dims[-1] = featurizers.AXIS.get(probe["kind"], "features")
+            dims[-1] = featurizers.DECLARED[probe["kind"]]["axis"]
             vocabulary = probe.get("classes")
     return value
 
@@ -793,24 +825,8 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
 def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Tensor:
     """A column's values as their indices in a probe's class list."""
     name, _, col = column.partition(".")
-    values = [r[col] for r in plan.data[name].rows or []]
-    for v in values:
-        if v not in vocabulary:
-            raise ValueError(f"{column}: {v!r} is not one of the probe's classes {vocabulary}")
+    values = [r[col] for r in plan.data[name].rows or []]       # preflight checked each is a class
     return torch.tensor([vocabulary.index(v) for v in (values[rows] if rows is not None else values)])
-
-
-def classes(plan: Plan, state: dict, name: str, at: dict) -> list:
-    """The class list a value's `classes` axis indexes: that of the probe whose encode made it."""
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    if step.kind == "op":
-        return classes(plan, state, step.of, at)
-    if step.kind == "fit":
-        within = plan.model_copy(update={"steps": {**plan.steps, **step.steps}})
-        return classes(within, {**state, **{f: state[f"{thing}.{f}"] for f in step.train}}, member, at)
-    encode = next(o for o in reversed(step.reads[member].ops) if o.op == "encode")
-    return lookup(state, encode.featurizer, at)["classes"]
 
 
 def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Tensor:

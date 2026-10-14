@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from . import address, data, featurizers, ops, positions
-from .plan import Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, space, uses
+from .plan import Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, points, space, uses
 
 
 def compile(plan: Plan) -> Plan:
@@ -265,7 +265,7 @@ def axis(plan: Plan, o, dims: list[str]) -> list[str]:
     """An encode's coordinates are on its featurizer kind's axis: `features`, or a probe's `classes`."""
     if o.op != "encode":
         return dims
-    return dims[:-1] + [featurizers.AXIS.get(kind_of(plan, o.featurizer), "features")]
+    return dims[:-1] + [featurizers.DECLARED[kind_of(plan, o.featurizer)]["axis"]]
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
@@ -337,9 +337,13 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
-        if kind_of(plan, f) not in featurizers.TRAINABLE:
+        trainable = [k for k, d in featurizers.DECLARED.items() if d["trains"]]
+        if kind_of(plan, f) not in trainable:
             fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
-                 f"train (trainable kinds: {', '.join(featurizers.TRAINABLE)})")
+                 f"train (trainable kinds: {', '.join(trainable)})")
+        if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
+            fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
+                 "it draws")
     within = replace(cx, names=dict(cx.names))
     for f in spec.train:
         within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
@@ -354,7 +358,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
     inner = within.names
     for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and cx.names[ref]["dims"][:1] in (["rows"], ["entries"], ["layers"]):
+        if inner.get(ref) is cx.names.get(ref) and {"rows", "entries"} & set(cx.names[ref]["dims"]):
             fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
                  "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
@@ -477,7 +481,9 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     if fields.get("file_path") is None:
         return record
     try:
-        tensors, header = featurizers.bundle(cx.root, f.kind, fields, plan.model)
+        tensors, header = featurizers.bundle(cx.root, f.kind, fields, plan.model,
+                                             featurizers.labels(cx.rows, fields["classes"]) if "classes" in fields
+                                             else None)
     except ValueError as e:
         fail(f"{path}.file_path", str(e))
     return {**record, "bundle": tensors, "header": header}

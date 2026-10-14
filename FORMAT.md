@@ -386,15 +386,22 @@ it takes, with `width` (the feature width of the sites it is used at) and `bundl
 names) supplied by the run, and for a probe `labels` (its class list). An instance is a dict of tensors, never
 an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
 at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
-from its bundle, which compile reads into the plan and checks key by key against the document. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change is
-written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
-autoencoder's error term is kept exactly. A fit trains an instance's `TRAINABLE` tensors; its objective may
-name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask).
+from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
+is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
+is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
+autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
+a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask).
 
-A bundle is a safetensors file: an instance's tensors, and a header saying what made them — the kind and its
-fields, the model, the site it was used at (`component`, `layer`), its `width` and the document. A document
-that loads one is checked against it key by key: the kind, its fields and the model when the plan compiles,
-the site at every use, and `width` against the model's size before any forward.
+A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
+saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
+`layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
+saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
+fields and the model when the plan compiles, the site at every use, and `width` against the model's size
+before any forward.
+
+Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
+value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
+has one, `SETTLE`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
 
 ### `subspace`
 
@@ -405,11 +412,13 @@ the site at every use, and `width` against the model's size before any forward.
 
 A rank-`k` subspace: the first `k` columns of a rotation `origin @ cayley(theta)`. `origin` is a
 Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains) starts at zero, so an
-untrained subspace is a uniformly random one and each seed draws a different one.
+untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
+`[width, k]` basis.
 
 ### `gate`
 
 - `temperature: {start: float, end: float} or null = None`
+- `file_path: str or null = None`
 
 A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a fit trains it, hard
 (θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
@@ -433,11 +442,12 @@ the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its error ter
 ### `linear`
 
 - `classes: str`
+- `file_path: str or null = None`
 
 A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
-the `classes` column, sorted. A metric scores them against a column of those values, as it scores logits
-against a column of tokens. It has no way back into the value, so it is read with `encode` and never
-written through.
+the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
+those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
+read with `encode` and never written through.
 
 ## Names and scoping
 
@@ -472,8 +482,8 @@ One file per save, named after it: `<name>.safetensors` when the value is a tens
 bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
-nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`) carries
-the header that featurizer checks.
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
+fit's trained featurizer) carries the header that featurizer checks.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the

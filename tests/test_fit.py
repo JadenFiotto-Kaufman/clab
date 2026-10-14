@@ -92,15 +92,54 @@ def test_a_das_fit_lowers_ce_and_its_history_says_so(engines, kind):
     assert all(p.grad is None for p in engine.model.parameters())
 
 
-def test_early_stopping_restores_the_best_epoch(engines):
+def test_early_stopping_restores_the_best_epoch_before_the_eval_run(engines):
     """With iia's mode turned to min, the best epoch is the first (iia rises every epoch), so patience 3 ends
-    the fit after four epochs and restores the first epoch's rotation: the root's ce is the history's first."""
+    the fit after four epochs and restores the first epoch's rotation: the root's ce is the history's first,
+    and the held-out `fit.ce` is that of a fit that ran one epoch, so the eval ran after the restore."""
     def change(d):
         d["steps"]["fit"]["early_stop"]["mode"] = "min"
+
+    def one_epoch(d):
+        d["steps"]["fit"]["epochs"] = 1
     plan = with_history(change)
-    values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    engine = engines("hooks", plan.model)
+    values = engine.execute(plan, batch_size=BATCH_SIZE).results
     assert values["fit.history.ce"].shape == (4,)
     assert torch.equal(values["fit.history.ce"][0], values["ce"].mean())
+    assert torch.equal(values["fit.ce"], engine.execute(with_history(one_epoch), batch_size=BATCH_SIZE).results["fit.ce"])
+
+
+def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(engines, monkeypatch):
+    """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
+    over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
+    order the rows are shuffled in, and that changes the trajectory."""
+    from clab import steps
+
+    def change(d, seed=0):
+        d["steps"]["fit"].update(batch_size=1, seed=seed)
+        d["featurizers"]["rot"]["seed"] = 0
+    counted = []
+
+    class Counting(torch.optim.AdamW):
+        def step(self, *args, **kwargs):            # type: ignore[override]
+            counted.append(1)
+            return super().step(*args, **kwargs)
+    monkeypatch.setitem(steps.OPTIMIZERS, "adamw", Counting)
+    plan = with_history(change)
+    engine = engines("hooks", plan.model)
+    values = engine.execute(plan, batch_size=BATCH_SIZE).results
+    assert len(counted) == 10 * 2
+    history = plain({k: values[k] for k in ("fit.history.ce", "fit.history.iia")})
+    close(history, snapshot("das.batch_size_1.json", history))
+    other = engine.execute(with_history(lambda d: change(d, seed=1)), batch_size=BATCH_SIZE).results
+    assert not torch.equal(other["fit.history.ce"], values["fit.history.ce"])
+
+
+def test_a_pca_encodes_its_mean_as_zero():
+    g = torch.Generator().manual_seed(0)
+    bundle = {"basis": torch.linalg.qr(torch.randn(16, 4, generator=g))[0], "mean": torch.randn(16, generator=g)}
+    f = featurizers.make("pca", {"k": 4, "file_path": "x"}, 16, bundle, None, None)
+    assert torch.equal(featurizers.encode(f, bundle["mean"][None]), torch.zeros(1, 4))
 
 
 def test_a_fit_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
@@ -123,8 +162,7 @@ def test_das_apply_scores_the_saved_rotation_as_das_scored_it_held_out(ran):
 def test_random_subspace_draws_a_different_subspace_per_seed(ran):
     """Each seed draws its own Haar-random rotation; the three rank-4 bases are orthonormal and span three
     different subspaces, and score differently."""
-    bases = [featurizers.basis(featurizers.make("subspace", {"k": 4, "seed": s}, 16, None, None, None))
-             for s in (0, 1, 2)]
+    bases = [featurizers.make("subspace", {"k": 4, "seed": s}, 16, None, None, None)["basis"] for s in (0, 1, 2)]
     projections = [b @ b.T for b in bases]
     for b in bases:
         torch.testing.assert_close(b.T @ b, torch.eye(4), atol=1e-6, rtol=0)
@@ -355,3 +393,112 @@ def test_a_readout_in_the_body_carries_the_gradient_on_both_engines(engines):
            for kind in ("nnterp", "hooks")]
     assert same(*got)
     assert got[0]["fit.history.ce"][-1] < got[0]["fit.history.ce"][0]
+
+
+# -- review findings: joins, swept bundles, probe labels, root values in a body, gate and probe bundles ---------
+
+
+def test_a_table_refuses_to_join_values_of_two_datasets(ran):
+    """`fit.iia` has a row per held-out example and `iia` one per training example: row 1 of one is not row 1
+    of the other, so the join is refused naming both datasets."""
+    with pytest.raises(ValueError, match=r"'fit\.iia' has a row per example of 'test' and 'iia' of 'train'"):
+        ran["das", "nnterp"].table("fit.iia", "iia")
+
+
+def test_a_swept_fits_bundle_is_refused_naming_its_points(engines, tmp_path):
+    root = corpus_copy(tmp_path)
+    swept = edited("das", lambda d: d["steps"]["fit"]["optimizer"].update(lr={"sweep": [0.001, 0.01]})).compile()
+    engines("hooks", swept.model).execute(swept, batch_size=BATCH_SIZE).dump(
+        os.path.join(root, "documents", "artifacts"))
+    with pytest.raises(PlanError, match=r"fit\.rot\.safetensors holds one bundle per point of a sweep "
+                                        r"\(lr=0\.001, lr=0\.01\)"):
+        Plan(os.path.join(root, "documents", "das_apply.json")).compile()
+
+
+def test_a_root_value_without_rows_is_the_bodys_to_use():
+    """A root mean over a `layers: "all"` read is `[layers, hidden_size]`: no row per example, so a body may use it."""
+    def change(d):
+        d["steps"] = {"lens": {"kind": "forward", "input": "train.input",
+                               "reads": {"h": {"site": {"component": "layer_output", "layers": "all"}, "pos": -1}}},
+                      "avg": {"kind": "op", "op": "mean", "of": "lens.h", "over": ["rows", "pos"]}, **d["steps"]}
+        d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg"}
+    plan = edited("das", change).compile()
+    assert dims_of(plan, "avg") == ["layers", "hidden_size"]
+
+
+def held_out(label: str):
+    def change(d):
+        held = [dict(r) for r in d["data"]["days"]["rows"]]
+        held[0]["label"] = label
+        d["data"]["held"] = {"rows": held}
+        d["steps"]["fit"]["eval"] = {"data": {"days": "held"}}
+    return change
+
+
+def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines):
+    """Under eval the label column is the held-out dataset's; a label there the probe has no class for is
+    refused naming that dataset, before the fit's first forward."""
+    plan = probe(held_out("holiday"))
+    engine = engines("hooks", plan.model)
+    calls = []
+    original = engine.forward
+    engine.forward = lambda *args: calls.append(1) or original(*args)
+    try:
+        with pytest.raises(ValueError, match=r"ce: target is 'label' of 'held', whose row 0 is 'holiday', not one of "
+                                             r"the classes of probe 'probe': \['weekday', 'weekend'\]"):
+            engine.execute(plan, batch_size=BATCH_SIZE)
+    finally:
+        del engine.forward
+    assert not calls
+
+
+def applied(corpus_root: str, name: str, featurizer: dict, steps: dict, data: dict) -> Plan:
+    """A document that loads `featurizer` from the corpus's artifacts and runs `steps` with it."""
+    doc = {"model": TINY, "data": data, "featurizers": {name: featurizer}, "steps": steps,
+           "saves": [next(iter(steps)) + "." + next(iter(next(iter(steps.values()))["reads"]))]}
+    with open(os.path.join(corpus_root, "documents", "applied.json"), "w") as f:
+        json.dump(doc, f)
+    return Plan(os.path.join(corpus_root, "documents", "applied.json")).compile()
+
+
+def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, tmp_path):
+    root = corpus_copy(tmp_path)
+    trained = probe()
+    engine = engines("hooks", trained.model)
+    filled = engine.execute(trained, batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "documents", "artifacts"))
+    data = probe().model_dump(mode="json", exclude_defaults=True)["data"]
+    data["days"] = {"rows": data["days"]["rows"]}
+    read = {"read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
+        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "encode", "featurizer": "probe"}]}}}}
+    spec = {"kind": "linear", "classes": "days.label", "file_path": "documents/artifacts/fit.probe.safetensors"}
+    plan = applied(root, "probe", spec, read, data)
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.read.scores"])
+    for row in data["days"]["rows"]:
+        row["label"] = "rest" if row["label"] == "weekend" else row["label"]
+    with pytest.raises(PlanError, match=r"header 'classes' is '\[\"weekday\", \"weekend\"\]'; this document expects "
+                                        r"'\[\"rest\", \"weekday\"\]'"):
+        applied(root, "probe", spec, read, data)
+
+
+def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
+    """dbm at one L1 weight, its gate loaded by a document that runs dbm's root steps through it: the same
+    numbers, to the bit."""
+    root = corpus_copy(tmp_path)
+    one = edited("dbm", lambda d: d["steps"]["fit"]["objective"].update({"mask.mask": 0.01})).compile()
+    engine = engines("hooks", one.model)
+    filled = engine.execute(one, batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "documents", "artifacts"))
+
+    def loaded(d):
+        d["featurizers"]["mask"]["file_path"] = "documents/artifacts/fit.mask.safetensors"
+        del d["steps"]["fit"]
+        for side in d["interventions"].values():
+            for record in {**side.get("writes", {}), **side.get("reads", {})}.values():
+                for o in record.get("ops", []):
+                    o["featurizer"] = "mask"
+        d["saves"] = ["iia", "ce"]
+    plan = edited("dbm", loaded)
+    plan = Plan(**plan.model_dump(exclude_defaults=True, exclude={"document"}),
+                document=os.path.join(root, "documents", "dbm.json")).compile()
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results, {k: filled.results[k] for k in ("iia", "ce")})

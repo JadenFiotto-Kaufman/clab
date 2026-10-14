@@ -4,8 +4,8 @@ One file per save, named after it: `<name>.safetensors` when the value is a tens
 bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
-nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`) carries
-the header that featurizer checks.
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
+fit's trained featurizer) carries the header that featurizer checks.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
@@ -26,7 +26,8 @@ from safetensors.torch import load_file, save_file
 from torch import Tensor
 
 from . import data, featurizers, ops, positions
-from .plan import Plan, arguments, coordinate, corpus_root, dims_of, kind_of, labelled, name as named, points, uses
+from .plan import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, kind_of, labelled, name as named,
+                   points, uses)
 
 
 def dump(plan: Plan, out: str) -> None:
@@ -136,7 +137,9 @@ def header(plan: Plan, name: str, value: Any) -> dict[str, str] | None:
         site = uses(plan)[member][0][1]
     else:
         return None
-    return featurizers.header(kind, fields, plan.model, site, featurizers.width(kind, value), named(plan))
+    classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
+        if "classes" in fields else None
+    return featurizers.header(kind, fields, plan.model, classes, site, featurizers.width(kind, value), named(plan))
 
 
 # -- tables ---------------------------------------------------------------------------------------------
@@ -158,6 +161,12 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
+    aligned = {name: dataset_of(plan, name) for name in names}
+    found = {d: name for name, d in aligned.items() if d is not None}
+    if len(found) > 1:
+        (a, x), (b, y) = list(found.items())[:2]
+        raise ValueError(f"{x!r} has a row per example of {a!r} and {y!r} of {b!r}; a table joins the values of "
+                         "one dataset")
     if len(names) == 1:
         return rows_of(plan, names[0], columns)
     joined: list[dict] = []
@@ -209,6 +218,20 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
     return out
 
 
+def dataset_of(plan: Plan, name: str) -> str | None:
+    """The dataset a saved value has a row per example of, if any: its step's, or for a fit's member the one its
+    body's step read under eval."""
+    if not {"rows", "entries"} & set(dims_of(plan, name)):
+        return None
+    thing, _, member = name.partition(".")
+    step = points(plan.steps[thing])[0]
+    if step.kind != "fit":
+        return step.dataset
+    swap = step.eval.data if step.eval else {}
+    inner = step.steps[member.partition(".")[0]].dataset
+    return swap.get(inner, inner) if inner is not None else None
+
+
 def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
     """A saved value per point: each point's coordinates (none when its step is not swept) and its value."""
     entry = plan.steps[name.partition(".")[0]]
@@ -219,12 +242,9 @@ def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
 
 
 def evaluated(plan: Plan, fit: str, name: str) -> Plan:
-    """The plan as the fit's eval run saw it, for tabling its member `name` (`<fit>.<step>...`): the body's
-    steps as steps, eval's datasets under the body's names for them, and the run record of the body's
-    records and inputs under the names the body gives them."""
-    entry = plan.steps[fit]
-    fits = points(entry)
-    body = {n: [p.steps[n] for p in fits] if isinstance(entry, list) else fits[0].steps[n] for n in fits[0].steps}
+    """The plan as the fit's eval run saw it, for tabling its member `name` (`<fit>.<step>...`): its body's view
+    under eval, and the run record of the body's records and inputs under the names the body gives them."""
+    fits = points(plan.steps[fit])
     swap = fits[0].eval.data if fits[0].eval else {}
     assert plan.run is not None
     tokens = dict(plan.run.tokens)
@@ -232,10 +252,8 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
         tokens.update({f"{a}.{k.partition('.')[2]}": v for k, v in plan.run.tokens.items() if k.partition(".")[0] == b})
     run = plan.run.model_copy(update={"tokens": tokens, "positions": {
         k.removeprefix(f"{fit}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.")}})
-    return plan.model_copy(update={"steps": {**plan.steps, **body}, "run": run,
-                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}},
-                                   "results": {name.partition(".")[2]: plan.results[name]},
-                                   "saves": [name.partition(".")[2]]})
+    return body_view(plan, fit, held=True).model_copy(update={
+        "run": run, "results": {name.partition(".")[2]: plan.results[name]}, "saves": [name.partition(".")[2]]})
 
 
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:

@@ -39,9 +39,14 @@ def test_document_compiles_to_its_snapshot(name, corpus):
     assert '"sweep"' not in json.dumps(compiled_form(plan))
 
 
-def test_a_missing_bundle_is_refused_naming_its_file():
+def test_a_missing_bundle_is_refused_naming_its_file(corpus, tmp_path):
+    """In a copy of the corpus whose artifacts hold no basis (the live tree's may, once pca_harvest has run)."""
+    import shutil
+    shutil.copytree(os.path.join(corpus, "documents"), tmp_path / "documents")
+    os.symlink(os.path.join(corpus, "data"), tmp_path / "data")
+    os.remove(tmp_path / "documents" / "artifacts" / "basis.safetensors")
     with pytest.raises(PlanError, match="featurizers.rot.file_path: documents/artifacts/basis.safetensors does not exist"):
-        plan_of("pca_control")
+        Plan(str(tmp_path / "documents" / "pca_control.json")).compile()
 
 
 def test_a_bundle_header_is_checked_key_by_key(corpus):

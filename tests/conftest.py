@@ -150,17 +150,22 @@ def engines():
 def corpus(tmp_path_factory) -> str:
     """A copy of the corpus whose `documents/artifacts` holds, beside the committed SAE fixture, stand-in bundles
     for the two documents that load what another writes, each with the header its document checks; the
-    tensors are an identity rotation and a zero basis."""
+    tensors are the first 8 unit vectors and a zero basis."""
     root = tmp_path_factory.mktemp("corpus")
     shutil.copytree(DOCUMENTS, root / "documents")
     os.symlink(os.path.join(ROOT, "data"), root / "data")
+    stand_ins(str(root))
+    return str(root)
+
+
+def stand_ins(root: str) -> None:
+    """The stand-in bundles the `corpus` fixture's artifacts hold."""
     for file, header, tensors in (
             ("fit.rot.safetensors", {"kind": "subspace", "k": "8", "parametrization": "cayley", "document": "das"},
-             {"origin": torch.eye(16), "theta": torch.zeros(16, 16)}),
+             {"basis": torch.eye(16)[:, :8].contiguous()}),
             ("basis.safetensors", {"kind": "pca", "k": "4", "document": "pca_harvest"},
              {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)})):
-        save_file(tensors, str(root / "documents" / "artifacts" / file), metadata={**bundle_header(), **header})
-    return str(root)
+        save_file(tensors, os.path.join(root, "documents", "artifacts", file), metadata={**bundle_header(), **header})
 
 
 def bundle_header(**changes: str) -> dict:

@@ -566,7 +566,9 @@ class Plan(Record):
             for f in points(entry):
                 fields = f.model_extra or {}
                 if fields.get("file_path") is not None and f.bundle is None:
-                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model)
+                    classes = featurizers.labels({n: d.rows or [] for n, d in self.data.items()}, fields["classes"]) \
+                        if "classes" in fields else None
+                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model, classes)
         return self
 
     @field_serializer("document", when_used="json")
@@ -692,6 +694,30 @@ def walk(steps: dict, prefix: str = ""):
 def declared(plan: Plan, ref: str) -> str:
     """The declared featurizer a reference names: itself, or the one `<fit>.<featurizer>` trains."""
     return ref if ref in plan.featurizers else ref.partition(".")[2]
+
+
+def body_view(plan: Plan, fit: str, at: dict | None = None, held: bool = False) -> Plan:
+    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
+    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and under
+    `held` each dataset `eval` substitutes read under the body's name for it."""
+    entry = plan.steps[fit]
+    fits = [agreeing(entry, at)] if at is not None else points(entry)
+    one = at is not None or not isinstance(entry, list)
+    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
+    swap = fits[0].eval.data if held and fits[0].eval else {}
+    return plan.model_copy(update={"steps": {**plan.steps, **steps},
+                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
+
+
+def probe_of(plan: Plan, name: str) -> str:
+    """The probe whose `encode` made value `name`'s `classes` axis, as referenced where it was encoded."""
+    thing, _, member = name.partition(".")
+    step = points(plan.steps[thing])[0]
+    if step.kind == "op":
+        return probe_of(plan, step.of)
+    if step.kind == "fit":
+        return probe_of(body_view(plan, thing), member)
+    return next(o.featurizer for o in reversed(step.reads[member].ops) if o.op == "encode" and o.featurizer)
 
 
 def kind_of(plan: Plan, ref: str) -> str:
