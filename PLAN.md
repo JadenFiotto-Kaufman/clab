@@ -623,7 +623,11 @@ when the owner asks for open items.
   fed the k-th occurrence's last token, `"all"` at each as it appears, and a
   row with too few occurrences is recorded missing; a negative occurrence is
   for reads only. `strip: true` strips the text's surrounding whitespace
-  before locating it (default `false`). `turn` takes neither.
+  before locating it (default `false`). `turn` takes neither. `column` and
+  `text` may be a list: every occurrence of every listed text is located,
+  ordered by position, and `occurrence` picks among them by the same rule
+  (default 0 = the first of any; `"all"` = the union of their tokens where
+  occurrences overlap).
 - `variable`, `segment`, `span`, `all` (as keys), `prompt` and the old
   "generated index k = the call that chose token k" convention are gone.
   Migration round four touches every document with a dict `pos` and the
