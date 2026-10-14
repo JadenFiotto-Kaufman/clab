@@ -359,21 +359,22 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
 def check_operands(plan: Plan, where: str, o, shape: tuple, step, site, inputs: dict, shapes: dict,
                    sizes: dict) -> None:
     """A write's operands that another record selected: the same width and narrowing; on a `key` axis, inputs
-    that line up token for token; and a featurizer op's operand as wide per position, its axes after the
-    positions flattened, as the value it acts on."""
+    that line up token for token; and an argument of the function an op's `options` choose (a lora's `with`)
+    as wide per position, its axes after the positions flattened, as the value it acts on."""
+    chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
     for key, p in parameters(plan, o.op, arguments(o)).items():
         value = arguments(o).get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
         theirs = lookup(shapes, value, step.at)
-        if o.op == "featurizer":
+        if key in chosen:
             read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
             per, own = (math.prod(len((s.select or {}).get(a, [])) or sizes[a]
                                   for a in address.dims(s.component, None, False)[2:]) for s in (read, site))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
-        if theirs[0] != shape[0] or (theirs[1] != shape[1] and o.op != "featurizer"):
+        if theirs[0] != shape[0] or (theirs[1] != shape[1] and key not in chosen):
             raise ValueError(f"{where}: operand {value!r} is {theirs[0]} token(s) wide, narrowed to {theirs[1]}; "
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
         producer = points(plan.steps[value.partition(".")[0]])[0].input
@@ -800,9 +801,9 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
                       features=features(o))
         if f is None:
-            dims = ops.out_dims(o.op, dims, arguments(o), args["featurizer"]["kind"] if o.op == "featurizer" else None)
+            dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
         if encodes(o):
-            vocabulary = args["featurizer"].get("classes")
+            vocabulary = ops.featurizer_of(o.op, args).get("classes")
     return value
 
 
@@ -839,7 +840,7 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
     the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, featurizer, features)
-        kind = args["featurizer"]["kind"] if name == "featurizer" else None
+        kind = ops.kind(name, args)
         return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args, kind) \
             else got
 

@@ -184,7 +184,7 @@ def premix_after(d):
     (lambda d: d["featurizers"]["lora"].pop("alpha"), r"'lora' \(lora\) is loaded from its bundle"),
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["writes"]["adapt"]["ops"].__setitem__(
         0, {"op": "scale", "factor": 2.0, "featurizer": "fit.lora"}),
-     r"'fit\.lora' is a lora, which has no coordinates to edit and write back into the value; call it with the "
+     r"'fit\.lora' is a 'lora' featurizer, which has no coordinates to edit and write back into the value; call it with the "
      r"featurizer op \(modes: apply\)"),
     (premix_after, r"adapt\.ops\[0\]\.with: 'adapted\.later' is read at layer_output layer 1, which the forward does "
                    r"not reach before this write's layer_output layer 0"),

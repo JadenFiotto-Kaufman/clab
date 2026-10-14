@@ -335,7 +335,7 @@ write, an operand may name a read of the same forward at a site the forward reac
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
-| `featurizer` | `featurizer: Featurizer`, `mode: str`, `...` | its mode's (see Featurizer kinds) | `featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per class), `apply` its version of the value. This is the one op whose axes depend on an argument: they are the mode's, which the featurizer's kind declares (see Featurizer kinds), so it cannot declare them here. |
+| `featurizer` | `featurizer: Featurizer`, `mode: str`, `...` | its mode's (see Featurizer kinds) | `featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per class), `apply` its version of the value. Its axes depend on an argument: they are the mode's, which the featurizer's kind declares (see Featurizer kinds), and the op declares them as that function. |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
 | `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
 | `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
@@ -425,7 +425,7 @@ Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains)
 untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
 `[width, k]` basis.
 
-Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the subspace..
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the subspace.
 
 ### `gate`
 
@@ -436,7 +436,7 @@ A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a 
 (θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
 (default 1).
 
-Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` times the mask: soft while a fit trains it, hard when scored..
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` times the mask: soft while a fit trains it, hard when scored.
 
 ### `pca`
 
@@ -446,7 +446,7 @@ Modes: `encode` gives its coordinates, the last axis becoming features; `apply` 
 The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
 coordinates are centred on the mean.
 
-Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the principal directions through the mean: `mean + (h - mean) B Bᵀ`..
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the principal directions through the mean: `mean + (h - mean) B Bᵀ`.
 
 ### `sae`
 
@@ -461,7 +461,7 @@ both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_
 error term exactly. Its scalars, over every vector the body's encodes of it saw in that run of the body:
 `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
-Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term..
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term.
 
 ### `linear`
 
@@ -487,7 +487,7 @@ bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha`
 from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
 no coordinates, so its one mode is `apply`, and no edit runs in its space.
 
-Modes: `apply`(with: Value or null = None) gives its version of the value, in the value's own layout: `h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its axes after the positions flattened into the adapter's width. The addition lands on the live value..
+Modes: `apply`(with: Value or null = None) gives its version of the value, in the value's own layout: `h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its axes after the positions flattened into the adapter's width. The addition lands on the live value.
 
 ## Names and scoping
 

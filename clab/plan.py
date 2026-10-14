@@ -305,15 +305,15 @@ def space(op: "Op") -> str | None:
 
 
 def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Parameter]:
-    """Op `name`'s parameters by document spelling: the `featurizer` op's with its mode's, for the kind of
-    the featurizer `args` names."""
-    if name != "featurizer":
-        return ops.parameters(name)
-    return ops.parameters(name, args["mode"], kind_of(plan, args["featurizer"]))
+    """Op `name`'s parameters by document spelling, with those of the function its `options` choose for the
+    kind of the featurizer `args` names."""
+    ref = ops.featurizer_of(name, args)
+    return ops.parameters(name, args, kind_of(plan, ref) if isinstance(ref, str) else None)
 
 
 def encodes(op: Any) -> bool:
-    """Whether an op record calls a featurizer in mode `encode`."""
+    """Whether an op record calls a featurizer in mode `encode`. (`mode` is the featurizer op's argument and
+    `encode` its kinds' mode, so this asks that op by name.)"""
     return op.op == "featurizer" and arguments(op).get("mode") == "encode"
 
 

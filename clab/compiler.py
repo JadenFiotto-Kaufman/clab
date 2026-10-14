@@ -252,13 +252,15 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             featurizer_ref(cx, within, f"{at}.featurizer")
             kind = kind_of(plan, within)
             if kind not in featurizers.ENCODE or kind not in featurizers.REPLACE:
-                fail(f"{at}.featurizer", f"{within!r} is a {kind}, which has no coordinates to edit and write back "
-                     f"into the value; call it with the featurizer op (modes: {', '.join(featurizers.modes(kind))})")
-        kind = mode(cx, plan, at, o.op, arguments(o))
+                fail(f"{at}.featurizer", f"{within!r} is a {kind!r} featurizer, which has no coordinates to edit and "
+                     f"write back into the value; call it with the featurizer op (modes: "
+                     f"{', '.join(featurizers.modes(kind))})")
+        kind = called(cx, plan, at, o.op, arguments(o))
         found = references(cx, plan, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
         if write:
-            operands(at, found, selection, within, ragged, live, o.op == "featurizer")
+            chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
+            operands(at, found, selection, within, ragged, live, chosen)
             for key, info in found.items():
                 if info["name"] in live:
                     reached(f"{at}.{key}", info["name"], live[info["name"]], site)
@@ -274,18 +276,22 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
     return record if write else {**record, "dims": dims}
 
 
-def mode(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
-    """The kind of the featurizer the `featurizer` op calls, its mode one the kind has and the mode's own
-    arguments bound to the mode's signature; None for any other op."""
-    if name != "featurizer":
+def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
+    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist; and the op's
+    further arguments bound to the function its `options` choose for them (a mode the kind lacks refused by
+    name). None when the op takes no featurizer."""
+    ref = ops.featurizer_of(name, args)
+    if ref is None:
         return None
-    featurizer_ref(cx, args.get("featurizer"), f"{path}.featurizer")
-    kind = kind_of(plan, args["featurizer"])
+    featurizer_ref(cx, ref, f"{path}.featurizer")
+    kind = kind_of(plan, ref)
     own = {k: v for k, v in args.items() if k not in ops.parameters(name)}
     try:
-        registry.check(featurizers.mode(kind, args["mode"]), own, ("f", "h"), f"{kind}'s mode {args['mode']!r}")
+        fn = ops.options(name, args, kind)
+        if fn is not None:
+            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], repr(fn.__name__))
     except ValueError as e:
-        fail(path, f"featurizer {args['featurizer']!r}: {e}")
+        fail(path, f"featurizer {ref!r}: {e}")
     return kind
 
 
@@ -304,7 +310,7 @@ def reached(path: str, name: str, read: dict, site: Site) -> None:
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
-    kind = mode(cx, plan, path, spec.op, arguments(spec))
+    kind = called(cx, plan, path, spec.op, arguments(spec))
     dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, plan, path, spec.op, arguments(spec)))
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value"}
@@ -340,21 +346,21 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
 
 
 def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool, live: dict,
-             call: bool) -> None:
+             chosen: set) -> None:
     """Inside a write an operand stands for the selection: its own layout (in a featurizer's space, its
     features), or one vector of its features; only the vector when the selection is ragged, unless the operand
-    is a read of the write's own forward, which is gathered as the selection is. The `featurizer` op's
-    operands (`call`) are its mode's: laid out on the selection's rows and positions, whatever their
-    features, which the mode takes as it says."""
+    is a read of the write's own forward, which is gathered as the selection is. An argument of the function
+    an op's `options` choose (`chosen`: a lora's `with`) is laid out on the selection's rows and positions,
+    whatever its features, which that function takes as it says."""
     own = selection[:-1] + ["features"] if featurizer is not None else selection
     lead = [a for a in selection if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info["kind"] != "value":
             continue
         whole = not ragged or info["name"] in live
-        if call:
+        if key in chosen:
             if [a for a in info["dims"] if a in address.EXAMPLE_AXES] != lead or not whole:
-                fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; the featurizer op's operand is "
+                fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {key!r} is "
                      f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is a read of its "
                                                            "own forward"))
             continue
@@ -365,8 +371,8 @@ def operands(path: str, found: dict, selection: list[str], featurizer: str | Non
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
-    """The layout of op `name`'s result on a value laid out `dims` (the `featurizer` op's, for a featurizer of
-    `kind`). Inside a read or write (`where`) the op sees one batch, so it may not aggregate over rows;
+    """The layout of op `name`'s result on a value laid out `dims` (for an op with a `layout`, for its
+    featurizer's `kind`). Inside a read or write (`where`) the op sees one batch, so it may not aggregate over rows;
     `original` is only a write's."""
     if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside a write")

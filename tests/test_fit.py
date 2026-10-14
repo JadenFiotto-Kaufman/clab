@@ -423,7 +423,7 @@ def test_a_write_through_a_probe_is_refused():
         d["steps"]["fit"]["steps"]["read"]["writes"] = {"w": {"site": {"component": "layer_output", "layers": 0},
                                                              "pos": -1, "ops": [{"op": "scale", "factor": 0.0,
                                                                                  "featurizer": "fit.probe"}]}}
-    with pytest.raises(PlanError, match=r"'fit\.probe' is a linear, which has no coordinates to edit and write back "
+    with pytest.raises(PlanError, match=r"'fit\.probe' is a 'linear' featurizer, which has no coordinates to edit and write back "
                                         r"into the value; call it with the featurizer op \(modes: encode\)"):
         probe(change)
 

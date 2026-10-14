@@ -377,8 +377,8 @@ def call(f: dict, name: str, h: Tensor, options: dict) -> Tensor:
 
 
 def encode(f: dict, h: Tensor) -> Tensor:
-    """`h`'s coordinates in `f`'s space, along its last axis."""
-    return known(f, ENCODE, "coordinates")(f, h)
+    """`h`'s coordinates in `f`'s space, along its last axis: its mode `encode`."""
+    return mode(f["kind"], "encode")(f, h)
 
 
 def replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:

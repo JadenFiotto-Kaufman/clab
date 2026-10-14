@@ -67,9 +67,9 @@ def summary(thing) -> str:
 
 
 def axes(name: str) -> str:
-    if name == "featurizer":
-        return "its mode's (see Featurizer kinds)"
     a = ops.DECLARED[name]
+    if a["layout"] is not None:
+        return summary(a["layout"])
 
     def listed(verb: str) -> str:
         if not isinstance(a[verb], tuple):
@@ -134,7 +134,9 @@ def per_op(base: dict) -> dict:
     branches = []
     for name in ops.OPS:
         params = {k: p for k, p in ops.parameters(name).items() if k not in base["properties"]}
-        if name == "featurizer":            # every mode's own arguments, which compile binds to the kind's mode
+        # The featurizer op's further arguments are every mode's of every kind, which compile binds to the one
+        # its featurizer's kind has; only that op's options can be listed ahead of a document, so by name.
+        if name == "featurizer":
             params.update({k: p for table in featurizers.MODES.values() for fn in table["table"].values()
                            for k, p in featurizers.registry.spelled(fn, ("f", "h")).items()})
         # An optional thing (`Value | None`) is written as the thing, or left out.
@@ -236,8 +238,9 @@ def markdown() -> str:
     for name, fn in featurizers.KINDS.items():
         params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
                   for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
-        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n\n" + "Modes: "
-                  + "; ".join(modes(name)) + ".\n"]
+        listed = "; ".join(modes(name))
+        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n\n" + "Modes: " + listed
+                  + ("" if listed.endswith(".") else ".") + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",

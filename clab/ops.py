@@ -3,8 +3,9 @@
 `@op(group, ...)` registers the function under its own name and declares it: its group, the axes the input
 must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of the argument that lists them),
 the axes it appends (`adds`), and, when its value is a bundle a featurizer loads, that featurizer's kind
-(`bundle`). Compile reads the axes to lay out every value; the `featurizer` op's are its mode's, which the
-featurizer's kind declares. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
+(`bundle`). An op whose axes and further arguments depend on what it is given declares them as functions
+instead (`layout`, `options`), as the `featurizer` op does for its modes. Compile reads the axes to lay out
+every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
 `Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
 run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
 `"with"`).
@@ -64,25 +65,49 @@ GROUPS = ("metrics", "reductions", "edits", "transforms")
 DECLARED: dict[str, dict] = {}
 
 
-def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (), bundle: str | None = None):
+def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (), bundle: str | None = None,
+       layout: Callable | None = None, options: Callable | None = None):
     """Register the decorated function as an op under its own name, with its declaration: its `group`
     (`metrics`, `reductions`, `edits` or `transforms`), its axes, and, for a value a featurizer loads, the
-    featurizer kind its `bundle` is for."""
+    featurizer kind its `bundle` is for. An op whose result's axes depend on its arguments declares
+    `layout(dims, args, kind)` in place of the axes, and one whose `**` arguments do declares `options(args,
+    kind)`, the function they go to, whose first two parameters (the featurizer and the value) the op fills;
+    `kind` is that of the featurizer the op's `Featurizer` argument names."""
     assert group in GROUPS
     def register(fn: Callable) -> Callable:
-        DECLARED[fn.__name__] = {"group": group, "needs": needs, "removes": removes, "adds": adds, "bundle": bundle}
+        DECLARED[fn.__name__] = {"group": group, "needs": needs, "removes": removes, "adds": adds, "bundle": bundle,
+                                 "layout": layout, "options": options}
         return registry.registers(OPS)(fn)
     return register
 
 
-def parameters(name: str, mode: str | None = None, kind: str | None = None) -> dict[str, inspect.Parameter]:
-    """An op's parameters by document spelling, without `of` and the supplied ones; the `featurizer` op's with
-    those of its `mode` for a featurizer of `kind`, when both are given."""
+def parameters(name: str, args: dict | None = None, kind: str | None = None) -> dict[str, inspect.Parameter]:
+    """An op's parameters by document spelling, without `of` and the supplied ones; with `args` and the `kind`
+    of its featurizer, also those of the function its `options` choose (an optional thing, `Value | None`, as
+    the thing)."""
     found = registry.spelled(OPS[name], SUPPLIED + ("of",))
-    if name == "featurizer" and mode is not None and kind is not None:
-        own = registry.spelled(featurizers.mode(kind, mode), ("f", "h"))
+    fn = options(name, args, kind)
+    if fn is not None:
+        own = registry.spelled(fn, tuple(inspect.signature(fn).parameters)[:2])
         found.update({k: p.replace(annotation=registry.thing(p.annotation)) for k, p in own.items()})
     return found
+
+
+def options(name: str, args: dict | None, kind: str | None) -> Callable | None:
+    """The function op `name`'s `**` arguments go to, for these arguments and featurizer kind, if it has one."""
+    chooses = DECLARED[name]["options"]
+    return chooses(args, kind) if chooses is not None and args is not None and kind is not None else None
+
+
+def featurizer_of(name: str, args: dict) -> Any:
+    """Op `name`'s `Featurizer` argument in `args`, if it takes one: a name in a document, an instance in a run."""
+    return next((args.get(k) for k, p in parameters(name).items() if p.annotation == Featurizer), None)
+
+
+def kind(name: str, args: dict) -> str | None:
+    """The kind of the featurizer instance bound as op `name`'s `Featurizer` argument, if any."""
+    f = featurizer_of(name, args)
+    return f["kind"] if isinstance(f, dict) else None
 
 
 def check(name: str, args: dict) -> None:
@@ -103,12 +128,11 @@ def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
 
 
 def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:
-    """The axes of op `name`'s result, on a value laid out `dims`; the `featurizer` op's are those its mode
-    produces for a featurizer of `kind`."""
-    if name == "featurizer":
-        assert kind is not None
-        return featurizers.layout(kind, args["mode"], dims)
+    """The axes of op `name`'s result, on a value laid out `dims`: its `layout`'s, for a featurizer of `kind`,
+    when it declares one."""
     axes = DECLARED[name]
+    if axes["layout"] is not None:
+        return axes["layout"](dims, args, kind)
     for axis in axes["needs"]:
         if not set(axis if isinstance(axis, tuple) else (axis,)) & set(dims):
             raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, axis)) if isinstance(axis, tuple) else repr(axis)} "
@@ -247,12 +271,21 @@ def readout(of: Tensor, engine: Any) -> Tensor:
     return engine.readout(of)
 
 
-@op("transforms")
+def mode_layout(dims: list[str], args: dict, kind: str) -> list[str]:
+    """its mode's (see Featurizer kinds)"""
+    return featurizers.layout(kind, args["mode"], dims)
+
+
+def mode_function(args: dict, kind: str) -> Callable:
+    return featurizers.mode(kind, args["mode"])
+
+
+@op("transforms", layout=mode_layout, options=mode_function)
 def featurizer(of: Tensor, featurizer: Featurizer, mode: str, **options: Any) -> Tensor:
     """`featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments
     beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per
-    class), `apply` its version of the value. This is the one op whose axes depend on an argument: they are
-    the mode's, which the featurizer's kind declares (see Featurizer kinds), so it cannot declare them here."""
+    class), `apply` its version of the value. Its axes depend on an argument: they are the mode's, which the
+    featurizer's kind declares (see Featurizer kinds), and the op declares them as that function."""
     return featurizers.call(featurizer, mode, of, options)
 
 

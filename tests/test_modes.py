@@ -79,7 +79,7 @@ def test_a_read_through_apply_keeps_the_sites_layout_on_both_engines(engines):
 @pytest.mark.parametrize("make, message", [
     (lambda: reconstructed("decode"), r"steps\.base\.reads\.recon\.ops\[0\]: featurizer 'dictionary': kind 'sae' has "
                                       r"no mode 'decode'; its modes: encode, apply"),
-    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': sae's mode 'apply' takes no 'scale'; its arguments: "
+    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': 'sae_apply' takes no 'scale'; its arguments: "
                                        r"none"),
 ])
 def test_a_mode_or_argument_the_kind_lacks_is_refused_at_compile(make, message):
