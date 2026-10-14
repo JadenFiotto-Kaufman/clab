@@ -562,3 +562,53 @@ when the owner asks for open items.
 - **Named sweeps** to zip two different fields, if a document ever needs it.
 - Readability: the `cx` dict threaded through `compiler.py`;
   `output.elements`.
+
+### Ratified after M3 (2026-10-14)
+
+- **`pos` is three stages of narrowing: frame → scope → index.** Each stage
+  narrows the one before; the same selector shape serves frame and index.
+
+  ```
+  pos := int                                  # shorthand: {"frame": 0, "index": int}
+       | {"frame"?: frame, "scope"?: scope, "index"?: index}
+  frame := int | [start, stop] | "generated" | "all" | "eos"      # default 0
+  scope := {"column": "<dataset>.<column>"} | {"text": "<literal>"} | {"turn": "<role>[<n>]"}
+  index := int | [start, stop] | "all"                            # default "all"
+  ```
+
+  **frame** picks forward calls: 0 is the prefill (the only call a `forward`
+  step has), k ≥ 1 is decode call k, negative counts from the row's last
+  call; a span is half-open; `"generated"` is every decode call; `"all"` is
+  the whole timeline; `"eos"` is the call where the row stopped. Under the
+  cache a decode call holds one position — generated token k−1, its input —
+  and its logits are the distribution over token k; the prefill holds every
+  prompt position and its last one is the distribution over generated token
+  0. Positions mean the same thing in a forward and in a generation: where
+  the input token sits.
+  **scope** picks text within the selected calls' tokens: the row's own text
+  from a column (named with the one dataset.column syntax — an indexed
+  input's variables are named explicitly, e.g.
+  `pairs.counterfactual_inputs_variables[0].entity`; the hidden
+  `<column>_variables` convention is gone), a literal text (same mechanism),
+  or a chat turn (call 0 only). Default: everything the frame selected.
+  **index** picks positions within that: an int (negative from the end), a
+  half-open span, or `"all"`. Default `"all"`.
+  Rectangular vs ragged is decided from the record alone (one call or a span
+  of calls with a fixed index is rectangular; `"all"`, `"generated"`,
+  `"eos"` and text scopes are per-row). In the prefill a text that is absent
+  or doubled is refused by name (the data decided); in the generated calls
+  it is a result (`alignment_missing` / `alignment_ambiguous`), as is a call
+  the row never reached. Any value may be a sweep.
+- **Writes work in every frame.** A write at decode call k edits that call's
+  position and takes effect from token k on through the cache; a span or
+  `"generated"` applies it at each call independently; the operand is
+  `[rows, 1, ...]` or a broadcast vector; a row that already stopped is
+  skipped there and recorded as missing. Both engines agree to the bit.
+- `variable`, `segment`, `span`, `all` (as keys), `prompt` and the old
+  "generated index k = the call that chose token k" convention are gone.
+  Migration round four touches every document with a dict `pos` and the
+  two generate documents (`generate_probe`'s three distributions become
+  `{"frame": {"sweep": [0, 1, 2]}, "index": -1}`).
+- **Milestone order from here:** M4 = positions (this grammar, migration
+  round four, generated-frame writes); M5 = featurizers and `fit`; M6 =
+  real remote.
