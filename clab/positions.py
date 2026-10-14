@@ -69,18 +69,18 @@ def reach(pos: dict) -> tuple[bool, list[int] | None, bool]:
     needs, landing as each call runs. Not exact: a frame counted from the row's last call or `eos`, an index
     into a frame holding the prompt (whose length differs by row), a negative index over several calls."""
     frame, index = pos["frame"], pos["index"]
-    ends = {"generated": [1, None], "all": [0, None]}.get(frame) if isinstance(frame, str) else \
+    span = {"generated": [1, None], "all": [0, None]}.get(frame) if isinstance(frame, str) else \
         [frame, frame + 1] if isinstance(frame, int) else frame
-    if ends is None or ends[0] < 0 or (ends[1] or 0) < 0:
+    if span is None or span[0] < 0 or (span[1] or 0) < 0:
         return True, None, False
-    start, stop = ends
+    start, stop = span
     calls = None if stop is None else list(range(max(start, 1), stop))
     if start == 0 or index == "all":
         return start == 0, calls, index == "all" or calls == []
-    single, ends = stop is not None and stop - start == 1, index if isinstance(index, list) else [index]
-    if not single and min(ends) < 0:
+    single, bounds = stop is not None and stop - start == 1, index if isinstance(index, list) else [index]
+    if not single and min(bounds) < 0:
         return False, calls, False
-    picked = [start + i for i in select(index, 1 if single else max(ends) + 1)]
+    picked = [start + i for i in select(index, 1 if single else max(bounds) + 1)]
     return False, [k for k in picked if stop is None or k < stop], True
 
 
@@ -194,7 +194,10 @@ def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> s
 def ends(scope: dict, texts: list[str], inputs: list[int], tokenizer) -> list[int]:
     """Where the occurrences that the scope's `occurrence` picks, among those of any of its texts, end among
     the inputs fed so far: each one's last token, as an index into `inputs`. A non-negative pick names the
-    same occurrence however many follow, which is what lets a write find it online."""
+    same occurrence however many follow, which is what lets a write find it online. This is not `resolve` on
+    the prefix, which counts only the occurrences that overlap the frame's calls and takes index -1 of the
+    picked ones' union: here every picked occurrence lands at its own last token, counted among all the inputs
+    fed, and the frame only keeps the calls it names (`standard.landed`)."""
     if not inputs:
         return []
     words, chars = char_spans(tokenizer, inputs)

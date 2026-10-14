@@ -327,13 +327,13 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         n = chunk.stop - chunk.start
         sites, writes, reads = bind(engine, plan, name, step, first, state, found, chunk, pads, set(beyond))
         for key, record in beyond.items():
-            holds, calls, _ = positions.reach(positions.parse(record.pos))
+            pos = positions.parse(record.pos)
+            holds, calls, _ = positions.reach(pos)
             edits = [edit(engine, plan, record, o, state, step.at, chunk) for o in record.ops]
             if holds:
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
-            pos = positions.parse(record.pos)
             online = {"online": {"scope": pos["scope"], "texts": [texts(pos, row) for row in rows[chunk]],
                                  "eos": sorted(eos), "within": calls}} if pos["scope"] else {}
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
