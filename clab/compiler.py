@@ -8,7 +8,7 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 
 import inspect
 import itertools
-import os
+from dataclasses import dataclass, replace
 from typing import Any
 
 from . import address, data, featurizers, ops, positions
@@ -32,20 +32,19 @@ def compile(plan: Plan) -> Plan:
         if not rows[name]:
             fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
     sweeps = find_sweeps(doc)
-    axes = {label: get(doc, path)["sweep"] for path, label in sweeps.items()}
-    cx: dict = {"doc": doc, "root": root, "rows": rows, "sweeps": sweeps, "axes": axes, "names": {}, "of": {},
-                "refs": []}
+    values = {label: get(doc, path)["sweep"] for path, label in sweeps.items()}
+    cx = Compiling(doc=doc, root=root, rows=rows, sweeps=sweeps, values=values, names={}, axes_of={}, refs=[])
     compiled = {"featurizers": {}, "steps": {}}
     for name in plan.featurizers:
         compiled["featurizers"][name] = expand(cx, name, ("featurizers", name),
                                                lambda point, name=name: featurizer(cx, point, name))
-        cx["names"][name] = {"dims": [], "data": None, "kind": "featurizer"}
+        cx.names[name] = {"dims": [], "data": None, "kind": "featurizer"}
         for scalar in featurizers.SCALARS.get(points_kind(plan, name), ()):
-            cx["names"][f"{name}.{scalar}"] = {"dims": [], "data": None, "kind": "scalar"}
+            cx.names[f"{name}.{scalar}"] = {"dims": [], "data": None, "kind": "scalar"}
     for name in plan.steps:
         compiled["steps"][name] = expand(cx, name, ("steps", name), lambda point, name=name: step(
             cx, f"steps.{name}", name, point.steps[name], point))
-    saveable = sorted(n for n, v in cx["names"].items() if n.partition(".")[0] in plan.steps and v["kind"] != "scalar")
+    saveable = sorted(n for n, v in cx.names.items() if n.partition(".")[0] in plan.steps and v["kind"] != "scalar")
     for i, name in enumerate(plan.saves):
         if name in plan.data:
             fail(f"saves[{i}]", f"{name!r} is a dataset; hub datasets and dataset saves land later")
@@ -55,10 +54,29 @@ def compile(plan: Plan) -> Plan:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
     return Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
-                   "sweeps": {label: {"path": ".".join(map(str, path)), "values": axes[label]}
+                   "sweeps": {label: {"path": ".".join(map(str, path)), "values": values[label]}
                               for path, label in sweeps.items()},
                    "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
                                 "n_rows": len(rows[n])} for n in rows}})
+
+
+@dataclass(frozen=True)
+class Compiling:
+    """What compiling an entry needs beside the entry, passed to every function that resolves a name.
+
+    Fixed for the whole compile: the document as a dict (`doc`), the corpus root, each dataset's rows, each
+    sweep's label by document path (`sweeps`) and its values by label (`values`). Growing as entries
+    compile, in document order: each name produced so far, `{dims, data, kind}` (`names`; a fit's body
+    compiles in a copy, its own scope), each entry's sweep axes (`axes_of`), and the names the entry being
+    compiled references (`refs`), which decide the axes it inherits."""
+    doc: dict
+    root: str
+    rows: dict
+    sweeps: dict
+    values: dict
+    names: dict
+    axes_of: dict
+    refs: list
 
 
 def get(doc: dict, path: tuple):
@@ -70,17 +88,17 @@ def get(doc: dict, path: tuple):
 # -- sweeps: each entry compiled at every point of its axes -------------------------------------------
 
 
-def expand(cx: dict, name: str, where: tuple, build) -> dict | list:
+def expand(cx: Compiling, name: str, where: tuple, build) -> dict | list:
     """An entry compiled at every point of its axes: those in what it uses (its own spec, and the sites,
     interventions and featurizers it names), and those of every value it references."""
-    own = {label for path, label in cx["sweeps"].items() if any(path[:len(p)] == p for p in footprint(cx, where))}
-    cx["refs"] = []
+    own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
+    cx.refs.clear()
     first = build(point(cx, {label: 0 for label in own}))
-    used = own | {a for ref in cx["refs"] for a in cx["of"].get(ref.partition(".")[0], [])}
-    labels = [label for label in cx["axes"] if label in used]
-    cx["of"][name] = labels
+    used = own | {a for ref in cx.refs for a in cx.axes_of.get(ref.partition(".")[0], [])}
+    labels = [label for label in cx.values if label in used]
+    cx.axes_of[name] = labels
     entries = []
-    for index in itertools.product(*(range(len(cx["axes"][label])) for label in labels)):
+    for index in itertools.product(*(range(len(cx.values[label])) for label in labels)):
         at = dict(zip(labels, index))
         # The first point is the document every axis puts at its first value, which `first` was built from.
         entry = first if not any(index) else build(point(cx, at))
@@ -90,22 +108,22 @@ def expand(cx: dict, name: str, where: tuple, build) -> dict | list:
     return entries if labels else entries[0]
 
 
-def point(cx: dict, at: dict) -> Plan:
+def point(cx: Compiling, at: dict) -> Plan:
     """The document with every sweep `at` names replaced by its value there."""
     def substitute(value: Any, path: tuple) -> Any:
-        if cx["sweeps"].get(path) in at:
-            return value["sweep"][at[cx["sweeps"][path]]]
+        if cx.sweeps.get(path) in at:
+            return value["sweep"][at[cx.sweeps[path]]]
         if isinstance(value, dict):
             return {k: substitute(v, path + (k,)) for k, v in value.items()}
         if isinstance(value, list):
             return [substitute(v, path + (i,)) for i, v in enumerate(value)]
         return value
-    return Plan(**substitute(cx["doc"], ()))
+    return Plan(**substitute(cx.doc, ()))
 
 
-def footprint(cx: dict, where: tuple) -> list[tuple]:
+def footprint(cx: Compiling, where: tuple) -> list[tuple]:
     """The document paths an entry reads: its own, and the sites, interventions and featurizers it names."""
-    found, doc = [where], cx["doc"]
+    found, doc = [where], cx.doc
 
     def walk(value):
         if isinstance(value, dict):
@@ -131,7 +149,7 @@ def footprint(cx: dict, where: tuple) -> list[tuple]:
 # -- steps -------------------------------------------------------------------------------------------
 
 
-def step(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
+def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     """Names are one flat namespace per scope: no dots, and no step also a dataset or a featurizer.
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
@@ -147,12 +165,12 @@ def step(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
     return {"forward": forward, "generate": forward, "op": op_step, "fit": fit}[spec.kind](cx, path, name, spec, plan)
 
 
-def forward(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
+def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     dataset, column, index = data.parse_input(spec.input)
-    if dataset not in cx["rows"]:
-        fail(f"{path}.input", f"no dataset {dataset!r}; datasets: {', '.join(cx['rows'])}")
+    if dataset not in cx.rows:
+        fail(f"{path}.input", f"no dataset {dataset!r}; datasets: {', '.join(cx.rows)}")
     column_ref(cx, f"{dataset}.{column}", f"{path}.input", dataset)
-    rows = cx["rows"][dataset]
+    rows = cx.rows[dataset]
     if index is not None and any(not isinstance(r[column], list) or index >= len(r[column]) for r in rows):
         fail(f"{path}.input", f"column {column!r} has no entry {index} on every row")
     given: dict[str, list] = {"writes": [], "reads": []}
@@ -171,13 +189,13 @@ def forward(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
     records = {side: {k: access(cx, p, a, plan, spec, dataset, side == "writes") for p, k, a in given[side]}
                for side in given}
     for k, r in records["reads"].items():
-        cx["names"][f"{name}.{k}"] = {"dims": r["dims"], "data": dataset, "kind": "value"}
+        cx.names[f"{name}.{k}"] = {"dims": r["dims"], "data": dataset, "kind": "value"}
     if spec.kind == "generate":
-        cx["names"][name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
+        cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), **records, "dataset": dataset}
 
 
-def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: bool) -> dict:
+def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool) -> dict:
     """One write or read: its site inlined, its positions checked against the step, its ops' layouts."""
     if isinstance(spec.site, Site):
         site = spec.site
@@ -202,7 +220,7 @@ def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: boo
     variable = (pos["scope"] or {}).get("variable")
     _, column, index = data.parse_input(step.input)
     if variable is not None and pos["frame"] == "prompt" and index is not None:
-        entries = [r.get(f"{column}_variables") for r in cx["rows"][dataset]]
+        entries = [r.get(f"{column}_variables") for r in cx.rows[dataset]]
         if any(not isinstance(e, list) or len(e) <= index or variable not in e[index] for e in entries):
             fail(f"{path}.pos.scope.variable", f"no {variable!r} in {column}_variables[{index}] on every row")
     elif variable is not None:
@@ -226,15 +244,15 @@ def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: boo
     return record if write else {**record, "dims": dims}
 
 
-def op_step(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
+def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
     dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, path, spec.op, arguments(spec)))
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step")
-    cx["names"][name] = {"dims": dims, "data": dataset, "kind": "value"}
+    cx.names[name] = {"dims": dims, "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
-def references(cx: dict, path: str, name: str, args: dict) -> dict[str, dict]:
+def references(cx: Compiling, path: str, name: str, args: dict) -> dict[str, dict]:
     """Op `name`'s arguments that name a value or a column, each resolved to `{"dims", "data", "kind", "name"}`
     (a column is laid out `["rows"]`); a featurizer argument is checked to exist."""
     found = {}
@@ -288,15 +306,15 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str) -> lis
     return out
 
 
-def fit(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
+def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
-    outer, cx["names"] = cx["names"], dict(cx["names"])
+    within = replace(cx, names=dict(cx.names))
     for f in spec.train:
-        cx["names"][f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
-    body = {n: step(cx, f"{path}.steps.{n}", n, s, plan) for n, s in spec.steps.items()}
-    inner, cx["names"] = cx["names"], outer
+        within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
+    body = {n: step(within, f"{path}.steps.{n}", n, s, plan) for n, s in spec.steps.items()}
+    inner = within.names
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
@@ -309,16 +327,16 @@ def fit(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
     for a, b in (spec.eval.data.items() if spec.eval else []):
         for d in (a, b):
-            if d not in cx["rows"]:
-                fail(f"{path}.eval.data", f"no dataset {d!r}; datasets: {', '.join(cx['rows'])}")
+            if d not in cx.rows:
+                fail(f"{path}.eval.data", f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
     for f in spec.train:
-        cx["names"][f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
+        cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
     for n, s in body.items():
         if s["kind"] == "op":
-            cx["names"][f"{name}.{n}"] = inner[n]
-            cx["names"][f"{name}.history.{n}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
+            cx.names[f"{name}.{n}"] = inner[n]
+            cx.names[f"{name}.history.{n}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
         for read in s.get("reads", {}):
-            cx["names"][f"{name}.{n}.{read}"] = inner[f"{n}.{read}"]
+            cx.names[f"{name}.{n}.{read}"] = inner[f"{n}.{read}"]
     return {**spec.model_dump(exclude_defaults=True), "steps": body}
 
 
@@ -330,40 +348,40 @@ def points_kind(plan: Plan, name: str) -> str:
 # -- references --------------------------------------------------------------------------------------
 
 
-def value_ref(cx: dict, value, path: str) -> dict:
+def value_ref(cx: Compiling, value, path: str) -> dict:
     """A named value produced before this point."""
-    info = cx["names"].get(value) if isinstance(value, str) else None
+    info = cx.names.get(value) if isinstance(value, str) else None
     if info is None or info["kind"] != "value":
-        known = sorted(k for k, v in cx["names"].items() if v["kind"] == "value")
+        known = sorted(k for k, v in cx.names.items() if v["kind"] == "value")
         fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
-    cx["refs"].append(value)
+    cx.refs.append(value)
     return info
 
 
-def column_ref(cx: dict, value, path: str, dataset: str | None) -> str:
+def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     """`<dataset>.<column>`, a column present on every row; of `dataset` when one is given. Returns the dataset."""
     name, _, column = value.partition(".") if isinstance(value, str) else ("", "", "")
-    if name not in cx["rows"]:
-        fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx['rows'])}")
-    if any(column not in r for r in cx["rows"][name]):
-        fail(path, f"dataset {name!r} has no column {column!r} on every row; columns: {', '.join(cx['rows'][name][0])}")
+    if name not in cx.rows:
+        fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx.rows)}")
+    if any(column not in r for r in cx.rows[name]):
+        fail(path, f"dataset {name!r} has no column {column!r} on every row; columns: {', '.join(cx.rows[name][0])}")
     if dataset is not None and name != dataset:
         fail(path, f"{value!r} is a column of {name!r}, and the value it goes with has a row per example of "
              f"{dataset!r}")
     return name
 
 
-def featurizer_ref(cx: dict, value, path: str) -> None:
-    if not (isinstance(value, str) and cx["names"].get(value, {}).get("kind") == "featurizer"):
-        known = sorted(k for k, v in cx["names"].items() if v["kind"] == "featurizer")
+def featurizer_ref(cx: Compiling, value, path: str) -> None:
+    if not (isinstance(value, str) and cx.names.get(value, {}).get("kind") == "featurizer"):
+        known = sorted(k for k, v in cx.names.items() if v["kind"] == "featurizer")
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
-    cx["refs"].append(value)
+    cx.refs.append(value)
 
 
 # -- featurizers -------------------------------------------------------------------------------------
 
 
-def featurizer(cx: dict, plan: Plan, name: str) -> dict:
+def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     """A declared featurizer at one point, with the bundle its `file_path` names, checked key by key against
     the document."""
     f, path = plan.featurizers[name], f"featurizers.{name}"
@@ -375,6 +393,6 @@ def featurizer(cx: dict, plan: Plan, name: str) -> dict:
     if fields.get("file_path") is None:
         return record
     try:
-        return {**record, "bundle": featurizers.bundle(cx["root"], f.kind, fields, plan.model)}
+        return {**record, "bundle": featurizers.bundle(cx.root, f.kind, fields, plan.model)}
     except ValueError as e:
         fail(f"{path}.file_path", str(e))
