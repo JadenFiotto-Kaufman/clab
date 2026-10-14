@@ -60,17 +60,21 @@ document in these places:
 - §5: `turn` is a role (`{"turn": "user", "occurrence": 1}` the second user message); its messages are its
   occurrences, and the `role[n]` spelling is gone.
 - M4, §9: a declared featurizer is made before the run's first step (each point of it), a trained one at its
-  fit's start; ops take the instance. A subspace's bundle holds its instance's tensors, `origin` and `theta`
-  (the basis is derived), and every bundle's header adds `component`, `layer`, `width` and `document`;
-  compile checks the site at every use, and the plan keeps the header (`Featurizer.header`) so preflight can
-  check `width` against the model. A fit's body runs on its own view of the plan: preflight prepares its
+  fit's start; ops take the instance. A subspace's bundle holds its `[width, k]` basis, which a trained one
+  computes from `origin` and `theta` once per optimizer step; every kind but `pca` and `sae` may be drawn or
+  loaded (`gate` and `linear` take `file_path`; a probe's header records its class list), and a loaded one is
+  fixed. Every bundle's header adds `component`, `layer`, `width` and `document` (the writer's name); compile
+  checks the file holds exactly its kind's tensors (a swept fit's file, one bundle per point, is refused),
+  the site at every use, and the plan keeps the header (`Featurizer.header`) so preflight can check `width`
+  against the model. Each kind is one `@kind` function and one function per operation it supports. A fit's body runs on its own view of the plan: preflight prepares its
   inputs and positions over the training rows and, apart, over the eval substitution (each substituted
   dataset's rows under the body's name for it); a minibatch is that view narrowed to some rows. The body's
   forwards run in batches of the fit's `batch_size`. The run walks without gradients; a fit turns them on for
   its training passes only. A body uses no root value with a row per example (it would not line up with a
   minibatch), its datasets have as many rows as each other, and it holds no fit. The `linear` probe's scores
   are on a `classes` axis, which metrics score as they score `vocab_size`, a column resolved against the
-  probe's class list; a probe is never written through. The hooks engine serves `fit`: gradients flow
+  probe's class list, which preflight checks every scored column against over the training and the eval rows;
+  a probe is never written through. `table` refuses to join values with rows of two datasets. The hooks engine serves `fit`: gradients flow
   through its hooks, and both engines agree to the bit (**verified**, every fit document).
 
 For ratification before any code is written. Present tense throughout: this is
