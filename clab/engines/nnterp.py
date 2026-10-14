@@ -107,7 +107,7 @@ class NnterpEngine:
                             seen.append(model.input_ids)
                         for component, layer in order:
                             here, there = now(*sites[(component, layer)], step)
-                            here = landed(here, seen, model.tokenizer, step) if step > 0 else here
+                            here = landed(here, seen, model.tokenizer) if step > 0 else here
                             if not here and not there:
                                 continue
                             host = envoy(model, component, layer)

@@ -119,7 +119,7 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
     def visit(value: Tensor) -> tuple[Tensor, bool]:
         writes, reads = (here, there) if call is None else now(here, there, call["n"])
         if call is not None and call["n"] > 0:
-            writes = landed(writes, call["seen"], call["tokenizer"], call["n"])
+            writes = landed(writes, call["seen"], call["tokenizer"])
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value

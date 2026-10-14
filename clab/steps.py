@@ -196,15 +196,6 @@ def place(pos: dict, row: dict, encoded: dict, said: list[int], stopped: bool, t
     return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, stopped, found)
 
 
-def landings(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer) -> list[int] | str:
-    """Where a write with a text scope landed in one row, found as the engine found it: the inputs that end the
-    occurrences it picks, within its frame's calls; missing where there are none."""
-    found = positions.ends(pos["scope"], texts(pos, row), said[:-1], tokenizer)
-    called = positions.reach({**pos, "index": "all"})[1]
-    got = [len(encoded["ids"]) + j for j in found if called is None or j + 1 in called]
-    return got or positions.MISSING
-
-
 def texts(pos: dict, row: dict) -> list[str]:
     """The texts a record's scope names in one row: its columns' (each `<dataset>.<column path>`), or the
     literals; a single one is the one-element case."""
@@ -310,8 +301,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
     what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
     or None for every decode call). A write with a text scope is found online: it goes to every decode call
-    with each row's text (`online`), and the engine lands it where `standard.landed` says. After the
-    generation each row resolves from what it generated
+    with each row's text (`online`), lands where `positions.landing` says, and is recorded at the calls it
+    says so of afterwards. Every other record resolves after the generation from what each row generated
     (`positions.resolve`); a row that stopped before a call a write selects is not written there (the call
     computes nothing of that row's) and is recorded as missing. The resolution is recorded per row in
     `plan.run.positions` and each row's continuation, as token strings, in `plan.run.tokens[<step>]`. A
@@ -334,8 +325,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
-            online = {"online": {"scope": pos["scope"], "texts": [texts(pos, row) for row in rows[chunk]],
-                                 "eos": sorted(eos), "within": calls}} if pos["scope"] else {}
+            online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
+                                 "eos": sorted(eos)}} if pos["scope"] else {}
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
                            "calls": None if online else calls, **online})
         for key, record in later.items():
@@ -363,7 +354,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         for key, record in {**later, **beyond}.items():
             pos = positions.parse(record.pos)
             if key in beyond and pos["scope"]:
-                where = [landings(pos, row, e, x, engine.tokenizer)
+                where = [[len(e["ids"]) + k - 1 for k in range(1, len(x))
+                          if positions.landing(pos, texts(pos, row), x[:k], eos, engine.tokenizer)] or positions.MISSING
                          for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             else:
                 where = [place(pos, row, e, x, bool(x) and x[-1] in eos, engine.tokenizer, head(step, record))

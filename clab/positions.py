@@ -11,6 +11,7 @@ import re
 
 MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
+UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
 class Unaligned(Exception):
@@ -191,24 +192,16 @@ def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> s
     return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
 
 
-def ends(scope: dict, texts: list[str], inputs: list[int], tokenizer) -> list[int]:
-    """Where the occurrences that the scope's `occurrence` picks, among those of any of its texts, end among
-    the inputs fed so far: each one's last token, as an index into `inputs`. A non-negative pick names the
-    same occurrence however many follow, which is what lets a write find it online. This is not `resolve` on
-    the prefix, which counts only the occurrences that overlap the frame's calls and takes index -1 of the
-    picked ones' union: here every picked occurrence lands at its own last token, counted among all the inputs
-    fed, and the frame only keeps the calls it names (`standard.landed`)."""
-    if not inputs:
-        return []
-    words, chars = char_spans(tokenizer, inputs)
-    last = [max(covering(chars, a, b)) for a, b in located(scope, texts, words)]
-    return [last[i] for i in select(scope["occurrence"], len(last))]
-
-
-def lands(scope: dict, texts: list[str], inputs: list[int], eos: set[int], tokenizer) -> bool:
-    """Whether a write with this text scope lands at the call fed `inputs[-1]`, given every input the row was
-    fed so far: an occurrence it picks ends on that token, and the row has not stopped."""
-    return not any(t in eos for t in inputs) and len(inputs) - 1 in ends(scope, texts, inputs, tokenizer)
+def landing(pos: dict, texts: list[str], inputs: list[int], eos: set[int], tokenizer) -> bool:
+    """Whether a write with a text scope lands at the call fed `inputs[-1]`, given every input the row was fed
+    so far: some occurrence its `occurrence` picks resolves, with index -1, to that token, on the prefix and
+    counted only within the frame's calls, as `resolve` counts them; so each picked occurrence lands at its own
+    last token, as it appears. The prefix is the row's calls so far (the last is the one being fed, whose token
+    is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
+    said = continuation([*inputs, -1], eos)
+    found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts)
+    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, False, found)
+               == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 
 
 def turns(row: dict, turn: str) -> list[tuple[int, int]]:

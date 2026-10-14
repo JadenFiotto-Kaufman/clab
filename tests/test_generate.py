@@ -608,6 +608,53 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
             assert torch.equal(scoped.results["swapped"][:, :call], scoped.results["clean"][:, :call])
 
 
+def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engines):
+    """`er` ends on token 0 (fed to call 1) and token 2 (fed to call 3): at `{"frame": 3}` occurrence 0 is the
+    one there, so the write lands at call 3, where a read of the same record resolves, and writes what
+    `{"frame": 3, "index": -1}` does; both engines to the bit."""
+    pos = {"frame": 3, "scope": {"text": "er"}, "index": -1}
+
+    def at(where, read=False):
+        def change(d):
+            scoped_write("er", held=True)(d)
+            d["steps"]["swapped"]["writes"]["w"]["pos"] = where
+            if read:
+                d["steps"]["swapped"]["reads"] = {"r": {"site": "head", "pos": pos}}
+        return edited("generated_answer", change).compile()
+    runs = {kind: (engines(kind, at(pos).model).execute(at(pos, read=True), batch_size=BATCH_SIZE),
+                   engines(kind, at(pos).model).execute(at({"frame": 3, "index": -1}), batch_size=BATCH_SIZE))
+            for kind in ("nnterp", "hooks")}
+    for kind, (scoped, fixed) in runs.items():
+        where = scoped.run.positions
+        assert where["swapped.w"] == where["swapped.r"] == fixed.run.positions["swapped.w"] == \
+            [[p + 2] for p in PROMPT], kind
+        assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), kind
+    assert torch.equal(runs["nnterp"][0].results["swapped"], runs["hooks"][0].results["swapped"])
+
+
+def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
+    """`occurrence: [0, 2]` of `er` lands at call 1 (`Handler`) and, where the row still says it, at the call
+    fed its next one: call 3 on rows 0, 1 and 3 (`▁energ`, `▁energ`, `▁sier`), as a write at each of calls 1
+    and 3 does there; row 2, which the write at call 1 sends elsewhere, has no second; both engines to the bit."""
+    def at(where):
+        def change(d):
+            scoped_write("er", held=True)(d)
+            w = d["steps"]["swapped"]["writes"].pop("w")
+            d["steps"]["swapped"]["writes"] = {k: {**w, "pos": p} for k, p in where.items()}
+        return edited("generated_answer", change).compile()
+    span = {"w": {"frame": "generated", "scope": {"text": "er", "occurrence": [0, 2]}, "index": -1}}
+    calls = {"w1": {"frame": 1, "index": -1}, "w3": {"frame": 3, "index": -1}}
+    results = {}
+    for kind in ("nnterp", "hooks"):
+        scoped = engines(kind, at(span).model).execute(at(span), batch_size=BATCH_SIZE)
+        fixed = engines(kind, at(calls).model).execute(at(calls), batch_size=BATCH_SIZE)
+        assert scoped.run.positions["swapped.w"] == [[11, 13], [9, 11], [9], [9, 11]], kind
+        assert torch.equal(scoped.results["swapped"][[0, 1, 3]], fixed.results["swapped"][[0, 1, 3]]), kind
+        assert torch.equal(scoped.results["swapped"][:, :1], scoped.results["clean"][:, :1]), kind
+        results[kind] = scoped.results["swapped"]
+    assert torch.equal(results["nnterp"], results["hooks"])
+
+
 @pytest.mark.parametrize("pos, message", [
     ({"frame": "all", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'all': a scoped write beyond the"),
     ({"frame": "eos", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'eos': a scoped write beyond the"),
@@ -751,9 +798,26 @@ def test_occurrences_are_ordered_by_where_they_end():
     words = tokenizer.decode(ids)
     spans = positions.located(scope, ["a b c", "b"], words)
     assert [words[a:b] for a, b in spans] == ["b", "a b c"]
-    first, second = (positions.ends({**scope, "occurrence": k}, ["a b c", "b"], ids, tokenizer) for k in (0, 1))
-    assert first[0] < second[0]                                     # `b` is known before `a b c` is
-    assert positions.lands({**scope, "occurrence": 0}, ["a b c", "b"], ids[:first[0] + 1], set(), tokenizer)
+    def lands_at(k):
+        pos = {"frame": "generated", "scope": {**scope, "occurrence": k}, "index": -1}
+        return [j for j in range(len(ids)) if positions.landing(pos, ["a b c", "b"], ids[:j + 1], set(), tokenizer)]
+    first, second = lands_at(0), lands_at(1)
+    assert len(first) == len(second) == 1 and first[0] < second[0]     # `b` is known before `a b c` is
+
+
+def test_a_scoped_write_counts_its_occurrences_within_its_frame():
+    """`Bob` is fed to calls 1 and 3: at frame 3, occurrence 0 is the one there, as a read of the same record
+    counts it, and an occurrence span lands at each occurrence it picks, as it appears."""
+    tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
+    ids = tokenizer("Bob met Bob met", add_special_tokens=False)["input_ids"]
+    assert tokenizer.convert_ids_to_tokens(ids) == ["▁Bob", "▁met", "▁Bob", "▁met"]
+
+    def calls(pos):
+        return [k for k in range(1, len(ids) + 1) if positions.landing(pos, ["Bob"], ids[:k], set(), tokenizer)]
+    at3 = {"frame": 3, "scope": {"text": "Bob", "occurrence": 0}, "index": -1}
+    assert calls(at3) == [3]
+    assert resolved(at3, ids, tokenizer, "Bob") == [2 + 2]                # call 3's input, after a 2-token prompt
+    assert calls({**at3, "frame": "generated", "scope": {"text": "Bob", "occurrence": [0, 2]}}) == [1, 3]
 
 
 def test_a_list_of_columns_takes_the_first_of_either(engines):
