@@ -41,8 +41,9 @@
      "pos": -1,
      "ops": [
       {
-       "op": "encode",
-       "featurizer": "dictionary"
+       "op": "featurizer",
+       "featurizer": "dictionary",
+       "mode": "encode"
       }
      ],
      "dims": [

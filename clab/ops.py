@@ -3,8 +3,9 @@
 `@op(group, ...)` registers the function under its own name and declares it: its group, the axes the input
 must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of the argument that lists them),
 the axes it appends (`adds`), and, when its value is a bundle a featurizer loads, that featurizer's kind
-(`bundle`). Compile reads the axes to lay out every value. A parameter's annotation says how a document
-fills it (`Value`, `Tokens`, `Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
+(`bundle`). Compile reads the axes to lay out every value; the `featurizer` op's are its mode's, which the
+featurizer's kind declares. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
+`Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
 run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
 `"with"`).
 """
@@ -33,8 +34,9 @@ probe's classes against its scores (a metric scores a `vocab_size` or a `classes
 featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
 arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
 `{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
-delta, so an op that changes no coordinate changes nothing to the bit. `encode` reads the coordinates
-themselves. `renormalize`'s reference is the value at the site before the step's writes.
+delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
+instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
+version of the value). `renormalize`'s reference is the value at the site before the step's writes.
 """
 
 import inspect
@@ -46,10 +48,7 @@ from torch import Tensor
 
 from . import featurizers, registry
 from .address import EXAMPLE_AXES, pos_axis
-
-Value = Annotated[Tensor, "Value"]
-Tokens = Annotated[Tensor, "Tokens"]
-Featurizer = Annotated[dict, "Featurizer"]
+from .registry import Featurizer, Tokens, Value
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
@@ -74,9 +73,13 @@ def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (
     return register
 
 
-def parameters(name: str) -> dict[str, inspect.Parameter]:
-    """An op's parameters by document spelling, without `of` and the supplied ones."""
-    return registry.spelled(OPS[name], SUPPLIED + ("of",))
+def parameters(name: str, mode: str | None = None, kind: str | None = None) -> dict[str, inspect.Parameter]:
+    """An op's parameters by document spelling, without `of` and the supplied ones; the `featurizer` op's with
+    those of its `mode` for a featurizer of `kind`, when both are given."""
+    found = registry.spelled(OPS[name], SUPPLIED + ("of",))
+    if name == "featurizer" and mode is not None and kind is not None:
+        found.update(registry.spelled(featurizers.mode(kind, mode), ("f", "h")))
+    return found
 
 
 def check(name: str, args: dict) -> None:
@@ -86,17 +89,22 @@ def check(name: str, args: dict) -> None:
     registry.check(OPS[name], args, SUPPLIED + ("of",), repr(name))
 
 
-def call(name: str, value: Any, args: dict, **supplied: Any) -> Any:
-    """Run op `name` on `value` with `args` (document spelling, already bound to tensors)."""
+def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
+    """Run op `name` on `value` with `args` (document spelling, already bound to tensors); an argument the
+    op's signature does not name goes to its `**` catch-all as spelled."""
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
-    kwargs = {names[k]: v for k, v in args.items()}
+    kwargs = {names.get(k, k): v for k, v in args.items()}
     kwargs.update((k, v) for k, v in supplied.items() if k in names and k not in kwargs)
     return fn(value, **kwargs)
 
 
-def out_dims(name: str, dims: list[str], args: dict) -> list[str]:
-    """The axes of op `name`'s result, on a value laid out `dims`."""
+def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """The axes of op `name`'s result, on a value laid out `dims`; the `featurizer` op's are those its mode
+    produces for a featurizer of `kind`."""
+    if name == "featurizer":
+        assert kind is not None
+        return featurizers.layout(kind, args["mode"], dims)
     axes = DECLARED[name]
     for axis in axes["needs"]:
         if not set(axis if isinstance(axis, tuple) else (axis,)) & set(dims):
@@ -165,13 +173,14 @@ def write(value: Tensor, component: str, writes: list[dict]) -> Tensor:
             new, original = take(new, dim, index), take(original, dim, index)
         for o in w["ops"]:
             f, features = o["featurizer"], o.get("features")
+            args = o["args"]
             if f is None:
-                new = call(o["op"], new, o["args"], original=original, dims=o["dims"])
+                new = call(o["op"], new, args, original=original, dims=o["dims"])
                 continue
-            before = featurizers.encode(f, original)
-            before = before if features is None else before.index_select(-1, features)
-            new = featurizers.within(f, new, lambda z, o=o, before=before: call(
-                o["op"], z, o["args"], original=before, dims=o["dims"]), features)
+            start = featurizers.encode(f, original)
+            start = start if features is None else start.index_select(-1, features)
+            new = featurizers.within(f, new, lambda z, args=args, o=o, start=start: call(
+                o["op"], z, args, original=start, dims=o["dims"]), features)
         for dim, index in w["select"].items():
             new = new.to(current.dtype)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \
@@ -233,10 +242,13 @@ def readout(of: Tensor, engine: Any) -> Tensor:
     return engine.readout(of)
 
 
-@op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("features",))
-def encode(of: Tensor, featurizer: Featurizer) -> Tensor:
-    """The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class)."""
-    return featurizers.read(featurizer, of)
+@op("transforms")
+def featurizer(of: Tensor, featurizer: Featurizer, mode: str, **options: Any) -> Tensor:
+    """`featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments
+    beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per
+    class), `apply` its version of the value. This is the one op whose axes depend on an argument: they are
+    the mode's, which the featurizer's kind declares (see Featurizer kinds), so it cannot declare them here."""
+    return featurizers.call(featurizer, mode, of, options)
 
 
 # -- reductions ----------------------------------------------------------------

@@ -10,6 +10,7 @@ The plan's methods are views and serialization, never execution: it pickles, pri
 thing wherever it lands, which is what lets it travel into a remote session and back.
 """
 
+import inspect
 import json
 import os
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
@@ -267,7 +268,8 @@ class Pos(Record):
 class Op(Record):
     """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
     run on the value's coordinates in that featurizer's space, the change written back; `select`
-    (`{"features": [indices]}`) narrows it to some of them."""
+    (`{"features": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer
+    the op calls."""
     model_config = ConfigDict(extra="allow")
     op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     featurizer: str | None = None
@@ -288,7 +290,7 @@ class Op(Record):
 
 def arguments(op: "Op | OpStep") -> dict:
     """An op record's arguments by document spelling: its own fields, and `featurizer` when the op takes one
-    (`encode`) rather than running in that featurizer's space."""
+    (the `featurizer` op) rather than running in that featurizer's space."""
     given = dict(op.model_extra or {})
     if isinstance(op, Op) and op.op in ops.OPS and "featurizer" in ops.parameters(op.op):
         given["featurizer"] = op.featurizer
@@ -298,6 +300,19 @@ def arguments(op: "Op | OpStep") -> dict:
 def space(op: "Op") -> str | None:
     """The featurizer whose space an op in a read or write runs in, if any."""
     return None if op.op in ops.OPS and "featurizer" in ops.parameters(op.op) else op.featurizer
+
+
+def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Parameter]:
+    """Op `name`'s parameters by document spelling: the `featurizer` op's with its mode's, for the kind of
+    the featurizer `args` names."""
+    if name != "featurizer":
+        return ops.parameters(name)
+    return ops.parameters(name, args["mode"], kind_of(plan, args["featurizer"]))
+
+
+def encodes(op: Any) -> bool:
+    """Whether an op record calls a featurizer in mode `encode`."""
+    return op.op == "featurizer" and arguments(op).get("mode") == "encode"
 
 
 class Access(Record):
@@ -717,7 +732,7 @@ def probe_of(plan: Plan, name: str) -> str:
         return probe_of(plan, step.of)
     if step.kind == "fit":
         return probe_of(body_view(plan, thing), member.partition(".")[2])
-    return next(o.featurizer for o in reversed(step.reads[member].ops) if o.op == "encode" and o.featurizer)
+    return next(o.featurizer for o in reversed(step.reads[member].ops) if encodes(o) and o.featurizer)
 
 
 def kind_of(plan: Plan, ref: str) -> str:
@@ -726,7 +741,7 @@ def kind_of(plan: Plan, ref: str) -> str:
 
 
 def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, "Op"]]]:
-    """Every op that runs in a declared featurizer's space or encodes with it, by featurizer: the record's
+    """Every op that runs in a declared featurizer's space or calls it, by featurizer: the record's
     dotted name, its site, its step's point and the op."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):

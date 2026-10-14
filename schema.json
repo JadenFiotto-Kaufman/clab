@@ -514,7 +514,7 @@
   },
   "Op": {
    "title": "Op",
-   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them.",
+   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer\nthe op calls.",
    "oneOf": [
     {
      "type": "object",
@@ -989,7 +989,7 @@
      "type": "object",
      "properties": {
       "op": {
-       "const": "encode"
+       "const": "featurizer"
       },
       "featurizer": {
        "anyOf": [
@@ -1027,10 +1027,18 @@
        ],
        "default": null,
        "title": "Select"
+      },
+      "mode": {
+       "enum": [
+        "encode",
+        "apply"
+       ]
       }
      },
      "required": [
-      "op"
+      "op",
+      "featurizer",
+      "mode"
      ],
      "additionalProperties": false
     },
@@ -2114,7 +2122,7 @@
        "type": "string"
       },
       "op": {
-       "const": "encode"
+       "const": "featurizer"
       },
       "of": {
        "title": "Of",
@@ -2129,13 +2137,20 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
+      },
+      "mode": {
+       "enum": [
+        "encode",
+        "apply"
+       ]
       }
      },
      "required": [
       "kind",
       "op",
       "of",
-      "featurizer"
+      "featurizer",
+      "mode"
      ],
      "additionalProperties": false
     },

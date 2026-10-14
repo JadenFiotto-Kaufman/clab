@@ -23,7 +23,7 @@
           "kind": "forward",
           "input": "prompts.input",
           "reads": {
-            "latents": {"site": "target", "pos": {"index": "all"}, "ops": [{"op": "encode", "featurizer": "fit.dictionary"}]}
+            "latents": {"site": "target", "pos": {"index": "all"}, "ops": [{"op": "featurizer", "featurizer": "fit.dictionary", "mode": "encode"}]}
           }
         }
       }

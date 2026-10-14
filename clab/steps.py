@@ -18,8 +18,8 @@ import torch
 from torch import Tensor
 
 from . import address, data, featurizers, ops, positions
-from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, kind_of, labelled,
-                   points, probe_of, space, uses, walk)
+from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, encodes, kind_of,
+                   labelled, parameters, points, probe_of, space, uses, walk)
 from .registry import registers
 
 KINDS: dict = {}
@@ -174,7 +174,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                             check_tokens(engine, plan, where, o.op, arguments(o))
                         else:
                             check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
-                        if o.op == "encode" and kind_of(plan, o.featurizer or "") == "linear":
+                        if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
                             probe = o.featurizer
                     pos, select = positions.parse(record.pos), {a: len(v) for a, v in (site.select or {}).items()}
                     if positions.prefill(pos):
@@ -331,7 +331,7 @@ def refuse(engine, plan: Plan) -> None:
 
 
 def check_tokens(engine, plan: Plan, where: str, name: str, args: dict) -> None:
-    for key, p in ops.parameters(name).items():
+    for key, p in parameters(plan, name, args).items():
         if p.annotation == ops.Tokens and key in args:
             try:
                 tokens(engine, plan, args[key], args.get("token_form", "spaced"), None)
@@ -343,7 +343,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
     """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
     dataset it reads (named as the run reads it: under eval, the substituted one)."""
     vocabulary = classes[declared(plan, probe)]
-    for key, p in ops.parameters(name).items():
+    for key, p in parameters(plan, name, args).items():
         if p.annotation == ops.Tokens and key in args:
             dataset, _, column = args[key].partition(".")
             for i, row in enumerate(plan.data[dataset].rows or []):
@@ -356,7 +356,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
 def check_operands(plan: Plan, where: str, o, shape: tuple, step, component: str, inputs: dict, shapes: dict) -> None:
     """A write's operands that another record selected: the same width and narrowing, and, on a `key` axis,
     inputs that line up token for token."""
-    for key, p in ops.parameters(o.op).items():
+    for key, p in parameters(plan, o.op, arguments(o)).items():
         value = arguments(o).get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
@@ -786,11 +786,9 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
                       features=features(o))
         if f is None:
-            dims = ops.out_dims(o.op, dims, arguments(o))
-        if o.op == "encode":
-            probe = args["featurizer"]
-            dims[-1] = featurizers.DECLARED[probe["kind"]]["axis"]
-            vocabulary = probe.get("classes")
+            dims = ops.out_dims(o.op, dims, arguments(o), args["featurizer"]["kind"] if o.op == "featurizer" else None)
+        if encodes(o):
+            vocabulary = args["featurizer"].get("classes")
     return value
 
 
@@ -799,7 +797,7 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance), columns resolved
     against the value's own vocabulary (the tokenizer's, or a probe's class list), sliced to `rows`. On a
     ragged value `of`, an argument with a row per example is taken at each entry's row."""
-    params, out = ops.parameters(name), {}
+    params, out = parameters(plan, name, args), {}
     for key, value in args.items():
         annotation, per_row = params[key].annotation, False
         if annotation == ops.Value and isinstance(value, str):
@@ -823,7 +821,8 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
     the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, featurizer, features)
-        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args) \
+        kind = args["featurizer"]["kind"] if name == "featurizer" else None
+        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args, kind) \
             else got
 
     def fn(x: Any) -> Any:

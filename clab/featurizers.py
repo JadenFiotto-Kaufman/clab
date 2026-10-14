@@ -6,12 +6,14 @@ names) supplied by the run, and for a probe `labels` (its class list). An instan
 an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
 at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
 from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
-is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
-is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
-autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over what the body's `encode` reads of it saw in that run of the body, which
-the instance keeps while a fit trains it).
+is fixed. It is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates of a
+value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`), and `apply` its version
+of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's masked value). An edit op in its space runs on its coordinates, and the change is written back as
+a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse autoencoder's
+error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name a
+featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over what the body's encodes of it saw in that run of the body, which the
+instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -21,8 +23,10 @@ fields and the model when the plan compiles, the site at every use, and `width` 
 before any forward.
 
 Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
-value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
-has one, `SETTLE`, `PROJECT`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
+value is one function per operation, in the table for that operation: one per mode (`ENCODE`, `APPLY`, which
+`MODES` names with the layout each produces), `REPLACE`, and where a kind has one, `SETTLE`, `PROJECT`,
+`ANNEAL`, `SCALARS`. A new kind touches one place per operation it supports; a mode's function takes the
+instance, the value and the mode's own arguments.
 """
 
 import inspect
@@ -42,11 +46,21 @@ FORMAT = "clab/1"
 KINDS: dict[str, Callable] = {}
 DECLARED: dict[str, dict] = {}
 ENCODE: dict[str, Callable] = {}
+APPLY: dict[str, Callable] = {}
 REPLACE: dict[str, Callable] = {}
 SETTLE: dict[str, Callable] = {}
 PROJECT: dict[str, Callable] = {}
 ANNEAL: dict[str, Callable] = {}
 SCALARS: dict[str, dict[str, Callable]] = {}
+
+# The modes the `featurizer` op calls a featurizer in: each one's table (one function per kind that has the
+# mode), what it produces, and the layout of what it produces on a value laid out `dims`.
+MODES: dict[str, dict] = {
+    "encode": {"table": ENCODE, "produces": "its coordinates, the last axis becoming {axis}",
+               "layout": lambda kind, dims: dims[:-1] + [DECLARED[kind]["axis"]]},
+    "apply": {"table": APPLY, "produces": "its version of the value, in the value's own layout",
+              "layout": lambda kind, dims: list(dims)},
+}
 
 
 def kind(saves: tuple, trains: tuple = (), axis: str = "features", header: tuple = ()):
@@ -110,6 +124,13 @@ def subspace_encode(f: dict, h: Tensor) -> Tensor:
     return h @ f["basis"].to(h.dtype)
 
 
+@of(APPLY, "subspace")
+def subspace_apply(f: dict, h: Tensor) -> Tensor:
+    """`h` projected onto the subspace."""
+    basis = f["basis"].to(h.dtype)
+    return h @ basis @ basis.T
+
+
 @of(REPLACE, "subspace")
 def subspace_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
     return h + (new - z) @ f["basis"].to(h.dtype).T
@@ -137,6 +158,12 @@ def mask(f: dict) -> Tensor:
 @of(ENCODE, "gate")
 def gate_encode(f: dict, h: Tensor) -> Tensor:
     return h
+
+
+@of(APPLY, "gate")
+def gate_apply(f: dict, h: Tensor) -> Tensor:
+    """`h` times the mask: soft while a fit trains it, hard when scored."""
+    return h * mask(f).to(h.dtype)
 
 
 @of(REPLACE, "gate")
@@ -171,6 +198,13 @@ def pca_encode(f: dict, h: Tensor) -> Tensor:
     return (h - f["mean"].to(h.dtype)) @ f["basis"].to(h.dtype)
 
 
+@of(APPLY, "pca")
+def pca_apply(f: dict, h: Tensor) -> Tensor:
+    """`h` projected onto the principal directions through the mean: `mean + (h - mean) B Bᵀ`."""
+    mean, basis = f["mean"].to(h.dtype), f["basis"].to(h.dtype)
+    return mean + (h - mean) @ basis @ basis.T
+
+
 @of(REPLACE, "pca")
 def pca_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
     return h + (new - z) @ f["basis"].to(h.dtype).T
@@ -186,8 +220,8 @@ def sae(width: int, latents: int | None = None, file_path: str | None = None, se
     dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
     `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
     both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
-    error term exactly. Its scalars, over every vector the body's `encode` reads of it saw in that run of the
-    body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
+    error term exactly. Its scalars, over every vector the body's encodes of it saw in that run of the body:
+    `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
     if bundle is not None:
         return {"kind": "sae", **bundle}
     assert latents is not None
@@ -203,9 +237,9 @@ def sae_project(f: dict) -> None:
 
 
 def seen(f: dict) -> tuple[Tensor, Tensor]:
-    """The vectors (`[n, width]`) and latents the body's `encode` reads of `f` saw in this run of the body."""
+    """The vectors (`[n, width]`) and latents the body's encodes of `f` saw in this run of the body."""
     if not f.get("seen"):
-        raise ValueError("an sae's scalars are over what the body's encode reads of it saw; this body has none")
+        raise ValueError("an sae's scalars are over what the body's encodes of it saw; this body has none")
     return (torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in f["seen"]]),
             torch.cat([z.reshape(-1, z.shape[-1]) for _, z in f["seen"]]))
 
@@ -227,6 +261,12 @@ def sae_encode(f: dict, h: Tensor) -> Tensor:
     return torch.relu((h - f["b_dec"].to(h.dtype)) @ f["W_enc"].to(h.dtype) + f["b_enc"].to(h.dtype))
 
 
+@of(APPLY, "sae")
+def sae_apply(f: dict, h: Tensor) -> Tensor:
+    """`h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term."""
+    return sae_encode(f, h) @ f["W_dec"].to(h.dtype) + f["b_dec"].to(h.dtype)
+
+
 @of(REPLACE, "sae")
 def sae_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
     return h + (new - z) @ f["W_dec"].to(h.dtype)
@@ -240,7 +280,7 @@ def linear(width: int, classes: str, labels: list, file_path: str | None = None,
     """A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
     the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
     those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
-    read with `encode` and never written through."""
+    read in mode `encode` and never written through."""
     if bundle is not None:
         return {"kind": "linear", "classes": labels, "W": bundle["W"], "b": bundle["b"]}
     return {"kind": "linear", "classes": labels, "W": torch.zeros(width, len(labels)), "b": torch.zeros(len(labels))}
@@ -275,6 +315,35 @@ def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | N
     return KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})
 
 
+def mode(kind: str, name: str) -> Callable:
+    """Featurizer kind `kind`'s function for mode `name`; a mode the kind lacks is refused by name."""
+    table = MODES[name]["table"] if name in MODES else {}
+    if kind not in table:
+        raise ValueError(f"kind {kind!r} has no mode {name!r}; its modes: {', '.join(modes(kind))}")
+    return table[kind]
+
+
+def modes(kind: str) -> list[str]:
+    """The modes a featurizer kind has."""
+    return [m for m, spec in MODES.items() if kind in spec["table"]]
+
+
+def layout(kind: str, name: str, dims: list[str]) -> list[str]:
+    """The layout of what mode `name` of a `kind` produces on a value laid out `dims`."""
+    return MODES[name]["layout"](kind, dims)
+
+
+def call(f: dict, name: str, h: Tensor, options: dict) -> Tensor:
+    """`f` called in mode `name` on `h`, with the mode's own arguments (`options`, by document spelling). An
+    encode is kept beside `h` on an instance a fit watches (`seen`), for the scalars its objective names."""
+    fn = mode(f["kind"], name)
+    names = {k: p.name for k, p in registry.spelled(fn, ("f", "h")).items()}
+    out = fn(f, h, **{names[k]: v for k, v in options.items()})
+    if name == "encode" and "seen" in f:
+        f["seen"].append((h, out))
+    return out
+
+
 def encode(f: dict, h: Tensor) -> Tensor:
     """`h`'s coordinates in `f`'s space, along its last axis."""
     return known(f, ENCODE, "coordinates")(f, h)
@@ -306,15 +375,6 @@ def project(f: dict) -> None:
     known(f, KINDS, "kind")
     if f["kind"] in PROJECT:
         PROJECT[f["kind"]](f)
-
-
-def read(f: dict, h: Tensor) -> Tensor:
-    """`encode` as a read: the coordinates, kept beside `h` on the instance while a fit watches it (`seen`), for
-    the scalars the fit's objective names."""
-    z = encode(f, h)
-    if "seen" in f:
-        f["seen"].append((h, z))
-    return z
 
 
 def anneal(f: dict, epoch: int, epochs: int) -> None:

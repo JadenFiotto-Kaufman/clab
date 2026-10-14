@@ -11,8 +11,9 @@ import itertools
 from dataclasses import dataclass, replace
 from typing import Any
 
-from . import address, data, featurizers, ops, positions
-from .plan import Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, points, space, uses
+from . import address, data, featurizers, ops, positions, registry
+from .plan import (Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, parameters, points, space,
+                   uses)
 
 
 def compile(plan: Plan) -> Plan:
@@ -242,45 +243,56 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
         if within is not None:
             featurizer_ref(cx, within, f"{at}.featurizer")
-            if kind_of(plan, within) == "linear":
-                fail(f"{at}.featurizer", f"{within!r} is a probe, whose space has no way back into the value; read "
-                     "its scores with encode")
-        found = references(cx, at, o.op, arguments(o))
+            kind = kind_of(plan, within)
+            if kind not in featurizers.ENCODE or kind not in featurizers.REPLACE:
+                fail(f"{at}.featurizer", f"{within!r} is a {kind}, which has no coordinates to edit and write back "
+                     f"into the value; call it with the featurizer op (modes: {', '.join(featurizers.modes(kind))})")
+        kind = mode(cx, plan, at, o.op, arguments(o))
+        found = references(cx, plan, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
         if write:
             operands(at, found, selection, within, ragged)
         # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
         inner = dims[:-1] + ["features"] if within is not None else dims
-        out = layout(at, o.op, arguments(o), inner, "write" if write else "read")
+        out = layout(at, o.op, arguments(o), inner, "write" if write else "read", kind)
         if within is not None and out != inner:
             fail(at, f"{o.op!r} turns {inner} into {out}; an op in a featurizer's space keeps its layout")
-        dims = dims if within is not None else axis(plan, o, out)
+        dims = dims if within is not None else out
         if write and dims != selection:
             fail(at, f"{o.op!r} turns {selection} into {dims}; a write's ops keep the value's layout")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
     return record if write else {**record, "dims": dims}
 
 
-def axis(plan: Plan, o, dims: list[str]) -> list[str]:
-    """An encode's coordinates are on its featurizer kind's axis: `features`, or a probe's `classes`."""
-    if o.op != "encode":
-        return dims
-    return dims[:-1] + [featurizers.DECLARED[kind_of(plan, o.featurizer)]["axis"]]
+def mode(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
+    """The kind of the featurizer the `featurizer` op calls, its mode one the kind has and the mode's own
+    arguments bound to the mode's signature; None for any other op."""
+    if name != "featurizer":
+        return None
+    featurizer_ref(cx, args.get("featurizer"), f"{path}.featurizer")
+    kind = kind_of(plan, args["featurizer"])
+    own = {k: v for k, v in args.items() if k not in ops.parameters(name)}
+    try:
+        registry.check(featurizers.mode(kind, args["mode"]), own, ("f", "h"), f"{kind}'s mode {args['mode']!r}")
+    except ValueError as e:
+        fail(path, f"featurizer {args['featurizer']!r}: {e}")
+    return kind
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
-    dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, path, spec.op, arguments(spec)))
-    dims = layout(path, spec.op, arguments(spec), of["dims"], "step")
+    kind = mode(cx, plan, path, spec.op, arguments(spec))
+    dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, plan, path, spec.op, arguments(spec)))
+    dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
-def references(cx: Compiling, path: str, name: str, args: dict) -> dict[str, dict]:
+def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> dict[str, dict]:
     """Op `name`'s arguments that name a value or a column, each resolved to `{"dims", "data", "kind", "name"}`
     (a column is laid out `["rows"]`); a featurizer argument is checked to exist."""
     found = {}
-    for key, p in ops.parameters(name).items():
+    for key, p in parameters(plan, name, args).items():
         value, at = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
             found[key] = {**value_ref(cx, value, at), "name": value}
@@ -315,13 +327,14 @@ def operands(path: str, found: dict, selection: list[str], featurizer: str | Non
                  f"so an operand is {' or '.join(map(str, allowed))}")
 
 
-def layout(path: str, name: str, args: dict, dims: list[str], where: str) -> list[str]:
-    """The layout of op `name`'s result on a value laid out `dims`. Inside a read or write (`where`) the op sees
-    one batch, so it may not aggregate over rows; `original` is only a write's."""
+def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
+    """The layout of op `name`'s result on a value laid out `dims` (the `featurizer` op's, for a featurizer of
+    `kind`). Inside a read or write (`where`) the op sees one batch, so it may not aggregate over rows;
+    `original` is only a write's."""
     if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside a write")
     try:
-        out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args})
+        out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
     if where != "step" and {"rows", "entries"} & (set(dims) - set(out)):

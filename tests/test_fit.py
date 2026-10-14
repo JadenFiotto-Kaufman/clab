@@ -301,7 +301,7 @@ def probe(change=None) -> Plan:
             "steps": {
                 "read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
                     "site": {"component": "layer_output", "layers": 1}, "pos": -1,
-                    "ops": [{"op": "encode", "featurizer": "fit.probe"}]}}},
+                    "ops": [{"op": "featurizer", "featurizer": "fit.probe", "mode": "encode"}]}}},
                 "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores", "target": "days.label"},
                 "hit": {"kind": "op", "op": "match", "of": "read.scores", "expected": "days.label"}}}},
         "saves": ["fit.history.ce", "fit.train.hit", "fit.train.read.scores", "fit.probe"]}
@@ -422,7 +422,8 @@ def test_a_write_through_a_probe_is_refused():
         d["steps"]["fit"]["steps"]["read"]["writes"] = {"w": {"site": {"component": "layer_output", "layers": 0},
                                                              "pos": -1, "ops": [{"op": "scale", "factor": 0.0,
                                                                                  "featurizer": "fit.probe"}]}}
-    with pytest.raises(PlanError, match=r"'fit\.probe' is a probe, whose space has no way back into the value"):
+    with pytest.raises(PlanError, match=r"'fit\.probe' is a linear, which has no coordinates to edit and write back "
+                                        r"into the value; call it with the featurizer op \(modes: encode\)"):
         probe(change)
 
 
@@ -525,7 +526,7 @@ def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, t
     data = probe().model_dump(mode="json", exclude_defaults=True)["data"]
     data["days"] = {"rows": data["days"]["rows"]}
     read = {"read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
-        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "encode", "featurizer": "probe"}]}}}}
+        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "featurizer", "featurizer": "probe", "mode": "encode"}]}}}}
     spec = {"kind": "linear", "classes": "days.label", "file_path": "documents/artifacts/fit.probe.safetensors"}
     plan = applied(root, "probe", spec, read, data)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.train.read.scores"])

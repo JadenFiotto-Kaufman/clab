@@ -64,7 +64,8 @@ copy of the value; a read at a written site observes the writes.
 
 An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
 run on the value's coordinates in that featurizer's space, the change written back; `select`
-(`{"features": [indices]}`) narrows it to some of them.
+(`{"features": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer
+the op calls.
 
 ### `pos`
 
@@ -290,8 +291,9 @@ probe's classes against its scores (a metric scores a `vocab_size` or a `classes
 featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
 arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
 `{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
-delta, so an op that changes no coordinate changes nothing to the bit. `encode` reads the coordinates
-themselves. `renormalize`'s reference is the value at the site before the step's writes.
+delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
+instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
+version of the value). `renormalize`'s reference is the value at the site before the step's writes.
 
 ### Metrics
 
@@ -329,7 +331,7 @@ themselves. `renormalize`'s reference is the value at the site before the step's
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
-| `encode` | `featurizer: Featurizer` | needs hidden_size; removes hidden_size; adds features | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class). |
+| `featurizer` | `featurizer: Featurizer`, `mode: str`, `...` | its mode's (see Featurizer kinds) | `featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per class), `apply` its version of the value. This is the one op whose axes depend on an argument: they are the mode's, which the featurizer's kind declares (see Featurizer kinds), so it cannot declare them here. |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
 | `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
 | `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
@@ -384,12 +386,14 @@ names) supplied by the run, and for a probe `labels` (its class list). An instan
 an `nn.Module`, made where the model is: a declared featurizer before the run's first step, one a fit trains
 at the fit's start. It is drawn from its `seed` (else the seed of the fit that trains it, else 0), or loaded
 from its bundle, which compile reads into the plan and checks key by key against the document; a loaded one
-is fixed. Its coordinates of a value `h` are `encode(f, h)`; an op in its space runs on them, and the change
-is written back as a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse
-autoencoder's error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over what the body's `encode` reads of it saw in that run of the body, which
-the instance keeps while a fit trains it).
+is fixed. It is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates of a
+value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`), and `apply` its version
+of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's masked value). An edit op in its space runs on its coordinates, and the change is written back as
+a delta (`replace`), so an op that changes nothing changes nothing to the bit, and a sparse autoencoder's
+error term is kept exactly. A fit trains an instance's `trains` tensors; its objective may name a
+featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over what the body's encodes of it saw in that run of the body, which the
+instance keeps while a fit trains it).
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
@@ -399,8 +403,10 @@ fields and the model when the plan compiles, the site at every use, and `width` 
 before any forward.
 
 Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
-value is one function per operation, in the table for that operation (`ENCODE`, `REPLACE`, and where a kind
-has one, `SETTLE`, `PROJECT`, `ANNEAL`, `SCALARS`), so a new kind touches one place per operation it supports.
+value is one function per operation, in the table for that operation: one per mode (`ENCODE`, `APPLY`, which
+`MODES` names with the layout each produces), `REPLACE`, and where a kind has one, `SETTLE`, `PROJECT`,
+`ANNEAL`, `SCALARS`. A new kind touches one place per operation it supports; a mode's function takes the
+instance, the value and the mode's own arguments.
 
 ### `subspace`
 
@@ -414,6 +420,8 @@ Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains)
 untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
 `[width, k]` basis.
 
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the subspace..
+
 ### `gate`
 
 - `temperature: {start: float, end: float} or null = None`
@@ -423,6 +431,8 @@ A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a 
 (θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
 (default 1).
 
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` times the mask: soft while a fit trains it, hard when scored..
+
 ### `pca`
 
 - `k: int`
@@ -430,6 +440,8 @@ A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a 
 
 The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
 coordinates are centred on the mean.
+
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h` projected onto the principal directions through the mean: `mean + (h - mean) B Bᵀ`..
 
 ### `sae`
 
@@ -441,8 +453,10 @@ A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundl
 dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
 `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
 both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
-error term exactly. Its scalars, over every vector the body's `encode` reads of it saw in that run of the
-body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
+error term exactly. Its scalars, over every vector the body's encodes of it saw in that run of the body:
+`reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
+
+Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term..
 
 ### `linear`
 
@@ -452,7 +466,9 @@ body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`,
 A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
 the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
 those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
-read with `encode` and never written through.
+read in mode `encode` and never written through.
+
+Modes: `encode` gives its coordinates, the last axis becoming classes.
 
 ## Names and scoping
 

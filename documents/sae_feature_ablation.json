@@ -16,7 +16,7 @@
       "kind": "forward",
       "input": "prompts.input",
       "reads": {
-        "latents": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "dictionary"}]}
+        "latents": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "dictionary", "mode": "encode"}]}
       }
     },
     "zeroed": {

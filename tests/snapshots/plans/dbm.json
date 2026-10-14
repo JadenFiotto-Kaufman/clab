@@ -58,8 +58,9 @@
         "pos": -1,
         "ops": [
          {
-          "op": "encode",
-          "featurizer": "fit.mask"
+          "op": "featurizer",
+          "featurizer": "fit.mask",
+          "mode": "encode"
          }
         ],
         "dims": [
@@ -185,8 +186,9 @@
         "pos": -1,
         "ops": [
          {
-          "op": "encode",
-          "featurizer": "fit.mask"
+          "op": "featurizer",
+          "featurizer": "fit.mask",
+          "mode": "encode"
          }
         ],
         "dims": [
@@ -312,8 +314,9 @@
         "pos": -1,
         "ops": [
          {
-          "op": "encode",
-          "featurizer": "fit.mask"
+          "op": "featurizer",
+          "featurizer": "fit.mask",
+          "mode": "encode"
          }
         ],
         "dims": [
@@ -439,8 +442,9 @@
         "pos": -1,
         "ops": [
          {
-          "op": "encode",
-          "featurizer": "fit.mask"
+          "op": "featurizer",
+          "featurizer": "fit.mask",
+          "mode": "encode"
          }
         ],
         "dims": [
