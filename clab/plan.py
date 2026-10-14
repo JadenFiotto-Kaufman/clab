@@ -12,11 +12,12 @@ thing wherever it lands, which is what lets it travel into a remote session and 
 
 import json
 import os
-from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union
+from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
-from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError, field_validator,
-                      model_validator)
+from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError, field_serializer,
+                      field_validator, model_validator)
 from pydantic.json_schema import SkipJsonSchema
+from pydantic_core import core_schema
 from torch import Tensor
 
 from . import address, data, featurizers, ops
@@ -67,8 +68,36 @@ class Sweep(Record):
         return values
 
 
+class ByShape:
+    """A union validated by the one member the input's shape picks (a sweep, a dict, a string, a number, a
+    list, null), so a wrong value gets one error, from the member it was meant for."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        members = get_args(source)
+
+        def pick(value: Any) -> str:
+            return f"~{next((i for i, m in enumerate(members) if shaped(m, value)), 0)}"
+        return core_schema.tagged_union_schema({f"~{i}": handler.generate_schema(m) for i, m in enumerate(members)},
+                                               discriminator=pick)
+
+
+def shaped(member: Any, value: Any) -> bool:
+    """Whether `value` has the shape of union member `member`."""
+    if member is Sweep:
+        return isinstance(value, Sweep) or isinstance(value, dict) and "sweep" in value
+    if isinstance(member, type) and issubclass(member, BaseModel):
+        return isinstance(value, member) or isinstance(value, dict) and "sweep" not in value
+    if get_origin(member) is Literal:
+        return isinstance(value, tuple(type(a) for a in get_args(member)))
+    if get_origin(member) in (list, tuple):
+        return isinstance(value, (list, tuple))
+    number = isinstance(value, (int, float)) and not isinstance(value, bool)
+    return {int: number and isinstance(value, int), float: number, str: isinstance(value, str),
+            bool: isinstance(value, bool)}.get(member, False)
+
+
 T = TypeVar("T")
-Swept = Union[T, Sweep]
+Swept = Annotated[Union[T, Sweep], ByShape()]
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 
@@ -91,6 +120,7 @@ class Data(Record):
     split: str | None = None
     take: int | None = None
     sha256: str | None = derived(None, "the digest of the rows, which a re-materialization must match")
+    n_rows: int | None = derived(None, "how many rows the dataset has")
 
     @model_validator(mode="after")
     def _one_source(self):
@@ -101,13 +131,15 @@ class Data(Record):
             raise ValueError("a hub dataset is pinned: give its 'revision'")
         if self.hf is None and (self.revision is not None or self.take is not None):
             raise ValueError("'revision' and 'take' belong to a hub dataset ('hf')")
+        if not sources and self.split is not None:
+            raise ValueError("'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows")
         return self
 
 
 class Site(Record):
     """A component, narrowed: `layers` (an int, or `"all"`: one value, the layer axis first) on a block's
     component; at most one of `heads` and `units`, as the component allows."""
-    component: str
+    component: str = Field(json_schema_extra={"enum": list(address.COMPONENTS)})
     layers: Swept[int | Literal["all"]] | None = None
     heads: Swept[list[int]] | None = None
     units: Swept[list[int]] | None = None
@@ -164,6 +196,7 @@ class Pos(Record):
     start): the same width on every row. Otherwise (`all`, or a span from the start to the end) it is
     ragged: a read then gives one entry per token, `{values, row, tok}`.
     """
+    model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("index", "span", "all")]})
     frame: Literal["prompt", "generated"] = "prompt"
     scope: Scope | None = None
     index: Swept[int] | None = None
@@ -187,7 +220,7 @@ class Op(Record):
     `features`, a subset of its latents) make any op run on the value's coordinates in that featurizer's
     space, the change written back."""
     model_config = ConfigDict(extra="allow")
-    op: str
+    op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     featurizer: str | None = None
     features: Swept[list[int]] | None = None
 
@@ -217,7 +250,7 @@ class Access(Record):
     """A write or a read: the `site` it lands on (a declared name, or one inline), the positions `pos` names
     there, and the `ops` it runs on that selection. Several writes at one site compose in listed order on one
     copy of the value; a read at a written site observes the writes."""
-    site: str | Site
+    site: Annotated[str | Site, ByShape()]
     pos: Swept[int | Pos]
     ops: list[Op] = []
     dims: list[str] | None = derived(None, "the layout of what a read binds")
@@ -235,6 +268,11 @@ class Forward(Record):
     `<dataset>.<column>[i]`, a text or a chat; `writes` land where they name before anything later reads them;
     each read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed
     order, before the step's own.
+
+    A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
+    template without a generation prompt, so the rendered prompt ends with the template's close of the last
+    message (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and
+    `{"scope": {"segment": "user[1]"}}` names the message's own tokens.
 
     Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
     row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
@@ -269,7 +307,7 @@ class OpStep(Record):
     Ops). The step's value is the op's result; a step holds exactly one op, and chaining is the next step."""
     model_config = ConfigDict(extra="allow")
     kind: Literal["op"]
-    op: str
+    op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     of: str
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
@@ -397,8 +435,8 @@ class Plan(Record):
     """what runs, in order"""
     saves: list[str] = []
     """the values that come home, by name"""
-    document: str | None = derived(None, "the document file `Plan(path)` read; data paths and bundles resolve "
-                                         "against its corpus root, the parent of its directory")
+    document: str | None = derived(None, "the document file the plan was read from; written relative to its "
+                                         "corpus root, where data paths and bundles resolve")
     compiled: bool = derived(False, "whether this is the compiled plan")
     sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order")
     results: SkipJsonSchema[dict[str, Any]] = derived(
@@ -418,13 +456,29 @@ class Plan(Record):
     @classmethod
     def _names_and_sweeps(cls, given: Any) -> Any:
         if isinstance(given, dict):
-            find_sweeps(given)
+            if find_sweeps(given) and given.get("compiled"):
+                raise ValueError("a compiled plan holds no sweep; its sweeps are expanded into points")
             for name in given.get("steps", {}):
                 if "." in name:
                     raise ValueError(f"steps.{name}: a name has no dots; a dot separates a thing from its member")
                 if name in given.get("data", {}) or name in given.get("featurizers", {}):
                     raise ValueError(f"steps.{name}: {name!r} is also a dataset or a featurizer")
         return given
+
+    @model_validator(mode="after")
+    def _bundles(self):
+        # A bundle's file is its source of truth, and tensors never go in a document: a compiled plan read back
+        # without its bundles loads them again from their `file_path`.
+        for entry in self.featurizers.values() if self.compiled else []:
+            for f in points(entry):
+                fields = f.model_extra or {}
+                if fields.get("file_path") is not None and f.bundle is None:
+                    f.bundle = featurizers.bundle(corpus_root(self), f.kind, fields, self.model)
+        return self
+
+    @field_serializer("document", when_used="json")
+    def _relative(self, document: str | None) -> str | None:
+        return document and os.path.relpath(document, corpus_root(self))
 
     def __repr__(self) -> str:
         if self.run is not None:
@@ -466,9 +520,11 @@ class Plan(Record):
 
 
 def corpus_root(plan: Plan) -> str:
-    """Where data paths and bundles resolve: the parent of the document's directory, or the working directory
-    for a plan built from fields."""
-    return os.path.dirname(os.path.dirname(plan.document)) if plan.document else os.getcwd()
+    """Where data paths and bundles resolve: the parent of the directory of the document `Plan(path)` read, or
+    the working directory for a plan built from fields or loaded from a run (whose manifest records its
+    document relative to the corpus root)."""
+    return os.path.dirname(os.path.dirname(plan.document)) if plan.document and os.path.isabs(plan.document) \
+        else os.getcwd()
 
 
 def name(plan: Plan) -> str:

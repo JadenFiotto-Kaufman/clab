@@ -1,4 +1,4 @@
-"""Featurizer kinds: each is a function from its document fields to an instance, a dict of tensors.
+"""Featurizer kinds: the fields each kind takes, and what it is.
 
 A featurizer is a space a read or write happens in. Its kind's signature is
 its contract: the document fields it takes, with `width` (the feature width

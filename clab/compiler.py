@@ -45,13 +45,20 @@ def compile(plan: Plan) -> Plan:
     for name in plan.steps:
         compiled["steps"][name] = expand(cx, name, ("steps", name), lambda point, name=name: step(
             cx, f"steps.{name}", name, point.steps[name], point))
+    saveable = sorted(n for n, v in cx["names"].items() if n.partition(".")[0] in plan.steps and v["kind"] != "scalar")
     for i, name in enumerate(plan.saves):
-        if name not in cx["names"] or cx["names"][name]["kind"] == "scalar":
-            fail(f"saves[{i}]", f"{name!r} names no value; values: {', '.join(sorted(cx['names']))}")
+        if name in plan.data:
+            fail(f"saves[{i}]", f"{name!r} is a dataset; hub datasets and dataset saves land later")
+        if name in plan.saves[:i]:
+            fail(f"saves[{i}]", f"{name!r} is saved twice")
+        if name not in saveable:
+            fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
+                 f"{', '.join(saveable)}")
     return Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
                    "sweeps": {label: {"path": ".".join(map(str, path)), "values": axes[label]}
                               for path, label in sweeps.items()},
-                   "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n])} for n in rows}})
+                   "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
+                                "n_rows": len(rows[n])} for n in rows}})
 
 
 def get(doc: dict, path: tuple):
@@ -68,14 +75,15 @@ def expand(cx: dict, name: str, where: tuple, build) -> dict | list:
     interventions and featurizers it names), and those of every value it references."""
     own = {label for path, label in cx["sweeps"].items() if any(path[:len(p)] == p for p in footprint(cx, where))}
     cx["refs"] = []
-    build(point(cx, {label: 0 for label in own}))
+    first = build(point(cx, {label: 0 for label in own}))
     used = own | {a for ref in cx["refs"] for a in cx["of"].get(ref.partition(".")[0], [])}
     labels = [label for label in cx["axes"] if label in used]
     cx["of"][name] = labels
     entries = []
     for index in itertools.product(*(range(len(cx["axes"][label])) for label in labels)):
         at = dict(zip(labels, index))
-        entry = build(point(cx, at))
+        # The first point is the document every axis puts at its first value, which `first` was built from.
+        entry = first if not any(index) else build(point(cx, at))
         for e in [entry, *entry.get("steps", {}).values()]:
             e["at"] = at
         entries.append(entry)
@@ -193,57 +201,74 @@ def access(cx: dict, path: str, spec, plan: Plan, step, dataset: str, write: boo
     ragged = positions.ragged(pos)
     dims = selection = address.dims(site.component, site.layers, ragged)
     for i, o in enumerate(spec.ops):
+        at = f"{path}.ops[{i}]"
         if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
-            fail(f"{path}.ops[{i}]", f"readout projects a residual-stream value; {site.component} is not one")
-        dims, _ = op_dims(cx, f"{path}.ops[{i}]", o.op, arguments(o), dims, "write" if write else "read",
-                          (dataset, repr(step.input)), space(o), ragged)
+            fail(at, f"readout projects a residual-stream value; {site.component} is not one")
+        if space(o) is not None:
+            featurizer_ref(cx, space(o), f"{at}.featurizer")
+        found = references(cx, at, o.op, arguments(o))
+        aligned(at, (dataset, repr(step.input)), found)
+        if write:
+            operands(at, found, selection, space(o), ragged)
+        dims = layout(at, o.op, arguments(o), dims, "write" if write else "read")
         if write and dims != selection:
-            fail(f"{path}.ops[{i}]", f"{o.op!r} turns {selection} into {dims}; a write's ops keep the value's layout")
+            fail(at, f"{o.op!r} turns {selection} into {dims}; a write's ops keep the value's layout")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
     return record if write else {**record, "dims": dims}
 
 
 def op_step(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
-    dims, dataset = op_dims(cx, path, spec.op, arguments(spec), of["dims"], "step", (of["data"], repr(spec.of)),
-                            None, False)
+    dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, path, spec.op, arguments(spec)))
+    dims = layout(path, spec.op, arguments(spec), of["dims"], "step")
     cx["names"][name] = {"dims": dims, "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
-def op_dims(cx: dict, path: str, name: str, args: dict, dims: list[str], where: str, of: tuple[str | None, str],
-            featurizer: str | None, ragged: bool) -> tuple[list[str], str | None]:
-    """The layout of op `name`'s result on a value laid out `dims`, and the one dataset its rows align to: that
-    of the value it acts on (`of`: its dataset, and how to name it), of its operands and of its columns.
-
-    `where` is `"step"`, `"read"` or `"write"`; `featurizer` the space an op in a read or write runs in.
-    Inside a write an operand stands for the selection: its own layout, or one vector of its features (only
-    that, when the selection is ragged)."""
-    if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
-        fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside a write")
-    if featurizer is not None:
-        featurizer_ref(cx, featurizer, f"{path}.featurizer")
-    layout = dims[:-1] + ["features"] if featurizer is not None else dims
-    operand = [[a for a in layout if a not in address.EXAMPLE_AXES]] + ([] if ragged else [layout])
-    datasets = {of[0]: of[1]} if of[0] else {}
+def references(cx: dict, path: str, name: str, args: dict) -> dict[str, dict]:
+    """Op `name`'s arguments that name a value or a column, each resolved to `{"dims", "data", "kind", "name"}`
+    (a column is laid out `["rows"]`); a featurizer argument is checked to exist."""
+    found = {}
     for key, p in ops.parameters(name).items():
         value, at = args.get(key), f"{path}.{key}"
-        if value is None:
-            continue
-        if p.annotation == ops.Value and not isinstance(value, (int, float)):
-            info = value_ref(cx, value, at)
-            if where == "write" and info["dims"] not in operand:
-                fail(at, f"{value!r} is laid out {info['dims']}; this write's selection is {layout}, so an operand "
-                     f"is {' or '.join(map(str, operand))}")
-            if info["data"] is not None and info["dims"][:1] in (["rows"], ["entries"], ["layers"]):
-                datasets.setdefault(info["data"], repr(value))
-        elif p.annotation == ops.Tokens:
-            datasets.setdefault(column_ref(cx, value, at, None), repr(value))
-        elif p.annotation == ops.Featurizer:
+        if p.annotation == ops.Value and isinstance(value, str):
+            found[key] = {**value_ref(cx, value, at), "name": value}
+        elif p.annotation == ops.Tokens and value is not None:
+            found[key] = {"dims": ["rows"], "data": column_ref(cx, value, at, None), "kind": "column", "name": value}
+        elif p.annotation == ops.Featurizer and value is not None:
             featurizer_ref(cx, value, at)
+    return found
+
+
+def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
+    """The one dataset an op's rows align to: that of the value it acts on (`of`: its dataset, and how to name
+    it), of its operands with a rows axis, and of its columns."""
+    datasets = {of[0]: of[1]} if of[0] else {}
+    for info in found.values():
+        if info["data"] is not None and info["dims"][:1] in (["rows"], ["entries"], ["layers"]):
+            datasets.setdefault(info["data"], repr(info["name"]))
     if len(datasets) > 1:
         (a, x), (b, y) = list(datasets.items())[:2]
         fail(path, f"{x} has a row per example of {a!r} and {y} of {b!r}; an op takes one dataset's rows")
+    return next(iter(datasets), None)
+
+
+def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool) -> None:
+    """Inside a write an operand stands for the selection: its own layout (in a featurizer's space, its
+    features), or one vector of its features; only the vector when the selection is ragged."""
+    own = selection[:-1] + ["features"] if featurizer is not None else selection
+    allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([] if ragged else [own])
+    for key, info in found.items():
+        if info["kind"] == "value" and info["dims"] not in allowed:
+            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's selection is {own}, "
+                 f"so an operand is {' or '.join(map(str, allowed))}")
+
+
+def layout(path: str, name: str, args: dict, dims: list[str], where: str) -> list[str]:
+    """The layout of op `name`'s result on a value laid out `dims`. Inside a read or write (`where`) the op sees
+    one batch, so it may not aggregate over rows; `original` is only a write's."""
+    if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
+        fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside a write")
     try:
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args})
     except ValueError as e:
@@ -251,7 +276,7 @@ def op_dims(cx: dict, path: str, name: str, args: dict, dims: list[str], where: 
     if where != "step" and {"rows", "entries"} & (set(dims) - set(out)):
         fail(path, f"{name!r} aggregates over rows, and inside a read or write it sees one batch; "
              "make it a step after the forward")
-    return out, next(iter(datasets), None)
+    return out
 
 
 def fit(cx: dict, path: str, name: str, spec, plan: Plan) -> dict:
