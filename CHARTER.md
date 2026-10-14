@@ -11,7 +11,8 @@ judgment; where both are silent, design it yourself.
 
 ## What it does
 
-`documents/` holds 31 JSON documents. Each one declares a complete experiment:
+`documents/` holds the corpus of JSON documents (31 at the start; it grows by
+example documents the owner adds). Each one declares a complete experiment:
 which model (pinned checkpoint and revision), which data (`data/`, referenced
 by name), what to run (forwards, generation, interventions on the model's
 internals, metrics, optimization of small trainable modules), and what to

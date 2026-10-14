@@ -646,3 +646,29 @@ when the owner asks for open items.
   a read counts them — some picked occurrence's last token is that call's
   input. A read and a write with the same record always agree; each picked
   occurrence lands at its own last token.
+
+### Ratified after M4 (2026-10-14)
+
+- **Named evals.** A fit's `eval` is a dict of named substitutions,
+  `{"held_out": {"train": "test"}, "train": {}}` (`{}` = the body on the data
+  it trained on); after training the body runs once per name, and every
+  body value is reachable as `fit.<eval>.<member>` (`fit.held_out.iia`,
+  `fit.train.counterfactual.v_cf`). The unnamed `eval: {"data": ...}` form
+  and the unnamed `fit.<op>` / `fit.<step>.<read>` spellings are gone;
+  `fit.<featurizer>` and `fit.history.<term>` are unchanged. `das.json` and
+  `dbm.json` drop their root repetition of the body; `fit.train.iia` must
+  equal the old root `iia` to the bit.
+- **SAEs are trainable.** `{"kind": "sae", "latents": N}` (seeded init:
+  random encoder, decoder columns unit-norm, zero biases; `file_path` loads
+  one as before) is trained by `fit` through a ragged `encode` read of a
+  site; its scalars are `reconstruction` (mean squared error between the
+  read's vectors and their decoding) and `l1` (mean absolute latent), named
+  in the objective like `mask.mask`; `fit.history.<featurizer>.<scalar>`
+  records them per epoch. A trained SAE is saved as a bundle and loaded by
+  `file_path` like any other.
+- **The corpus grows by example documents** that exercise what the format
+  gains; they are pinned like the original 31. First: `sae_train.json`
+  (train a dictionary on the weekday prompts at every token, save it and
+  its history) and `sae_train_ablation.json` (load it and ablate latents,
+  as `sae_feature_ablation.json` does with the fixture).
+- Roadmap (§12): hub datasets are what SAE training at real scale needs.
