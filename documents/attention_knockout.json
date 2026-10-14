@@ -1,5 +1,5 @@
 {
-  "description": "Attention knockout, and the pattern it knocks out. Under eager attention the softmax's return is a tensor: `attention_probs`, (batch, head, query, key). `clean` reads the last query position's pattern for every head, which is saved; `patched` zeroes ONE head's pattern at that position — the head then contributes nothing there — swept over heads. `attn_implementation: eager` is in the model block because sdpa never materializes the pattern.",
+  "description": "Attention knockout, and the pattern it knocks out. Under eager attention the softmax's return is a tensor: `attention_probabilities`, (batch, num_heads, query, key). `clean` reads the last query position's pattern for every head, which is saved; `patched` zeroes ONE head's pattern at that position — the head then contributes nothing there — swept over heads. `attn_implementation: eager` is in the model block because sdpa never materializes the pattern.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -35,7 +35,7 @@
       "of": "patched.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {"iia": "iia.json", "logit_diff": "logit_diff.json", "clean.pattern": "pattern.safetensors"}
-  }
+    }
+  },
+  "saves": ["iia", "logit_diff", "clean.pattern"]
 }

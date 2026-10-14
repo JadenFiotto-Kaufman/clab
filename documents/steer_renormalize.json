@@ -1,5 +1,5 @@
 {
-  "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it at the last position (add_scaled), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked.",
+  "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -61,13 +61,7 @@
       "of": "steered.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {
-      "renormed_ld": "logit_diff_renormed.json",
-      "steered_ld": "logit_diff_steered.json",
-      "base.resid": "norm_before.safetensors",
-      "steered_renormed.resid": "norm_after.safetensors",
-      "steered.resid": "norm_steered.safetensors"
     }
-  }
+  },
+  "saves": ["renormed_ld", "steered_ld", "base.resid", "steered_renormed.resid", "steered.resid"]
 }

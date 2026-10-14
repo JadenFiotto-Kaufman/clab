@@ -30,7 +30,7 @@
       },
       "reads": {"logits": {"site": "head", "pos": {"frame": "generated", "index": {"sweep": [0, 1, 2]}}}}
     },
-    "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"},
-    "saves": {"p_answer": "p_answer.json", "patched": "generated.safetensors"}
-  }
+    "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
+  },
+  "saves": ["p_answer", "patched"]
 }

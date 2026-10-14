@@ -62,13 +62,7 @@
     "te_abl": {"kind": "op", "op": "token_logit", "of": "ablated.logits", "token": "sample.ml_token"},
     "de0_c": {"kind": "op", "op": "token_logit", "of": "inj0_clean.logits", "token": "sample.ml_token"},
     "de1_c": {"kind": "op", "op": "token_logit", "of": "inj1_clean.logits", "token": "sample.ml_token"},
-    "de1_a": {"kind": "op", "op": "token_logit", "of": "inj1_abl.logits", "token": "sample.ml_token"},
-    "saves": {
-      "te_clean": "te_clean.json",
-      "te_abl": "te_abl.json",
-      "de0_c": "de0_clean.json",
-      "de1_c": "de1_clean.json",
-      "de1_a": "de1_abl.json"
-    }
-  }
+    "de1_a": {"kind": "op", "op": "token_logit", "of": "inj1_abl.logits", "token": "sample.ml_token"}
+  },
+  "saves": ["te_clean", "te_abl", "de0_c", "de1_c", "de1_a"]
 }

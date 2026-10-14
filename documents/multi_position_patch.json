@@ -34,7 +34,7 @@
       "of": "patched.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {"iia": "iia.json", "logit_diff": "logit_diff.json"}
-  }
+    }
+  },
+  "saves": ["iia", "logit_diff"]
 }

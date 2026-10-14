@@ -31,7 +31,7 @@
     },
     "kl": {"kind": "op", "op": "kl", "of": "patched.logits", "against": "clean.logits"},
     "js": {"kind": "op", "op": "js", "of": "patched.logits", "against": "clean.logits"},
-    "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"},
-    "saves": ["kl", "js", "p_answer"]
-  }
+    "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
+  },
+  "saves": ["kl", "js", "p_answer"]
 }

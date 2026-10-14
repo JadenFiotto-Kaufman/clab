@@ -1,5 +1,5 @@
 {
-  "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site names `units` — single features of `mlp_activation` — and the sweep is over which. `heads` on an attention site (head_patching.json) is the same mechanism at a coarser grain: both compile to one Selection, positions plus a part of the feature axis.",
+  "description": "Neuron patching: the interchange of patching.json, of a few MLP neurons at a time. The site names `units` — single features of `mlp_activation` — and the sweep is over which. `heads` on an attention site (head_patching.json) is the same narrowing at a coarser grain: a site's positions, and a part of its feature axis.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -35,7 +35,7 @@
       "of": "patched.logits",
       "a": "pairs.cf_answer",
       "b": "pairs.base_answer"
-    },
-    "saves": {"iia": "iia.json", "logit_diff": "logit_diff.json"}
-  }
+    }
+  },
+  "saves": ["iia", "logit_diff"]
 }

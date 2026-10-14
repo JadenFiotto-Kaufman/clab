@@ -5,7 +5,7 @@
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "dtype": "fp32"
   },
-  "data": {"train": {"path": "weekdays/data#train"}, "test": {"path": "weekdays/data#test"}},
+  "data": {"train": {"path": "weekdays/data", "split": "train"}, "test": {"path": "weekdays/data", "split": "test"}},
   "sites": {
     "target": {"component": "layer_output", "layers": 0},
     "head": {"component": "lm_head_output"}
@@ -70,12 +70,7 @@
       "a": "train.cf_answer",
       "b": "train.base_answer"
     },
-    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"},
-    "saves": {
-      "fit.iia": "held_out_iia.json",
-      "iia": "iia.json",
-      "ce": "ce.json",
-      "fit.rot": "rot.safetensors"
-    }
-  }
+    "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"}
+  },
+  "saves": ["fit.iia", "iia", "ce", "fit.rot"]
 }

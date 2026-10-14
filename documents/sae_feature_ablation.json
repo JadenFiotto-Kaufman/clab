@@ -45,11 +45,7 @@
       "a": "prompts.cf_answer",
       "b": "prompts.base_answer"
     },
-    "p_answer": {"kind": "op", "op": "token_prob", "of": "zeroed.logits", "token": "prompts.cf_answer"},
-    "saves": {
-      "logit_diff": "zeroed.json",
-      "p_answer": "p_answer.json",
-      "base.latents": "latents.safetensors"
-    }
-  }
+    "p_answer": {"kind": "op", "op": "token_prob", "of": "zeroed.logits", "token": "prompts.cf_answer"}
+  },
+  "saves": ["logit_diff", "p_answer", "base.latents"]
 }
