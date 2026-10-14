@@ -4,12 +4,12 @@ One file per save, named after it: `<name>.safetensors` when the value is a tens
 bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
-nothing else, except that a bundle a featurizer loads (the value of an op named like a featurizer kind)
-carries the header that featurizer checks.
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`) carries
+the header that featurizer checks.
 
-`manifest.json` is the plan (`plan.model_dump()`) without the rows it read from files and without bundle
-tensors, its `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result
-links back to the step that made it. `shape` and `dtype` follow the value's structure (per key, per point).
+`manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
+`results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
+step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
 The plan's `run` holds how each input tokenized and which token every positioned read and write resolved
 to, which `table` uses to label positions. Values are never in the manifest.
 """
@@ -23,7 +23,7 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch import Tensor
 
-from . import data, featurizers
+from . import data, featurizers, ops
 from .plan import Plan, arguments, coordinate, corpus_root, dims_of, labelled, points
 
 
@@ -116,11 +116,11 @@ def restored(value: Any, dtype: Any) -> Any:
 
 
 def header(plan: Plan, name: str) -> dict[str, str] | None:
-    """A bundle's header, when the value is one a featurizer loads: an op step's whose op is a featurizer kind."""
+    """A bundle's header, when the value is one: the value of an op step whose op declares the featurizer kind
+    its bundle is for."""
     step = points(plan.steps[name.partition(".")[0]])[0]
-    if "." in name or step.kind != "op" or step.op not in featurizers.KINDS:
-        return None
-    return featurizers.header(step.op, arguments(step), plan.model)
+    kind = ops.DECLARED[step.op]["bundle"] if "." not in name and step.kind == "op" else None
+    return featurizers.header(kind, arguments(step), plan.model) if kind else None
 
 
 # -- tables ---------------------------------------------------------------------------------------------
@@ -140,16 +140,29 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
-    tables = [rows_of(plan, name, columns) for name in names]
-    if len(tables) == 1:
-        return tables[0]
-    joined: dict = {}
-    for name, rows in zip(names, tables):
-        for row in rows:
-            key = json.dumps([row.get(k) for k in JOIN])
-            value = row.pop("value")
-            joined.setdefault(key, {}).update({**row, name: value})
-    return list(joined.values())
+    if len(names) == 1:
+        return rows_of(plan, names[0], columns)
+    joined: list[dict] = []
+    for name in names:
+        rows = [{**{k: v for k, v in row.items() if k != "value"}, name: row["value"]}
+                for row in rows_of(plan, name, columns)]
+        joined = join(joined, rows) if joined else rows
+    return joined
+
+
+def join(left: list[dict], right: list[dict]) -> list[dict]:
+    """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
+    beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
+    def axes(rows: list[dict]) -> list[str]:
+        return [k for k in JOIN if rows and k in rows[0]]
+    many, few = (left, right) if len(axes(left)) >= len(axes(right)) else (right, left)
+    shared = [k for k in axes(many) if k in axes(few)]
+    by_key: dict = {}
+    for row in few:
+        by_key.setdefault(json.dumps([row[k] for k in shared]), []).append(row)
+    pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row[k] for k in shared]), [])]
+    merged = [{**a, **b} if many is left else {**b, **a} for a, b in pairs]
+    return [{"at": m.pop("at"), **m} if "at" in m else m for m in merged]
 
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
