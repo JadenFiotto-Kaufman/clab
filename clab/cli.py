@@ -187,7 +187,8 @@ def markdown() -> str:
     parts += ["## Derived fields\n",
               "Fields a document leaves out, which compile (or, for `run`, the engine) fills:\n",
               "\n".join(f"- `{model.__name__}`: {', '.join(derived(model))}"
-                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.OpStep, plan.Featurizer)
+                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.Generate, plan.OpStep,
+                                      plan.Featurizer)
                         if derived(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:

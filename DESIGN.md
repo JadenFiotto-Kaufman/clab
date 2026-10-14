@@ -1,6 +1,6 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10 and §11, which win wherever they and this document disagree.** `FORMAT.md` and
+**Amended by PLAN.md §10 and §11 (through "Ratified after M2"), which win wherever they and this document disagree.** `FORMAT.md` and
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 
@@ -35,6 +35,19 @@ document in these places:
   nnterp by value; the stand-in test asserts it.
 - §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
   step).
+- M3, §3: `generate`'s options are not three: the step forwards every key it does not own to the engine's
+  `generate` as it is (refusing, before anything runs, a key `generate` does not take and
+  `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache` at other than their
+  defaults). A generated-frame read's value comes back as a list, one `[rows, 1, ...]` per step read. The
+  hooks engine's bit-equality with the nnterp engine's generation is now **verified** (both generate
+  documents, and rows that stop at different steps, at batch sizes 1, 2 and 4). EOS is the id the
+  generation stops on (the step's `eos_token_id`, else the generation config's), not the tokenizer's.
+- M3, §5: the multi-byte hazard of `char_spans` is now **tested**: a character split across byte tokens is
+  the span of the token that completes it, and the tokens before it belong to the same character. A ragged
+  read carries `tok` (its token index, or in the generated frame its step), not only `row`. A rectangular
+  generated-frame read holds NaN on a row that did not reach its step, which is missing all the way down:
+  the manifest records `alignment_missing`, metrics give NaN, `argmax`/`top_k` give id -1, and reductions
+  skip the row. `select` replaces `heads`/`units`/`features`; on `key` it counts the row's own tokens.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

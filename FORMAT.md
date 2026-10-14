@@ -149,8 +149,15 @@ Generation from every row of a dataset input. It owns `input`, `writes`, `reads`
 a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
 `do_sample`, ...), and may sweep. Writes land on the prompt, on the prompt call only. A read in the
 `generated` frame reads decode steps, at each step's last position; how far a row got is what the engine
-actually generated, up to and including the row's first EOS (the token the engine's generation stops on).
-The step's own value is the new token ids, `[rows, new]`; `decode` makes them text.
+actually generated, up to and including the row's first EOS: the step's own `eos_token_id` when it gives
+one, else the id the engine's generation stops on (its generation config's). The step's own value is the
+new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
+(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) and keys the engine's
+`generate` does not take are refused before anything runs.
+
+Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prompt
+call projects the head at the last position only and every decode step is a `[batch, 1, ...]` matmul, so
+batch sizes 4 and 2 already differ by about 1e-7 at step 0.
 
 ### `op`
 
@@ -211,6 +218,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Access`: `dims` (the layout of what a read binds)
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
+- `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header)
 
