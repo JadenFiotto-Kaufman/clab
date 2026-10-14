@@ -613,6 +613,17 @@ when the owner asks for open items.
   that never says the text is recorded missing. Refused for writes, because
   unknown until the row ends: a negative index over several calls, `"eos"`,
   and negative frames.
+- **Text scopes take `occurrence` and `strip`.** `occurrence` is the same
+  selector shape as `frame` and `index` (`int | [start, stop] | "all"`),
+  default `0`: the scope stage locates every occurrence of the text in the
+  selected calls' tokens, picks those, and `index` narrows within them. The
+  concept of ambiguity is gone (`alignment_ambiguous` no longer exists; a
+  doubled text takes occurrence 0). In the prefill an occurrence the row
+  lacks is refused by name; in generated text occurrence k lands at the call
+  fed the k-th occurrence's last token, `"all"` at each as it appears, and a
+  row with too few occurrences is recorded missing; a negative occurrence is
+  for reads only. `strip: true` strips the text's surrounding whitespace
+  before locating it (default `false`). `turn` takes neither.
 - `variable`, `segment`, `span`, `all` (as keys), `prompt` and the old
   "generated index k = the call that chose token k" convention are gone.
   Migration round four touches every document with a dict `pos` and the
