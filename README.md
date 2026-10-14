@@ -1,8 +1,9 @@
 # clab
 
 clab runs mechanistic-interpretability experiments on transformer language models from declarative JSON
-documents. A document names a pinned checkpoint, its datasets, the forwards to run with their writes and
-reads on the model's internals, the ops that score or reduce what they read, and what to save. clab reads it
+documents. A document names a pinned checkpoint, its datasets, the forwards and generations to run with
+their writes and reads on the model's internals, the ops that score or reduce what they read, and what to
+save. clab reads it
 into a `Plan`, compiles the plan (rows loaded, names resolved, sweeps expanded into points), runs it inside one
 nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved value
 to a directory with a manifest.
@@ -22,7 +23,25 @@ uv sync
 uv run clab run documents/patching.json                  # writes out/patching/
 uv run clab run documents/patching.json --engine hooks --out out/patching-hooks --batch-size 2
 uv run clab run documents/patching.json --remote local   # nnsight's in-process serialize/deserialize path
+uv run clab run documents/generated_answer.json --batch-size 2
 ```
+
+## Look at a run
+
+```
+uv run clab show out/generate_probe                      # each result: its step, dims, axes, shape; how it ran
+uv run clab table out/generate_probe p_answer patched    # the saved values as one table, joined on row and step
+uv run clab table out/generate_probe p_answer --csv      # the same as CSV on stdout, every cell whole
+```
+
+`show` prints the run's engine, remote flag, batch size, versions, start time and seconds, then one line per
+saved value: the step that made it, its `dims`, its sweep axes and its shape (per coordinate when swept).
+`table` prints `plan.table(name, ...)`: a row per example and token (`pos`/`pos_token`, or `step`/
+`step_token` for a value read in the generated frame), the point's coordinates `at` when the step is swept,
+the dataset columns the step used, and one column per name; a row a generated-frame read did not reach says
+`alignment_missing` (or `alignment_ambiguous`) in place of a value. Aligned output cuts long cells short;
+`--csv` keeps them whole. Both are `Plan.load(out)` and one call, run from the corpus root (where the
+dataset files are).
 
 ## From Python
 
