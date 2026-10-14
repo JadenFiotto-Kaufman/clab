@@ -1,7 +1,11 @@
-"""How nnterp reaches clab's components, which both engines read: the envoy that serves each, its dotted name
-there, the sizes, and a forward's records grouped by site."""
+"""What both engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
+there, the sizes), how a model block becomes a loader call, what a HuggingFace `generate` takes and where it
+stops, and a forward's or a generation's records grouped by site and by call."""
 
-from typing import cast
+import inspect
+from typing import Any, Callable, cast
+
+from transformers import GenerationConfig, GenerationMixin
 
 from ..address import COMPONENTS
 
@@ -37,14 +41,33 @@ def envoy(model, component: str, layer: int | None):
     return block if where == "layer" else getattr(block, where)
 
 
-def loader(model, engine: str, owned: tuple) -> dict:
-    """The keys of a model block an engine's loader takes as they are: every key but `key`, `revision` and
-    `dtype`. A key the engine sets itself (`owned`) is one it cannot honor, and is refused by name."""
+# The model-block keys an engine cannot honor, and why: each engine places its own model, and `dtype` is the
+# block's one spelling of the dtype.
+OWNED = {"device": "the engine places its model itself", "device_map": "the engine places its model itself",
+         "dispatch": "the engine places its model itself", "torch_dtype": "the dtype is spelled `dtype`"}
+
+
+def load(model, engine: str, call: Callable[[dict], Any]) -> Any:
+    """`call` with the model block's keys other than `key`, `revision` and `dtype`, as they are. A key in
+    `OWNED` is refused by name, and one the loader rejects is reported as that key."""
     extra = dict(model.model_extra or {})
     for key in extra:
-        if key in owned:
-            raise ValueError(f"model.{key}: the {engine} engine sets {key} itself")
-    return extra
+        if key in OWNED:
+            raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
+    try:
+        return call(extra)
+    except (TypeError, ValueError) as e:
+        key = next((k for k in extra if repr(k) in str(e) or f"{k}=" in str(e) or f" {k} " in str(e)), None)
+        if key is None:
+            raise
+        raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
+
+
+def generation_keys() -> set[str]:
+    """The keyword arguments a HuggingFace `generate` takes: its own parameters and `GenerationConfig`'s fields."""
+    generate: Any = getattr(GenerationMixin, "generate")
+    found = set(inspect.signature(generate).parameters) | set(vars(GenerationConfig()))
+    return found - {"self", "kwargs", "inputs", "_from_model_config", "transformers_version"}
 
 
 def stops(config, tokenizer) -> list[int]:

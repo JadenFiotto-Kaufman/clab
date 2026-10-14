@@ -172,11 +172,23 @@ def test_the_aligned_pattern_dataset_passes_the_check(engines):
     engines("nnterp", plan.model).execute(plan, batch_size=2)
 
 
-@pytest.mark.parametrize("kind, key", [("nnterp", "device"), ("nnterp", "dispatch"), ("hooks", "device_map")])
-def test_a_loader_refuses_a_model_key_its_engine_sets_itself(kind, key):
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("key, why", [("device", "the engine places its model itself"),
+                                      ("device_map", "the engine places its model itself"),
+                                      ("dispatch", "the engine places its model itself"),
+                                      ("torch_dtype", "the dtype is spelled `dtype`")])
+def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
     from clab.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
-    with pytest.raises(ValueError, match=f"model.{key}: the {kind} engine sets {key} itself"):
+    with pytest.raises(ValueError, match=f"^model.{key}: the {kind} engine cannot honor it: {why}$"):
+        ENGINES[kind](plan.model)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
+    from clab.engines import ENGINES
+    plan = edited("patching", lambda d: d["model"].update(attn_implementation="nonsense"))
+    with pytest.raises(ValueError, match=f"^model.attn_implementation: the {kind} engine's loader rejects it: "):
         ENGINES[kind](plan.model)
 
 

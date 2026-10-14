@@ -17,7 +17,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import engine
-from .standard import SIZES, by_site, envoy, keep, loader, nnterp_name, now, stops
+from .standard import SIZES, by_site, envoy, generation_keys, keep, load, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -26,10 +26,10 @@ class NnterpEngine:
 
     def __init__(self, model: Model):
         """The checkpoint `model` pins, on the CPU; the block's other keys go to the loader as they are."""
-        extra = loader(model, "nnterp", ("device", "dispatch"))
         self.spec = model
-        self.model = StandardizedTransformer(model.key, revision=model.revision, device="cpu", dispatch=True,
-                                             dtype=getattr(torch, model.dtype), **extra)
+        self.model = load(model, "nnterp", lambda extra: StandardizedTransformer(
+            model.key, revision=model.revision, device="cpu", dispatch=True, dtype=getattr(torch, model.dtype),
+            **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         """The whole plan in one session; the filled plan is the one thing that comes home."""
@@ -48,6 +48,9 @@ class NnterpEngine:
     @property
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.model.tokenizer)
+
+    def generation_keys(self) -> set[str]:
+        return generation_keys()
 
     def unserved(self) -> dict:
         """Why nnterp does not serve a component on this checkpoint, from its `support()`; None where it does."""
@@ -82,21 +85,23 @@ class NnterpEngine:
 
         One loop over the forward calls visits, at each call, every site in forward order and does there what
         `now` says. It is bounded by the steps the reads ask for, or open when a read asks for every step;
-        either way it ends where the generation does, which nnsight warns of and which is expected here, so
-        the ids are read in an invoke of their own, which the loop's end does not cut short."""
+        either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
+        read out of forward order shows up instead as a missing step, which `steps.generate` refuses), so the
+        ids are read in an invoke of their own, which the loop's end does not cut short."""
         model = self.model
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         asked = [r["steps"] for r in reads if "steps" in r]
-        steps = None if None in asked else sorted({0, *(s for a in asked for s in a)})
+        calls = None if None in asked else sorted({0, *(s for a in asked for s in a)})
         got: dict[str, Any] = {r["name"]: [] for r in reads if "steps" in r}
         result: dict = {}
         inputs = {k: batch[k] for k in ("input_ids", "attention_mask")}
         with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", message=".*was never reached")
+            warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
+                                                      r"not make")
             with model.generate(**options) as tracer:
                 with tracer.invoke(inputs):
-                    for step in tracer.all() if steps is None else tracer.iter[steps]:
+                    for step in tracer.all() if calls is None else tracer.iter[calls]:
                         for component, layer in order:
                             here, there = now(*sites[(component, layer)], step)
                             if not here and not there:

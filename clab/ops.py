@@ -18,6 +18,10 @@ ABOUT = """An op runs in three places, always as the same function:
 Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
 refused there (make it a step after the forward).
 
+A row a generated-frame read did not reach is missing all the way down: in a rectangular value it is NaN,
+every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
+token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it); **reductions** remove the rows axis; **edits** keep the
 value's layout and change its contents; **transforms** turn each example's value into another of a
@@ -47,7 +51,8 @@ Featurizer = Annotated[dict, "Featurizer"]
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-SUPPLIED = ("engine", "original", "dims")
+# `eos`: the ids the generation `of` came from stops on.
+SUPPLIED = ("engine", "original", "dims", "eos")
 
 OPS: dict[str, Callable] = {}
 GROUPS = ("metrics", "reductions", "edits", "transforms")
@@ -227,9 +232,11 @@ def encode(of: Tensor, featurizer: Featurizer) -> Tensor:
 
 @op("reductions", removes="over")
 def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """The mean over the axes `over` names; by default every axis but the feature axes."""
+    """The mean over the axes `over` names, of the rows that have a value (a missing row is NaN); by default
+    over every axis but the feature axes."""
     over = over if over is not None else [a for a in dims if a in EXAMPLE_AXES]
-    return of.mean(dim=[dims.index(a) for a in over])
+    axes = [dims.index(a) for a in over]
+    return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
 
 
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")
@@ -237,6 +244,7 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict:
     """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
     first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
     x = of.reshape(-1, of.shape[-1]).double()
+    x = x[~x.isnan().any(-1)]
     if x.shape[0] <= k:
         raise ValueError(f"pca of {x.shape[0]} vectors has no rank-{k} basis; it needs more than {k}")
     mean = x.mean(0)
@@ -248,6 +256,11 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict:
 
 
 # -- metrics: logits in, one number per row and position out -------------------
+
+
+def _missing(of: Tensor) -> Tensor:
+    """Where a value is missing, per vector: NaN anywhere along its last axis."""
+    return of.isnan().any(-1)
 
 
 def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
@@ -264,7 +277,8 @@ def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
 def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
     """1 where the most likely token is `expected`, else 0."""
-    return (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
+    hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
+    return hit.masked_fill(_missing(of), float("nan"))
 
 
 @op("metrics", needs=("vocab_size",), removes=("vocab_size",))
@@ -313,22 +327,23 @@ def top_k(of: Tensor, k: int) -> dict:
     """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
     `tokens`, decoded."""
     probs, ids = of.softmax(-1).topk(k, dim=-1)
-    return {"ids": ids, "probs": probs}
+    missing = _missing(of)[..., None]
+    return {"ids": ids.masked_fill(missing, -1), "probs": probs.masked_fill(missing, float("nan"))}
 
 
 @op("transforms", needs=("vocab_size",), removes=("vocab_size",))
 def argmax(of: Tensor) -> Tensor:
-    """The id of the most likely token."""
-    return of.argmax(-1)
+    """The id of the most likely token (-1 where the value is missing)."""
+    return of.argmax(-1).masked_fill(_missing(of), -1)
 
 
 @op("transforms", needs=("new",), removes=("new",))
-def decode(of: Tensor, engine: Any, tokens: bool = False) -> list:
-    """Each row's generated ids as text, stopped before the row's first EOS (the engine's, where its generation
-    stops); with `tokens`, as its token strings."""
-    tokenizer, eos = engine.tokenizer, set(engine.eos)
+def decode(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) -> list:
+    """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
+    with `tokens`, as its token strings."""
+    tokenizer, stops = engine.tokenizer, set(eos)
     out = []
     for ids in of.tolist():
-        ids = next((ids[:i] for i, t in enumerate(ids) if t in eos), ids)
+        ids = next((ids[:i] for i, t in enumerate(ids) if t in stops), ids)
         out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
     return out

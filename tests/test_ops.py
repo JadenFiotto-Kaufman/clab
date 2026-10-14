@@ -211,5 +211,28 @@ class Engine:
 
 def test_decode_stops_at_each_rows_first_eos():
     ids = torch.tensor([[5, 6, 0, 7], [8, 9, 9, 9]])
-    assert ops.decode(ids, engine=Engine()) == ["<5><6>", "<8><9><9><9>"]
-    assert ops.decode(ids, engine=Engine(), tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
+    assert ops.decode(ids, engine=Engine(), eos=[0]) == ["<5><6>", "<8><9><9><9>"]
+    assert ops.decode(ids, engine=Engine(), eos=[0], tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
+    assert ops.decode(ids, engine=Engine(), eos=[6, 9]) == ["<5>", "<8>"]
+
+
+def test_a_missing_row_is_missing_all_the_way_down():
+    """Row 1 is NaN, as a rectangular generated-frame read holds a row that never reached its step: every
+    metric of it is NaN, argmax and top_k give it id -1, and mean and pca skip it."""
+    d = ["rows", "pos", "vocab_size"]
+    logits = LOGITS.clone()
+    logits[1] = float("nan")
+    hit = ops.match(logits, logits.nan_to_num().argmax(-1)[:, 0], d)
+    assert hit[[0, 2]].eq(1).all() and hit[1].isnan().all()
+    assert ops.token_prob(logits, IDS, d)[1].isnan().all() and ops.logit_diff(logits, IDS, IDS, d)[1].isnan().all()
+    assert ops.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
+    top = ops.top_k(logits, 2)
+    assert top["ids"][1].eq(-1).all() and top["probs"][1].isnan().all() and top["ids"][0].ge(0).all()
+    assert torch.equal(ops.mean(hit, dims=["rows", "pos"]), torch.tensor(1.0))
+    x = X.clone()
+    x[1] = float("nan")
+    torch.testing.assert_close(ops.mean(x, dims=DIMS), X[[0, 2]].mean((0, 1)))
+    assert torch.equal(ops.mean(X, dims=DIMS), X.mean((0, 1)))                    # no missing row: the plain mean
+    big = torch.randn(8, 2, 5)
+    hole = torch.cat([big, torch.full((1, 2, 5), float("nan"))])
+    assert all(torch.equal(a, b) for a, b in zip(ops.pca(hole, 2, DIMS).values(), ops.pca(big, 2, DIMS).values()))

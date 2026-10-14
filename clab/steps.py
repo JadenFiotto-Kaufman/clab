@@ -1,8 +1,10 @@
 """Walk a compiled plan inside the run: preflight, every step and point in order, then the saved values into
 `plan.results`.
 
-This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards, its tokenizer, its
-sizes and its readout, and does everything else itself, in plain torch. Under the nnterp engine it runs inside
+This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards and generations,
+its tokenizer, its sizes, its readout, the ids its generation stops on (EOS) and the options its `generate`
+takes, and does everything else itself, in plain torch: positions in the prompt from the encoded rows, and in
+the generated frame from the ids each row generated, up to its first EOS. Under the nnterp engine it runs inside
 one session; under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
@@ -68,8 +70,8 @@ def preflight(engine, plan: Plan) -> dict:
     room for what each generate step's rows said (`said`).
 
     Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
-    does not serve; a layer or a `select` outside the model's sizes, or a `select` on the padded batch's
-    `key` axis; a generate option that would change its rows or its value (`generation_options`); a
+    does not serve; a layer or a `select` outside the model's sizes (on `key`, outside the input's shortest
+    row); a generate option its `generate` does not take, or one in `FIXED` at another value; a
     position that does not fit some row's scope, or whose scope is not in a row a write or a rectangular
     read needs; a token column that is not one token on some row; a write whose operand was selected at a
     different width or narrowing; a write to a component with a `key` axis (the attention pattern, the
@@ -95,7 +97,7 @@ def preflight(engine, plan: Plan) -> dict:
                                      f"it needs more than {arguments(step)['k']}")
             continue
         if step.kind == "generate":
-            generation_options(name, step.model_extra or {}, engine.eos)
+            generation_options(name, step.model_extra or {}, engine.generation_keys())
         rows = plan.data[step.dataset].rows or []
         if step.input not in found["inputs"]:
             encoded = []
@@ -132,17 +134,30 @@ def preflight(engine, plan: Plan) -> dict:
     return found
 
 
-def generation_options(name: str, options: dict, eos: list[int]) -> None:
-    """Refuses the options a generate step cannot forward as they are: those that make more than one sequence
-    per row (its rows are its input's) or return more than ids (its value is the ids), and `eos_token_id`,
-    since a row stops at the engine's EOS, which `segment: eos` and `decode` name."""
-    for key, only in (("num_return_sequences", 1), ("num_beams", 1), ("return_dict_in_generate", False)):
-        if options.get(key, only) != only:
-            raise ValueError(f"{name}: {key} {options[key]!r}; a generate step's value is one sequence of ids per "
-                             f"row of its input, so {key} stays {only!r}")
-    if "eos_token_id" in options:
-        raise ValueError(f"{name}: eos_token_id; a row stops at the engine's EOS ({eos}), which `segment: eos` "
-                         "and decode name; set it in the checkpoint's generation config")
+# The generate options a step cannot forward as they are, the one value each may have, and why.
+FIXED = {
+    "num_return_sequences": (1, "more sequences than rows would break the step's one row of ids per input row"),
+    "num_beams": (1, "beams change the rows each forward call sees, so a read's row is no longer the input's"),
+    "return_dict_in_generate": (False, "the step's value is the ids"),
+    "use_cache": (True, "without the cache a decode step recomputes the prompt, and the prompt-call writes "
+                        "would not reach it"),
+}
+
+
+def generation_options(name: str, options: dict, known: set[str]) -> None:
+    """Refuses an option the engine's `generate` does not take (`known`), and one in `FIXED` at another value."""
+    for key, value in options.items():
+        if key not in known:
+            raise ValueError(f"{name}: {key!r} is not an option of the engine's generate (nor a step field: "
+                             "input, writes, reads, interventions)")
+        if key in FIXED and value != FIXED[key][0]:
+            raise ValueError(f"{name}: {key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
+
+
+def stops(engine, step) -> list[int]:
+    """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
+    given = (step.model_extra or {}).get("eos_token_id")
+    return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
 def indices(where: str, write: bool, record, input: str, rows: list[dict], encoded: list[dict],
@@ -261,7 +276,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     `plan.run.positions`, with each row's continuation as token strings in `plan.run.tokens[<step>]`. A
     batch whose rows all stopped early generates fewer steps; its ids are filled after their EOS to the
     longest batch's."""
-    eos, rows = engine.eos, plan.data[step.dataset].rows or []
+    eos, rows = stops(engine, step), plan.data[step.dataset].rows or []
     prompt = {k: r for k, r in step.reads.items() if positions.parse(r.pos)["frame"] == "prompt"}
     later = {k: r for k, r in step.reads.items() if k not in prompt}
     parts, new, resolved = [], [], {key: [] for key in later}
@@ -273,6 +288,13 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                   for key, record in later.items() for layer in layers(engine, record)]
         with torch.no_grad():
             ids, got = engine.generate(batch, writes, reads, dict(step.model_extra or {}))
+        for record in reads:
+            if "steps" in record:
+                made = range(ids.shape[1]) if record["steps"] is None else \
+                    [k for k in record["steps"] if k < ids.shape[1]]
+                if len(got[record["name"]]) != len(made):
+                    raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
+                                       f"{len(made)} decode steps it made; a read out of forward order shifts steps")
         out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
                                           state, step.at) for layer in layers(engine, record)])
                for key, record in prompt.items()}
@@ -301,8 +323,9 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
 def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
     """The op over the whole value `of` names. `top_k`'s value also holds its tokens, decoded."""
     of = lookup(state, step.of, step.at)
+    producer = points(plan.steps[step.of.partition(".")[0]])[0]
     value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of),
-                  dims_of(plan, step.of))
+                  dims_of(plan, step.of), stops(engine, producer) if producer.kind == "generate" else engine.eos)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
@@ -452,12 +475,12 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
     return out
 
 
-def apply(engine, name: str, value, args: dict, dims: list[str]):
+def apply(engine, name: str, value, args: dict, dims: list[str], eos: list[int] | None = None):
     """Op `name` on a value; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
-        got = ops.call(name, value["values"], args, engine=engine, dims=dims)
+        got = ops.call(name, value["values"], args, engine=engine, dims=dims, eos=eos)
         return {**value, "values": got} if "entries" in ops.out_dims(name, dims, args) else got
-    return ops.call(name, value, args, engine=engine, dims=dims)
+    return ops.call(name, value, args, engine=engine, dims=dims, eos=eos)
 
 
 def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Tensor:
@@ -467,8 +490,10 @@ def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Te
 
 
 def decoded(tokenizer, ids: Tensor) -> list:
-    """Each token id as the text it decodes to, nested as the ids are."""
-    return [tokenizer.decode([i]) for i in ids.tolist()] if ids.dim() == 1 else [decoded(tokenizer, x) for x in ids]
+    """Each token id as the text it decodes to, nested as the ids are; None for a missing one (-1)."""
+    if ids.dim() > 1:
+        return [decoded(tokenizer, x) for x in ids]
+    return [tokenizer.decode([i]) if i >= 0 else None for i in ids.tolist()]
 
 
 # -- state ------------------------------------------------------------------------------------------------

@@ -225,6 +225,10 @@ An op runs in three places, always as the same function:
 Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
 refused there (make it a step after the forward).
 
+A row a generated-frame read did not reach is missing all the way down: in a rectangular value it is NaN,
+every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
+token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it); **reductions** remove the rows axis; **edits** keep the
 value's layout and change its contents; **transforms** turn each example's value into another of a
@@ -253,7 +257,7 @@ value at the site before the step's writes.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = None` | removes the axes `over` names | The mean over the axes `over` names; by default every axis but the feature axes. |
+| `mean` | `over: list of str or null = None` | removes the axes `over` names | The mean over the axes `over` names, of the rows that have a value (a missing row is NaN); by default over every axis but the feature axes. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, entries, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits
@@ -275,8 +279,8 @@ value at the site before the step's writes.
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer` | needs hidden_size; removes hidden_size; adds features | The value's coordinates in `featurizer`'s space. |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
-| `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token. |
-| `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the engine's, where its generation stops); with `tokens`, as its token strings. |
+| `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
+| `decode` | `tokens: bool = False` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
 ## Components
 
