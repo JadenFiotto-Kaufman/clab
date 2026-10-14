@@ -7,7 +7,9 @@ the user-facing reference; the code now differs from this document in these plac
   "variables"}`); write and read records carry `ops` in place of `mechanism`/`operand`/`params`/`featurizer`/
   `features`/`view`, and write records carry `dims`; `metric` and `reduce` steps are `op` steps, `{"op",
   "args": {"of", ...}, "data", "dims"}`; a fit's `objective` is a dict and it has no `anneal`.
-- §2: `ops.py` replaces `interventions.py` and `metrics.py`; `describe` lives in `cli.py`.
+- §2: `ops.py` replaces `interventions.py` and `metrics.py`; `describe` lives in `cli.py`; the compiler is
+  `compiler.py`, so that `clab.compile` is the function; `engines/standard.py` holds how nnterp reaches each
+  component, which both engines read.
 - §3: the engine's records hold `positions` (not `at`) and `select` as `{dimension: indices}`; reads reach the
   engine without their ops, which `steps.py` applies to the gathered selection; the hooks engine holds its
   tokenizer beside its model and configuration.
