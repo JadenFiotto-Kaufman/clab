@@ -297,7 +297,9 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     A record in the prefill (`frame: 0`) is a forward's. One beyond it goes to the engine in two parts: its
     prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
     what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
-    or None for every decode call). After the generation each row resolves from what it generated
+    or None for every decode call). A write with a text scope is found online: it goes to every decode call
+    with each row's text (`online`), and the engine lands it where `standard.landed` says. After the
+    generation each row resolves from what it generated
     (`positions.resolve`); a row that stopped before a call a write selects is not written there (the call
     computes nothing of that row's) and is recorded as missing. The resolution is recorded per row in
     `plan.run.positions` and each row's continuation, as token strings, in `plan.run.tokens[<step>]`. A
@@ -319,8 +321,11 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": record.site.layers, "ops": edits})
+            pos = positions.parse(record.pos)
+            online = {"online": {"texts": [text(pos, row) for row in rows[chunk]], "eos": sorted(eos),
+                                 "within": calls}} if pos["scope"] else {}
             writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
-                           "calls": calls})
+                           "calls": None if online else calls, **online})
         for key, record in later.items():
             holds, calls, _ = positions.reach(positions.parse(record.pos))
             for layer in layers(engine, record):

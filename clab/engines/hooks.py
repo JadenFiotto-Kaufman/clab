@@ -22,7 +22,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import engine
-from .standard import SIZES, by_site, envoy, keep, load, nnterp_name, now, stops
+from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops
 
 
 @engine("hooks")
@@ -81,15 +81,17 @@ class HooksEngine:
     def generate(self, batch: dict, writes: list[dict], reads: list[dict],
                  options: dict) -> tuple[Tensor, dict[str, Any]]:
         """`generate` over the batch, with `options` as its keyword arguments: the new ids, and each read. A
-        pre-hook on the model counts its forward calls (0 is the prompt), and each site's hook does what
-        `now` says on that call."""
+        pre-hook on the model counts its forward calls (0 is the prompt) and keeps each decode call's
+        `input_ids`, and each site's hook does what `now` (and, for an online scope, `landed`) says there."""
         sites = by_site(writes, reads)
         got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
-        call = {"n": -1}
+        call: dict = {"n": -1, "seen": [], "tokenizer": self.tokenizer}
 
-        def count(module, args):
+        def count(module, args, kwargs):
             call["n"] += 1
-        handles = [self.model.register_forward_pre_hook(count)]
+            if call["n"] > 0:
+                call["seen"].append(kwargs["input_ids"])
+        handles = [self.model.register_forward_pre_hook(count, with_kwargs=True)]
         handles += [hook(self.model, self.config, component, layer, here, there, got, call)
                     for (component, layer), (here, there) in sites.items()]
         try:
@@ -116,6 +118,8 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
         writes, reads = (here, there) if call is None else now(here, there, call["n"])
+        if call is not None and call["n"] > 0:
+            writes = landed(writes, call["seen"], call["tokenizer"], call["n"])
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value

@@ -51,7 +51,9 @@ document in these places:
 - §5 (PLAN.md §11 "Ratified after M3"): `pos` is `frame` (forward calls: 0 the prefill, k a decode call,
   `generated`/`all`/`eos`) → `scope` (`column`/`text`/`turn`) → `index`; a position is where an input token
   sits (decode call k holds generated token k-1), the "generated index k = the call that chose token k"
-  convention, `variable`, `segment` and the `span`/`all` keys are gone, and writes land in every frame.
+  convention, `variable`, `segment` and the `span`/`all` keys are gone, and writes land in every frame; a
+  write beyond the prefill may take a `column`/`text` scope, found online call by call, landing at the call
+  fed the first occurrence's last token (index -1).
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

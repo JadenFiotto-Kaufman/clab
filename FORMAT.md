@@ -158,7 +158,15 @@ Generation from every row of a dataset input. It owns `input`, `writes`, `reads`
 a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
 `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
 prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
-generated token k on, through the cache. A row's calls are what the engine actually generated, up to the
+generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
+selects is known by then: without a scope, a call, a span of calls or `generated` with an index counted
+from their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or
+`text` scope, decode calls only (a call, a span from 1 or `generated`) and index -1. A scoped write is
+found online, decoding the inputs fed so far at each call, and lands at the call fed the first
+occurrence's last token (its earlier tokens were fed before the text was there to find); a later
+occurrence does not write again and records the row `alignment_ambiguous`, and a row that never says
+the text is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
+calls are what the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
 new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value

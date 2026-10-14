@@ -17,7 +17,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import engine
-from .standard import SIZES, by_site, envoy, keep, load, nnterp_name, now, stops
+from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -81,7 +81,9 @@ class NnterpEngine:
         """`model.generate` over the batch, with `options` as its keyword arguments: the new ids, and each read.
 
         One loop over the forward calls visits, at each call, every site in forward order and does there what
-        `now` says. It is bounded by the steps the reads ask for, or open when a read asks for every step;
+        `now` says (and, for a write with an online scope, `landed`, from the inputs seen so far: each decode
+        call's `input_ids`, read first). It is bounded by the steps the reads ask for, or open when a read asks
+        for every step;
         either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
         read out of forward order shows up instead as a missing step, which `steps.generate` refuses), so the
         ids are read in an invoke of their own, which the loop's end does not cut short."""
@@ -91,7 +93,9 @@ class NnterpEngine:
         asked = [r["calls"] for r in writes + reads if "calls" in r]
         loop = None if None in asked else sorted({0, *(s for a in asked for s in a)})
         got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
+        online = any("online" in w for w in writes)
         result: dict = {}
+        seen: list = []
         inputs = {k: batch[k] for k in ("input_ids", "attention_mask")}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
@@ -99,8 +103,11 @@ class NnterpEngine:
             with model.generate(**options) as tracer:
                 with tracer.invoke(inputs):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
+                        if online and step > 0:
+                            seen.append(model.input_ids)
                         for component, layer in order:
                             here, there = now(*sites[(component, layer)], step)
+                            here = landed(here, seen, model.tokenizer, step) if step > 0 else here
                             if not here and not there:
                                 continue
                             host = envoy(model, component, layer)

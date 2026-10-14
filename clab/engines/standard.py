@@ -1,8 +1,12 @@
 """What both engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
-there, the sizes), how a model block becomes a loader call, where a HuggingFace generation stops, and a forward's or a generation's records grouped by site and by call."""
+there, the sizes), how a model block becomes a loader call, where a HuggingFace generation stops, a forward's
+or a generation's records grouped by site and by call, and where a write with an online scope lands."""
 
 from typing import Any, Callable, cast
 
+import torch
+
+from .. import positions
 from ..address import COMPONENTS
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
@@ -75,6 +79,25 @@ def now(here: list, there: list, call: int) -> tuple[list, list]:
             return call == 0
         return call > 0 and (record["calls"] is None or call in record["calls"])
     return [w for w in here if wanted(w)], [r for r in there if wanted(r)]
+
+
+def landed(writes: list[dict], seen: list, tokenizer, call: int) -> list[dict]:
+    """The writes at a decode call, a write with an `online` scope narrowed to the rows it lands on there
+    (`keep`): those whose scope's text first occurs ending on this call's input, given the inputs `seen` so
+    far (one `[rows, 1]` per decode call); one that lands on no row is left out."""
+    out = []
+    for w in writes:
+        online = w.get("online")
+        if online is None:
+            out.append(w)
+            continue
+        if online["within"] is not None and call not in online["within"]:
+            continue
+        rows = [positions.lands(text, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
+                for r, text in enumerate(online["texts"])]
+        if any(rows):
+            out.append({**w, "keep": torch.tensor(rows)[:, None]})
+    return out
 
 
 def keep(got: dict, record: dict, value) -> None:

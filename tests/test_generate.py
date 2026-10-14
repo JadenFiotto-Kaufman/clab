@@ -240,7 +240,7 @@ def test_each_stage_narrows_the_one_before():
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
      r"steps\.patched\.writes\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
-     r"steps\.patched\.writes\.patch\.pos\.scope: a write beyond the prefill lands as its call runs"),
+     r"steps\.patched\.writes\.patch\.pos\.index: index 'all': a scoped write lands at the call fed its text's"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "generated", "index": -1}),
      r"steps\.patched\.writes\.patch\.pos: frame 'generated' with index -1 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": [1, 4], "index": -1}),
@@ -541,3 +541,59 @@ def test_a_scope_the_prefills_head_does_not_hold_says_why(engines):
     with pytest.raises(ValueError, match=r"^patched\.logits: row 0: text 'today' is not in its input; a "
                                          r"generation's prefill computes lm_head_output at its last position only"):
         engines("hooks", plan.model).execute(plan)
+
+
+def scoped_write(text: str, held: bool):
+    """`written`, its swap replaced by a scale by 0 at the call fed `text`'s last token, found online."""
+    def change(d):
+        written(d, held=held)
+        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": {"frame": "generated", "scope": {"text": text},
+                                                                 "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}
+    return change
+
+
+def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
+    """`substr`, said as token 1 by the rows the steering leaves alone, is fed to call 2: a scale by 0 there
+    changes their tokens from 2 on and not before, and the rows that never say it (the Thursday row stops
+    first, the Sunday row says something else) are untouched and recorded missing; both engines at batch
+    sizes 1, 2 and 4 and `remote="local"` agree to the bit."""
+    change = scoped_write("substr", held=False)
+    runs: dict = {(kind, size): steered(engines, kind, size, held=False, change=change)
+                  for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
+    runs["local"] = steered(engines, "nnterp", BATCH_SIZE, held=False, change=change, remote="local")
+    plan = runs["nnterp", 2]
+    v = plan.results
+    assert plan.run.positions["swapped.w"] == ["alignment_missing", [10], [10], "alignment_missing"]
+    assert torch.equal(v["swapped"][[0, 3]], v["clean"][[0, 3]])
+    assert torch.equal(v["swapped"][1:3, :2], v["clean"][1:3, :2])
+    assert (v["swapped"][1:3, 2] != v["clean"][1:3, 2]).all()
+    for where, other in runs.items():
+        assert torch.equal(other.results["swapped"], v["swapped"]), where
+        assert other.run.positions == plan.run.positions, where
+
+
+def test_a_scoped_write_lands_at_the_first_occurrence_only(engines):
+    """`er` first ends on token 0 (`Handler`), fed to call 1: the write lands there once, exactly as
+    `{"frame": 1, "index": -1}` does, whether or not the row says `er` again after it; a row that does is
+    recorded ambiguous (not written again), one that does not at token 0's position."""
+    plan = edited("generated_answer", scoped_write("er", held=True)).compile()
+    for kind in ("nnterp", "hooks"):
+        scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+        def at_one(d):
+            scoped_write("er", held=True)(d)
+            d["steps"]["swapped"]["writes"]["w"]["pos"] = {"frame": 1, "index": -1}
+        fixed = engines(kind, plan.model).execute(edited("generated_answer", at_one).compile(), batch_size=BATCH_SIZE)
+        assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), kind
+        where = scoped.run.positions["swapped.w"]
+        assert "alignment_ambiguous" in where and all(w in ("alignment_ambiguous", [p]) for w, p in zip(where, PROMPT))
+
+
+@pytest.mark.parametrize("pos, message", [
+    ({"frame": "all", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'all': a scoped write beyond the"),
+    ({"frame": "eos", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'eos': a scoped write beyond the"),
+    ({"frame": "generated", "scope": {"text": "is"}}, r"\.index: index 'all': a scoped write lands at the call fed"),
+])
+def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):
+    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=pos)).compile()

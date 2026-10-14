@@ -172,6 +172,17 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, text:
     return found
 
 
+def lands(text: str, inputs: list[int], eos: set[int], tokenizer) -> bool:
+    """Whether a write scoped to `text` lands at the call fed `inputs[-1]`, given every input the row was fed
+    so far: the first place the text occurs in them ends on that token, and the row has not stopped."""
+    if not text or any(t in eos for t in inputs):
+        return False
+    words, chars = char_spans(tokenizer, inputs)
+    m = re.search(re.escape(text), words)
+    return m is not None and max(j for j, (x, y) in enumerate(chars)
+                                 if x < m.end() and max(y, x + 1) > m.start()) == len(inputs) - 1
+
+
 def turns(row: dict, turn: str) -> list[tuple[int, int]]:
     """The character spans of the chat turns `turn` names: `role[n]` the n-th of that role, `role` all of them."""
     role, n = re.fullmatch(r"(\w+)(?:\[(\d+)\])?", turn).groups("")  # type: ignore[union-attr]
