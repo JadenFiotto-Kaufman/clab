@@ -49,16 +49,19 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 
-    A chat is rendered through the checkpoint's own template, and the rendered text tokenized without adding
-    special tokens, since the template writes its own.
+    A chat is rendered through the checkpoint's own template without a generation prompt, and the rendered
+    text tokenized without adding special tokens, since the template writes its own.
     """
     turns = []
     if isinstance(value, str):
         text, special = value, True
     else:
         text, special, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
-        for message in value:
-            start = text.index(message["content"], cursor)
+        for i, message in enumerate(value):
+            start = text.find(message["content"], cursor)
+            if start < 0:
+                raise ValueError(f"message {i} ({message['role']}) {message['content']!r} is not where the chat "
+                                 "template put the messages before it")
             cursor = start + len(message["content"])
             turns.append((message["role"], start, cursor))
     got = tokenizer(text, add_special_tokens=special, return_offsets_mapping=tokenizer.is_fast)

@@ -58,7 +58,8 @@ def preflight(engine, plan: Plan) -> dict:
     `plan.run.positions`, and returns each dataset input's encoded rows and padded width (`inputs`) and every
     record's token indices per row (`positions`).
 
-    Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a layer or narrowing
+    Refuses by name (`<step>.<record>`): a step kind or op a later milestone serves; a component the engine
+    does not serve; a layer or narrowing
     outside the model's sizes; a position that does not fit some row's scope, or whose scope is not in a row
     a write or a rectangular read needs; a token column that is not one token on some row; a write whose
     operand was selected at a different width or narrowing; a write to a component with a `key` axis (the
@@ -68,6 +69,7 @@ def preflight(engine, plan: Plan) -> dict:
     for name, step in walk(plan.steps):
         if step.kind not in KINDS:
             raise NotImplementedError(f"{name}: {step.kind} steps land in {LATER[step.kind]}")
+    refuse(engine, plan)
     assert plan.run is not None
     sizes, tokenizer, special = engine.sizes(), engine.tokenizer, set(engine.tokenizer.all_special_ids)
     found: dict = {"inputs": {}, "positions": {}}
@@ -84,7 +86,12 @@ def preflight(engine, plan: Plan) -> dict:
             continue
         rows = plan.data[step.dataset].rows or []
         if step.input not in found["inputs"]:
-            encoded = [data.encode(tokenizer, data.field(r, step.input)) for r in rows]
+            encoded = []
+            for i, r in enumerate(rows):
+                try:
+                    encoded.append(data.encode(tokenizer, data.field(r, step.input)))
+                except ValueError as e:
+                    raise ValueError(f"{name}: {step.input} row {i}: {e}") from None
             found["inputs"][step.input] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
             plan.run.tokens[step.input] = [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
         encoded = found["inputs"][step.input]["rows"]
@@ -97,7 +104,7 @@ def preflight(engine, plan: Plan) -> dict:
                     axis = address.COMPONENTS[site.component]["narrow"].get(narrow)
                     if index is not None and any(not 0 <= i < sizes[axis] for i in index):
                         raise ValueError(f"{where}: {narrow} {index} outside the model's {sizes[axis]} ({axis})")
-                resolved = located(where, side == "writes", record, step.input, rows, encoded, special)
+                resolved = indices(where, side == "writes", record, step.input, rows, encoded, special)
                 put(found["positions"], where, step.at, resolved)
                 shape = (len(resolved[0]), [len(v) for v in (site.heads, site.units) if v is not None])
                 put(shapes, where, step.at, shape)
@@ -112,10 +119,11 @@ def preflight(engine, plan: Plan) -> dict:
     return found
 
 
-def located(where: str, write: bool, record, input: str, rows: list[dict], encoded: list[dict],
+def indices(where: str, write: bool, record, input: str, rows: list[dict], encoded: list[dict],
             special: set) -> list[list[int]]:
-    """A record's token indices in each row. A row whose scope is not in its input has none on a ragged read
-    and is refused on a write or a rectangular read, which need a token there."""
+    """A record's token indices in each row. A row whose scope is not in its input, or whose ragged window is
+    empty, has none on a ragged read and is refused on a write, which needs a token to write (and, for a
+    missing scope, on a rectangular read)."""
     pos = positions.parse(record.pos)
     found = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
@@ -129,8 +137,25 @@ def located(where: str, write: bool, record, input: str, rows: list[dict], encod
             what = f"segment {scope['segment']!r}" if "segment" in scope else \
                 f"variable {scope['variable']!r} ({text!r})"
             raise ValueError(f"{where}: row {i}: {what} is not in its input")
+        if write and got == []:
+            raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
+                             "one to write")
         found.append(got or [])
     return found
+
+
+def refuse(engine, plan: Plan) -> None:
+    """Every component the plan reads or writes that the engine cannot serve, by name. `engine.unserved()`
+    maps a component to None (served), why not, or why not per layer (nnterp's `support()` shape)."""
+    reasons = engine.unserved()
+    for name, step in walk(plan.steps):
+        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
+            reason, layers = reasons.get(record.site.component), record.site.layers
+            if isinstance(reason, dict):
+                reason = next((r for layer, r in reason.items() if r and layers in (layer, "all")), None)
+            if reason:
+                raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {record.site.component}: "
+                                 f"{reason}")
 
 
 def walk(steps: dict, prefix: str = ""):
@@ -230,7 +255,7 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     args = bound(engine, plan, step.op, arguments(step), state, step.at, None)
     value = apply(engine, step.op, lookup(state, step.of, step.at), args, dims_of(plan, step.of))
     if step.op == "top_k":
-        value["tokens"] = strings(engine.tokenizer, value["ids"])
+        value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
 
 
@@ -304,9 +329,9 @@ def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Te
     return data.token_ids(engine.tokenizer, texts[rows] if rows is not None else texts, form, column)
 
 
-def strings(tokenizer, ids: Tensor) -> list:
-    """Token ids as their token strings, nested as the ids are."""
-    return tokenizer.convert_ids_to_tokens(ids.tolist()) if ids.dim() == 1 else [strings(tokenizer, x) for x in ids]
+def decoded(tokenizer, ids: Tensor) -> list:
+    """Each token id as the text it decodes to, nested as the ids are."""
+    return [tokenizer.decode([i]) for i in ids.tolist()] if ids.dim() == 1 else [decoded(tokenizer, x) for x in ids]
 
 
 # -- state ------------------------------------------------------------------------------------------------

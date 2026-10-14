@@ -16,7 +16,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import DTYPES, engine
-from .standard import SIZES, by_site, envoy, nnterp_name, refuse
+from .standard import SIZES, by_site, envoy, nnterp_name
 
 
 @engine("nnterp")
@@ -33,8 +33,6 @@ class NnterpEngine:
     def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
         """The whole plan in one session; the filled plan is the one thing that comes home."""
         started = steps.begin(self, plan, batch_size, remote)
-        support = self.model.support()
-        refuse(plan, {c: support.get(nnterp_name(c)) for c in COMPONENTS}, "nnterp")
         with self.model.session(remote=remote):
             steps.run(self, plan, batch_size)
             nnsight.save(plan)
@@ -45,6 +43,11 @@ class NnterpEngine:
     @property
     def tokenizer(self):
         return self.model.tokenizer
+
+    def unserved(self) -> dict:
+        """Why nnterp does not serve a component on this checkpoint, from its `support()`; None where it does."""
+        support = self.model.support()
+        return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
 
     def sizes(self) -> dict[str, int]:
         return {k: getattr(self.model, k) for k in SIZES}

@@ -22,7 +22,7 @@ from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
 from . import DTYPES, engine
-from .standard import SIZES, by_site, envoy, nnterp_name, refuse
+from .standard import SIZES, by_site, envoy, nnterp_name
 
 
 @engine("hooks")
@@ -47,11 +47,15 @@ class HooksEngine:
         if remote:
             raise ValueError("the hooks engine runs in this process; remote runs need the nnterp engine")
         started = steps.begin(self, plan, batch_size, remote)
-        refuse(plan, {c: site["refused"] for c, site in self.config["sites"].items()}, "hooks")
         steps.run(self, plan, batch_size)
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
         return plan
+
+    def unserved(self) -> dict:
+        """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
+        module's forward rather than at a module boundary; None where it can."""
+        return {c: site["refused"] for c, site in self.config["sites"].items()}
 
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]

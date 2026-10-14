@@ -4,8 +4,9 @@ An engine loads its checkpoint in `__init__` from a plan's `model` block and reg
 `@engine("<name>")`. `execute(plan, ...)` is the single entry point and the only method an engine that
 ignores `steps.py` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine:
 one batch through the model with writes applied and reads gathered (`forward`), a generation (`generate`),
-the model's own unembedding (`readout`), its sizes and its tokenizer. An engine holds its model and its
-configuration, nothing else: `spec` is the model block it loaded, and `name` the name it registered under.
+the model's own unembedding (`readout`), what it cannot serve (`unserved`), its sizes and its tokenizer. An
+engine holds its model and its configuration, nothing else: `spec` is the model block it loaded, and `name`
+the name it registered under.
 """
 
 from typing import Any, Callable, Protocol
@@ -27,6 +28,8 @@ class Engine(Protocol):
                  options: dict) -> tuple[Tensor, dict[str, Tensor]]: ...
 
     def readout(self, hidden: Tensor) -> Tensor: ...
+
+    def unserved(self) -> dict: ...
 
     def sizes(self) -> dict[str, int]: ...
 
