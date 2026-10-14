@@ -403,3 +403,35 @@ the same source. No pydantic.
   and `match` work unchanged against a label column.
 - M1 includes the corpus migration and `patching.json` end to end on both
   engines in the canonical format.
+
+## 11. Ratified after M1 (2026-10-13)
+
+Decided while reviewing PR #2; M2 implements them first, before the remaining
+forward-only documents.
+
+- **Results live at the root of the plan**, keyed by the names in `saves`:
+  `plan.results["iia"]`, `plan.results["fit.rot"]`. Step records carry no
+  result slots. `steps.run` fills one dict; `output.write` iterates one dict.
+- **The document and the plan are pydantic models** (`Document`, `Plan`), the
+  record models (reads, writes, ops, pos, sites, featurizers) shared between
+  them where the shape is the same. Validation and error messages come from
+  the models; `clab schema` is `Document.model_json_schema()`; `FORMAT.md` is
+  generated from the models plus the op registry. Ops keep validating their
+  arguments by signature. The hand-rolled validation in `compiler.py` goes.
+- **The plan's methods are views and serialization, never execution**
+  (charter law 2 amended): `plan.results[name].value` (unswept),
+  `plan.results[name][coord]` and `.points` (swept, keyed by coordinate
+  values in axis order), `.axes`; `plan.table(name)`; `plan.write(out)`;
+  `Plan.load(out)`; `plan.run` (engine, remote, batch_size, versions,
+  started, seconds, filled by `execute`). The manifest is
+  `plan.model_dump()` with rows dropped and tensors replaced by
+  `{file, dims, shape, dtype}`.
+- **Engines load in `__init__`**: `NnterpEngine(plan.model)`; the registry
+  maps a name to the class and engines register by decorator like ops;
+  `clab.run(path, engine=<name or instance>)`, so one loaded model serves
+  many documents. `clab.write` is exported beside `run` and `load`.
+- **Descriptions are ours now**: the corpus prose is updated to the canonical
+  names (`head_patching`'s premix/z sentence corrected to the served layout).
+- Verify first in M2 (**belief**): a pydantic plan survives `nnsight.save`
+  under `remote="local"` and the stand-in-server test, pickled by class
+  reference with nothing by value.

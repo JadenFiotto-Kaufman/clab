@@ -43,8 +43,9 @@ redesign.
    remote-specific branch in what gets executed.
 2. **What you compile a document into is pure data.** Strings, numbers,
    tuples, dicts — plus result slots that fill in when it runs. It has no
-   methods that execute anything. A compiled document must pickle, print, and
-   mean the same thing wherever it lands.
+   methods that execute anything. It may be a typed model (pydantic) whose
+   methods are views and serialization — never execution. A compiled document
+   must pickle, print, and mean the same thing wherever it lands.
 3. **Inside a session, the engine and its model are the only client-side
    objects.** Code that runs inside the session may reference the engine
    instance (`engine`, `engine.model`, `engine.forward`) and the plan; it
