@@ -25,13 +25,20 @@ class Subspace(Kind):
             return
         assert k is not None
         generator = torch.Generator().manual_seed(seed or 0)
-        q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
+        threads = torch.get_num_threads()
+        # A parallel QR's bits follow the thread count; on one thread they are the same on every host whose BLAS
+        # runs the same kernels (the same build on the same instruction set), however many threads it has.
+        torch.set_num_threads(1)
+        try:
+            q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
+        finally:
+            torch.set_num_threads(threads)
         self.k, self.origin, self.theta = k, (q * r.diagonal().sign()).float(), torch.zeros(width, width)
         self.settle()
 
     def settle(self) -> None:
         skew = self.theta - self.theta.T
-        eye = torch.eye(skew.shape[0], dtype=skew.dtype)
+        eye = torch.eye(skew.shape[0], dtype=skew.dtype, device=skew.device)
         self.basis = (self.origin @ torch.linalg.solve(eye - skew, eye + skew))[:, :self.k]
 
     def encode(self, h: Tensor) -> Tensor:

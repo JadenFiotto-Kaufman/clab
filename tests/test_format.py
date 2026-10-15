@@ -8,7 +8,7 @@ import copy
 import jsonschema
 
 from clab.cli import describe, markdown, schema
-from conftest import NAMES, ROOT, document
+from conftest import NAMES, REAL, ROOT, document
 
 
 def test_format_md_is_what_the_code_generates():
@@ -25,7 +25,7 @@ def test_schema_json_is_what_the_code_generates():
 
 def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
     validator = jsonschema.Draft202012Validator(schema())
-    for name in NAMES:
+    for name in NAMES + REAL:
         with open(document(name)) as f:
             assert validator.is_valid(json.load(f)), name
     with open(document("patching")) as f:

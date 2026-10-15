@@ -80,6 +80,26 @@ plan.results["fit.mask"][0.05]       # the gate trained at L1 weight 0.05: {"the
 plan.results["fit.held_out.iia"][0.05]                  # its iia on the test split
 ```
 
+## Real models
+
+`documents/real/` holds five experiments on `meta-llama/Llama-3.2-1B` in float32, over the 42 weekday pairs
+of `data/weekdays_full`: `behavior` (the model answers every prompt), `layer_sweep` (where the day is, block
+by block, at the day's token and at the last), `head_patching` (each head of layers 10 to 12: layer 12's head
+28 alone moves the answer), `pattern_patching` (that layer's attention patterns, which move nothing) and `das`
+(a trained subspace at layer 8, its held-out accuracy by rank). They are ordinary documents, which want a GPU:
+
+```
+uv run clab run documents/real/head_patching.json --device cuda --batch-size 16
+uv run clab run documents/real/das.json --engine hooks --device cuda --batch-size 16
+uv run clab run documents/real/layer_sweep.json --engine ndif --batch-size 16     # on the NDIF server nnsight names
+```
+
+Through `ndif`, the server must serve the checkpoint at the document's revision in float32. `pattern_patching`
+reads the attention pattern, which needs eager attention: the hooks engine refuses it by name, and so does an
+NDIF deployment that runs sdpa. A document in a directory under `documents/` reads the corpus's `data/` as
+the others do. `tests/test_real.py` pins their numbers on a GPU, on both engines (its docstring has the
+command); the CPU-only suite compiles them against their snapshots and runs none of them.
+
 ## Look at a run
 
 ```
@@ -182,8 +202,8 @@ arguments and axis behaviour (grouped as metrics, reductions and edits), every c
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
-`documents/` holds the corpus: the 31 original documents and the example documents added since (35 in all);
-`data/` their datasets.
+`documents/` holds the corpus: the 31 original documents and the example documents added since (40 in all),
+and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
 
 ## Tests
 
@@ -192,7 +212,8 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 uvx pyright
 ```
 
-`CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`.
+`CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
+command its docstring gives.
 
 Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
 longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's

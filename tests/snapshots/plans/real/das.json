@@ -1,0 +1,574 @@
+{
+ "description": "Distributed alignment search on Llama-3.2-1B: how many dimensions of the residual stream leaving layer 8, at the day token (`pos: -4`), carry the day? A rank-`k` rotation is trained so that swapping the counterfactual prompt's coordinates in it into the base prompt makes the model give the counterfactual answer (the objective is `ce`, that answer's cross-entropy), on the 30 training pairs in minibatches of 10 for 20 epochs, the epoch with the best `iia` kept, and is then scored once on the 12 held-out pairs. `k` sweeps 1, 4, 16 and 64, so `fit.held_out.iia`, 1 per held-out pair where the patched top token is the counterfactual answer, traces the curve by rank: one dimension moves no pair, and the held-out accuracy climbs with rank to every pair at 64. `fit.rot` is each trained `[2048, k]` basis. The engines agree to the bit on one device; across devices, twenty epochs of optimizer steps carry float32 rounding forward, so a GPU run's curve is the CPU's in shape and need not be to the bit.",
+ "model": {
+  "key": "meta-llama/Llama-3.2-1B",
+  "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08"
+ },
+ "data": {
+  "train": {
+   "path": "weekdays_full/data",
+   "split": "train",
+   "sha256": "c1be29721a7513291c6ed3463885f82ad1d3d5ac0d8d0d81ec10a86ca25db086",
+   "n_rows": 30
+  },
+  "test": {
+   "path": "weekdays_full/data",
+   "split": "test",
+   "sha256": "8f5d2fcd2861751e8530e229a42a5f03844a162cd52bbf62b04b2c272ca720cc",
+   "n_rows": 12
+  }
+ },
+ "featurizers": {
+  "rot": [
+   {
+    "kind": "subspace",
+    "at": {
+     "k": 0
+    },
+    "k": 1
+   },
+   {
+    "kind": "subspace",
+    "at": {
+     "k": 1
+    },
+    "k": 4
+   },
+   {
+    "kind": "subspace",
+    "at": {
+     "k": 2
+    },
+    "k": 16
+   },
+   {
+    "kind": "subspace",
+    "at": {
+     "k": 3
+    },
+    "k": 64
+   }
+  ]
+ },
+ "steps": {
+  "fit": [
+   {
+    "kind": "fit",
+    "train": [
+     "rot"
+    ],
+    "objective": {
+     "ce": 1.0
+    },
+    "epochs": 20,
+    "batch_size": 10,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.003
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "reads": {
+       "v_cf": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "featurizer",
+          "featurizer": "fit.rot",
+          "mode": "encode"
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      },
+      "at": {
+       "k": 0
+      },
+      "dataset": "train"
+     },
+     "patched": {
+      "kind": "forward",
+      "input": "train.input",
+      "writes": {
+       "patch": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "swap",
+          "featurizer": "fit.rot",
+          "with": "counterfactual.v_cf"
+         }
+        ]
+       }
+      },
+      "reads": {
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      },
+      "at": {
+       "k": 0
+      },
+      "dataset": "train"
+     },
+     "iia": {
+      "kind": "op",
+      "op": "match",
+      "of": "patched.logits",
+      "at": {
+       "k": 0
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "expected": "train.cf_answer"
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "patched.logits",
+      "at": {
+       "k": 0
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "target": "train.cf_answer"
+     }
+    },
+    "early_stop": {
+     "metric": "iia",
+     "mode": "max",
+     "patience": 20
+    },
+    "eval": {
+     "held_out": {
+      "train": "test"
+     }
+    },
+    "at": {
+     "k": 0
+    }
+   },
+   {
+    "kind": "fit",
+    "train": [
+     "rot"
+    ],
+    "objective": {
+     "ce": 1.0
+    },
+    "epochs": 20,
+    "batch_size": 10,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.003
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "reads": {
+       "v_cf": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "featurizer",
+          "featurizer": "fit.rot",
+          "mode": "encode"
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      },
+      "at": {
+       "k": 1
+      },
+      "dataset": "train"
+     },
+     "patched": {
+      "kind": "forward",
+      "input": "train.input",
+      "writes": {
+       "patch": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "swap",
+          "featurizer": "fit.rot",
+          "with": "counterfactual.v_cf"
+         }
+        ]
+       }
+      },
+      "reads": {
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      },
+      "at": {
+       "k": 1
+      },
+      "dataset": "train"
+     },
+     "iia": {
+      "kind": "op",
+      "op": "match",
+      "of": "patched.logits",
+      "at": {
+       "k": 1
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "expected": "train.cf_answer"
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "patched.logits",
+      "at": {
+       "k": 1
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "target": "train.cf_answer"
+     }
+    },
+    "early_stop": {
+     "metric": "iia",
+     "mode": "max",
+     "patience": 20
+    },
+    "eval": {
+     "held_out": {
+      "train": "test"
+     }
+    },
+    "at": {
+     "k": 1
+    }
+   },
+   {
+    "kind": "fit",
+    "train": [
+     "rot"
+    ],
+    "objective": {
+     "ce": 1.0
+    },
+    "epochs": 20,
+    "batch_size": 10,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.003
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "reads": {
+       "v_cf": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "featurizer",
+          "featurizer": "fit.rot",
+          "mode": "encode"
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      },
+      "at": {
+       "k": 2
+      },
+      "dataset": "train"
+     },
+     "patched": {
+      "kind": "forward",
+      "input": "train.input",
+      "writes": {
+       "patch": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "swap",
+          "featurizer": "fit.rot",
+          "with": "counterfactual.v_cf"
+         }
+        ]
+       }
+      },
+      "reads": {
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      },
+      "at": {
+       "k": 2
+      },
+      "dataset": "train"
+     },
+     "iia": {
+      "kind": "op",
+      "op": "match",
+      "of": "patched.logits",
+      "at": {
+       "k": 2
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "expected": "train.cf_answer"
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "patched.logits",
+      "at": {
+       "k": 2
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "target": "train.cf_answer"
+     }
+    },
+    "early_stop": {
+     "metric": "iia",
+     "mode": "max",
+     "patience": 20
+    },
+    "eval": {
+     "held_out": {
+      "train": "test"
+     }
+    },
+    "at": {
+     "k": 2
+    }
+   },
+   {
+    "kind": "fit",
+    "train": [
+     "rot"
+    ],
+    "objective": {
+     "ce": 1.0
+    },
+    "epochs": 20,
+    "batch_size": 10,
+    "seed": 0,
+    "optimizer": {
+     "name": "adamw",
+     "lr": 0.003
+    },
+    "steps": {
+     "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "reads": {
+       "v_cf": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "featurizer",
+          "featurizer": "fit.rot",
+          "mode": "encode"
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
+       }
+      },
+      "at": {
+       "k": 3
+      },
+      "dataset": "train"
+     },
+     "patched": {
+      "kind": "forward",
+      "input": "train.input",
+      "writes": {
+       "patch": {
+        "site": {
+         "component": "layer_output",
+         "layers": 8
+        },
+        "pos": -4,
+        "ops": [
+         {
+          "op": "swap",
+          "featurizer": "fit.rot",
+          "with": "counterfactual.v_cf"
+         }
+        ]
+       }
+      },
+      "reads": {
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
+       }
+      },
+      "at": {
+       "k": 3
+      },
+      "dataset": "train"
+     },
+     "iia": {
+      "kind": "op",
+      "op": "match",
+      "of": "patched.logits",
+      "at": {
+       "k": 3
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "expected": "train.cf_answer"
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "patched.logits",
+      "at": {
+       "k": 3
+      },
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "target": "train.cf_answer"
+     }
+    },
+    "early_stop": {
+     "metric": "iia",
+     "mode": "max",
+     "patience": 20
+    },
+    "eval": {
+     "held_out": {
+      "train": "test"
+     }
+    },
+    "at": {
+     "k": 3
+    }
+   }
+  ]
+ },
+ "saves": [
+  "fit.held_out.iia",
+  "fit.rot"
+ ],
+ "document": "documents/real/das.json",
+ "compiled": true,
+ "sweeps": {
+  "k": {
+   "path": "featurizers.rot.k",
+   "values": [
+    1,
+    4,
+    16,
+    64
+   ]
+  }
+ }
+}

@@ -460,7 +460,7 @@ Changes from PLAN §5, one reason each:
 | signature | contract |
 |---|---|
 | `load(path: str) -> dict` | The document as JSON; nothing interpreted. |
-| `compile(document: dict, path: str) -> dict` | The plan (§1). Reads `data/` and bundle files relative to the corpus root (the parent of the document's directory). Raises `CompileError` naming the document path of the offending value. |
+| `compile(document: dict, path: str) -> dict` | The plan (§1). Reads `data/` and bundle files relative to the corpus root (the nearest directory above the document that holds a `data/` folder, else the parent of the document's directory). Raises `CompileError` naming the document path of the offending value. |
 | `points(entry: dict \| list) -> list[dict]` | A plan entry as its list of points; `[entry]` when it is not swept. |
 | `class CompileError(ValueError)` | |
 
@@ -1101,7 +1101,8 @@ same numbers as `logit_lens.json`'s two points (the M2 suite checks it).
 The output directory is `out/<document name>/` unless `--out DIR` is given,
 in which case it is `DIR` itself. Both resolve against the working directory,
 as a command-line path does; a document's data paths and `file_path`s resolve
-against the corpus root (the document directory's parent). The two agree when
+against the corpus root (the nearest directory above the document that
+holds a `data/` folder, else the document directory's parent). The two agree when
 `clab` runs from the corpus root, which is how the corpus's headers say to run
 it (`das.json --out documents/artifacts`). Within the output directory:
 

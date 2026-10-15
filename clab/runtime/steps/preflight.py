@@ -189,13 +189,13 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     return out
 
 
-def instance(plan: Plan, spec, width: int, seed: int | None) -> featurizers.Kind:
-    """A featurizer point `spec` made: from its bundle, or drawn from its seed, else `seed`; a probe's class
-    list from its `classes` column."""
+def instance(plan: Plan, spec, width: int, seed: int | None, device: str = "cpu") -> featurizers.Kind:
+    """A featurizer point `spec` made on `device`: from its bundle, or drawn from its seed, else `seed`; a probe's
+    class list from its `classes` column."""
     fields = spec.model_extra or {}
     labels = featurizers.labels({n: d.rows or [] for n, d in plan.data.items()}, fields["classes"]) \
         if "classes" in fields else None
-    return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels, spec.header)
+    return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels, spec.header, device)
 
 
 # The generate options a step cannot forward as they are, the one value each may have, and why.

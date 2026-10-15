@@ -208,12 +208,18 @@ def labels(rows: dict[str, list[dict]], column: str) -> list:
 
 
 def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None,
-         header: dict | None = None) -> Kind:
-    """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`."""
+         header: dict | None = None, device: str = "cpu") -> Kind:
+    """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`, its tensors on `device`.
+    It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
+    what a fit trains, its optimizer's state and its math live where the model is."""
     supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels}
     taken = inspect.signature(KINDS[kind]).parameters
     given = {**fields, "seed": seed if fields.get("seed") is None else fields["seed"]} if "seed" in taken else fields
-    return KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})
+    instance = KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})
+    for name, value in vars(instance).items():
+        if isinstance(value, Tensor):
+            setattr(instance, name, value.to(device))
+    return instance
 
 
 # The kinds register in this order, and `describe` and FORMAT.md list them in it.

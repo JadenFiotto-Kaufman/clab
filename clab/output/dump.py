@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from safetensors.torch import save_file
+from safetensors.torch import save
 from torch import Tensor
 
 from ..plan.model import Plan, arguments, coordinate, dims_of, kind_of, labelled, name as named, points, uses
@@ -24,9 +24,9 @@ def dump(plan: Plan, out: str) -> None:
             value = {labelled(plan, p.at, tensors(value)): value[coordinate(plan, p.at)] for p in entry}
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
-            save_file(flat({name: value} if isinstance(value, Tensor) else value), os.path.join(out, file),
-                      metadata=header(plan, name, plan.results[name] if not isinstance(entry, list) else
-                                      next(iter(plan.results[name].values()))))
+            write(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
+                  header(plan, name, plan.results[name] if not isinstance(entry, list) else
+                         next(iter(plan.results[name].values()))))
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
@@ -40,6 +40,19 @@ def dump(plan: Plan, out: str) -> None:
             del d["rows"]
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)
+
+
+def write(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
+    """A safetensors file whose header's keys are sorted: safetensors orders them as it likes, so the same
+    tensors and metadata are the same bytes on every run. It replaces any file at `path` with a new one rather
+    than writing over it, since tensors loaded from the old one may still be mapped from its bytes."""
+    blob = save(tensors, metadata=metadata)
+    n = int.from_bytes(blob[:8], "little")
+    text = json.dumps(json.loads(blob[8:8 + n]), sort_keys=True, separators=(",", ":")).encode()
+    text += b" " * (-len(text) % 8)
+    with open(f"{path}.partial", "wb") as f:
+        f.write(len(text).to_bytes(8, "little") + text + blob[8 + n:])
+    os.replace(f"{path}.partial", path)
 
 
 def tensors(value: Any) -> bool:

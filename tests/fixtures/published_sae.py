@@ -3,22 +3,12 @@ published sparse autoencoders sae_published_jumprelu.json and sae_published_topk
 dictionaries for the tiny Llama's layer_output at layer 0, drawn from seeded generators and laid out as the two
 trainers publish them, with no clab header. Gemma Scope's holds a JumpReLU `threshold` (and its encoder does not
 subtract `b_dec`); SAELens's does not. Fixtures: their mechanics are real and their latents mean nothing. Run
-from the corpus root: `uv run python tests/fixtures/published_sae.py`. safetensors orders its header as it likes,
-so the header is written again with sorted keys: the same bytes on every run."""
-
-import json
+from the corpus root: `uv run python tests/fixtures/published_sae.py`. They are written as clab writes a bundle,
+their headers' keys sorted: the same bytes on every run."""
 
 import torch
-from safetensors.torch import save
 
-
-def write(path: str, tensors: dict[str, torch.Tensor]) -> None:
-    blob = save(tensors)
-    n = int.from_bytes(blob[:8], "little")
-    text = json.dumps(json.loads(blob[8:8 + n]), sort_keys=True, separators=(",", ":")).encode()
-    text += b" " * (-len(text) % 8)
-    with open(path, "wb") as f:
-        f.write(len(text).to_bytes(8, "little") + text + blob[8 + n:])
+from clab.output.dump import write
 
 
 if __name__ == "__main__":

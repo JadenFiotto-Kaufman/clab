@@ -98,3 +98,31 @@ def test_a_fit_trains_on_the_device(kind):
     basis = there.results["fit.rot"]["basis"]
     assert basis.device.type == "cpu" and basis.shape == (16, 8)
     torch.testing.assert_close(basis.T @ basis, torch.eye(8), atol=1e-5, rtol=0)
+
+
+@pytest.mark.parametrize("kind, device, options", [
+    ("nnterp", "cuda", {}), ("hooks", "cuda", {}), ("ndif", "cuda", {"remote": "local"}),
+    ("nnterp", "cpu", {"device_map": "cuda:0"})])
+def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, device, options):
+    """das's rotation is made where the model is, on `cuda` whether the run's device or a `device_map` put it
+    there: at every optimizer step its parameters, their gradients and the optimizer's state are on the model's
+    device, and the trained bundle still comes home on the CPU."""
+    from clab.runtime.steps import fit
+
+    seen: set[str] = set()
+
+    class Watched(torch.optim.AdamW):
+        def step(self, closure=None):  # type: ignore[override]
+            out = super().step(closure)
+            for group in self.param_groups:
+                for p in group["params"]:
+                    seen.update({str(p.device), str(p.grad.device) if p.grad is not None else "none",
+                                 *(str(v.device) for v in self.state[p].values() if isinstance(v, torch.Tensor)
+                                   and v.dim() > 0)})
+            return out
+
+    monkeypatch.setitem(fit.OPTIMIZERS, "adamw", Watched)
+    plan = plan_of("das")
+    there = load(kind, plan.model, device, **options).execute(plan, batch_size=BATCH_SIZE)
+    assert seen == {"cuda:0"}
+    assert there.results["fit.rot"]["basis"].device.type == "cpu"
