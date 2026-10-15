@@ -117,7 +117,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
     over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
     order the rows are shuffled in, and that changes the trajectory."""
-    from clab.runtime import steps
+    from clab.runtime.steps import fit as steps
 
     def change(d, seed=0):
         d["steps"]["fit"].update(batch_size=1, seed=seed)

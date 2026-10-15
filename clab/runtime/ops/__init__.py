@@ -50,7 +50,7 @@ from torch import Tensor
 
 from ...plan import registry
 from ...plan.address import EXAMPLE_AXES, pos_axis
-from ...plan.registry import Featurizer, Tokens, Value
+from ...plan.registry import Featurizer, Tokens, Value  # noqa: F401  (ops.Tokens, ops.Value)
 from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside a write, the
