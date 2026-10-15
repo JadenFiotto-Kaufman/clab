@@ -167,7 +167,7 @@ def test_the_aligned_pattern_dataset_passes_the_check(engines):
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
 @pytest.mark.parametrize("key, why", [("device", r"where the model runs is a run option: --device"),
-                                      ("device_map", r"where the model runs is a run option: -o device_map=\.\.\."),
+                                      ("device_map", r"where the model runs is a run option: --device"),
                                       ("dispatch", "the engine places its model itself"),
                                       ("torch_dtype", "the dtype is spelled `dtype`")])
 def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):

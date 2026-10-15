@@ -118,7 +118,7 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
     engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
-    the model runs (`device`, `device_map`) is a run option, not the document's. The attention interior needs
+    the model runs (`device`) is a run option, not the document's. The attention interior needs
     `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str

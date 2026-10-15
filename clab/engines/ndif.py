@@ -25,7 +25,11 @@ class NdifEngine(NnterpEngine):
     def __init__(self, model: Model, *, device: str = "cpu", remote: Literal[True, "local"] = True):
         """`model`'s meta shell; `remote` is True for the NDIF server nnsight is configured for, or "local"
         for its in-process simulation, which places the model on `device`. On a server the server places it,
-        so `device` stays at its default and the engine's is None (`plan.run.devices` says where it ran)."""
+        so `device` stays at its default and the engine's is None (`plan.run.devices` says where it ran).
+
+        device: one torch device ("cpu", "cuda:0") where remote "local" places the model; under true, "cpu" alone
+        remote: true for the NDIF server nnsight is configured for, "local" for nnsight's in-process simulation of it
+        """
         if remote is True and device != "cpu":
             raise ValueError(f"device: the ndif engine cannot honor {device!r}: the server places the model")
         self.spec, self.options, self.remote = model, {"remote": remote}, remote

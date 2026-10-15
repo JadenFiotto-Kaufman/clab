@@ -170,16 +170,17 @@ def per_op(base: dict) -> dict:
     return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
 
 
-def run_options(name: str) -> dict[str, list[str]]:
-    """Engine `name`'s run options, each `key: type = default`: those it loads with (`device`, then its own)
-    and those it runs with (`batch_size`, then its own)."""
+def run_options(name: str) -> dict[str, list[tuple[str, str]]]:
+    """Engine `name`'s run options, each `key: type = default` beside what its docstring says it takes: those
+    it loads with (`device`, then its own) and those it runs with (`batch_size`, then its own)."""
     from .engines import ENGINES, options
 
     cls: Any = ENGINES[name]
     declared = options(name)
     common = {"loads": {"device": inspect.signature(cls.__init__).parameters["device"]},
               "runs": {"batch_size": inspect.signature(cls.execute).parameters["batch_size"]}}
-    return {side: [f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}"
+    said = {"loads": registry.described(cls.__init__), "runs": registry.described(cls.execute)}
+    return {side: [(f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}", said[side].get(k, ""))
                    for k, p in {**common[side], **declared[side]}.items()] for side in ("loads", "runs")}
 
 
@@ -224,8 +225,10 @@ def describe(what: str | None = None) -> str:
         lines = ["engines (`clab run --engine NAME --device D --batch-size N -o KEY=VALUE`):"]
         for name, cls in engines.ENGINES.items():
             given = run_options(name)
-            lines += [f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()),
-                      f"      loads with: {', '.join(given['loads'])}", f"      runs with: {', '.join(given['runs'])}"]
+            lines.append(f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()))
+            for side, says in (("loads", "loads with"), ("runs", "runs with")):
+                lines += [f"      {says}:"] + [f"        {o}" + (f" — {text}" if text else "")
+                                                for o, text in given[side]]
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
@@ -284,8 +287,10 @@ def markdown() -> str:
     parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]
     for name, cls in engines.ENGINES.items():
         given = run_options(name)
-        parts += [f"### `{name}`\n", f"- Loads with: {', '.join(f'`{o}`' for o in given['loads'])}\n"
-                  f"- Runs with: {', '.join(f'`{o}`' for o in given['runs'])}\n\n" + doc(inspect.getmodule(cls)) + "\n"]
+        listed = "".join(f"- {says}:\n" + "".join(f"  - `{o}`" + (f": {text}" if text else "") + "\n"
+                                                  for o, text in given[side])
+                         for side, says in (("loads", "Loads with"), ("runs", "Runs with")))
+        parts += [f"### `{name}`\n", listed + "\n" + doc(inspect.getmodule(cls)) + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",
@@ -294,8 +299,8 @@ def markdown() -> str:
 
 
 def how(run: "plan.Run") -> str:
-    """Where a run ran and with which engine options: `device cpu, device_map null`, or `device placed by the
-    server, remote true`."""
+    """Where a run ran and with which engine options: `device cpu`, or `device placed by the server, remote
+    true`."""
     return f"device {run.device or 'placed by the server'}" + "".join(f", {k} {as_json(v)}"
                                                                       for k, v in run.options.items())
 
@@ -412,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or os.path.join("out", name)
     try:
         options = dict(option(text) for text in args.options)
+        for key in {"device", "batch_size"} & set(options):
+            raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
                           device=args.device, **options)
     except (ValueError, NotImplementedError) as e:

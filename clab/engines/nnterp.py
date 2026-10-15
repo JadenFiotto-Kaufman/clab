@@ -1,5 +1,7 @@
-"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session. The batch's
-inputs go to the run's `device` (with a `device_map`, transformers moves them on from there).
+"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
+
+`device` is a transformers device map, so one device or a model spread over several; the batch's inputs go
+where the model's first parameter is, and transformers moves them on from there.
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -18,7 +20,11 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, placed, stops
+from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
+
+
+# The device maps transformers computes, which may spread a model over several devices.
+COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
 
 
 @engine("nnterp")
@@ -26,18 +32,27 @@ class NnterpEngine:
     name: str
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
-    def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
-        """The checkpoint `model` pins, on `device` (or placed by `device_map`, which nnsight hands to
-        transformers); the block's other keys go to the loader as they are."""
-        self.spec, self.device, self.options = model, device, {"device_map": device_map}
+    def __init__(self, model: Model, *, device: str = "cpu"):
+        """The checkpoint `model` pins, placed by `device`, which nnsight hands to transformers as its
+        `device_map`; the block's other keys go to the loader as they are.
+
+        device: a transformers device map: one device ("cpu", "cuda:0"), or "auto", "balanced", ... over the GPUs
+        """
+        self.spec, self.device, self.options = model, device, {}
+        # nnsight loads through a transformers pipeline, which moves a model that one device holds onto its own
+        # default device (the first GPU) unless it is given that device too; a map transformers computes it keeps.
+        one = {} if device in COMPUTED else {"device": device}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype),
-            **placed("nnterp", device, device_map), **extra))
+            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), device_map=device,
+            **one, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
         the results and the run record are the one thing that comes home, into the client's own plan. It runs
-        with no options of its own; `options` are a subclass's, which `steps.begin` records."""
+        with no options of its own; `options` are a subclass's, which `steps.begin` records.
+
+        batch_size: how many of a step's rows go through the model in one forward or generation
+        """
         started = steps.begin(self, plan, batch_size, options)
         with self.model.session(remote=self.remote):
             steps.run(self, plan, batch_size)
@@ -73,7 +88,7 @@ class NnterpEngine:
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), self.device)):
+        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self))):
             for component, layer in order:
                 here, there = sites[(component, layer)]
                 host = envoy(model, component, layer)
@@ -109,7 +124,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), self.device)):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), steps.home(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)

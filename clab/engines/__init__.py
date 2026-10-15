@@ -2,13 +2,16 @@
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block. The run options that say how and where it runs are
-`device` (where it places the model and the inputs; `cpu` by default), `batch_size`, and the options an
-engine declares, each with its default: those it loads with are its constructor's keyword parameters, those it
-runs with its `execute`'s, and no option is both (`engine` refuses one that is). `options(name)` reads them;
-`route` sends each option given to the one that declares it and refuses one neither does, naming both lists,
-before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` (None where it
-does not place the model: an NDIF server does) and the options it loaded with (`options`), which `execute`
-records in `plan.run` beside the ones it runs with, after their defaults.
+`device` (where it places the model, its one placement argument, which each engine reads as it likes; `cpu`
+by default), `batch_size`, and the options an engine declares, each with its default: those it loads with are
+its constructor's keyword parameters, those it runs with its `execute`'s, and no option is both (`engine`
+refuses one that is). Every option, `device` and `batch_size` among them, says what it takes on a line of
+the docstring of the method that declares it, `<name>: <what it takes>`, which `clab describe engines`
+prints. `options(name)` reads them; `route` sends each option given to the one that declares it and refuses
+one neither does, naming both lists, before anything loads; an option the engine cannot honor it refuses by
+name. It keeps `device` as asked (None where it does not place the model: an NDIF server does) and the
+options it loaded with (`options`), which `execute` records in `plan.run` beside the ones it runs with, after
+their defaults.
 
 `execute(plan, batch_size=..., **options)` is the single entry point and the only method an engine that
 ignores `clab.runtime.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine:
@@ -102,13 +105,14 @@ def options(name: str) -> dict[str, dict[str, inspect.Parameter]]:
 
 def route(cls, given: dict) -> tuple[dict, dict]:
     """Run options `given` split by name into those the engine loads with and those it runs with, each checked
-    against its signature; a key it declares for neither is refused, naming both lists."""
+    against its signature; a key it declares for neither is refused, naming both lists (`device` and
+    `batch_size` first, which every engine takes)."""
     found = declared(cls)
     for key in given:
         if key not in found["loads"] and key not in found["runs"]:
             raise ValueError(f"the {cls.name} engine takes no {key!r}; it loads with: "
-                             f"{', '.join(found['loads']) or 'nothing'}; it runs with: "
-                             f"{', '.join(found['runs']) or 'nothing'}")
+                             f"{', '.join(['device', *found['loads']])}; it runs with: "
+                             f"{', '.join(['batch_size', *found['runs']])}")
     loads = {k: v for k, v in given.items() if k in found["loads"]}
     runs = {k: v for k, v in given.items() if k in found["runs"]}
     registry.check(cls.__init__, loads, SUPPLIED["loads"], f"the {cls.name} engine")

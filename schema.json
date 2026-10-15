@@ -484,7 +484,7 @@
   },
   "Model": {
    "additionalProperties": true,
-   "description": "The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the\nengine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where\nthe model runs (`device`, `device_map`) is a run option, not the document's. The attention interior needs\n`attn_implementation: \"eager\"`.",
+   "description": "The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the\nengine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where\nthe model runs (`device`) is a run option, not the document's. The attention interior needs\n`attn_implementation: \"eager\"`.",
    "properties": {
     "key": {
      "title": "Key",

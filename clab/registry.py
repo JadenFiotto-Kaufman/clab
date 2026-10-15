@@ -33,6 +33,14 @@ def spelled(fn: Callable, supplied: tuple) -> dict[str, inspect.Parameter]:
             if p.name not in supplied and p.kind is not p.VAR_KEYWORD}
 
 
+def described(fn: Callable) -> dict[str, str]:
+    """What each of a function's parameters takes, as its docstring says on a line of its own:
+    `<name>: <what it takes>`."""
+    names = inspect.signature(fn).parameters
+    lines = (line.strip().partition(": ") for line in (inspect.getdoc(fn) or "").splitlines())
+    return {name: text for name, sep, text in lines if sep and name in names}
+
+
 def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:
     """`args` (document spelling) bound to `fn`'s signature: every key a parameter, every required one given,
     and every literal of its annotated type. An `Annotated` parameter names a thing (a value, a column, a

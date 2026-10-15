@@ -26,7 +26,7 @@ uv run clab run documents/patching.json --engine hooks --out out/patching-hooks 
 uv run clab run documents/patching.json --engine ndif                # on NDIF (nnsight's CONFIG or env)
 uv run clab run documents/patching.json --engine ndif -o remote=local # nnsight's in-process simulation of it
 uv run clab run documents/patching.json --device cuda                 # run options: --engine, --batch-size,
-uv run clab run documents/patching.json -o device_map=auto            # --device, and -o for the engine's own
+uv run clab run documents/patching.json --device auto                 # --device, and -o for the engine's own
 uv run clab run documents/generated_answer.json --batch-size 2
 ```
 
@@ -178,7 +178,8 @@ named in every error.
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
   loads with); `execute(plan, batch_size=, ...)` is its one entry point, and its keyword parameters are what it
   runs with. One pool of options (`-o`, or `clab.run`'s keywords) goes to each by name; `clab describe engines`
-  lists both.
+  lists both, each option with what its docstring says it takes (`device` is a transformers device map on
+  nnterp and hooks: `cpu`, `cuda:0`, `auto`, ...).
 
 ## The output
 

@@ -88,6 +88,29 @@ def test_an_engine_runs_a_document_on_the_device(engines, kind, options, name):
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("device", ["auto", "cuda:0"])
+@pytest.mark.parametrize("name", ["patching", "generated_answer"])
+def test_a_device_map_places_the_model_and_its_inputs(engines, kind, device, name):
+    """On nnterp and hooks `device` is a transformers device map: "auto" (here, one GPU, so all of the model on
+    it) and one device both load the model there, each batch's inputs go where its first parameter is, and the
+    numbers are the CPU's to float32 rounding; the run records the device asked for and where it ran."""
+    plan = plan_of(name)
+    there = load(kind, plan.model, device).execute(plan_of(name), batch_size=BATCH_SIZE)
+    here = engines(kind, plan.model).execute(plan_of(name), batch_size=BATCH_SIZE)
+    assert there.run is not None and (there.run.device, there.run.devices) == (device, ["cuda:0"])
+    torch.testing.assert_close(there.results, here.results, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_the_default_device_keeps_the_model_on_the_cpu_beside_a_gpu(kind):
+    """`cpu` is a device map naming one device; the model stays there, though a GPU is visible (a transformers
+    pipeline, which nnsight loads through, would otherwise move it to the GPU)."""
+    plan = plan_of("patching")
+    run = load(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).run
+    assert run is not None and (run.device, run.devices) == ("cpu", ["cpu"])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_fit_trains_on_the_device(kind):
     """das trains its rotation through the model on `cuda`: its tensors come home on the CPU, shaped as on the
     CPU, still orthonormal. Ten epochs of optimizer steps apart, GPU and CPU rounding do not stay within float32
@@ -102,9 +125,9 @@ def test_a_fit_trains_on_the_device(kind):
 
 @pytest.mark.parametrize("kind, device, options", [
     ("nnterp", "cuda", {}), ("hooks", "cuda", {}), ("ndif", "cuda", {"remote": "local"}),
-    ("nnterp", "cpu", {"device_map": "cuda:0"})])
+    ("nnterp", "auto", {}), ("hooks", "auto", {})])
 def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, device, options):
-    """das's rotation is made where the model is, on `cuda` whether the run's device or a `device_map` put it
+    """das's rotation is made where the model is, on `cuda` whether one device or a device map ("auto") put it
     there: at every optimizer step its parameters, their gradients and the optimizer's state are on the model's
     device, and the trained bundle still comes home on the CPU."""
     from clab.runtime.steps import fit

@@ -9,6 +9,7 @@ dependencies = [
     "torch",
     "safetensors",
     "pydantic",
+    "accelerate",
 ]
 
 [project.scripts]

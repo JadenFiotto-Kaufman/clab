@@ -97,8 +97,8 @@ def stacked(record, values: list) -> Any:
     """A read's per-layer values as its value: the one, or under `layers` that stack, stacked layer-first."""
     if not address.stacks(record.site.layers):
         return values[0]
-    # Under a device_map the layers' values can live on different GPUs; they stack on the first's. (Not tested:
-    # this host has one GPU.)
+    # Under a device that spreads the model ("auto") the layers' values can live on different GPUs; they stack on
+    # the first's. (Not tested: this host has one GPU.)
     if isinstance(values[0], Tensor):
         return torch.stack([v.to(values[0].device) for v in values])
     return {**values[0], "values": torch.stack([v["values"].to(values[0]["values"].device) for v in values])}
