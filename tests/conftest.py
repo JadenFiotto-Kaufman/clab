@@ -11,8 +11,8 @@ import torch  # noqa: E402
 from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
-from clab.featurizers import FORMAT  # noqa: E402
 from clab.plan import Model  # noqa: E402
+from clab.runtime.featurizers import FORMAT  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -112,7 +112,7 @@ def stand_in(engine, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     class StandIn(Backend):
         def __call__(self, tracer):
             blob = RequestModel.serialize(tracer, compress=False)
-            trip["by_reference"] = b"clab.plan" in blob and b"_make_skeleton_class" not in blob
+            trip["by_reference"] = b"clab.plan.model" in blob and b"_make_skeleton_class" not in blob
             server = RequestModel.deserialize(blob, engine.model._remoteable_persistent_objects(), compress=False)
             assert server.info is not None
             server.execute(server.info.code)

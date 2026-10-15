@@ -4,9 +4,10 @@ refusals of a mode a kind lacks, a mode no kind has and an argument a mode does 
 import pytest
 import torch
 
-from clab import Plan, featurizers
+from clab import Plan
 from clab.cli import describe
-from clab.plan import PlanError, dims_of, points
+from clab.plan.model import PlanError, dims_of, points
+from clab.runtime import featurizers
 from conftest import BATCH_SIZE, edited, same
 
 G = torch.Generator().manual_seed(3)

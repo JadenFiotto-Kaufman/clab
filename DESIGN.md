@@ -5,7 +5,7 @@
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 
-- §1: the plan is one pydantic model, `Plan` (`clab/plan.py`), which is also the document: `Plan(path)` reads
+- §1: the plan is one pydantic model, `Plan` (`clab/plan/model.py`), which is also the document: `Plan(path)` reads
   one, `compile()` returns it compiled (`compiled: true`). The records (sites, reads and writes, ops, `pos`,
   steps, datasets, featurizers) are the same models in both states; compile fills a few derived fields (a
   step's `at`, `dataset` and `dims`, a read's `dims`, a dataset's `sha256`). Sites and named interventions
@@ -13,8 +13,8 @@ document in these places:
   are `plan.results`, one dict at the root keyed by the names in `saves`, a swept one a dict keyed by
   coordinate. `saves` is a root key and a list of names. A forward's `input` stays the string
   `"<dataset>.<column>[i]"`; `pos` stays as written and becomes a slice in the run.
-- §2: `plan.py` holds the models and `find_sweeps`; `compiler.py` is the transform (sweeps, inlining, names,
-  layouts, datasets, bundles); `output.py` is `dump`, `load` and `table`; `registry.py` checks a document's
+- §2: `plan/model.py` holds the models and `find_sweeps`; `plan/compile.py` is the transform (sweeps, inlining,
+  names, layouts, datasets, bundles); `output/` is `dump`, `load` and `table`; `registry.py` checks a document's
   arguments against a function's signature; an op declares its group and, for `pca`, the featurizer its
   bundle is for in `@op`.
 - §3: an engine loads its checkpoint in `__init__` from the plan's `model` block and registers by decorator
@@ -415,9 +415,10 @@ clab/
   address.py      the component vocabulary (meaning, dims, narrowing, writable)
   interventions.py what a read takes and a write does at one site, on any engine
   metrics.py      the eight metrics and the two reduces, over tensors
-  featurizers.py  subspace / gate / pca / sae as dicts of tensors; bundles
-  steps.py        run(engine, plan, batch_size): preflight, the walk, the fit loop
-  output.py       filled plan -> directory + manifest
+  runtime/        steps/ (run; preflight, state, batches, one module per step kind),
+                  ops/ (edits, transforms, reductions, metrics), featurizers/ (one
+                  module per kind, bundle), positions.py, data.py
+  output/         dump.py, load.py, table.py: filled plan -> directory + manifest
   cli.py          clab run <doc> [...]
   engines/
     __init__.py   the Engine protocol (typing.Protocol) and ENGINES

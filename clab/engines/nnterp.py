@@ -13,9 +13,9 @@ import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 
-from .. import ops, steps
 from ..address import COMPONENTS
 from ..plan import Model, Plan
+from ..runtime import ops, steps
 from . import engine
 from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops
 

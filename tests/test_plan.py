@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from clab import Plan
-from clab.plan import PlanError, points
+from clab.plan.model import PlanError, points
 from conftest import NAMES, document, edited, plan_of, snapshot
 
 

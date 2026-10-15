@@ -43,15 +43,15 @@ write, an operand may name a read of the same forward at a site the forward reac
 """
 
 import inspect
-import math
-from typing import Annotated, Any, Callable, Literal
+from typing import Any, Callable
 
 import torch
 from torch import Tensor
 
-from . import featurizers, registry
-from .address import EXAMPLE_AXES, pos_axis
-from .registry import Featurizer, Tokens, Value
+from ... import registry
+from ...address import EXAMPLE_AXES, pos_axis
+from ...registry import Featurizer, Tokens, Value  # noqa: F401  (ops.Tokens, ops.Value)
+from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
@@ -147,9 +147,6 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
     return [a for a in dims if a not in removes] + list(axes["adds"])
 
 
-# -- the site: selection, then ops, then write-back ---------------------------
-
-
 def select(value: Tensor, component: str, record: dict) -> Tensor:
     """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)`.
 
@@ -227,193 +224,9 @@ def live(got: dict | None, operand: dict) -> Tensor:
     return (got or {})[operand["live"]]
 
 
-# -- ops that change a value in place of it ------------------------------------
-
-
-@op("edits")
-def swap(of: Tensor, with_: Value) -> Tensor:
-    """Replace the value with `with`, broadcast over its rows and positions."""
-    return torch.as_tensor(with_, dtype=of.dtype, device=of.device).expand_as(of).clone()
-
-
-@op("edits")
-def add(of: Tensor, with_: Value, scale: float = 1.0) -> Tensor:
-    """`of + scale * with`."""
-    return of + scale * torch.as_tensor(with_, dtype=of.dtype, device=of.device)
-
-
-@op("edits")
-def sub(of: Tensor, with_: Value) -> Tensor:
-    """`of - with`."""
-    return of - torch.as_tensor(with_, dtype=of.dtype, device=of.device)
-
-
-@op("edits")
-def scale(of: Tensor, factor: float) -> Tensor:
-    """`of * factor`."""
-    return of * factor
-
-
-@op("edits")
-def renormalize(of: Tensor, original: Value) -> Tensor:
-    """Each vector rescaled to the norm of `original`'s; inside a write, the value before the site's writes."""
-    return of * (original.norm(dim=-1, keepdim=True) / of.norm(dim=-1, keepdim=True))
-
-
-@op("edits")
-def normalize(of: Tensor) -> Tensor:
-    """Each vector divided by its norm."""
-    return of / of.norm(dim=-1, keepdim=True)
-
-
-@op("edits")
-def project_out(of: Tensor, direction: Value) -> Tensor:
-    """Each vector less its component along `direction`."""
-    unit = direction / direction.norm(dim=-1, keepdim=True)
-    return of - (of * unit).sum(-1, keepdim=True) * unit
-
-
-@op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))
-def readout(of: Tensor, engine: Any) -> Tensor:
-    """The model's own readout of a residual-stream value, its final norm and head (the logit lens)."""
-    return engine.readout(of)
-
-
-def mode_layout(dims: list[str], args: dict, kind: str) -> list[str]:
-    """its mode's (see Featurizer kinds)"""
-    return featurizers.layout(kind, args["mode"], dims)
-
-
-def mode_function(args: dict, kind: str) -> Callable:
-    return featurizers.mode(kind, args["mode"])
-
-
-@op("transforms", layout=mode_layout, options=mode_function)
-def featurizer(of: Tensor, featurizer: Featurizer, mode: str, **options: Any) -> Tensor:
-    """`featurizer` called on the value in `mode`, one of its kind's modes, with the mode's own arguments
-    beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per
-    class), `apply` its version of the value. Its axes depend on an argument: they are the mode's, which the
-    featurizer's kind declares (see Featurizer kinds), and the op declares them as that function."""
-    return featurizers.call(featurizer, mode, of, options)
-
-
-# -- reductions ----------------------------------------------------------------
-
-
-@op("reductions", removes="over")
-def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """The mean over the axes `over` names, of the rows that have a value (a missing row is NaN); by default
-    over every axis but the feature axes."""
-    over = over if over is not None else [a for a in dims if a in EXAMPLE_AXES]
-    axes = [dims.index(a) for a in over]
-    return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
-
-
-@op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")
-def pca(of: Tensor, k: int, dims: list[str]) -> dict:
-    """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
-    first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
-    x = of.reshape(-1, of.shape[-1]).double()
-    x = x[~x.isnan().any(-1)]
-    if x.shape[0] <= k:
-        raise ValueError(f"pca of {x.shape[0]} vectors has no rank-{k} basis; it needs more than {k}")
-    mean = x.mean(0)
-    _, _, vh = torch.linalg.svd(x - mean, full_matrices=False)
-    # An SVD's singular vectors are unique only up to sign; fix it so the largest entry of each is positive.
-    basis = vh[:k].T
-    basis = basis * basis.gather(0, basis.abs().argmax(0, keepdim=True)).sign()
-    return {"basis": basis.to(of.dtype).contiguous(), "mean": mean.to(of.dtype)}
-
-
-# -- metrics: logits in, one number per row and position out -------------------
-
-
-def _missing(of: Tensor) -> Tensor:
-    """Where a value is missing, per vector: NaN anywhere along its last axis."""
-    return of.isnan().any(-1)
-
-
-def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
-    """One id per row (`[rows]`), shaped to broadcast against `x` along its rows (or entries) axis."""
-    shape = [1] * x.dim()
-    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = -1
-    return ids.reshape(shape)
-
-
-def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
-    return x.gather(-1, _per_row(ids, x, dims).expand(*x.shape[:-1], 1)).squeeze(-1)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """1 where the most likely token is `expected`, else 0."""
-    hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
-    return hit.masked_fill(_missing(of), float("nan"))
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
-               token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The logit of `a` less the logit of `b`."""
-    return _pick(of, a, dims) - _pick(of, b, dims)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The probability of `token`."""
-    return _pick(of.softmax(-1), token, dims)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The logit of `token`."""
-    return _pick(of, token, dims)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
-                  token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The negative log-probability of `target`, in nats."""
-    return -_pick(of.log_softmax(-1), target, dims)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def kl(of: Tensor, against: Value) -> Tensor:
-    """KL(of ‖ against) between the two next-token distributions, in nats."""
-    p, q = of.log_softmax(-1), against.log_softmax(-1)
-    return (p.exp() * (p - q)).sum(-1)
-
-
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def js(of: Tensor, against: Value) -> Tensor:
-    """The Jensen–Shannon divergence between the two distributions, in nats (at most log 2)."""
-    p, q = of.log_softmax(-1), against.log_softmax(-1)
-    m = torch.logaddexp(p, q) - math.log(2)
-    return 0.5 * (p.exp() * (p - m)).sum(-1) + 0.5 * (q.exp() * (q - m)).sum(-1)
-
-
-@op("transforms", needs=("vocab_size",), removes=("vocab_size",), adds=("k",))
-def top_k(of: Tensor, k: int) -> dict:
-    """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
-    `tokens`, decoded."""
-    probs, ids = of.softmax(-1).topk(k, dim=-1)
-    missing = _missing(of)[..., None]
-    return {"ids": ids.masked_fill(missing, -1), "probs": probs.masked_fill(missing, float("nan"))}
-
-
-@op("transforms", needs=("vocab_size",), removes=("vocab_size",))
-def argmax(of: Tensor) -> Tensor:
-    """The id of the most likely token (-1 where the value is missing)."""
-    return of.argmax(-1).masked_fill(_missing(of), -1)
-
-
-@op("transforms", needs=("new",), removes=("new",))
-def decode(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) -> list:
-    """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
-    with `tokens`, as its token strings."""
-    tokenizer, stops = engine.tokenizer, set(eos)
-    out = []
-    for ids in of.tolist():
-        ids = next((ids[:i] for i, t in enumerate(ids) if t in stops), ids)
-        out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
-    return out
+# The ops register in this order, and the tables (`describe`, FORMAT.md, schema.json) list them in it.
+from .edits import add, normalize, project_out, renormalize, scale, sub, swap  # noqa: E402,F401
+from .transforms import featurizer, readout  # noqa: E402,F401
+from .reductions import mean, pca  # noqa: E402,F401
+from .metrics import (argmax, cross_entropy, decode, js, kl, logit_diff, match, token_logit,  # noqa: E402,F401
+                      token_prob, top_k)

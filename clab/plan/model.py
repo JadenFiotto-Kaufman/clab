@@ -21,7 +21,8 @@ from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import core_schema
 from torch import Tensor
 
-from . import address, data, featurizers, ops
+from .. import address
+from ..runtime import data, featurizers, ops
 
 
 class PlanError(ValueError):
@@ -609,18 +610,18 @@ class Plan(Record):
     def compile(self) -> "Plan":
         """This plan compiled: rows loaded, sites and named interventions inlined, bundles loaded, sweeps
         expanded into points, every name resolved and every value's layout and dataset known."""
-        from .compiler import compile
+        from .compile import compile
         return compile(self)
 
     def dump(self, out: str) -> None:
         """A run's output directory: one file per save and `manifest.json`."""
-        from .output import dump
+        from ..output import dump
         dump(self, out)
 
     @classmethod
     def load(cls, out: str) -> "Plan":
         """The filled plan an output directory holds: the inverse of `dump`."""
-        from .output import load
+        from ..output import load
         return load(out)
 
     def write(self, path: str) -> None:
@@ -631,7 +632,7 @@ class Plan(Record):
 
     def table(self, *names: str, columns: list[str] | None = None) -> list[dict]:
         """The saved values `names` as rows, joined wide on their shared axes (see `output.table`)."""
-        from .output import table
+        from ..output import table
         return table(self, names, columns)
 
 

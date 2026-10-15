@@ -7,7 +7,7 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 import os
 
 from .cli import describe
-from .plan import Plan, name
+from .plan.model import Plan, name
 
 __all__ = ["Plan", "run", "describe"]
 
