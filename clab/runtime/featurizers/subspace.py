@@ -25,7 +25,12 @@ class Subspace(Kind):
             return
         assert k is not None
         generator = torch.Generator().manual_seed(seed or 0)
-        q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
+        threads = torch.get_num_threads()
+        torch.set_num_threads(1)             # a parallel QR's bits follow the thread count; one thread is any host's
+        try:
+            q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
+        finally:
+            torch.set_num_threads(threads)
         self.k, self.origin, self.theta = k, (q * r.diagonal().sign()).float(), torch.zeros(width, width)
         self.settle()
 
