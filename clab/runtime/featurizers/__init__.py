@@ -23,9 +23,9 @@ saying what made them: the kind and its `header` fields, the model, the site it 
 `layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
 saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
 fields and the model when the plan compiles, the site at every use, and `width` against the model's size
-before any forward. A header field a bundle leaves out is that field's default (the bundle was written
-before the field existed). A file with no clab header is its kind's to read or refuse: an `sae` reads a
-published one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
+before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
+keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
+`sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
 width; the run record lists it under `headerless`.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
@@ -39,7 +39,7 @@ rest is the protocol `Kind` declares, with a default for what a kind need not ha
 import functools
 import inspect
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Callable, ClassVar
+from typing import Any, Callable, ClassVar, Protocol, cast
 
 import torch
 from torch import Tensor
@@ -92,13 +92,9 @@ class Kind:
     training: bool = False
     seen: list[tuple[Tensor, Tensor]] | None = None
 
-    if TYPE_CHECKING:       # what a kind with coordinates defines; `modes` and `within` ask for it by name
-        def encode(self, h: Tensor) -> Tensor: ...
-        def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor: ...
-
     def __init_subclass__(cls) -> None:
         cls.kind = cls.__name__.lower()
-        for name in ("encode", "apply", "replace"):
+        for name in (*MODES, "replace"):
             if name in vars(cls):
                 setattr(cls, name, exact(vars(cls)[name]))
         registry.registers(KINDS, cls.kind)(cls)
@@ -123,6 +119,11 @@ class Kind:
         return getattr(cls, name)
 
     @classmethod
+    def writable(cls) -> bool:
+        """Whether an edit op runs in the kind's space: it has coordinates (`encode`) and a way back (`replace`)."""
+        return hasattr(cls, "encode") and hasattr(cls, "replace")
+
+    @classmethod
     def layout(cls, mode: str, dims: list[str]) -> list[str]:
         """The layout of what mode `mode` produces on a value laid out `dims`."""
         return MODES[mode]["layout"](cls.axis, dims)
@@ -133,8 +134,9 @@ class Kind:
         return tensors[cls.saves[0]].shape[0]
 
     @classmethod
-    def headerless(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
-        """The tensors of a file with no clab header, as an instance loads them; a kind that reads none refuses."""
+    def published(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
+        """The tensors of a published file (one with no clab header), as an instance loads them; a kind that
+        reads none refuses."""
         raise ValueError(f"{fields['file_path']} has no clab header; a {cls.kind} bundle is one clab wrote")
 
     # -- what the run calls ----------------------------------------------------------------------------------
@@ -152,11 +154,12 @@ class Kind:
     def within(self, h: Tensor, fn: Callable[[Tensor], Tensor], features: Tensor | None) -> Tensor:
         """`h` after `fn` ran on its coordinates, on the `features` it keeps (every one when None), and the change
         was written back; `new == z` gives `h` to the bit."""
+        space = cast(Writable, self)         # compile lets an edit run only in a `writable` kind's space
         with unautocast(h):
-            z = self.encode(h)
+            z = space.encode(h)
             index = None if features is None else features.to(z.device)
             new = fn(z if index is None else z.index_select(-1, index)).to(z.dtype)
-            return self.replace(h, z, new if index is None else z.index_copy(-1, index, new))
+            return space.replace(h, z, new if index is None else z.index_copy(-1, index, new))
 
     def settle(self) -> None:
         """Recompute what derives from the trained tensors (a subspace's basis), once per optimizer step rather
@@ -169,12 +172,12 @@ class Kind:
         """The instance's schedule at `epoch` of `epochs` (a gate's temperature)."""
 
     def scalar(self, name: str) -> Tensor:
-        """The scalar `name` a fit's objective may name (one of `scalars`)."""
+        """The scalar `name` a fit's objective may name (one of `scalars`); a kind refuses any other."""
         raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
         """How many coordinates the instance's space has."""
-        return self.encode(torch.zeros(1, self.width(self.tensors()))).shape[-1]
+        return self.mode("encode")(self, torch.zeros(1, self.width(self.tensors()))).shape[-1]
 
     def parameters(self) -> list[Tensor]:
         """The tensors a fit trains."""
@@ -183,6 +186,12 @@ class Kind:
     def tensors(self) -> dict[str, Tensor]:
         """The tensors its bundle holds."""
         return {name: getattr(self, name).detach() for name in self.saves}
+
+
+class Writable(Protocol):
+    """A kind with coordinates and a way back into the value (`Kind.writable`)."""
+    def encode(self, h: Tensor) -> Tensor: ...
+    def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor: ...
 
 
 def check(kind: str, fields: dict) -> None:

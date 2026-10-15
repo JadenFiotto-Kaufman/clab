@@ -19,11 +19,12 @@ class Sae(Kind):
     `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
     both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec) @ W_enc + b_enc`, or
     `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a write keeps its error term exactly.
-    `activation` is `relu` (`relu(pre)`), `jumprelu` (`pre * (pre > threshold)`, with the `threshold` a
+    `activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
     published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
     zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
     `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-    are checked against each other and the site's width, and nothing says what model it was trained on. Its
+    are checked against each other and the site's width, nothing says what model it was trained on, and the
+    document states its `activation` and `centered`, which have no default for it. Its
     scalars, over every vector the body's encodes of it saw in that run of the body: `reconstruction`, the
     mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
@@ -67,10 +68,16 @@ class Sae(Kind):
             raise ValueError(f"'topk' keeps k = {k} of {latents} latents; k is from 1 to latents")
 
     @classmethod
-    def headerless(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
+    def published(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
         """A published SAE's tensors: exactly `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`,
-        shaped for one width and one number of latents (and the document's `latents`, `k` and `activation`)."""
+        shaped for one width and one number of latents (and the document's `latents`, `k` and `activation`).
+        Nothing in the file says how it encodes, so the document states `activation` and `centered`; a
+        `threshold` is a JumpReLU's, and only a `jumprelu` loads one."""
         file = fields["file_path"]
+        unstated = [k for k in ("activation", "centered") if k not in fields]
+        if unstated:
+            raise ValueError(f"{file} is a published sae, which does not say how it encodes; state "
+                             f"{' and '.join(map(repr, unstated))}")
         expected = set(cls.saves) | ({"threshold"} & set(tensors))
         if set(tensors) != expected:
             raise ValueError(f"{file} has no clab header and holds {', '.join(sorted(tensors))}; a published sae "
@@ -87,8 +94,10 @@ class Sae(Kind):
             raise ValueError(f"{file} has {size['latents']} latents; this document says {latents}")
         if k is not None and not 0 < k <= size["latents"]:
             raise ValueError(f"{file} has {size['latents']} latents; 'topk' keeps k = {k} of them")
-        if fields.get("activation") == "jumprelu" and "threshold" not in tensors:
-            raise ValueError(f"{file} holds no threshold; a 'jumprelu' sae needs one")
+        if (fields["activation"] == "jumprelu") != ("threshold" in tensors):
+            raise ValueError(f"{file} holds no threshold; a 'jumprelu' sae needs one" if "threshold" not in tensors
+                             else f"{file} holds a JumpReLU threshold; its activation is 'jumprelu', not "
+                                  f"{fields['activation']!r}")
         return tensors
 
     def project(self) -> None:
@@ -102,6 +111,8 @@ class Sae(Kind):
                 torch.cat([z.reshape(-1, z.shape[-1]) for _, z in self.seen]))
 
     def scalar(self, name: str) -> Tensor:
+        if name not in self.scalars:
+            return super().scalar(name)
         h, z = self.seen_vectors()
         if name == "l1":
             return z.abs().mean()
@@ -112,7 +123,7 @@ class Sae(Kind):
         x = h - self.b_dec.to(h) if self.centered else h
         pre = x @ self.W_enc.to(h) + self.b_enc.to(h)
         if self.activation == "jumprelu":
-            return pre * (pre > self.threshold.to(h))
+            return torch.relu(pre) * (pre > self.threshold.to(h))
         if self.activation == "topk":
             assert self.k is not None
             top = pre.topk(self.k, dim=-1)

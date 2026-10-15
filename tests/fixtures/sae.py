@@ -11,7 +11,8 @@ from safetensors.torch import save
 
 HEADER = {"format": "clab/1", "kind": "sae", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
           "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32",
-          "component": "layer_output", "layer": "0", "width": "16", "document": "sae"}
+          "component": "layer_output", "layer": "0", "width": "16", "document": "sae", "activation": "relu",
+          "centered": "true"}
 
 if __name__ == "__main__":
     g = torch.Generator().manual_seed(0)

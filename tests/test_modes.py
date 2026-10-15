@@ -42,7 +42,7 @@ def test_apply_is_each_kinds_version_of_the_value():
 
 def test_encode_is_the_coordinates_on_the_kinds_axis():
     for kind in ("subspace", "pca", "sae", "gate"):
-        assert torch.equal(made(kind).call("encode", H, {}), made(kind).encode(H))
+        assert torch.equal(made(kind).call("encode", H, {}), made(kind).mode("encode")(made(kind), H))
         assert featurizers.KINDS[kind].layout("encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "features"]
         assert featurizers.KINDS[kind].layout("apply", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "hidden_size"]
     assert featurizers.KINDS["linear"].layout("encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "classes"]
@@ -81,7 +81,7 @@ def test_a_read_through_apply_keeps_the_sites_layout_on_both_engines(engines):
 @pytest.mark.parametrize("make, message", [
     (lambda: reconstructed("decode"), r"steps\.base\.reads\.recon\.ops\[0\]: featurizer 'dictionary': kind 'sae' has "
                                       r"no mode 'decode'; its modes: encode, apply"),
-    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': 'Sae\.apply' takes no 'scale'; its arguments: "
+    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': an sae's `apply` takes no 'scale'; its arguments: "
                                        r"none"),
 ])
 def test_a_mode_or_argument_the_kind_lacks_is_refused_at_compile(make, message):

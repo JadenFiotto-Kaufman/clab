@@ -145,7 +145,7 @@ def test_a_pca_encodes_its_mean_as_zero():
     g = torch.Generator().manual_seed(0)
     bundle = {"basis": torch.linalg.qr(torch.randn(16, 4, generator=g))[0], "mean": torch.randn(16, generator=g)}
     f = featurizers.make("pca", {"k": 4, "file_path": "x"}, 16, bundle, None, None)
-    assert torch.equal(f.encode(bundle["mean"][None]), torch.zeros(1, 4))
+    assert torch.equal(f.call("encode", bundle["mean"][None], {}), torch.zeros(1, 4))
 
 
 def test_a_fit_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):

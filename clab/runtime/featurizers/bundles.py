@@ -10,6 +10,9 @@ from torch import Tensor
 
 from . import FORMAT, KINDS
 
+# The keys every clab header holds beside `format` and its kind's own fields (`header`, below, writes them).
+OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "layer", "width", "document")
+
 
 def header(kind: str, fields: dict, model: Any, labels: list | None = None, site: Any = None,
            width: int | None = None, document: str | None = None) -> dict[str, str]:
@@ -32,8 +35,9 @@ def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = N
          ) -> tuple[dict[str, Tensor], dict[str, str] | None]:
     """The tensors and header of the bundle `fields["file_path"]` names under `root`: exactly the tensors the
     kind's bundle holds, and the header checked key by key against the featurizer that loads it and the
-    plan's `model`; a header field the file leaves out is that field's default. A file with no clab header
-    (no `format`) is the kind's to read (`Kind.headerless`), and has no header."""
+    plan's `model`. A file whose `format` is not clab's is a published one, the kind's to read
+    (`Kind.published`), and has no header; one that carries clab's header keys under another format is
+    refused."""
     file = os.path.join(root, fields["file_path"])
     if not os.path.exists(file):
         raise ValueError(f"{fields['file_path']} does not exist under the corpus root; run the document that "
@@ -45,14 +49,18 @@ def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = N
     if points:
         raise ValueError(f"{fields['file_path']} holds one bundle per point of a sweep ({', '.join(points)}); a "
                          "featurizer loads one bundle, so run the document that writes it unswept")
-    if "format" not in found:
-        return KINDS[kind].headerless(tensors, fields), None
+    if not found.get("format", "").startswith("clab/"):
+        ours = [k for k in OURS if k in found]
+        if ours:
+            raise ValueError(f"{fields['file_path']} carries clab header keys ({', '.join(ours)}) but its format is "
+                             f"{found.get('format')!r}, not {FORMAT!r}; a clab bundle's header is whole, a published "
+                             "file carries none of them")
+        return KINDS[kind].published(tensors, fields), None
     if set(tensors) != set(KINDS[kind].saves):
         raise ValueError(f"{fields['file_path']} holds {', '.join(sorted(tensors))}; a {kind} bundle holds "
                          f"{', '.join(KINDS[kind].saves)}")
-    implied = {k: v for k, v in header(kind, {}, model, labels).items() if k in KINDS[kind].header}
     for key, value in header(kind, fields, model, labels).items():
-        if found.get(key, implied.get(key)) != value:
+        if found.get(key) != value:
             raise ValueError(f"{fields['file_path']}: header {key!r} is {found.get(key)!r}; this document "
                              f"expects {value!r}")
     return tensors, found

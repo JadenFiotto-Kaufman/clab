@@ -282,7 +282,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         if within is not None:
             featurizer_ref(cx, within, f"{at}.featurizer")
             kind = featurizers.KINDS[kind_of(plan, within)]
-            if not (hasattr(kind, "encode") and hasattr(kind, "replace")):
+            if not kind.writable():
                 fail(f"{at}.featurizer", f"{within!r} is a {kind.kind!r} featurizer, which has no coordinates to edit "
                      f"and write back into the value; call it with the featurizer op (modes: "
                      f"{', '.join(kind.modes())})")
@@ -325,7 +325,8 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     try:
         fn = ops.options(name, args, kind)
         if fn is not None:
-            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], repr(fn.__qualname__))
+            article = "an" if kind[0] in "aeiou" or kind == "sae" else "a"        # "an sae", said letter by letter
+            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], f"{article} {kind}'s `{fn.__name__}`")
     except ValueError as e:
         fail(path, f"featurizer {ref!r}: {e}")
     for key, p in ops.parameters(name, args, kind).items():

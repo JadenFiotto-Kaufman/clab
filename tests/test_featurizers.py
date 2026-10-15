@@ -13,6 +13,7 @@ from safetensors.torch import save_file
 from clab import Plan
 from clab.plan.model import PlanError, points
 from clab.runtime import featurizers
+from clab.runtime.featurizers.gate import Gate
 from clab.runtime.featurizers.sae import Sae
 from conftest import BATCH_SIZE, DOCUMENTS, ROOT, edited, same, stand_in
 
@@ -22,6 +23,8 @@ BASIS = torch.linalg.qr(torch.randn(16, 4, generator=G))[0]
 TENSORS = {"W_enc": torch.randn(16, 32, generator=G), "b_enc": torch.randn(32, generator=G),
            "W_dec": torch.randn(32, 16, generator=G), "b_dec": torch.randn(16, generator=G)}
 THRESHOLD = torch.rand(32, generator=G)
+# What a document loading a published sae states, since the file does not say it.
+STATED = {"activation": "relu", "centered": True}
 
 
 def every_kind() -> dict[str, featurizers.Kind]:
@@ -44,9 +47,14 @@ def every_kind() -> dict[str, featurizers.Kind]:
 def outputs(f: featurizers.Kind, h: torch.Tensor) -> list[torch.Tensor]:
     """Everything a featurizer computes on a value: each of its modes, and an edit in its space written back."""
     out = [f.call(m, h, {}) for m in f.modes()]
-    if hasattr(f, "replace"):
+    if f.writable():
         out.append(f.within(h, lambda z: z * 2, torch.tensor([1, 2])))
     return out
+
+
+def mixed(z: torch.Tensor) -> torch.Tensor:
+    """An edit op that does a matmul: every coordinate replaced by a third of their sum."""
+    return z @ torch.ones(z.shape[-1], z.shape[-1], device=z.device) / 3
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
@@ -62,7 +70,7 @@ def test_featurizer_math_runs_on_the_values_device():
             torch.testing.assert_close(a.cpu(), b, atol=1e-5, rtol=1e-5)
         assert all(t.device.type == "cpu" for t in f.tensors().values()), name
     sae = every_kind()["sae"]
-    sae.seen = [(h, sae.encode(h))]
+    sae.seen = [(h, sae.call("encode", h, {}))]
     assert sae.scalar("reconstruction").device == h.device
 
 
@@ -77,37 +85,59 @@ def test_featurizer_math_inside_autocast_is_the_same_bits_as_outside():
             inside = outputs(f, H)
         assert same(inside, outside), name
     sae = every_kind()["sae"]
-    sae.seen = [(H, sae.encode(H))]
+    sae.seen = [(H, sae.call("encode", H, {}))]
     outside = sae.scalar("reconstruction")
     with torch.autocast("cpu", dtype=torch.bfloat16):
         assert torch.equal(sae.scalar("reconstruction"), outside)
 
 
+def test_an_edit_in_a_featurizers_space_runs_outside_autocast_too():
+    """`within` turns autocast off for the edit op as well: a matmul in a gate's space (whose own math has none)
+    gives the bits inside an enabled autocast region that it gives outside."""
+    gate = Gate(16, bundle={"theta": torch.linspace(-1, 1, 16)})
+    outside = gate.within(H, mixed, None), gate.within(H, mixed, torch.tensor([1, 2, 5]))
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        assert mixed(H).dtype == torch.bfloat16                         # the region is on
+        inside = gate.within(H, mixed, None), gate.within(H, mixed, torch.tensor([1, 2, 5]))
+    assert same(inside, outside)
+
+
 def test_the_published_activations_are_their_formulas():
-    """relu (the default) subtracts `b_dec` first; jumprelu keeps a pre-activation above its threshold and here
-    does not subtract (`centered: false`); topk keeps the relu of the `k` largest pre-activations of each vector."""
+    """relu (the default) subtracts `b_dec` first; topk keeps the relu of the `k` largest pre-activations of each
+    vector; jumprelu is the relu of a pre-activation above its threshold, so a negative pre-activation above a
+    negative threshold is zero, not itself."""
     kinds = every_kind()
     pre = (H - TENSORS["b_dec"]) @ TENSORS["W_enc"] + TENSORS["b_enc"]
-    assert torch.equal(kinds["sae"].encode(H), torch.relu(pre))
-    raw = H @ TENSORS["W_enc"] + TENSORS["b_enc"]
-    assert torch.equal(kinds["jumprelu"].encode(H), raw * (raw > THRESHOLD))
-    topk = kinds["topk"].encode(H)
+    assert torch.equal(kinds["sae"].call("encode", H, {}), torch.relu(pre))
+    jump = Sae(1, file_path="x", activation="jumprelu", centered=False,
+               bundle={"W_enc": torch.zeros(1, 3), "b_enc": torch.tensor([-0.5, 0.5, -2.0]), "W_dec": torch.zeros(3, 1),
+                       "b_dec": torch.zeros(1), "threshold": torch.tensor([-1.0, 0.0, -1.0])})
+    assert jump.encode(torch.zeros(1, 1)).tolist() == [[0.0, 0.5, 0.0]]
+    topk = kinds["topk"].call("encode", H, {})
     assert ((topk != 0).sum(-1) <= 3).all()
     kept = pre.topk(3, dim=-1)
     assert torch.equal(topk.gather(-1, kept.indices), torch.relu(kept.values))
     for name in ("jumprelu", "topk"):
         f = kinds[name]
-        assert torch.equal(f.call("apply", H, {}), f.encode(H) @ TENSORS["W_dec"] + TENSORS["b_dec"])
+        assert torch.equal(f.call("apply", H, {}), f.call("encode", H, {}) @ TENSORS["W_dec"] + TENSORS["b_dec"])
         assert torch.equal(f.within(H, lambda z: z, None), H)
 
 
-def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = None) -> Plan:
-    """sae_published_jumprelu with its dictionary loaded from `tensors`, written with no header, declared as
-    `featurizer`, at `site`."""
+def test_a_scalar_the_kind_lacks_is_refused_by_name():
+    kinds = every_kind()
+    for name in ("gate", "sae"):
+        with pytest.raises(ValueError, match=rf"a '{name}' featurizer has no scalar 'loss'"):
+            kinds[name].scalar("loss")
+
+
+def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = None,
+              metadata: dict | None = None) -> Plan:
+    """sae_published_jumprelu with its dictionary loaded from `tensors`, written with `metadata` (none by
+    default), declared as `featurizer`, at `site`."""
     os.makedirs(tmp_path / "documents" / "artifacts", exist_ok=True)
     if not os.path.exists(tmp_path / "data"):
         os.symlink(os.path.join(ROOT, "data"), tmp_path / "data")
-    save_file(tensors, str(tmp_path / "documents" / "artifacts" / "published.safetensors"))
+    save_file(tensors, str(tmp_path / "documents" / "artifacts" / "published.safetensors"), metadata=metadata)
     with open(os.path.join(DOCUMENTS, "sae_published_jumprelu.json")) as f:
         doc = json.load(f)
     doc["featurizers"]["dictionary"] = {"kind": "sae", "file_path": "documents/artifacts/published.safetensors",
@@ -117,16 +147,25 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
 
 
 @pytest.mark.parametrize("tensors, featurizer, message", [
-    ({**TENSORS, "W_gate": TENSORS["W_enc"].clone()}, {},
+    ({**TENSORS, "W_gate": TENSORS["W_enc"].clone()}, STATED,
      r"published\.safetensors has no clab header and holds W_dec, W_enc, W_gate, b_dec, b_enc; a published sae "
      r"holds W_enc, W_dec, b_enc, b_dec, threshold \(threshold optional\)"),
-    ({**TENSORS, "b_enc": torch.zeros(31)}, {},
+    ({**TENSORS, "b_enc": torch.zeros(31)}, STATED,
      r"published\.safetensors: b_enc is \[31\]; with W_enc \[16, 32\] it is \[latents 32\]"),
-    ({**TENSORS, "W_dec": torch.zeros(32, 15)}, {},
+    ({**TENSORS, "W_dec": torch.zeros(32, 15)}, STATED,
      r"W_dec is \[32, 15\]; with W_enc \[16, 32\] it is \[latents 32, width 16\]"),
-    (TENSORS, {"activation": "jumprelu"}, r"published\.safetensors holds no threshold; a 'jumprelu' sae needs one"),
-    (TENSORS, {"latents": 64}, r"published\.safetensors has 32 latents; this document says 64"),
-    (TENSORS, {"activation": "topk", "k": 33}, r"has 32 latents; 'topk' keeps k = 33 of them"),
+    (TENSORS, {"activation": "jumprelu", "centered": False},
+     r"published\.safetensors holds no threshold; a 'jumprelu' sae needs one"),
+    ({**TENSORS, "threshold": THRESHOLD}, STATED,
+     r"published\.safetensors holds a JumpReLU threshold; its activation is 'jumprelu', not 'relu'"),
+    ({**TENSORS, "threshold": THRESHOLD}, {"activation": "topk", "k": 4, "centered": True},
+     r"holds a JumpReLU threshold; its activation is 'jumprelu', not 'topk'"),
+    (TENSORS, {**STATED, "latents": 64}, r"published\.safetensors has 32 latents; this document says 64"),
+    (TENSORS, {"activation": "topk", "k": 33, "centered": True}, r"has 32 latents; 'topk' keeps k = 33 of them"),
+    ({**TENSORS, "threshold": THRESHOLD}, {},
+     r"published\.safetensors is a published sae, which does not say how it encodes; state 'activation' and "
+     r"'centered'"),
+    (TENSORS, {"activation": "relu"}, r"does not say how it encodes; state 'centered'"),
 ])
 def test_a_published_file_with_other_tensors_or_shapes_is_refused_at_compile(tmp_path, tensors, featurizer, message):
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):
@@ -201,7 +240,8 @@ def test_a_trained_topk_dictionary_records_its_activation_and_loads_back(engines
                               points(plan.featurizers["dictionary"])[0].bundle, None, None)
     drawn = featurizers.make("sae", {"file_path": "x", "activation": "topk", "k": 4, "centered": False}, 16,
                              trained.results["fit.dictionary"], None, None)
-    assert torch.equal(loaded.encode(H), drawn.encode(H)) and ((loaded.encode(H) != 0).sum(-1) <= 4).all()
+    latents = loaded.call("encode", H, {})
+    assert torch.equal(latents, drawn.call("encode", H, {})) and ((latents != 0).sum(-1) <= 4).all()
     doc["featurizers"]["dictionary"]["activation"] = "relu"
     doc["featurizers"]["dictionary"].pop("k")
     with pytest.raises(PlanError, match=r"fit\.dictionary\.safetensors: header 'activation' is 'topk'; this "
@@ -209,11 +249,31 @@ def test_a_trained_topk_dictionary_records_its_activation_and_loads_back(engines
         Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
 
 
-def test_a_bundle_written_before_a_header_field_existed_reads_as_its_default():
-    """The committed fixture's header has no `activation` or `centered`: it loads as relu, centered."""
+def test_a_clab_bundles_activation_and_centering_are_its_headers():
+    """The committed fixture's header says relu and centered; a document that loads it states those or nothing,
+    and one that states otherwise is refused naming the key."""
     with safe_open(os.path.join(DOCUMENTS, "artifacts", "sae.safetensors"), "pt") as f:
-        assert "activation" not in (f.metadata() or {}) and "centered" not in (f.metadata() or {})
-    Plan(os.path.join(DOCUMENTS, "sae_feature_ablation.json")).compile()
-    stated = edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(
-        activation="relu", centered=True)).compile()
-    assert points(stated.featurizers["dictionary"])[0].header is not None
+        assert {k: (f.metadata() or {})[k] for k in ("activation", "centered")} == {"activation": "relu",
+                                                                                    "centered": "true"}
+    edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(STATED)).compile()
+    with pytest.raises(PlanError, match=r"sae\.safetensors: header 'centered' is 'true'; this document expects "
+                                        r"'false'"):
+        edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(centered=False)).compile()
+
+
+@pytest.mark.parametrize("metadata, featurizer, message", [
+    # A clab format: a clab bundle, its header checked whole.
+    ({"format": "clab/1"}, STATED, r"published\.safetensors: header 'kind' is None; this document expects 'sae'"),
+    # clab's header keys under another format: neither a clab bundle nor a published file.
+    ({"kind": "sae", "model.key": "gpt2", "layer": "0"}, STATED,
+     r"published\.safetensors carries clab header keys \(kind, model\.key, layer\) but its format is None, not "
+     r"'clab/1'; a clab bundle's header is whole, a published file carries none of them"),
+    # Unrelated metadata: a published file, read as one.
+    ({"format": "pt"}, {}, r"published\.safetensors is a published sae, which does not say how it encodes"),
+])
+def test_a_files_format_decides_whether_it_is_clabs_or_published(tmp_path, metadata, featurizer, message):
+    with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):
+        published(tmp_path, TENSORS, featurizer, metadata=metadata).compile()
+    if metadata == {"format": "pt"}:
+        plan = published(tmp_path, TENSORS, STATED, metadata=metadata).compile()
+        assert points(plan.featurizers["dictionary"])[0].header is None

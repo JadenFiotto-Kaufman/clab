@@ -411,9 +411,9 @@ saying what made them: the kind and its `header` fields, the model, the site it 
 `layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
 saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
 fields and the model when the plan compiles, the site at every use, and `width` against the model's size
-before any forward. A header field a bundle leaves out is that field's default (the bundle was written
-before the field existed). A file with no clab header is its kind's to read or refuse: an `sae` reads a
-published one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
+before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
+keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
+`sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
 width; the run record lists it under `headerless`.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
@@ -472,11 +472,12 @@ dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard 
 `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
 both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec) @ W_enc + b_enc`, or
 `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a write keeps its error term exactly.
-`activation` is `relu` (`relu(pre)`), `jumprelu` (`pre * (pre > threshold)`, with the `threshold` a
+`activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
 published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
 zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
 `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-are checked against each other and the site's width, and nothing says what model it was trained on. Its
+are checked against each other and the site's width, nothing says what model it was trained on, and the
+document states its `activation` and `centered`, which have no default for it. Its
 scalars, over every vector the body's encodes of it saw in that run of the body: `reconstruction`, the
 mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
