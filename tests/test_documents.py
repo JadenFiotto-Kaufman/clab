@@ -200,11 +200,12 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
         assert torch.equal(got["values"], expected) and len({tuple(v.tolist()) for v in expected}) == len(expected)
 
 
-@pytest.mark.parametrize("name", ["noise_write", "clamp_write", "cosine_metric"])
-def test_the_new_ops_run_remote_local_to_the_bit(engines, filled, name):
-    plan = plan_of(name)
-    there = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE, remote="local")
-    assert there.run.remote == "local" and same(there.results, filled[name, "nnterp"].results)
+@pytest.mark.parametrize("name", list(PLANS))
+def test_ndif_remote_local_is_nnterp_to_the_bit(engines, filled, name):
+    plan = PLANS[name]()
+    there = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
+    assert there.run.options == {"remote": "local"} and same(there.results, filled[name, "nnterp"].results)
+    assert there.run.positions == filled[name, "nnterp"].run.positions
 
 
 def test_the_logit_lens_at_the_last_layer_is_the_models_logits(engines):
@@ -329,10 +330,10 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
 
 def test_the_cli_runs_remote_local(tmp_path, filled):
     out = tmp_path / "steer"
-    assert main(["run", document("steer_renormalize"), "--remote", "local", "--batch-size", str(BATCH_SIZE),
-                 "--out", str(out)]) == 0
+    assert main(["run", document("steer_renormalize"), "--engine", "ndif", "-o", "remote=local", "--batch-size",
+                 str(BATCH_SIZE), "--out", str(out)]) == 0
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["run"]["remote"] == "local"
+    assert manifest["run"]["engine"] == "ndif" and manifest["run"]["options"] == {"remote": "local"}
     assert same(Plan.load(str(out)).results, filled["steer_renormalize", "nnterp"].results)
 
 

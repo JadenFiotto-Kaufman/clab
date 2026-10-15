@@ -5,21 +5,37 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 """
 
 import os
+from typing import TYPE_CHECKING
 
 from .cli import describe
 from .plan.model import Plan, name
 
+if TYPE_CHECKING:
+    from .engines import Engine
+
 __all__ = ["Plan", "run", "describe"]
 
 
-def run(plan: "Plan | str", engine="nnterp", out: str | None = None, batch_size: int = 8,
-        remote: bool | str = False) -> Plan:
-    """`Plan(path)` -> `compile` -> `execute` on `engine` (a registered name, or a loaded engine, so one
-    model serves many documents) -> `dump` into `out` (default `out/<document name>`). Returns the filled plan."""
-    from .engines import ENGINES
+def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None = None, batch_size: int = 8,
+        device: str | None = None, **options) -> Plan:
+    """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
+    Returns the filled plan. `engine` is a registered name, loaded on `device` (default `cpu`), or a loaded
+    engine, so one model serves many documents. Each of `options` goes where the engine declares it: to its
+    constructor if it loads with it (`device_map="auto"` for nnterp or hooks, `remote="local"` for ndif), to
+    `execute` if it runs with it. A loaded engine was placed and configured when it loaded: it takes run
+    options only, and refuses a `device` other than its own."""
+    from .engines import ENGINES, load, route
 
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
-    loaded = ENGINES[engine](compiled.model) if isinstance(engine, str) else engine
-    filled = loaded.execute(compiled, batch_size=batch_size, remote=remote)
+    if isinstance(engine, str):
+        loads, runs = route(ENGINES[engine], options) if engine in ENGINES else ({}, {})
+        loaded = load(engine, compiled.model, device or "cpu", **loads)          # refuses an unknown engine
+    else:
+        loads, runs = route(type(engine), options)
+        if (device is not None and device != engine.device) or loads:
+            raise ValueError(f"the loaded {engine.name} engine runs on {engine.device} with {engine.options}; device "
+                             "and the options it loads with are given when an engine loads")
+        loaded = engine
+    filled = loaded.execute(compiled, batch_size=batch_size, **runs)
     filled.dump(out or os.path.join("out", name(filled)))
     return filled

@@ -97,9 +97,11 @@ def stacked(record, values: list) -> Any:
     """A read's per-layer values as its value: the one, or under `layers` that stack, stacked layer-first."""
     if not address.stacks(record.site.layers):
         return values[0]
+    # Under a device_map the layers' values can live on different GPUs; they stack on the first's. (Not tested:
+    # this host has one GPU.)
     if isinstance(values[0], Tensor):
-        return torch.stack(values)
-    return {**values[0], "values": torch.stack([v["values"] for v in values])}
+        return torch.stack([v.to(values[0].device) for v in values])
+    return {**values[0], "values": torch.stack([v["values"].to(values[0]["values"].device) for v in values])}
 
 
 def joined(state: dict, name: str, step, parts: list[dict]) -> None:
@@ -116,8 +118,8 @@ def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: 
     """One layer of a prefill read in one batch: its entries when it is ragged, then its ops."""
     if positions.width(positions.parse(record.pos)) is None:
         keep = site["keep"]
-        value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
-                 "tok": site["tok"][keep]}
+        value = {"values": value[keep.to(value.device)],
+                 "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep], "tok": site["tok"][keep]}
     return with_ops(engine, plan, record, value, state, at, rows, site["tok"])
 
 

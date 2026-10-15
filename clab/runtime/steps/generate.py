@@ -135,6 +135,7 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
     rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
+    device = some.device if some is not None else None
 
     def at_position(i: int, p: int) -> Tensor:
         call = positions.call_of(p, len(encoded[i]["ids"]))
@@ -144,14 +145,14 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
         return by_call[call][i, 0]
 
     if (width := positions.width(pos)) is not None:
-        blank = torch.full((width, *rest), float("nan"), dtype=dtype)
+        blank = torch.full((width, *rest), float("nan"), dtype=dtype, device=device)
         value = torch.stack([blank if isinstance(got, str) else torch.stack([at_position(i, p) for p in got])
                              for i, got in enumerate(where)])
         places = torch.tensor([[-1] * width if isinstance(got, str) else got for got in where])
     else:
         kept = [(i, p) for i, got in enumerate(where) if not isinstance(got, str) for p in got]
         value = {"values": torch.stack([at_position(i, p) for i, p in kept]) if kept else
-                 torch.zeros((0, *rest), dtype=dtype),
+                 torch.zeros((0, *rest), dtype=dtype, device=device),
                  "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
                  "tok": torch.tensor([p for _, p in kept], dtype=torch.long)}
         places = None

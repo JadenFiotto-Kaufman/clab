@@ -117,8 +117,9 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
-    engine's loader untouched (`attn_implementation`, `device_map`, ...), and a loader refuses what it cannot
-    honor. The attention interior needs `attn_implementation: "eager"`."""
+    engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
+    the model runs (`device`, `device_map`) is a run option, not the document's. The attention interior needs
+    `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
@@ -547,16 +548,25 @@ class Axis(Record):
 
 
 class Run(Record):
-    """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
-    each dataset input tokenized and what each generate step's rows generated (token strings per row, under
-    the input or the step's name), and the position every read and write resolved to, per row (an index into
-    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
-    swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among:
-    a `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
+    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the
+    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
+    `options`), and every distribution installed on each side, by name, clab's with its commit: on the client
+    (`client`) and where the model is (`versions`: the server's, under `ndif`). `dtype` and `devices` are the
+    distinct dtypes and devices of the model's parameters there, in the order first met. `tokens` and
+    `positions` describe values without holding any: how each dataset input tokenized and what each generate
+    step's rows generated (token strings per row, under the input or the step's name), and the position every
+    read and write resolved to, per row (an index into the row's prompt tokens, then its generated ones;
+    `alignment_missing` for a row it does not reach). A swept step's are keyed by coordinate. `num_layers` is
+    the model's, which a site's `layers` select among: a `layers` axis's labels are
+    `positions.select(site.layers, num_layers)`."""
     engine: str
-    remote: bool | str
     batch_size: int
+    device: str | None
+    options: dict[str, Any] = {}
+    client: dict[str, str] = {}
     versions: dict[str, str] = {}
+    dtype: list[str] = []
+    devices: list[str] = []
     started: str = ""
     seconds: float = 0.0
     tokens: dict[str, Any] = {}

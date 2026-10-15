@@ -31,6 +31,7 @@ def preflight(engine, plan: Plan) -> dict:
     not say (or, with no header, whose tensors are not as wide), or with a `select` outside its features; and a
     trained featurizer used at no site.
     """
+    assert plan.run is not None
     refuse(engine, plan)
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])

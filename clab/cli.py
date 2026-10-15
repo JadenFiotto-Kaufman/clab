@@ -24,10 +24,10 @@ from pydantic import BaseModel, TypeAdapter
 from . import address, output
 from .plan import compile as compiler
 from .plan import model as plan
-from .registry import spell as spell_type
+from . import registry
 from .runtime import featurizers, ops
 
-WHAT = ("records", "steps", "ops", "components", "featurizers", "pos")
+WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
@@ -38,6 +38,20 @@ FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
          plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
          plan.Entry: "step"}
+
+
+def as_json(value: Any) -> str:
+    """A value as a document writes it: JSON (`true`, `null`, `"local"`), or as Python spells it where JSON
+    cannot."""
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return repr(value)
+
+
+def spell_type(annotation: Any, names: dict | None = None) -> str:
+    """A type as the tables spell it, a literal's values as JSON."""
+    return registry.spell(annotation, names, as_json)
 
 
 def spell(annotation: Any) -> str:
@@ -52,7 +66,7 @@ def fields(model: type[BaseModel]) -> list[str]:
             continue
         field = model.model_fields[name]
         text = f"{name}: {spell(field.annotation)}"
-        out.append(text if field.is_required() else f"{text} = {field.default!r}")
+        out.append(text if field.is_required() else f"{text} = {as_json(field.default)}")
     return out
 
 
@@ -89,7 +103,7 @@ def arguments(name: str) -> list[str]:
     out = []
     for key, p in ops.parameters(name).items():
         text = f"{key}: {spell_type(p.annotation)}"
-        out.append(text if p.default is p.empty else f"{text} = {p.default!r}")
+        out.append(text if p.default is p.empty else f"{text} = {as_json(p.default)}")
     takes_more = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(ops.OPS[name]).parameters.values())
     return out + ["..."] * takes_more
 
@@ -100,7 +114,7 @@ def modes(kind: str) -> list[str]:
     cls = featurizers.KINDS[kind]
     for m in cls.modes():
         fn = cls.mode(m)
-        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
                for k, p in featurizers.registry.spelled(fn, ("self", "h")).items()]
         produces = featurizers.MODES[m]["produces"].format(axis=cls.axis)
         out.append(f"`{m}`" + (f"({', '.join(own)})" if own else "") + f" gives {produces}"
@@ -156,9 +170,22 @@ def per_op(base: dict) -> dict:
     return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
 
 
+def run_options(name: str) -> dict[str, list[str]]:
+    """Engine `name`'s run options, each `key: type = default`: those it loads with (`device`, then its own)
+    and those it runs with (`batch_size`, then its own)."""
+    from .engines import ENGINES, options
+
+    cls: Any = ENGINES[name]
+    declared = options(name)
+    common = {"loads": {"device": inspect.signature(cls.__init__).parameters["device"]},
+              "runs": {"batch_size": inspect.signature(cls.execute).parameters["batch_size"]}}
+    return {side: [f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}"
+                   for k, p in {**common[side], **declared[side]}.items()] for side in ("loads", "runs")}
+
+
 def describe(what: str | None = None) -> str:
     """The format's tables, read off the code: one of `records`, `steps`, `ops`, `components`, `featurizers`,
-    `pos`, or all of them."""
+    `pos`, `engines`, or all of them."""
     sections = []
     if what in (None, "records"):
         sections.append("\n".join(["records:"] + [f"  {name.replace('`', '')}({', '.join(fields(model))})"
@@ -185,13 +212,21 @@ def describe(what: str | None = None) -> str:
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
         for name, cls in featurizers.KINDS.items():
-            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
                       for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
             lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
                       f"      modes: {'; '.join(m.replace('`', '') for m in modes(name))}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
         sections.append("pos:\n" + doc(plan.Pos))
+    if what in (None, "engines"):
+        from . import engines
+        lines = ["engines (`clab run --engine NAME --device D --batch-size N -o KEY=VALUE`):"]
+        for name, cls in engines.ENGINES.items():
+            given = run_options(name)
+            lines += [f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()),
+                      f"      loads with: {', '.join(given['loads'])}", f"      runs with: {', '.join(given['runs'])}"]
+        sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
 
@@ -240,11 +275,17 @@ def markdown() -> str:
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, cls in featurizers.KINDS.items():
-        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
+        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {as_json(p.default)}`")
                   for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
         listed = "; ".join(modes(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Modes: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
+    from . import engines
+    parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]
+    for name, cls in engines.ENGINES.items():
+        given = run_options(name)
+        parts += [f"### `{name}`\n", f"- Loads with: {', '.join(f'`{o}`' for o in given['loads'])}\n"
+                  f"- Runs with: {', '.join(f'`{o}`' for o in given['runs'])}\n\n" + doc(inspect.getmodule(cls)) + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",
@@ -252,14 +293,23 @@ def markdown() -> str:
     return "\n".join(parts)
 
 
+def how(run: "plan.Run") -> str:
+    """Where a run ran and with which engine options: `device cpu, device_map null`, or `device placed by the
+    server, remote true`."""
+    return f"device {run.device or 'placed by the server'}" + "".join(f", {k} {as_json(v)}"
+                                                                      for k, v in run.options.items())
+
+
 def show(filled: "plan.Plan") -> str:
-    """A filled plan as text: how it ran, then each result with the step that made it, its dims, its sweep
-    axes and its shape (per coordinate when swept)."""
+    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), then each result
+    with the step that made it, its dims, its sweep axes and its shape (per coordinate when swept)."""
     run = filled.run
     assert run is not None
-    lines = [f"{plan.name(filled)}: run on {run.engine}, remote {run.remote}, batch size {run.batch_size}, "
+    lines = [f"{plan.name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
-             "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
+             f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
+             f"  versions: clab {run.versions.get('clab')}, python {run.versions.get('python')} and "
+             f"{max(len(run.versions) - 2, 0)} more installed where the model was (the manifest lists them)"]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for name in filled.saves:
         entry = filled.steps[name.partition(".")[0]]
@@ -298,6 +348,17 @@ def tabulated(rows: list[dict], as_csv: bool) -> str:
     return buffer.getvalue().rstrip("\n")
 
 
+def option(text: str) -> tuple[str, Any]:
+    """A `-o key=value`: the value as JSON (`true`, `2`, `{"a": 1}`), else as the text it is (`auto`)."""
+    key, sep, value = text.partition("=")
+    if not sep or not key:
+        raise ValueError(f"-o {text!r}: an option is KEY=VALUE")
+    try:
+        return key, json.loads(value)
+    except json.JSONDecodeError:
+        return key, value
+
+
 def main(argv: list[str] | None = None) -> int:
     from .engines import ENGINES
 
@@ -307,8 +368,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("document")
     run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
-    run.add_argument("--remote", default="no", choices=("no", "local", "yes"))
     run.add_argument("--batch-size", type=int, default=8)
+    run.add_argument("--device", help="where the engine places the model (default cpu)")
+    run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
+                     help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
     look = commands.add_parser("show", help="print what a run's output directory holds")
     look.add_argument("out")
     rows = commands.add_parser("table", help="print saved values of a run's output directory as one table")
@@ -341,17 +404,24 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
+    from nnsight.intervention.backends.remote import RemoteError
+
     import clab
 
-    remote = {"no": False, "local": "local", "yes": True}[args.remote]
     name = os.path.splitext(os.path.basename(args.document))[0]
     out = args.out or os.path.join("out", name)
     try:
-        clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, remote=remote)
+        options = dict(option(text) for text in args.options)
+        filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
+                          device=args.device, **options)
     except (ValueError, NotImplementedError) as e:
         print(f"clab: {e}", file=sys.stderr)
         return 1
-    print(f"{name} on {args.engine} (batch size {args.batch_size}, remote {args.remote}) -> {out}")
+    except RemoteError as e:          # a refusal on the server comes home as nnsight's error, its last line the reason
+        print(f"clab: {(str(e).strip().splitlines() or [''])[-1]}", file=sys.stderr)
+        return 1
+    assert filled.run is not None
+    print(f"{name} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
     for key, d in described.items():

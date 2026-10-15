@@ -1,6 +1,7 @@
-"""What both engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
-there, the sizes), how a model block becomes a loader call, where a HuggingFace generation stops, a forward's
-or a generation's records grouped by site and by call, and where a write with an online scope lands."""
+"""What the engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
+there, the sizes), how a model block and the run options become a loader call, where a HuggingFace generation
+stops, a forward's or a generation's records grouped by site and by call, and where a write with an online
+scope lands."""
 
 from typing import Any, Callable, cast
 
@@ -41,13 +42,31 @@ def envoy(model, component: str, layer: int | None):
     return block if where == "layer" else getattr(block, where)
 
 
-# The model-block keys an engine cannot honor, and why: each engine places its own model, and `dtype` is the
-# block's one spelling of the dtype.
-OWNED = {"device": "the engine places its model itself", "device_map": "the engine places its model itself",
-         "dispatch": "the engine places its model itself", "torch_dtype": "the dtype is spelled `dtype`"}
+# The model-block keys an engine cannot honor, and why: where the model runs is a run option, and `dtype` is
+# the block's one spelling of the dtype.
+OWNED = {"device": "where the model runs is a run option: --device", "device_map": "where the model runs is a run "
+         "option: -o device_map=...", "dispatch": "the engine places its model itself",
+         "torch_dtype": "the dtype is spelled `dtype`"}
 
 
-def load(model, engine: str, call: Callable[[dict], Any]) -> Any:
+def placed(engine: str, device: str, device_map: str | None) -> dict:
+    """The loader's placement keys: `device_map` when given (it places the model, so `device` stays `cpu`),
+    else `device`."""
+    if device_map is None:
+        return {"device": device}
+    if device != "cpu":
+        raise ValueError(f"device: the {engine} engine cannot honor it beside device_map {device_map!r}, which "
+                         "places the model; give one of them")
+    return {"device_map": device_map}
+
+
+def inputs(batch: dict, keys: tuple, device: str | None) -> dict:
+    """The batch's `keys` on `device`; as they are where the engine does not place the model (an NDIF server,
+    whose model moves them itself)."""
+    return {k: batch[k] if device is None else batch[k].to(device) for k in keys}
+
+
+def build(model, engine: str, call: Callable[[dict], Any]) -> Any:
     """`call` with the model block's keys other than `key`, `revision` and `dtype`, as they are. A key in
     `OWNED` is refused by name, and one the loader rejects is reported as that key."""
     extra = dict(model.model_extra or {})

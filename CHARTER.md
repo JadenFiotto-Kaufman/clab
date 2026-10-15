@@ -93,9 +93,10 @@ anything unstated are yours):
 - A root `address.py` is the standard vocabulary of the locations clab
   allows.
 - The result of a run is the filled plan: every step's result slots filled
-  in place, swept steps as lists of points. `nnsight.save(plan)` at the end
-  of the session is the only thing that comes home. `saves` names which
-  values are kept in the plan; the rest are ephemeral cross-step state.
+  in place, swept steps as lists of points. The results and the run record,
+  saved at the end of the session, are the only things that come home,
+  never the plan; the client assigns them into its own plan. `saves` names
+  which values are kept in the plan; the rest are ephemeral cross-step state.
 - The output of a run is a directory: each saved value at the path its
   document gives, and a manifest at the root that mirrors the plan.
 

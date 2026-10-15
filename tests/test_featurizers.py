@@ -15,7 +15,7 @@ from clab.plan.model import PlanError, points
 from clab.runtime import featurizers
 from clab.runtime.featurizers.gate import Gate
 from clab.runtime.featurizers.sae import Sae
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, edited, same, stand_in
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
 
 G = torch.Generator().manual_seed(5)
 H = torch.randn(3, 2, 16, generator=G)
@@ -205,11 +205,11 @@ def test_a_published_file_has_no_header_and_a_clab_bundle_keeps_its_own():
 def test_a_published_dictionary_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
     def plan():
         return Plan(os.path.join(DOCUMENTS, "sae_published_jumprelu.json")).compile()
-    engine = engines("nnterp", plan().model)
-    local = engine.execute(plan(), batch_size=BATCH_SIZE).results
-    assert same(engine.execute(plan(), batch_size=BATCH_SIZE, remote="local").results, local)
-    came, trip = stand_in(engine, plan(), monkeypatch)
-    assert trip["by_reference"] and same(came.results, local)
+    local = engines("nnterp", plan().model).execute(plan(), batch_size=BATCH_SIZE).results
+    there = engines("ndif", plan().model, remote="local").execute(plan(), batch_size=BATCH_SIZE)
+    assert same(there.results, local)
+    came, trip = stand_in(engines, plan(), monkeypatch)
+    assert trip == TRIP and same(came.results, local)
 
 
 def topk_train(d):

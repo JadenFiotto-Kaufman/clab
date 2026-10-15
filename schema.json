@@ -484,7 +484,7 @@
   },
   "Model": {
    "additionalProperties": true,
-   "description": "The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the\nengine's loader untouched (`attn_implementation`, `device_map`, ...), and a loader refuses what it cannot\nhonor. The attention interior needs `attn_implementation: \"eager\"`.",
+   "description": "The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the\nengine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where\nthe model runs (`device`, `device_map`) is a run option, not the document's. The attention interior needs\n`attn_implementation: \"eager\"`.",
    "properties": {
     "key": {
      "title": "Key",
@@ -3149,26 +3149,40 @@
   },
   "Run": {
    "additionalProperties": false,
-   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A\nswept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among:\na `layers` axis's labels are `positions.select(site.layers, num_layers)`.",
+   "description": "How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the\nengine does not place the model, as on an NDIF server, and every engine option after its defaults in\n`options`), and every distribution installed on each side, by name, clab's with its commit: on the client\n(`client`) and where the model is (`versions`: the server's, under `ndif`). `dtype` and `devices` are the\ndistinct dtypes and devices of the model's parameters there, in the order first met. `tokens` and\n`positions` describe values without holding any: how each dataset input tokenized and what each generate\nstep's rows generated (token strings per row, under the input or the step's name), and the position every\nread and write resolved to, per row (an index into the row's prompt tokens, then its generated ones;\n`alignment_missing` for a row it does not reach). A swept step's are keyed by coordinate. `num_layers` is\nthe model's, which a site's `layers` select among: a `layers` axis's labels are\n`positions.select(site.layers, num_layers)`.",
    "properties": {
     "engine": {
      "title": "Engine",
      "type": "string"
     },
-    "remote": {
-     "anyOf": [
-      {
-       "type": "boolean"
-      },
-      {
-       "type": "string"
-      }
-     ],
-     "title": "Remote"
-    },
     "batch_size": {
      "title": "Batch Size",
      "type": "integer"
+    },
+    "device": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Device"
+    },
+    "options": {
+     "additionalProperties": true,
+     "default": {},
+     "title": "Options",
+     "type": "object"
+    },
+    "client": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "default": {},
+     "title": "Client",
+     "type": "object"
     },
     "versions": {
      "additionalProperties": {
@@ -3177,6 +3191,22 @@
      "default": {},
      "title": "Versions",
      "type": "object"
+    },
+    "dtype": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Dtype",
+     "type": "array"
+    },
+    "devices": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Devices",
+     "type": "array"
     },
     "started": {
      "default": "",
@@ -3215,8 +3245,8 @@
    },
    "required": [
     "engine",
-    "remote",
-    "batch_size"
+    "batch_size",
+    "device"
    ],
    "title": "Run",
    "type": "object"

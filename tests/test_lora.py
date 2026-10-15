@@ -13,7 +13,7 @@ from safetensors.torch import save_file
 from clab import Plan
 from clab.plan.model import PlanError, points
 from clab.runtime.featurizers.lora import Lora
-from conftest import BATCH_SIZE, bundle_header, edited, same, stand_in
+from conftest import BATCH_SIZE, TRIP, bundle_header, edited, same, stand_in
 from test_fit import TINY, corpus_copy
 
 G = torch.Generator().manual_seed(5)
@@ -52,9 +52,10 @@ def test_training_an_adapter_lowers_ce_the_same_everywhere(engines, monkeypatch)
     assert ce.shape == (20,) and ce[-1] < ce[0] and (ce[1:] < ce[:-1]).all()
     assert torch.equal(ce[-1], values["fit.train.ce"].mean())
     assert same(engines("hooks", lora_train().model).execute(lora_train(), batch_size=BATCH_SIZE).results, values)
-    assert same(engine.execute(lora_train(), batch_size=BATCH_SIZE, remote="local").results, values)
-    came, trip = stand_in(engine, lora_train(), monkeypatch)
-    assert trip["by_reference"] and trip["names"] == ["plan"] and same(came.results, values)
+    there = engines("ndif", lora_train().model, remote="local").execute(lora_train(), batch_size=BATCH_SIZE)
+    assert same(there.results, values)
+    came, trip = stand_in(engines, lora_train(), monkeypatch)
+    assert trip == TRIP and same(came.results, values)
     assert not values["fit.lora"]["B"].eq(0).all()
     assert all(p.grad is None for p in engine.model.parameters())
 
