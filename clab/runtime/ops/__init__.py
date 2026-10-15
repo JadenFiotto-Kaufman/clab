@@ -53,7 +53,6 @@ from ...plan.address import EXAMPLE_AXES, pos_axis
 from ...plan.registry import Featurizer, Tokens, Value
 from .. import featurizers
 
-
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
 # `eos`: the ids the generation `of` came from stops on.

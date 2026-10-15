@@ -31,16 +31,12 @@ instance, the value and the mode's own arguments.
 """
 
 import inspect
-import json
-import os
-from typing import Any, Callable, Literal, TypedDict
+from typing import Any, Callable
 
 import torch
-from safetensors import safe_open
 from torch import Tensor
 
 from ...plan import registry
-from ...plan.registry import Value
 
 SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"
@@ -89,243 +85,6 @@ def known(f: dict, table: dict, what: str) -> Callable:
     if f["kind"] not in table:
         raise ValueError(f"a {f['kind']!r} featurizer has no {what}; kinds with one: {', '.join(table)}")
     return table[f["kind"]]
-
-
-class Temperature(TypedDict):
-    start: float
-    end: float
-
-
-# -- subspace ------------------------------------------------------------------------------------------
-
-
-@kind(saves=("basis",), trains=("theta",), header=("k", "parametrization"), drawn=("k",))
-def subspace(width: int, k: int | None = None, parametrization: Literal["cayley"] = "cayley",
-             seed: int | None = None, file_path: str | None = None, bundle: dict | None = None) -> dict:
-    """A rank-`k` subspace: the first `k` columns of a rotation `origin @ cayley(theta)`. `origin` is a
-    Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains) starts at zero, so an
-    untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
-    `[width, k]` basis."""
-    if bundle is not None:
-        return {"kind": "subspace", "basis": bundle["basis"]}
-    assert k is not None
-    generator = torch.Generator().manual_seed(seed or 0)
-    q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
-    f = {"kind": "subspace", "k": k, "origin": (q * r.diagonal().sign()).float(), "theta": torch.zeros(width, width)}
-    subspace_settle(f)
-    return f
-
-
-@of(SETTLE, "subspace")
-def subspace_settle(f: dict) -> None:
-    skew = f["theta"] - f["theta"].T
-    eye = torch.eye(skew.shape[0], dtype=skew.dtype)
-    f["basis"] = (f["origin"] @ torch.linalg.solve(eye - skew, eye + skew))[:, :f["k"]]
-
-
-@of(ENCODE, "subspace")
-def subspace_encode(f: dict, h: Tensor) -> Tensor:
-    return h @ f["basis"].to(h.dtype)
-
-
-@of(APPLY, "subspace")
-def subspace_apply(f: dict, h: Tensor) -> Tensor:
-    """`h` projected onto the subspace."""
-    basis = f["basis"].to(h.dtype)
-    return h @ basis @ basis.T
-
-
-@of(REPLACE, "subspace")
-def subspace_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
-    return h + (new - z) @ f["basis"].to(h.dtype).T
-
-
-# -- gate ------------------------------------------------------------------------------------------------
-
-
-@kind(saves=("theta",), trains=("theta",))
-def gate(width: int, temperature: Temperature | None = None, file_path: str | None = None,
-         bundle: dict | None = None) -> dict:
-    """A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a fit trains it, hard
-    (θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
-    (default 1)."""
-    theta = bundle["theta"] if bundle is not None else torch.ones(width)
-    return {"kind": "gate", "theta": theta, "temperature": temperature,
-            "T": temperature["start"] if temperature else 1.0, "training": False}
-
-
-def mask(f: dict) -> Tensor:
-    """A gate's mask: soft while a fit trains it, hard when scored."""
-    return torch.sigmoid(f["theta"] / f["T"]) if f["training"] else (f["theta"] > 0).to(f["theta"].dtype)
-
-
-@of(ENCODE, "gate")
-def gate_encode(f: dict, h: Tensor) -> Tensor:
-    return h
-
-
-@of(APPLY, "gate")
-def gate_apply(f: dict, h: Tensor) -> Tensor:
-    """`h` times the mask: soft while a fit trains it, hard when scored."""
-    return h * mask(f).to(h.dtype)
-
-
-@of(REPLACE, "gate")
-def gate_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
-    return h + mask(f).to(h.dtype) * (new - h)
-
-
-@of(ANNEAL, "gate")
-def gate_anneal(f: dict, epoch: int, epochs: int) -> None:
-    """Linear from the temperature's start at the first epoch to its end at the last."""
-    if f["temperature"]:
-        t = f["temperature"]
-        f["T"] = t["start"] + (t["end"] - t["start"]) * (epoch / (epochs - 1) if epochs > 1 else 0.0)
-
-
-SCALARS["gate"] = {"mask": lambda f: torch.sigmoid(f["theta"] / f["T"]).mean()}
-
-
-# -- pca ---------------------------------------------------------------------------------------------------
-
-
-@kind(saves=("basis", "mean"), header=("k",))
-def pca(width: int, file_path: str, k: int | None = None, bundle: dict | None = None) -> dict:
-    """The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
-    coordinates are centred on the mean."""
-    assert bundle is not None
-    return {"kind": "pca", "basis": bundle["basis"], "mean": bundle["mean"]}
-
-
-@of(ENCODE, "pca")
-def pca_encode(f: dict, h: Tensor) -> Tensor:
-    return (h - f["mean"].to(h.dtype)) @ f["basis"].to(h.dtype)
-
-
-@of(APPLY, "pca")
-def pca_apply(f: dict, h: Tensor) -> Tensor:
-    """`h` projected onto the principal directions through the mean: `mean + (h - mean) B Bᵀ`."""
-    mean, basis = f["mean"].to(h.dtype), f["basis"].to(h.dtype)
-    return mean + (h - mean) @ basis @ basis.T
-
-
-@of(REPLACE, "pca")
-def pca_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
-    return h + (new - z) @ f["basis"].to(h.dtype).T
-
-
-# -- sae ---------------------------------------------------------------------------------------------------
-
-
-@kind(saves=("W_enc", "b_enc", "W_dec", "b_dec"), trains=("W_enc", "b_enc", "W_dec", "b_dec"), header=("latents",),
-      drawn=("latents",))
-def sae(width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
-        bundle: dict | None = None) -> dict:
-    """A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
-    dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
-    `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
-    both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
-    error term exactly. Its scalars, over every vector the body's encodes of it saw in that run of the body:
-    `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
-    if bundle is not None:
-        return {"kind": "sae", **bundle}
-    assert latents is not None
-    generator = torch.Generator().manual_seed(seed or 0)
-    w_dec = torch.randn(latents, width, generator=generator)
-    return {"kind": "sae", "W_enc": torch.randn(width, latents, generator=generator) / width ** 0.5,
-            "b_enc": torch.zeros(latents), "W_dec": w_dec / w_dec.norm(dim=1, keepdim=True), "b_dec": torch.zeros(width)}
-
-
-@of(PROJECT, "sae")
-def sae_project(f: dict) -> None:
-    f["W_dec"].div_(f["W_dec"].norm(dim=1, keepdim=True))
-
-
-def seen(f: dict) -> tuple[Tensor, Tensor]:
-    """The vectors (`[n, width]`) and latents the body's encodes of `f` saw in this run of the body."""
-    if not f.get("seen"):
-        raise ValueError("an sae's scalars are over what the body's encodes of it saw; this body has none")
-    return (torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in f["seen"]]),
-            torch.cat([z.reshape(-1, z.shape[-1]) for _, z in f["seen"]]))
-
-
-def sae_reconstruction(f: dict) -> Tensor:
-    h, z = seen(f)
-    return (h - (z @ f["W_dec"].to(h.dtype) + f["b_dec"].to(h.dtype))).pow(2).sum(-1).mean()
-
-
-def sae_l1(f: dict) -> Tensor:
-    return seen(f)[1].abs().mean()
-
-
-SCALARS["sae"] = {"reconstruction": sae_reconstruction, "l1": sae_l1}
-
-
-@of(ENCODE, "sae")
-def sae_encode(f: dict, h: Tensor) -> Tensor:
-    return torch.relu((h - f["b_dec"].to(h.dtype)) @ f["W_enc"].to(h.dtype) + f["b_enc"].to(h.dtype))
-
-
-@of(APPLY, "sae")
-def sae_apply(f: dict, h: Tensor) -> Tensor:
-    """`h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term."""
-    return sae_encode(f, h) @ f["W_dec"].to(h.dtype) + f["b_dec"].to(h.dtype)
-
-
-@of(REPLACE, "sae")
-def sae_replace(f: dict, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
-    return h + (new - z) @ f["W_dec"].to(h.dtype)
-
-
-# -- linear -------------------------------------------------------------------------------------------------
-
-
-@kind(saves=("W", "b"), trains=("W", "b"), axis="classes", header=("classes",))
-def linear(width: int, classes: str, labels: list, file_path: str | None = None, bundle: dict | None = None) -> dict:
-    """A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
-    the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
-    those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
-    read in mode `encode` and never written through."""
-    if bundle is not None:
-        return {"kind": "linear", "classes": labels, "W": bundle["W"], "b": bundle["b"]}
-    return {"kind": "linear", "classes": labels, "W": torch.zeros(width, len(labels)), "b": torch.zeros(len(labels))}
-
-
-@of(ENCODE, "linear")
-def linear_encode(f: dict, h: Tensor) -> Tensor:
-    return h @ f["W"].to(h.dtype) + f["b"].to(h.dtype)
-
-
-# -- lora --------------------------------------------------------------------------------------------------
-
-
-@kind(saves=("A", "B"), trains=("A", "B"), header=("rank", "alpha"), drawn=("rank", "alpha"))
-def lora(width: int, rank: int | None = None, alpha: float | None = None, seed: int | None = None,
-         file_path: str | None = None, bundle: dict | None = None, header: dict | None = None) -> dict:
-    """A low-rank adapter, `A` `[width, rank]` and `B` `[rank, width]` at scale `alpha / rank`: loaded from its
-    bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha` one a fit trains, drawn
-    from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
-    no coordinates, so its one mode is `apply`, and no edit runs in its space."""
-    if bundle is not None:
-        assert header is not None
-        return {"kind": "lora", "A": bundle["A"], "B": bundle["B"],
-                "scale": float(header["alpha"]) / int(header["rank"])}
-    assert rank is not None and alpha is not None
-    generator = torch.Generator().manual_seed(seed or 0)
-    return {"kind": "lora", "A": torch.randn(width, rank, generator=generator) / width ** 0.5,
-            "B": torch.zeros(rank, width), "scale": alpha / rank}
-
-
-@of(APPLY, "lora")
-def lora_apply(f: dict, h: Tensor, with_: Value | None = None) -> Tensor:
-    """`h + (alpha/rank) (x A) B`: `x` is `h`, or `with` (a value at the same positions, from another site
-    of the same forward: an o_proj adapter reads `attention_premix` and applies at `attention_output`), its
-    axes after the positions flattened into the adapter's width. The addition lands on the live value."""
-    x = h if with_ is None else with_.flatten(h.dim() - 1).to(h.dtype)
-    return h + f["scale"] * ((x @ f["A"].to(h.dtype)) @ f["B"].to(h.dtype))
-
-
-# -- what every kind shares ------------------------------------------------------------------------------
 
 
 def check(kind: str, fields: dict) -> None:
@@ -444,47 +203,11 @@ def width(kind: str, tensors: dict[str, Tensor]) -> int:
     return tensors[DECLARED[kind]["saves"][0]].shape[0]
 
 
-# -- bundles ---------------------------------------------------------------------------------------------
-
-
-def header(kind: str, fields: dict, model: Any, labels: list | None = None, site: Any = None,
-           width: int | None = None, document: str | None = None) -> dict[str, str]:
-    """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
-    list), the model, and, when written, the site it was used at, its width and the document's name."""
-    params = inspect.signature(KINDS[kind]).parameters
-    given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
-    # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
-    own = {k: json.dumps(v) if isinstance(v, list) else str(int(v)) if isinstance(v, float) and v.is_integer()
-           else str(v) for k in DECLARED[kind]["header"] if (v := given[k]) is not None}
-    found = {"format": FORMAT, "kind": kind, **own, "model.key": model.key, "model.revision": model.revision,
-             "model.dtype": model.dtype}
-    if site is not None:
-        found.update({"component": site.component, "layer": str(site.layers), "width": str(width),
-                      "document": str(document)})
-    return found
-
-
-def bundle(root: str, kind: str, fields: dict, model: Any, labels: list | None = None
-           ) -> tuple[dict[str, Tensor], dict[str, str]]:
-    """The tensors and header of the bundle `fields["file_path"]` names under `root`: exactly the tensors the
-    kind's bundle holds, and the header checked key by key against the featurizer that loads it and the
-    plan's `model`."""
-    file = os.path.join(root, fields["file_path"])
-    if not os.path.exists(file):
-        raise ValueError(f"{fields['file_path']} does not exist under the corpus root; run the document that "
-                         "writes it first")
-    with safe_open(file, "pt") as f:
-        found = dict(sorted((f.metadata() or {}).items()))
-        tensors = {k: f.get_tensor(k) for k in f.keys()}
-    points = sorted({k.rpartition("/")[0] for k in tensors if "/" in k})
-    if points:
-        raise ValueError(f"{fields['file_path']} holds one bundle per point of a sweep ({', '.join(points)}); a "
-                         "featurizer loads one bundle, so run the document that writes it unswept")
-    if set(tensors) != set(DECLARED[kind]["saves"]):
-        raise ValueError(f"{fields['file_path']} holds {', '.join(sorted(tensors))}; a {kind} bundle holds "
-                         f"{', '.join(DECLARED[kind]['saves'])}")
-    for key, value in header(kind, fields, model, labels).items():
-        if found.get(key) != value:
-            raise ValueError(f"{fields['file_path']}: header {key!r} is {found.get(key)!r}; this document "
-                             f"expects {value!r}")
-    return tensors, found
+# The kinds register in this order, and `describe` and FORMAT.md list them in it.
+from .subspace import subspace  # noqa: E402,F401
+from .gate import gate, mask  # noqa: E402,F401
+from .pca import pca  # noqa: E402,F401
+from .sae import sae  # noqa: E402,F401
+from .linear import linear  # noqa: E402,F401
+from .lora import lora  # noqa: E402,F401
+from .bundle import bundle, header  # noqa: E402,F401
