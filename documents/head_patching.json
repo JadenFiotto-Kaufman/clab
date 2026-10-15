@@ -7,7 +7,7 @@
   },
   "data": {"pairs": {"path": "weekdays/train"}},
   "sites": {
-    "target": {"component": "attention_premix", "layers": 0, "select": {"num_heads": {"sweep": [[0], [1], [2], [3]]}}},
+    "target": {"component": "attention_premix", "layers": 0, "select": {"num_heads": {"sweep": [0, 1, 2, 3]}}},
     "head": {"component": "lm_head_output"}
   },
   "steps": {

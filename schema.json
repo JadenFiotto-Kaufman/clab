@@ -514,7 +514,7 @@
   },
   "Op": {
    "title": "Op",
-   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer\nthe op calls.",
+   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": <selector>}`, among the featurizer's features, as a site's) narrows it to some of them. On\nthe `featurizer` op it names the featurizer the op calls.",
    "oneOf": [
     {
      "type": "object",
@@ -540,10 +540,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -603,10 +616,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -676,10 +702,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -739,10 +778,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -799,10 +851,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -848,10 +913,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -897,10 +975,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -960,10 +1051,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1009,10 +1113,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1079,10 +1196,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1148,10 +1278,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1208,10 +1351,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1282,10 +1438,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1367,10 +1536,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1441,10 +1623,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1515,10 +1710,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1589,10 +1797,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1652,10 +1873,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1715,10 +1949,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1775,10 +2022,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1824,10 +2084,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1883,10 +2156,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -1953,10 +2239,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -2036,10 +2335,23 @@
          "additionalProperties": {
           "oneOf": [
            {
-            "items": {
-             "type": "integer"
-            },
-            "type": "array"
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
            },
            {
             "$ref": "#/$defs/Sweep"
@@ -3359,7 +3671,7 @@
   },
   "Site": {
    "additionalProperties": false,
-   "description": "A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that\nlayer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers\nit picks: `[0, 3, 7]` is three, `\"-2:\"` the last two) on a block's component, and `select`\n(`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens.",
+   "description": "A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that\nlayer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers\nit picks: `[0, 3, 7]` is three, `\"-2:\"` the last two) on a block's component, and `select`\n(`{<axis>: <selector>}`, which Components describes).",
    "properties": {
     "component": {
      "enum": [
@@ -3429,10 +3741,23 @@
        "additionalProperties": {
         "oneOf": [
          {
-          "items": {
-           "type": "integer"
-          },
-          "type": "array"
+          "anyOf": [
+           {
+            "type": "integer"
+           },
+           {
+            "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+            "type": "string"
+           },
+           {
+            "items": {
+             "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+           }
+          ]
          },
          {
           "$ref": "#/$defs/Sweep"

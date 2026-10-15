@@ -93,7 +93,7 @@ def test_head_patching_finds_layer_12_head_28(filled, kind):
     results = filled["real/head_patching", kind].results
     diff = {point: v.item() for point, v in results["logit_diff"].items()}
     best = max(diff, key=lambda point: diff[point])
-    assert best == (12, (28,)) and abs(diff[best] - 0.054) < 1e-3 and results["iia"][best].item() == 0.5
+    assert best == (12, 28) and abs(diff[best] - 0.054) < 1e-3 and results["iia"][best].item() == 0.5
     assert abs(statistics.median(diff.values()) + 2.403) < 1e-3
     assert [point for point, v in results["iia"].items() if v.item() > 0] == [best]
 
@@ -101,7 +101,7 @@ def test_head_patching_finds_layer_12_head_28(filled, kind):
 def test_pattern_patching_moves_nothing(filled):
     results = filled["real/pattern_patching", "nnterp"].results
     diff = {point: v.item() for point, v in results["logit_diff"].items()}
-    assert abs(diff[(28,)] + 2.396) < 1e-3 and abs(statistics.median(diff.values()) + 2.403) < 1e-3
+    assert abs(diff[28] + 2.396) < 1e-3 and abs(statistics.median(diff.values()) + 2.403) < 1e-3
     assert all(v.item() == 0.0 for v in results["iia"].values())
 
 

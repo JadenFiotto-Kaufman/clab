@@ -33,10 +33,10 @@ different layout (logits from a residual stream, tokens from logits, text from i
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
 dataset column, resolved through the value's own vocabulary: one token per row against logits, or one of a
 probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
-arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
-delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
+featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are arguments
+of every op: the op runs on the value's coordinates in that featurizer's space (on the features
+`{"select": {"features": <selector>}}` keeps; an operand is laid out on them) and the change is written back
+as a delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
 instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
 version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
 write, an operand may name a read of the same forward at a site the forward reaches before the write's

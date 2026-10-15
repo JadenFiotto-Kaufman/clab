@@ -156,10 +156,10 @@ class Site(Record):
     """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
     layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
     it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-    (`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens."""
+    (`{<axis>: <selector>}`, which Components describes)."""
     component: str = Field(json_schema_extra={"enum": list(address.COMPONENTS)})
     layers: Swept[Selector] | None = None
-    select: dict[str, Swept[list[int]]] | None = None
+    select: dict[str, Swept[Selector]] | None = None
 
     @model_validator(mode="after")
     def _narrowing(self):
@@ -173,8 +173,9 @@ class Site(Record):
         for axis, index in (self.select or {}).items():
             if axis not in valid:
                 raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
-            if index == []:
-                raise ValueError(f"select {axis}: an empty list selects nothing")
+            if axis == "key" and not isinstance(index, Sweep) and not positions.keyed(index):
+                raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
+                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\")")
         return self
 
 
@@ -294,23 +295,21 @@ class Pos(Record):
 class Op(Record):
     """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
     run on the value's coordinates in that featurizer's space, the change written back; `select`
-    (`{"features": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer
-    the op calls."""
+    (`{"features": <selector>}`, among the featurizer's features, as a site's) narrows it to some of them. On
+    the `featurizer` op it names the featurizer the op calls."""
     model_config = ConfigDict(extra="allow")
     op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     featurizer: str | None = None
-    select: dict[str, Swept[list[int]]] | None = None
+    select: dict[str, Swept[Selector]] | None = None
 
     @model_validator(mode="after")
     def _arguments(self):
         ops.check(self.op, arguments(self))
         if self.select is not None and space(self) is None:
             raise ValueError("select on an op narrows a featurizer's space; name the 'featurizer' it runs in")
-        for axis, index in (self.select or {}).items():
+        for axis in self.select or {}:
             if axis != "features":
                 raise ValueError(f"a featurizer's space has no axis {axis!r} to select; its axes: features")
-            if index == []:
-                raise ValueError(f"select {axis}: an empty list selects nothing")
         return self
 
 

@@ -20,15 +20,15 @@ def preflight(engine, plan: Plan) -> dict:
     `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
     each substituted dataset's rows under the body's name for it.
 
-    Refuses by name (`<step>.<record>`): a component the engine does not serve; a layer or a `select`
-    outside the model's sizes (on `key`, outside the input's shortest row); a generate option its
-    `generate` does not take, or one in `FIXED` at another value; a position that does not fit some row's
-    scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
-    one token on some row; a write whose operand was selected at a different width or narrowing; a write to
-    a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
-    input that does not tokenize to the same length on every row, which would misalign the keys; a `pca`
-    over no more vectors than its `k`; a featurizer used at two widths, at a width its bundle's header does
-    not say (or, with no header, whose tensors are not as wide), or with a `select` outside its features; and a
+    Refuses by name (`<step>.<record>`): a component the engine does not serve; a layer or a `select` outside the
+    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
+    option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
+    row's scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
+    one token on some row; a write whose operand was selected at a different width or narrowing; a write to a
+    component with a `key` axis (the attention pattern, the scores) whose operand was read on another input that
+    does not tokenize to the same length on every row, which would misalign the keys; a `pca` over no more vectors
+    than its `k`; a featurizer used at two widths, at a width its bundle's header does not say (or, with no
+    header, whose tensors are not as wide), or with a `select` outside its features or keeping none of them; and a
     trained featurizer used at no site.
     """
     assert plan.run is not None
@@ -103,8 +103,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                         shortest = min(len(e["ids"]) for e in encoded)
                         size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
                             if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
-                        if any(not 0 <= i < size for i in index):
-                            raise ValueError(f"{where}: select {axis} {index} outside {what}")
+                        selected(where, axis, index, size, what)
                     probe = None                        # past a probe's encode, a column names its classes
                     for o in record.ops:
                         if probe is None:
@@ -113,7 +112,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                             check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
                         if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
                             probe = o.featurizer
-                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in (site.select or {}).items()}
+                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in
+                                                                positions.kept(site.select, sizes).items()}
                     if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                         resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
                         put(found["positions"], where, step.at, resolved)
@@ -148,6 +148,21 @@ def picked(where: str, layers, n: int) -> list[int]:
     return got
 
 
+def selected(where: str, axis: str, selector, n: int, what: str) -> list[int]:
+    """The indices a `select` keeps on an axis of `n` (`what` says which), each one there: a pick outside them,
+    or a selector that keeps none of them, is refused by name."""
+    written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
+    try:
+        got = positions.kept({axis: selector}, {axis: n})[axis]
+    except ValueError as e:
+        raise ValueError(f"{where}: select {axis}: {e}") from None
+    if any(not -n <= i < n for i in written) or any(i >= n for i in got):
+        raise ValueError(f"{where}: select {axis} {selector!r} outside {what}")
+    if not got:
+        raise ValueError(f"{where}: select {axis} {selector!r} keeps none of {what}")
+    return got
+
+
 def widths(engine, plan: Plan) -> dict[str, int]:
     """Each featurizer's width: the size of the last axis of every site it is used at, which is one size, and
     the width its bundle's header says. A `select` on its features stays within them, and a featurizer a fit
@@ -156,7 +171,8 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     for name, used in uses(plan).items():
         for where, site, at, o in used:
             last = address.dims(site.component, None, False)[-1]
-            width = len((site.select or {})[last]) if last in (site.select or {}) else sizes.get(last)
+            kept = positions.kept(site.select, sizes)
+            width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
@@ -180,8 +196,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
             features: Any = (o.select or {}).get("features")
             if features is not None:
                 n = instance(plan, f, width, None).size()
-                if any(not 0 <= i < n for i in features):
-                    raise ValueError(f"{where}: select features {features} outside the {n} features of {name!r}")
+                selected(where, "features", features, n, f"the {n} features of {name!r}")
     for name, step in walk(plan.steps):
         for f in step.train if step.kind == "fit" else []:
             if f not in out:
@@ -327,8 +342,9 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                              f"{engine.name} engine's forward does not reach before this write's {site.component} "
                              f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")
         if key in chosen:
-            per, own = (math.prod(len((s.select or {}).get(a, [])) or sizes[a]
-                                  for a in address.dims(s.component, None, False)[2:]) for s in (read, site))
+            per, own = (math.prod(len(kept[a]) if a in kept else sizes[a]
+                                  for a in address.dims(s.component, None, False)[2:])
+                        for s in (read, site) for kept in [positions.kept(s.select, sizes)])
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")

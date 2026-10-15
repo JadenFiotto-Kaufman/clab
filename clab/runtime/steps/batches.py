@@ -13,36 +13,37 @@ from .preflight import head, made_at
 from .state import bound, lookup, put
 
 
-def site(record, rows: list[list[int]], pads: list[int], last_only: bool = False) -> dict:
+def site(record, sizes: dict, rows: list[list[int]], pads: list[int], last_only: bool = False) -> dict:
     """What the engine needs to reach a record's selection in this batch: its component, its token indices
     into the padded batch (`positions`, `[rows, width]`; a ragged row repeats its last index to the batch's
     widest, `keep` marking its own, `tok` the unpadded indices), and the part of the feature axes it keeps
-    (`select`). Where the value
+    (`select`, among the engine's `sizes`). Where the value
     holds the last position alone (`last_only`: a generation's head in the prefill) every index is -1."""
     width = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
              for row, pad in zip(rows, pads)]
     tok = [[i - pad for i in row] for row, pad in zip(index, pads)]
     index = [[-1] * width for _ in rows] if last_only else index
-    return {"component": record.site.component, "positions": torch.tensor(index), "select": selection(record, pads),
+    return {"component": record.site.component, "positions": torch.tensor(index),
+            "select": selection(record, sizes, pads),
             "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows]), "tok": torch.tensor(tok)}
 
 
-def decoding(record, prompts: list[int], pads: list[int]) -> dict:
+def decoding(record, sizes: dict, prompts: list[int], pads: list[int]) -> dict:
     """What the engine needs to reach a record at a decode call: the call's one position, the last; and, in
     `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
     number is the input's."""
     return {"component": record.site.component, "positions": torch.full((len(prompts), 1), -1),
-            "select": selection(record, pads), "tok": torch.tensor([[p - 1] for p in prompts])}
+            "select": selection(record, sizes, pads), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
-def selection(record, pads: list[int]) -> dict:
-    """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps. On
-    the `key` axis an index counts the row's own tokens, so each row's is shifted by its padding (`[rows, n]`),
-    as a position is."""
+def selection(record, sizes: dict, pads: list[int]) -> dict:
+    """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps
+    (`positions.kept`, among `sizes`). On the `key` axis an index counts the row's own tokens, so each row's is
+    shifted by its padding (`[rows, n]`), as a position is."""
     layout = address.dims(record.site.component, None, False)
     return {layout.index(axis): torch.tensor([[i + pad for i in v] for pad in pads] if axis == "key" else v)
-            for axis, v in (record.site.select or {}).items()}
+            for axis, v in positions.kept(record.site.select, sizes).items()}
 
 
 def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live: dict | None = None) -> dict:
@@ -51,15 +52,15 @@ def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live
     engine's name for it) is bound to that name, for the forward to fill."""
     dims = address.dims(record.site.component, None, False)
     within = space(o)
+    f = lookup(state, within, at) if within is not None else None
     return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live),
-            "rows": torch.arange(rows.start, rows.stop),
-            "featurizer": lookup(state, within, at) if within is not None else None,
-            "features": features(o), "dims": dims[:-1] + ["features"] if within is not None else dims}
+            "rows": torch.arange(rows.start, rows.stop), "featurizer": f,
+            "features": features(o, f), "dims": dims[:-1] + ["features"] if within is not None else dims}
 
 
-def features(o) -> Tensor | None:
-    """The features an op in a featurizer's space keeps, if it narrows them."""
-    return torch.tensor(o.select["features"]) if o.select else None
+def features(o, f) -> Tensor | None:
+    """The features an op in featurizer `f`'s space keeps, if it narrows them: its `select` among `f`'s."""
+    return torch.tensor(positions.kept(o.select, {"features": f.size()})["features"]) if o.select else None
 
 
 def batches(engine, step, found: dict, batch_size: int):
@@ -78,7 +79,8 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
     """A step's prefill writes (all but `beyond`) and the prefill `reads` bound to one batch: each record's
     site, the writes with their ops, and the reads, one per layer (`<read>@<layer>`)."""
     writes_here = {k: w for k, w in step.writes.items() if k not in beyond}
-    sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
+    sites = {key: site(record, engine.sizes(), lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads,
+                       head(step, record))
              for key, record in {**writes_here, **reads}.items()}
     live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in reads.items()}
     writes = [{**sites[key], "name": key, "layer": layers(engine, record)[0],
@@ -136,7 +138,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         f = lookup(state, within, at) if within is not None else None
         args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary)
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
-                      features=features(o), rows=torch.arange(rows.start, rows.stop), places=places)
+                      features=features(o, f), rows=torch.arange(rows.start, rows.stop), places=places)
         if f is None:
             dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
         if encodes(o):

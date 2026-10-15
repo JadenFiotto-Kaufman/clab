@@ -299,10 +299,10 @@ def test_a_swept_value_is_keyed_by_coordinate(filled, tmp_path):
     assert [r["at"] for r in rows] == [{"pos": p} for p in (-1, -2, -3) for _ in range(4)]
     assert {r["pos_token"] for r in rows} == {"▁is"}     # the value's own position, apart from the sweep's coordinate
     heads = filled["head_patching", "hooks"]
-    assert list(heads.results["iia"]) == [(0,), (1,), (2,), (3,)]
+    assert list(heads.results["iia"]) == [0, 1, 2, 3]
     heads.dump(str(tmp_path / "heads"))
     with safe_open(str(tmp_path / "heads" / "iia.safetensors"), "pt") as f:
-        assert sorted(f.keys()) == ["num_heads=[0]", "num_heads=[1]", "num_heads=[2]", "num_heads=[3]"]
+        assert sorted(f.keys()) == ["num_heads=0", "num_heads=1", "num_heads=2", "num_heads=3"]
 
 
 def test_tables_join_wide_and_label_layers_and_keys(filled):
@@ -466,26 +466,28 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
 
 
 def test_select_on_key_counts_each_rows_own_tokens(engines):
-    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: [0,
-    1]}` is each row's own first two keys (BOS and the first prompt token), and a write there zeroes exactly
-    those, wherever each row's padding puts them."""
+    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: "0:2"}`
+    is each row's own first two keys (BOS and the first prompt token), as the picks `[0, 1]` are, and a write
+    at `{key: 0}` zeroes exactly the first, wherever each row's padding puts it; a table labels the keys a read
+    selected with their tokens."""
     def change(d):
         pattern = {"component": "attention_probabilities", "layers": 0}
         d["steps"] = {
             "clean": {"kind": "forward", "input": "pairs.input",
                       "reads": {"whole": {"site": pattern, "pos": -1},
-                                "first": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
+                                "first": {"site": {**pattern, "select": {"key": "0:2"}}, "pos": -1},
+                                "picks": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
             "zeroed": {"kind": "forward", "input": "pairs.input",
-                       "writes": {"zero": {"site": {**pattern, "select": {"key": [0]}}, "pos": -1,
+                       "writes": {"zero": {"site": {**pattern, "select": {"key": 0}}, "pos": -1,
                                            "ops": [{"op": "swap", "with": 0.0}]}},
                        "reads": {"whole": {"site": pattern, "pos": -1}}}}
-        d["saves"] = ["clean.whole", "clean.first", "zeroed.whole"]
+        d["saves"] = ["clean.whole", "clean.first", "clean.picks", "zeroed.whole"]
     plan = engines("nnterp", plan_of("attention_knockout").model).execute(
         edited("attention_knockout", change).compile(), batch_size=BATCH_SIZE)
     values, tokens = plan.results, plan.run.tokens["pairs.input"]
     width = max(map(len, tokens))
     pads = [width - len(t) for t in tokens]
-    assert pads == [0, 2, 2, 2]
+    assert pads == [0, 2, 2, 2] and torch.equal(values["clean.first"], values["clean.picks"])
     for r, pad in enumerate(pads):
         assert torch.equal(values["clean.first"][r], values["clean.whole"][r][..., pad:pad + 2])
         zeroed, clean = values["zeroed.whole"][r], values["clean.whole"][r]

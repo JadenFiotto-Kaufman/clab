@@ -42,7 +42,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     later = {k: r for k, r in step.reads.items() if k not in first}
     beyond = {k: w for k, w in step.writes.items() if not positions.prefill(positions.parse(w.pos))}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in {**later, **beyond}}
-    most = horizon(step)
+    most, sizes = horizon(step), engine.sizes()
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         prompts = [len(e["ids"]) for e in encoded[chunk]]
         sites, writes, reads = bind(engine, plan, name, step, first, state, found, chunk, pads, set(beyond))
@@ -52,20 +52,20 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             edits = [edit(engine, plan, record, o, state, step.at, chunk) for o in record.ops]
             if holds:
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
-                writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
+                writes.append({**site(record, sizes, where, pads, head(step, record)), "name": f"{key}#0",
                                "layer": layers(engine, record)[0], "ops": edits})
             online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
                                  "eos": sorted(eos)}} if pos["scope"] else {}
-            writes.append({**decoding(record, prompts, pads), "name": key, "layer": layers(engine, record)[0],
+            writes.append({**decoding(record, sizes, prompts, pads), "name": key, "layer": layers(engine, record)[0],
                            "ops": edits, "calls": None if online else calls, **online})
         for key, record in later.items():
             holds, calls, _ = positions.reach(positions.parse(record.pos), most)
             for layer in layers(engine, record):
                 if holds:
                     whole = [list(range(len(e["ids"]))) for e in encoded[chunk]]
-                    reads.append({**site(record, whole, pads, head(step, record)), "name": f"{key}@{layer}#0",
+                    reads.append({**site(record, sizes, whole, pads, head(step, record)), "name": f"{key}@{layer}#0",
                                   "layer": layer})
-                reads.append({**decoding(record, prompts, pads), "name": f"{key}@{layer}", "layer": layer,
+                reads.append({**decoding(record, sizes, prompts, pads), "name": f"{key}@{layer}", "layer": layer,
                               "calls": calls})
         ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
@@ -131,7 +131,8 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
     pos = positions.parse(record.pos)
     _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
-    sizes, select = engine.sizes(), record.site.select or {}
+    sizes = engine.sizes()
+    select = positions.kept(record.site.select, sizes)
     rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)

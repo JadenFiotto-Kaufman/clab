@@ -1,5 +1,5 @@
 {
- "description": "Ablate latents of the dictionary sae_train.json trained, as sae_feature_ablation.json does with the fixture: the residual stream at layer 0 is read through the trained sparse autoencoder, error term kept exactly, and in `zeroed` one latent at a time is set to zero at the last position (`select: {features: [j]}`, swept). A latent that was already zero on a prompt changes nothing there, to the bit; `base.latents`, saved, says which were. Run sae_train.json with --out documents/artifacts first; this loads what it wrote, its header checked key by key. The model is random, so the latents mean nothing.",
+ "description": "Ablate latents of the dictionary sae_train.json trained, as sae_feature_ablation.json does with the fixture: the residual stream at layer 0 is read through the trained sparse autoencoder, error term kept exactly, and in `zeroed` one latent at a time is set to zero at the last position (`select: {features: j}`, swept). A latent that was already zero on a prompt changes nothing there, to the bit; `base.latents`, saved, says which were. Run sae_train.json with --out documents/artifacts first; this loads what it wrote, its header checked key by key. The model is random, so the latents mean nothing.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -73,9 +73,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          0
-         ]
+         "features": 0
         },
         "with": 0.0
        }
@@ -115,9 +113,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          1
-         ]
+         "features": 1
         },
         "with": 0.0
        }
@@ -157,9 +153,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          2
-         ]
+         "features": 2
         },
         "with": 0.0
        }
@@ -199,9 +193,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          3
-         ]
+         "features": 3
         },
         "with": 0.0
        }
@@ -359,18 +351,10 @@
   "features": {
    "path": "steps.zeroed.writes.ablate.ops.0.select.features",
    "values": [
-    [
-     0
-    ],
-    [
-     1
-    ],
-    [
-     2
-    ],
-    [
-     3
-    ]
+    0,
+    1,
+    2,
+    3
    ]
   }
  }

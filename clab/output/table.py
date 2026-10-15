@@ -241,7 +241,7 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
     resolved, site = plan.run.positions[source], producer.reads[member].site
-    keys = (site.select or {}).get("key")
+    keys = positions.kept(site.select, {}).get("key")
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "width": max(map(len, prompt)), "keys": keys,

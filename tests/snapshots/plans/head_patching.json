@@ -22,9 +22,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         0
-        ]
+        "num_heads": 0
        }
       },
       "pos": -1,
@@ -50,9 +48,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         1
-        ]
+        "num_heads": 1
        }
       },
       "pos": -1,
@@ -78,9 +74,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         2
-        ]
+        "num_heads": 2
        }
       },
       "pos": -1,
@@ -106,9 +100,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         3
-        ]
+        "num_heads": 3
        }
       },
       "pos": -1,
@@ -136,9 +128,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         0
-        ]
+        "num_heads": 0
        }
       },
       "pos": -1,
@@ -177,9 +167,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         1
-        ]
+        "num_heads": 1
        }
       },
       "pos": -1,
@@ -218,9 +206,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         2
-        ]
+        "num_heads": 2
        }
       },
       "pos": -1,
@@ -259,9 +245,7 @@
        "component": "attention_premix",
        "layers": 0,
        "select": {
-        "num_heads": [
-         3
-        ]
+        "num_heads": 3
        }
       },
       "pos": -1,
@@ -423,18 +407,10 @@
   "num_heads": {
    "path": "sites.target.select.num_heads",
    "values": [
-    [
-     0
-    ],
-    [
-     1
-    ],
-    [
-     2
-    ],
-    [
-     3
-    ]
+    0,
+    1,
+    2,
+    3
    ]
   }
  }

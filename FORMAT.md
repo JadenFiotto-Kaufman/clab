@@ -42,12 +42,12 @@ pinned hub dataset (`revision`, `take` rows of `split`). `split` keeps the rows 
 
 - `component: str`
 - `layers: selector or a sweep or null = null`
-- `select: object of list of int or a sweep or null = null`
+- `select: object of selector or a sweep or null = null`
 
 A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
 layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
 it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-(`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens.
+(`{<axis>: <selector>}`, which Components describes).
 
 ### A write or a read
 
@@ -63,12 +63,12 @@ copy of the value; a read at a written site observes the writes.
 
 - `op: str`
 - `featurizer: str or null = null`
-- `select: object of list of int or a sweep or null = null`
+- `select: object of selector or a sweep or null = null`
 
 An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
 run on the value's coordinates in that featurizer's space, the change written back; `select`
-(`{"features": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer
-the op calls.
+(`{"features": <selector>}`, among the featurizer's features, as a site's) narrows it to some of them. On
+the `featurizer` op it names the featurizer the op calls.
 
 ### `pos`
 
@@ -308,10 +308,10 @@ different layout (logits from a residual stream, tokens from logits, text from i
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
 dataset column, resolved through the value's own vocabulary: one token per row against logits, or one of a
 probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are
-arguments of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": [...]}}` keeps; an operand is laid out on them) and the change is written back as a
-delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
+featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are arguments
+of every op: the op runs on the value's coordinates in that featurizer's space (on the features
+`{"select": {"features": <selector>}}` keeps; an operand is laid out on them) and the change is written back
+as a delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
 instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
 version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
 write, an operand may name a read of the same forward at a site the forward reaches before the write's
@@ -368,8 +368,12 @@ The locations clab allows: what each component means, its layout, and what narro
 A component's name is nnterp's name for the same value, and its `dims` are
 nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
 an attention pattern). `per_layer` says it is a block's value, so a site names
-its `layers`. A site's `select` narrows any axis of its `dims` but the rows and the token axis (`batch`,
-`seq`, `query`), which `pos` addresses. `stream` marks the residual-stream values `readout` may project.
+its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the table lists as narrowing the
+component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
+in their order, and the axis stays in the layout, so an int keeps one index (`{"num_heads": 3}` is head 3
+alone, an axis of size 1, as `[3]` is), where an int `layers` drops its axis. `key` is as long as each row,
+so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream`
+marks the residual-stream values `readout` may project.
 
 A selection of a component (what a read binds, and what a write's ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes

@@ -156,7 +156,7 @@ def test_one_sweep_reached_from_two_steps_is_one_axis():
     plan = plan_of("head_patching")
     reads = [(p.reads["v_cf"].site.select or {})["num_heads"] for p in points(plan.steps["counterfactual"])]
     writes = [(p.writes["patch"].site.select or {})["num_heads"] for p in points(plan.steps["patched"])]
-    assert reads == writes == [[h] for h in range(4)]
+    assert reads == writes == list(range(4))
 
 
 def test_a_reference_carries_its_producers_axes():

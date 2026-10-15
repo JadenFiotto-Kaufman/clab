@@ -8,6 +8,7 @@ chose its last token, so that token is never an input.
 """
 
 import re
+import sys
 
 MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
@@ -68,6 +69,19 @@ def select(selector, n: int) -> list[int]:
     if len(set(got)) < len(got):
         raise Unaligned(MISSING, f"picks {selector} count one of these {n} twice")
     return got
+
+
+def kept(selects: dict | None, sizes: dict[str, int]) -> dict[str, list[int]]:
+    """A site's or an op's `select` as the indices it keeps on each axis: the axis's selector among its size in
+    `sizes`. The `key` axis is as long as each row, so a selector there names a fixed number of keys counted
+    from the start (`keyed` says so), which no size changes."""
+    return {axis: select(s, sys.maxsize if axis == "key" else sizes[axis]) for axis, s in (selects or {}).items()}
+
+
+def keyed(selector) -> bool:
+    """Whether a selector picks the same keys of every row long enough to hold them: a fixed number, counted
+    from the start (`3`, `[0, 2]`, `"1:4"`; not `-1`, `"2:"`)."""
+    return fixed(selector) is not None and not from_end(selector)
 
 
 def probed(selector) -> tuple[int, list[int], list[int]]:

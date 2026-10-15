@@ -31,14 +31,27 @@ def test_select_names_an_axis_the_component_publishes(change, message):
 
 
 @pytest.mark.parametrize("where", ["site", "op"])
-def test_an_empty_select_is_refused(where):
+@pytest.mark.parametrize("selector, why", [([], r"\[\] is not a selector: .*; a list of picks names at least one int"),
+                                           ("3:3", r"'3:3' picks nothing, however many things there are")])
+def test_a_select_that_picks_nothing_is_refused(where, selector, why):
+    """A `select` is a selector, refused as `layers` and `pos` refuse one that can pick nothing."""
     def change(d):
         if where == "site":
-            d["sites"]["target"]["select"] = {"hidden_size": []}
+            d["sites"]["target"]["select"] = {"hidden_size": selector}
         else:
-            d["steps"]["patched"]["writes"]["patch"]["ops"][0].update(featurizer="rot", select={"features": []})
-    with pytest.raises(PlanError, match=r"select (hidden_size|features): an empty list selects nothing"):
+            d["steps"]["patched"]["writes"]["patch"]["ops"][0].update(featurizer="rot", select={"features": selector})
+    with pytest.raises(PlanError, match=r"select\.(hidden_size|features): " + why):
         edited("patching", change)
+
+
+def test_a_select_on_key_counts_a_fixed_number_from_the_start():
+    for selector in (-1, "2:", [0, -1]):
+        def change(d, selector=selector):
+            d["sites"]["target"].update(component="attention_probabilities", select={"key": selector})
+        with pytest.raises(PlanError, match=f"select key {re.escape(repr(selector))}: the key axis is as long as each "
+                                            "row, so a selector there picks a fixed number of keys counted from the "
+                                            "start"):
+            edited("patching", change)
 
 
 def test_a_write_selects_on_one_axis():
@@ -104,6 +117,10 @@ def refused(engines, plan, kind: str = "hooks"):
     ("patching", lambda d: d["sites"]["target"].update(layers=99), "counterfactual.v_cf: layer 99; the model has 2 layers"),
     ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": [999]}),
      r"counterfactual.v_cf: select hidden_size \[999\] outside the model's 16"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": -17}),
+     r"counterfactual.v_cf: select hidden_size -17 outside the model's 16"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": "20:"}),
+     r"counterfactual.v_cf: select hidden_size '20:' keeps none of the model's 16"),
     ("patching", lambda d: d["steps"]["patched"]["reads"].update(scored={
         "site": {"component": "lm_head_output"}, "pos": -1, "ops": [{"op": "match", "expected": "pairs.input"}]}),
      "patched.scored: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens"),
@@ -138,10 +155,12 @@ def test_what_needs_the_model_is_checked_before_any_forward(engines, name, chang
     assert re.match(message, text) and forwards == 0, text
 
 
-def test_a_select_on_key_outside_the_shortest_row_is_refused(engines):
-    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": [9]})).compile()
+@pytest.mark.parametrize("selector", [[9], 9, "7:10"])
+def test_a_select_on_key_outside_the_shortest_row_is_refused(engines, selector):
+    plan = edited("attention_knockout", lambda d: d["sites"]["pattern"].update(select={"key": selector})).compile()
     text, forwards = refused(engines, plan, kind="nnterp")
-    assert text == "clean.pattern: select key [9] outside the 9 tokens of the input's shortest row" and forwards == 0
+    assert text == f"clean.pattern: select key {selector!r} outside the 9 tokens of the input's shortest row" and \
+        forwards == 0
 
 
 def test_an_operand_of_another_width_is_refused(engines):
