@@ -16,7 +16,8 @@ import torch
 
 from clab import Plan
 from clab.cli import main
-from clab.plan.model import points
+from clab.plan.model import PlanError, points
+from clab.runtime.ops import edits
 from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 ROWS = [
@@ -121,19 +122,22 @@ def test_every_layer_is_the_layer_sweep_stacked(filled):
             assert torch.equal(every[key], torch.stack([swept[key][0], swept[key][1]])), (kind, key)
 
 
-def test_a_layers_selector_picks_and_labels_the_model_layers(engines, filled):
+def test_a_layers_selector_picks_and_labels_the_model_layers(engines, filled, tmp_path):
     """A pick list is the layers in the order written, `"-1:"` the last, `-1` the last as one layer's value; the
-    run record and the table say which model layer each index of the `layers` axis is."""
+    run records the model's number of layers, and the table, after `Plan.load` too, says which model layer each
+    index of the `layers` axis is."""
     every = filled["logit_lens_all", "nnterp"]
     for layers, picked in (([1, 0], [1, 0]), ("-1:", [1])):
         plan = edited("logit_lens_all", lambda d: d["sites"]["resid"].update(layers=layers)).compile()
         got = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
-        assert got.run.layers == {"lens.logits": picked}
+        assert got.run.num_layers == 2
         assert torch.equal(got.results["p_answer"], every.results["p_answer"][picked])
         assert [r["layer"] for r in got.table("p_answer")] == [l for l in picked for _ in range(4)]
+        got.dump(str(tmp_path / str(layers)))
+        assert Plan.load(str(tmp_path / str(layers))).table("p_answer") == got.table("p_answer")
     last = edited("logit_lens", lambda d: d["sites"]["resid"].update(layers=-1)).compile()
     got = engines("hooks", last.model).execute(last, batch_size=BATCH_SIZE)
-    assert got.run.layers == {} and torch.equal(got.results["p_answer"], every.results["p_answer"][1])
+    assert torch.equal(got.results["p_answer"], every.results["p_answer"][1])
 
 
 def test_layers_outside_the_model_are_refused_by_name(engines):
@@ -152,7 +156,7 @@ def test_cosine_is_one_where_the_patch_cannot_reach(filled):
     for kind in ("nnterp", "hooks"):
         got = filled["cosine_metric", kind]
         cos = got.results["similarity"]
-        assert cos.shape == (3, 4, 2) and got.run.layers["patched.resid"] == [0, 2, 4]
+        assert cos.shape == (3, 4, 2) and got.run.num_layers == 5
         torch.testing.assert_close(cos[0], torch.ones(4, 2), atol=2e-7, rtol=0)
         torch.testing.assert_close(cos[:, :, 0], torch.ones(3, 4), atol=2e-7, rtol=0)
         assert (cos[1:, :, 1] < 1 - 1e-4).all()
@@ -168,14 +172,32 @@ def test_clamp_bounds_what_it_writes(filled):
         assert not torch.equal(values["clamped_ld"], values["clean_ld"])
 
 
-def test_noise_draws_the_same_bits_as_a_seeded_cpu_generator(filled):
-    """noise_write.json: `jitter` is the clean value plus 0.5 times a CPU generator's draw from seed 7; the write's
-    noise moves the answer."""
+def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled):
+    """noise_write.json: `jitter` is the clean value plus 0.5 times each row's draw from a CPU generator seeded by
+    (7, row, its index along pos); the write's noise moves the answer. A write of zeros then noise reads back
+    the noise alone: at each row's position the draw seeded by (7, row, token position), the same at batch
+    sizes 1 and 4, in a forward and at each decode call of a generation, never the same twice."""
     for kind in ("nnterp", "hooks"):
         values = filled["noise_write", kind].results
-        drawn = torch.randn(values["clean.resid"].shape, generator=torch.Generator().manual_seed(7))
+        drawn = torch.stack([torch.randn(1, 16, generator=edits.seeded(7, r, 0)) for r in range(4)])
         assert torch.equal(values["jitter"], values["clean.resid"] + 0.5 * drawn)
         assert not torch.equal(values["noisy_ld"], values["clean_ld"])
+
+    def pure(d, step, frame):
+        site = {"component": "layer_output", "layers": 0}
+        d["steps"] = {step: d["steps"][step]}
+        d["steps"][step]["writes"] = {"n": {"site": site, "pos": {"frame": frame, "index": ":"}, "ops": [
+            {"op": "swap", "with": 0.0}, {"op": "noise", "scale": 1.0, "seed": 7}]}}
+        d["steps"][step]["reads"] = {"n": {"site": site, "pos": {"frame": frame, "index": ":"}}}
+        d["saves"] = [f"{step}.n"]
+    for name, step, frame in (("noise_write", "noisy", 0), ("generated_answer", "answer", "1:")):
+        plan = edited(name, lambda d: pure(d, step, frame)).compile()
+        runs = [engines(kind, plan.model).execute(plan, batch_size=b) for kind in ("nnterp", "hooks") for b in (1, 4)]
+        assert all(same(r.results, runs[0].results) for r in runs)
+        got = runs[0].results[f"{step}.n"]
+        expected = torch.stack([torch.randn(16, generator=edits.seeded(7, r, t))
+                                for r, t in zip(got["row"].tolist(), got["tok"].tolist())])
+        assert torch.equal(got["values"], expected) and len({tuple(v.tolist()) for v in expected}) == len(expected)
 
 
 @pytest.mark.parametrize("name", ["noise_write", "clamp_write", "cosine_metric"])
@@ -388,6 +410,46 @@ def test_pca_control_compiles_against_the_basis_pca_harvest_writes(engines, tmp_
     assert same(points(compiled.featurizers["rot"])[0].bundle, basis)
     compiled.write(str(tmp_path / "documents" / "written.json"))
     assert same(points(Plan(str(tmp_path / "documents" / "written.json")).featurizers["rot"])[0].bundle, basis)
+
+
+def test_a_bundle_made_at_a_layer_counted_from_the_last_says_the_layer_it_is(engines, tmp_path):
+    """pca_harvest at layer -2 of the 2-layer model writes a header for layer 0, which pca_control loads at 0 and
+    at -2, and refuses at -1 before any forward, naming the layer that is."""
+    import shutil
+    shutil.copytree(os.path.dirname(document("patching")), tmp_path / "documents")
+    os.symlink(os.path.join(os.path.dirname(os.path.dirname(document("patching"))), "data"), tmp_path / "data")
+    harvest = edited("pca_harvest", lambda d: d["sites"]["target"].update(layers=-2)).compile()
+    engine = engines("hooks", harvest.model)
+    engine.execute(harvest, batch_size=BATCH_SIZE).dump(str(tmp_path / "documents" / "artifacts"))
+
+    def control(layers):
+        with open(tmp_path / "documents" / "pca_control.json") as f:
+            doc = json.load(f)
+        doc["sites"]["target"]["layers"] = layers
+        return Plan(**doc, document=str(tmp_path / "documents" / "pca_control.json")).compile()
+    assert points(control(0).featurizers["rot"])[0].header["layer"] == "0"
+    engine.execute(control(-2), batch_size=BATCH_SIZE)
+    with pytest.raises(ValueError, match=r"header 'layer' is '0'; this document uses 'rot' at layer_output layer "
+                                         r"-1, which is layer 1"):
+        engine.execute(control(-1), batch_size=BATCH_SIZE)
+
+
+def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
+    """A metric (`cosine` here, `kl` and `js` alike) scores a value against another laid out as it is, or
+    against one vector; a stacked or ragged operand beside a one-layer, rectangular value is refused by name."""
+    def change(d, op, operand_site, pos):
+        d["steps"]["clean"]["reads"]["other"] = {"site": operand_site, "pos": pos}
+        d["steps"]["similarity"] = {"kind": "op", "op": op, "of": "patched.resid", "with": "clean.other"}
+    stacked = {"component": "layer_output", "layers": [0, 2]}
+    for site, pos, message in ((stacked, {"index": "-2:"}, r"\['layers', 'rows', 'pos', 'hidden_size'\]"),
+                               ({"component": "layer_output", "layers": 0}, {"index": ":"},
+                                r"\['entries', 'hidden_size'\]")):
+        def one(d, site=site, pos=pos):
+            d["sites"]["stream"]["layers"] = 2
+            change(d, "cosine", site, pos)
+        with pytest.raises(PlanError, match=r"steps\.similarity\.with: 'clean\.other' is laid out " + message
+                           + r"; 'cosine' scores a value laid out \['rows', 'pos', 'hidden_size'\]"):
+            edited("cosine_metric", one).compile()
 
 
 def test_select_on_key_counts_each_rows_own_tokens(engines):

@@ -6,6 +6,7 @@ from typing import Any
 
 from torch import Tensor
 
+from .. import address
 from ..plan.model import Plan, arguments, body_view, coordinate, corpus_root, dims_of, labelled, points
 from ..runtime import data, positions
 
@@ -20,9 +21,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into
     the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it for a
     read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step used
-    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
-    read beyond the prefill did not reach gives one row, `alignment_missing` true, with
-    no value. A value with no rows axis gives a row per element with its axis indices."""
+    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
+    value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
+    `alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -116,9 +117,8 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     tokens = dict(plan.run.tokens)
     for a, b in swap.items():
         tokens.update({f"{a}.{k.partition('.')[2]}": v for k, v in plan.run.tokens.items() if k.partition(".")[0] == b})
-    run = plan.run.model_copy(update={"tokens": tokens, **{record: {
-        k.removeprefix(f"{fit}.{label}."): v for k, v in getattr(plan.run, record).items()
-        if k.startswith(f"{fit}.{label}.")} for record in ("positions", "layers")}})
+    run = plan.run.model_copy(update={"tokens": tokens, "positions": {
+        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
     return body_view(plan, fit, swap=swap).model_copy(update={
         "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 
@@ -170,7 +170,7 @@ def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
 
 
 def layer(place: dict | None, k: int) -> int:
-    """Index `k` on a `layers` axis as the model's layer it is, as the run recorded its read's layers."""
+    """Index `k` on a `layers` axis as the model's layer it is, by its read's `layers` among the model's."""
     return place["layers"][k] if place and place["layers"] is not None else k
 
 
@@ -240,13 +240,14 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
-    resolved, layers = plan.run.positions[source], plan.run.layers.get(source)
-    keys = (producer.reads[member].site.select or {}).get("key")
+    resolved, site = plan.run.positions[source], producer.reads[member].site
+    keys = (site.select or {}).get("key")
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "width": max(map(len, prompt)), "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
-            "layers": layers[labelled(plan, producer.at)] if producer.at and layers is not None else layers}
+            "layers": positions.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
+            else None}
 
 
 def materialized(plan: Plan, name: str) -> list[dict]:

@@ -15,7 +15,6 @@ def preflight(engine, plan: Plan) -> dict:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
-    the layers each read with a `layers` axis is made at (`layers`, the axis's labels),
     room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
     fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
     `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
@@ -61,7 +60,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found: dict = {"inputs": {}, "positions": {}, "said": {}, "layers": {}}
+    found: dict = {"inputs": {}, "positions": {}, "said": {}}
     shapes: dict = {}
     for name, entry in steps.items():
         for step in points(entry):
@@ -98,9 +97,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 for key, record in getattr(step, side).items():
                     where, site = f"{name}.{key}", record.site
                     if site.layers is not None:
-                        got = picked(where, site.layers, sizes["num_layers"])
-                        if address.stacks(site.layers):
-                            put(found["layers"], where, step.at, got)
+                        picked(where, site.layers, sizes["num_layers"])
                     for axis, index in (site.select or {}).items():
                         shortest = min(len(e["ids"]) for e in encoded)
                         size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
@@ -166,6 +163,11 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
                                  "elsewhere; a featurizer has one width")
             f = agreeing(plan.featurizers[name], at)
+            layer = positions.select(site.layers, sizes["num_layers"]) if isinstance(site.layers, int) else None
+            if f.header is not None and layer and f.header.get("layer") != str(layer[0]):
+                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
+                                 f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
+                                 f"layer {site.layers}, which is layer {layer[0]}")
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "

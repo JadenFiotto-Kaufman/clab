@@ -56,8 +56,10 @@ from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-# `eos`: the ids the generation `of` came from stops on.
-SUPPLIED = ("engine", "original", "dims", "eos")
+# `eos`: the ids the generation `of` came from stops on. `rows`: the dataset row
+# of each of `of`'s rows or entries; `positions`: the token position of each of
+# its positions (`[rows, pos]`) or entries, where the run knows them.
+SUPPLIED = ("engine", "original", "dims", "eos", "rows", "positions")
 # A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
 VOCABULARY = ("vocab_size", "classes")
 
@@ -186,7 +188,9 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
     the selection as it was before any of these writes. An argument bound to a read of the same forward
     (`{"live": <the read's name>}`) is that read's value in `got`, where the forward put it. An op with a
     `featurizer` (an instance) runs on the selection's coordinates in its space, on the features its `select`
-    keeps, and the change is written back (`Kind.within`). A write narrows at most
+    keeps, and the change is written back (`Kind.within`). An op is given the dataset row of each of the
+    selection's rows (the op's `rows`) and the token position of each of its positions (the write's `tok`,
+    plus the decode `call` it lands at, which the engine stamps). A write narrows at most
     one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
@@ -200,16 +204,17 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
         new = current
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
+        at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
         for o in w["ops"]:
-            f, features = o["featurizer"], o.get("features")
+            f, features, where = o["featurizer"], o.get("features"), {"rows": o.get("rows"), "positions": at}
             args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
             if f is None:
-                new = call(o["op"], new, args, original=original, dims=o["dims"])
+                new = call(o["op"], new, args, original=original, dims=o["dims"], **where)
                 continue
             start = f.encode(original)
             start = start if features is None else start.index_select(-1, features.to(start.device))
             new = f.within(new, lambda z, args=args, o=o, start=start: call(
-                o["op"], z, args, original=start, dims=o["dims"]), features)
+                o["op"], z, args, original=start, dims=o["dims"], **where), features)
         for dim, index in w["select"].items():
             new = new.to(current.dtype)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \

@@ -82,12 +82,12 @@ def now(here: list, there: list, call: int) -> tuple[list, list]:
 
 
 def landed(writes: list[dict], seen: list, tokenizer) -> list[dict]:
-    """The writes at a decode call, a write with an `online` scope narrowed to the rows it lands on there
-    (`keep`), as `positions.landing` decides from the inputs `seen` so far (one `[rows, 1]` per decode call);
-    one that lands on no row is left out."""
+    """The writes at a decode call, each stamped with the call (`call`, the number of inputs `seen` so far),
+    a write with an `online` scope narrowed to the rows it lands on there (`keep`), as `positions.landing`
+    decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row is left out."""
     out = []
     for w in writes:
-        online = w.get("online")
+        online, w = w.get("online"), {**w, "call": len(seen)}
         if online is None:
             out.append(w)
             continue

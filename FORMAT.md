@@ -71,7 +71,7 @@ the op calls.
 
 ### `pos`
 
-- `frame: one of 'generated', 'eos' or selector or a sweep = 0`
+- `frame: one of 'eos' or selector or a sweep = 0`
 - `scope: scope or null = None`
 - `index: selector or a sweep = ':'`
 
@@ -81,7 +81,7 @@ the op calls.
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
           | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
-frame    := selector | "generated" | "eos"                            # default 0
+frame    := selector | "eos"                                          # default 0
 scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
           | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
@@ -89,13 +89,15 @@ selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a s
 
 Each stage is a selector over what the stage before it left (`positions.select`): an int counts one
 (negative from the last), a slice string is a range in Python notation, half-open, each part optional
-(`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written.
+(`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
+that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
+picks none of the tokens of a frame of a static number of decode calls (`{"frame": "1:3", "index":
+"5:"}`).
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
-counts from the row's last call; `"generated"` is every decode call (`"1:"`), `":"` the prefill and
-every decode call (in a `forward`, its one call: so a named intervention written at `":"` is on in
-every call of whichever step names it), `"eos"` the call where the row stopped (the one that chose its
-EOS). A
+counts from the row's last call; `"1:"` is every decode call, `":"` the prefill and every decode call
+(in a `forward`, its one call: so a named intervention written at `":"` is on in every call of
+whichever step names it), `"eos"` the call where the row stopped (the one that chose its EOS). A
 position is where an input token sits, in a forward and in a generation alike: the prefill holds every
 prompt token, its last position the distribution over generated token 0; under the cache decode call k
 holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -123,8 +125,9 @@ user message, `":"` every one of them); a role the row has no message of is refu
 in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
 `{"frame": 2, "index": -1}`.
 
-A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names calls by
-an end it gives (an int, picks, or a slice with a stop), its index has a static width (an int, picks, or
+A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
+number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
+static width (an int, picks, or
 a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `positions.fixed`),
 and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
 one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
@@ -183,10 +186,12 @@ a forward does; every other key goes to the engine's `generate` as-is (`max_new_
 `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
 prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
 generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
-selects is known by then: without a scope, calls named by an end it gives (a call, picks, a slice with a
-stop) or `generated`, with an index counted from their start (or -1 of a single call), or the prefill
-with them and index `":"`; with a `column` or `text` scope, decode calls only (a call, picks or a slice
-from 1, or `generated`), index -1 and an occurrence counted from the first. A scoped write is found
+selects is known by then: its frame not counted from the row's last call and not `eos`, and with an
+index that names the same calls on a row that stops early as on one that runs on (not one counted from
+the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
+every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
+gives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the
+first. A scoped write is found
 online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
 occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
 to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes `eos` or
@@ -341,7 +346,7 @@ write, an operand may name a read of the same forward at a site the forward reac
 | `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s; inside a write, the value before the site's writes. |
 | `normalize` | — | keeps the layout | Each vector divided by its norm. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`. |
-| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal, one draw per call: drawn on the CPU from a generator seeded by `seed`, then moved to the value's device and dtype, so a document draws the same bits on any device. A write calls it once per batch, so every batch draws the same noise. |
+| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = None`, `max: float or null = None` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms
@@ -570,9 +575,9 @@ not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on
 layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into
 the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it for a
 read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step used
-(`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
-read beyond the prefill did not reach gives one row, `alignment_missing` true, with
-no value. A value with no rows axis gives a row per element with its axis indices.
+(`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
+value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
+`alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document
 

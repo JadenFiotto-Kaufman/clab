@@ -215,7 +215,7 @@ class Pos(Record):
     ```
     pos      := int                                # shorthand: {"frame": 0, "index": int}
               | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
-    frame    := selector | "generated" | "eos"                            # default 0
+    frame    := selector | "eos"                                          # default 0
     scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
               | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
@@ -223,13 +223,15 @@ class Pos(Record):
 
     Each stage is a selector over what the stage before it left (`positions.select`): an int counts one
     (negative from the last), a slice string is a range in Python notation, half-open, each part optional
-    (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written.
+    (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
+    that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
+    picks none of the tokens of a frame of a static number of decode calls (`{"frame": "1:3", "index":
+    "5:"}`).
 
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
-    counts from the row's last call; `"generated"` is every decode call (`"1:"`), `":"` the prefill and
-    every decode call (in a `forward`, its one call: so a named intervention written at `":"` is on in
-    every call of whichever step names it), `"eos"` the call where the row stopped (the one that chose its
-    EOS). A
+    counts from the row's last call; `"1:"` is every decode call, `":"` the prefill and every decode call
+    (in a `forward`, its one call: so a named intervention written at `":"` is on in every call of
+    whichever step names it), `"eos"` the call where the row stopped (the one that chose its EOS). A
     position is where an input token sits, in a forward and in a generation alike: the prefill holds every
     prompt token, its last position the distribution over generated token 0; under the cache decode call k
     holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -257,8 +259,9 @@ class Pos(Record):
     in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
     `{"frame": 2, "index": -1}`.
 
-    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names calls by
-    an end it gives (an int, picks, or a slice with a stop), its index has a static width (an int, picks, or
+    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
+    number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
+    static width (an int, picks, or
     a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `positions.fixed`),
     and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
     one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
@@ -267,7 +270,7 @@ class Pos(Record):
     Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
     a rectangular read and absent from a ragged one.
     """
-    frame: Swept[Literal["generated", "eos"] | Selector] = 0
+    frame: Swept[Literal["eos"] | Selector] = 0
     scope: Scope | None = None
     index: Swept[Selector] = ":"
 
@@ -276,6 +279,13 @@ class Pos(Record):
         if self.scope is not None and self.scope.turn is not None and self.frame != 0 \
                 and not isinstance(self.frame, Sweep):
             raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
+        frame, index = self.frame, self.index
+        if self.scope is None and not isinstance(frame, Sweep) and not isinstance(index, Sweep) and \
+                positions.bounded(frame) and not positions.from_end(frame) and 0 not in positions.select(frame, 1):
+            calls = positions.fixed(frame)
+            if not positions.select(index, calls or 0):
+                raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
+                                 "calls, one each")
         return self
 
 
@@ -386,10 +396,12 @@ class Generate(Forward):
     `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
     prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
     generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
-    selects is known by then: without a scope, calls named by an end it gives (a call, picks, a slice with a
-    stop) or `generated`, with an index counted from their start (or -1 of a single call), or the prefill
-    with them and index `":"`; with a `column` or `text` scope, decode calls only (a call, picks or a slice
-    from 1, or `generated`), index -1 and an occurrence counted from the first. A scoped write is found
+    selects is known by then: its frame not counted from the row's last call and not `eos`, and with an
+    index that names the same calls on a row that stops early as on one that runs on (not one counted from
+    the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
+    every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
+    gives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the
+    first. A scoped write is found
     online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
     occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
     to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes `eos` or
@@ -406,6 +418,12 @@ class Generate(Forward):
     batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
+
+
+def horizon(step) -> int | None:
+    """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
+    most = (step.model_extra or {}).get("max_new_tokens") if step.kind == "generate" else None
+    return most if isinstance(most, int) else None
 
 
 class OpStep(Record):
@@ -531,9 +549,9 @@ class Run(Record):
     """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
     the input or the step's name), and the position every read and write resolved to, per row (an index into
-    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach), and
-    the layers each read with a `layers` axis was made at, the axis's labels, in its order. A swept step's
-    are keyed by coordinate."""
+    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
+    swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among:
+    a `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
     engine: str
     remote: bool | str
     batch_size: int
@@ -542,7 +560,7 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
-    layers: dict[str, Any] = {}
+    num_layers: int | None = None
 
 
 class Plan(Record):

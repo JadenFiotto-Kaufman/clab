@@ -239,14 +239,24 @@ def test_a_missing_row_is_missing_all_the_way_down():
     assert all(torch.equal(a, b) for a, b in zip(reductions.pca(hole, 2, DIMS).values(), reductions.pca(big, 2, DIMS).values()))
 
 
-def test_noise_is_one_seeded_cpu_draw_cast_to_the_values_dtype():
-    drawn = torch.randn(X.shape, generator=torch.Generator().manual_seed(3))
-    assert torch.equal(edits.noise(X, 0.25, seed=3), X + 0.25 * drawn)
-    assert torch.equal(edits.noise(X, 0.25, seed=3), edits.noise(X, 0.25, seed=3))
-    assert not torch.equal(edits.noise(X, 0.25, seed=3), edits.noise(X, 0.25, seed=4))
+def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
+    """The draw at a row's position is a CPU generator's seeded by (seed, row, position): the same whichever
+    rows share the value, the same for a ragged value's entry there, never the same at two rows or two
+    positions, cast to the value's dtype."""
+    rows, places = torch.tensor([4, 5, 6]), torch.tensor([[7, 8], [7, 8], [2, 9]])
+    drawn = torch.stack([torch.stack([torch.randn(5, generator=edits.seeded(3, int(rows[i]), int(places[i, j])))
+                                      for j in range(2)]) for i in range(3)])
+    got = edits.noise(X, 0.25, DIMS, seed=3, rows=rows, positions=places)
+    assert torch.equal(got, X + 0.25 * drawn)
+    assert torch.equal(edits.noise(X[1:], 0.25, DIMS, seed=3, rows=rows[1:], positions=places[1:]), got[1:])
+    assert len({tuple(d.tolist()) for d in drawn.reshape(6, 5)}) == 6
+    assert not torch.equal(edits.noise(X, 0.25, DIMS, seed=4, rows=rows, positions=places), got)
     half = X.to(torch.bfloat16)
-    assert torch.equal(edits.noise(half, 0.25, seed=3), half + 0.25 * drawn.to(torch.bfloat16))
-    assert torch.equal(edits.noise(X, 1.0), X + torch.randn(X.shape, generator=torch.Generator().manual_seed(0)))
+    assert torch.equal(edits.noise(half, 0.25, DIMS, seed=3, rows=rows, positions=places),
+                       half + 0.25 * drawn.to(torch.bfloat16))
+    entries = edits.noise(X[:, 0], 0.5, ["entries", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
+    assert torch.equal(entries, X[:, 0] + 0.5 * drawn[:, 0])
+    assert torch.equal(edits.noise(X, 1.0, DIMS), X + torch.randn(X.shape, generator=edits.seeded(0)))  # no rows
 
 
 def test_clamp_takes_either_bound_and_needs_one():
@@ -258,6 +268,9 @@ def test_clamp_takes_either_bound_and_needs_one():
         ops.check("clamp", {})
     with pytest.raises(ValueError, match="min: 'low' is not float or null"):
         ops.check("clamp", {"min": "low"})
+    with pytest.raises(ValueError, match="'clamp' min 1.0 is greater than its max 0.5"):
+        ops.check("clamp", {"min": 1.0, "max": 0.5})
+    ops.check("clamp", {"min": {"sweep": [0.0, 1.0]}, "max": 0.5})          # a sweep is checked per point
 
 
 def test_cosine_is_over_the_hidden_axis_one_number_per_row_and_position():

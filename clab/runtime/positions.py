@@ -32,40 +32,37 @@ def parse(pos) -> dict:
 
 # -- selectors ----------------------------------------------------------------------------------------
 
-SLICE = r"^(-?[0-9]+)?:(-?[0-9]+)?(:(-?[0-9]+)?)?$"
+# A slice string: each part an int or empty, no `-0`, no step 0.
+SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
 FORMS = "an int (2, -1), a slice in Python notation ('2:5', '-3:', ':') or a list of picks ([1, 3, 7])"
 
 
 def checked(selector):
-    """A selector as written, refused unless it is an int, a slice string or a list of distinct int picks."""
+    """A selector as written, refused unless it is an int, a slice string or a list of distinct int picks, and
+    unless it can pick something: a slice whose static width is 0 (`"0:0"`, `"5:2"`) picks nothing ever."""
     if isinstance(selector, bool) or not isinstance(selector, (int, str, list)):
         raise ValueError(f"{selector!r} is not a selector: {FORMS}")
-    if isinstance(selector, str):
-        sliced(selector)
+    if isinstance(selector, str) and not re.match(SLICE, selector):
+        raise ValueError(f"{selector!r} is not a selector: {FORMS}")
     if isinstance(selector, list):
         if not selector or not all(isinstance(i, int) and not isinstance(i, bool) for i in selector):
             raise ValueError(f"{selector!r} is not a selector: {FORMS}; a list of picks names at least one int")
         if len(set(selector)) < len(selector):
             raise ValueError(f"picks {selector} name {next(i for i in selector if selector.count(i) > 1)} twice")
+    if fixed(selector) == 0:
+        raise ValueError(f"{selector!r} picks nothing, however many things there are")
     return selector
 
 
-def sliced(text: str) -> slice:
-    """A slice string as the `slice` Python reads it: `start:stop:step`, each part an int or empty."""
-    if not re.match(SLICE, text):
-        raise ValueError(f"{text!r} is not a selector: {FORMS}")
-    parts = [int(x) if x else None for x in (text.split(":") + [""])[:3]]
-    if parts[2] == 0:
-        raise ValueError(f"{text!r}: a slice's step is not 0")
-    return slice(*parts)
-
-
 def select(selector, n: int) -> list[int]:
-    """The indices a selector picks among `n` things, in the order it names them: an int, the one it counts
-    (negative from the end), if there is one; a slice string, its range by Python's rules; a list of picks,
-    each one there is, as written. Two picks that count the same thing (`[0, -2]` of two) are refused."""
+    """The indices a selector picks among `n` things, the one place a selector is read: an int, the one it
+    counts (negative from the end), if there is one; a slice string, its range by Python's rules; a list of
+    picks, each one there is, in the order written. Two picks that count the same thing (`[0, -2]` of two)
+    are refused. The order matters where the picked things are listed (layers, forward calls, tokens); an
+    occurrence's picks make a scope, which is a set of positions, so there the order does not."""
     if isinstance(selector, str):
-        return list(range(n)[sliced(selector)])
+        parts = [int(x) if x else None for x in (selector.split(":") + [""])[:3]]
+        return list(range(n)[slice(*parts)])
     picks = [selector] if isinstance(selector, int) else selector
     got = [i + n if i < 0 else i for i in picks if -n <= i < n]
     if len(set(got)) < len(got):
@@ -73,61 +70,55 @@ def select(selector, n: int) -> list[int]:
     return got
 
 
+def probed(selector) -> tuple[int, list[int], list[int]]:
+    """A number `n` past every number a selector is written with, and what it picks among `n` and `2n` things:
+    where the two agree, what it picks does not depend on how many things there are."""
+    numbers = [abs(int(x)) for x in re.findall(r"-?[0-9]+", str(selector))]
+    n = 2 * (1 + max(numbers, default=0))
+    return n, select(selector, n), select(selector, 2 * n)
+
+
+def widths(selector) -> list[int]:
+    """How many things a selector picks among 0, 1, ... up to `2n` of them (`n` as `probed` has it)."""
+    n, _, _ = probed(selector)
+    return [len(select(selector, k)) for k in range(2 * n + 1)]
+
+
 def fixed(selector) -> int | None:
-    """How many things a selector picks whatever their number (its static width), or None when that grows
-    with the number. One for an int; a list of picks, its length; a slice, its length when its two ends
-    count from the same side: both from the start (`"2:5"`, `":3"`, `"0:6:2"`) or both from the end
-    (`"-4:-1"`, `"-3:"`), an omitted start counting from the start and an omitted stop from the end (with a
-    negative step, both ends written). `":"` and `"2:"` have none. Where there are fewer things than a
-    static width needs, the record does not fit that row, which is a refusal or `alignment_missing`."""
-    if isinstance(selector, int):
-        return 1
-    if isinstance(selector, list):
-        return len(selector)
-    s = sliced(selector)
-    start, stop, step = s.start, s.stop, s.step or 1
-    if step > 0:
-        start = start or 0
-        if stop is None:                    # to the end: as wide as a start counted from the end leaves
-            return len(range(start, 0, step)) if start < 0 else None
-    if start is None or stop is None or (start < 0) != (stop < 0):
-        return None
-    return len(range(start, stop, step))
+    """A selector's static width: how many things it picks whatever their number (once there are enough), or
+    None when that grows with the number. An int is 1, a list of picks its length; a slice has one when its
+    two ends count from the same side (`"2:5"`, `":3"`, `"-4:-1"`, `"-3:"`, `"3::-1"`), not `":"`, `"2:"`
+    or `"-2:3"` (which picks fewer of more things): it picks no fewer of more things and, past every number
+    it is written with, the same number.
+    Where there are fewer things than a static width needs, the record does not fit that row: a refusal in
+    the prefill, `alignment_missing` beyond it."""
+    if not isinstance(selector, str):
+        return 1 if isinstance(selector, int) else len(selector)
+    counts = widths(selector)
+    static = all(a <= b for a, b in zip(counts, counts[1:])) and counts[len(counts) // 2] == counts[-1]
+    return counts[-1] if static else None
 
 
 def from_end(selector) -> bool:
-    """Whether what a selector picks depends on how many things there are: a negative int or pick, a slice with
-    a negative end or step."""
-    if isinstance(selector, int):
-        return selector < 0
-    if isinstance(selector, list):
-        return min(selector) < 0
-    s = sliced(selector)
-    return any(x is not None and x < 0 for x in (s.start, s.stop, s.step))
+    """Whether a selector counts from the end: among more things it picks other ones of the first `n` than
+    among `n` (`-1`, `[0, -1]`, `"-3:"`, `":-1"`), so what it picks of the first `n` is not decided by them."""
+    n, few, many = probed(selector)
+    return few != [i for i in many if i < n]
 
 
 def every(selector) -> bool:
-    """Whether a selector picks every one of however many things there are (`":"`)."""
-    if not isinstance(selector, str):
-        return False
-    s = sliced(selector)
-    return s.start in (None, 0) and s.stop is None and s.step in (None, 1)
-
-
-def extent(selector) -> int:
-    """How many things a selector counted from the start (`from_end` false) and with an end reaches over."""
-    if isinstance(selector, str):
-        return sliced(selector).stop or 0
-    return (max(selector) if isinstance(selector, list) else selector) + 1
+    """Whether a selector picks every one of however many things there are, in order (`":"`)."""
+    n, few, many = probed(selector)
+    return few == list(range(n)) and many == list(range(2 * n))
 
 
 # -- what the run needs to know before it starts ------------------------------------------------------
 
 
 def bounded(frame) -> bool:
-    """Whether a frame names calls by an end it gives, the same calls on every row that gets that far: an int,
-    a list of picks, a slice with a stop; not `"generated"`, `"eos"` or a slice to the row's last call."""
-    return not isinstance(frame, str) or frame not in ("generated", "eos") and sliced(frame).stop is not None
+    """Whether a frame names the same calls on every row that gets that far, a static number of them: not
+    `"eos"`, not a frame to the row's last call (`":"`, `"1:"`, `"2:"`)."""
+    return frame != "eos" and fixed(frame) is not None
 
 
 def width(pos: dict) -> int | None:
@@ -139,33 +130,67 @@ def width(pos: dict) -> int | None:
     return fixed(pos["index"])
 
 
-def reach(pos: dict) -> tuple[bool, list[int] | None, bool]:
-    """Whether a record can name a prefill position on some row; the decode calls it can name (None: every
-    one), in order; and whether those are exactly the calls it names on each row that gets that far, which a
-    write needs, landing as each call runs. Not exact: a frame counted from the row's last call or `eos`, an
-    index into a frame holding the prompt (whose length differs by row), an index counted from the end over
-    several calls, a frame to the row's last call from past call 1 or by a step, and an index without a stop
-    over one."""
-    frame, index = ("1:" if pos["frame"] == "generated" else pos["frame"]), pos["index"]
+def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None, bool]:
+    """Whether a record can name a prefill position on some row; the decode calls it can name, in order (None:
+    every one, or ones not known before the run); and whether those are exactly the calls it names on each row
+    that gets that far, which a write needs, landing as each call runs. `horizon` is how many calls a row makes
+    at most (a generation's `max_new_tokens`), when known.
+
+    A frame counted from the end, or `eos`, depends on how far each row gets. Any other frame names call `k`
+    on every row that makes it, as `k in select(frame, k + 1)` says. An index other than `":"` must not
+    depend on how far the row gets either: over a frame holding the prompt it does (the prompt's length
+    differs by row); over decode calls, each holding one position, the record is exact when a row that stops
+    after `k` calls names exactly the calls below `k` that a row running to the horizon names (an index
+    counted from the end over several calls does not). Without a horizon, a frame to the row's last call
+    other than every decode call names calls only the run will know. A scope's index counts its text's
+    tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
+    frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
     if frame == "eos" or from_end(frame):
         return True, None, False
-    if bounded(frame):
-        called = select(frame, extent(frame))
-        decode = sorted(k for k in called if k)
-        if 0 in called or every(index):
-            return 0 in called, decode, every(index) or decode == []
-        if from_end(index) and len(called) > 1:
-            return False, decode, False
-        return False, sorted(called[i] for i in select(index, len(called))), True
-    s = sliced(frame)                               # every call from the slice's start, by its step
-    start = s.start or 0
-    if s.step not in (None, 1) or start > 1:
-        return start == 0, None, False
-    if start == 0 or every(index):
-        return start == 0, None, every(index)
-    if from_end(index) or isinstance(index, str) and sliced(index).stop is None:
-        return False, None, False
-    return False, sorted(1 + i for i in select(index, extent(index))), True
+    holds = 0 in select(frame, 1)
+    if holds or every(index):
+        calls = decode_calls(frame, horizon)
+        known = calls is not None or covers(frame)
+        return holds, calls, known and (every(index) or calls == [])
+    pos = {**pos, "index": index}
+    if horizon is None:
+        k = enough(pos)
+        if named(pos, k) != named(pos, 2 * k):
+            return False, None, False                   # it names calls up to the row's last
+        horizon = max(named(pos, k), default=0) + 1
+    full = named(pos, horizon)
+    exact = all(set(named(pos, k)) == {c for c in full if c < k} for k in range(1, horizon))
+    return False, sorted(full) if exact else decode_calls(frame, horizon), exact
+
+
+def decode_calls(frame, horizon: int | None) -> list[int] | None:
+    """A frame's decode calls, in order: listed when it names a static number of them or when the horizon
+    bounds them; None when it names every one, or calls to the row's last that only the run will know."""
+    if fixed(frame) is not None:
+        return sorted(k for k in probed(frame)[1] if k)
+    if covers(frame) or horizon is None:
+        return None
+    return sorted(k for k in select(frame, horizon) if k)
+
+
+def covers(frame) -> bool:
+    """Whether a frame names every decode call (`":"`, `"1:"`)."""
+    n, few, many = probed(frame)
+    return set(range(1, n)) <= set(few) and set(range(1, 2 * n)) <= set(many)
+
+
+def named(pos: dict, k: int) -> list[int]:
+    """The decode calls an unscoped record whose frame holds no prompt names on a row that makes `k` calls: its
+    index's picks among the frame's calls, each holding one position."""
+    called = select(pos["frame"], k)
+    return [called[i] for i in select(pos["index"], len(called))]
+
+
+def enough(pos: dict) -> int:
+    """A number of calls past every number a record's frame and index are written with, and past their
+    product, so that what they name among that many is all a row can make them name."""
+    numbers = [abs(int(x)) for x in re.findall(r"-?[0-9]+", f"{pos['frame']} {pos['index']}")]
+    return (2 + max(numbers, default=0)) ** 2
 
 
 def prefill(pos: dict) -> bool:
@@ -179,8 +204,6 @@ def prefill(pos: dict) -> bool:
 
 def framed(frame, n: int, stopped: bool) -> list[int]:
     """Stage one: the calls `frame` picks among a row's `n` calls (`stopped`: its last one chose EOS)."""
-    if frame == "generated":
-        return list(range(1, n))
     if frame == "eos":
         return [n - 1] if stopped else []
     return select(frame, n)

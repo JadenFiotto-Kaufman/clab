@@ -1,5 +1,8 @@
 """Edits: ops that keep the value's layout and change its contents."""
 
+import hashlib
+import itertools
+
 import torch
 from torch import Tensor
 
@@ -51,17 +54,41 @@ def project_out(of: Tensor, direction: Value) -> Tensor:
 
 
 @op("edits")
-def noise(of: Tensor, scale: float, seed: int = 0) -> Tensor:
-    """`of + scale * noise`, the noise standard normal, one draw per call: drawn on the CPU from a generator
-    seeded by `seed`, then moved to the value's device and dtype, so a document draws the same bits on any
-    device. A write calls it once per batch, so every batch draws the same noise."""
-    drawn = torch.randn(of.shape, generator=torch.Generator().manual_seed(seed))
+def noise(of: Tensor, scale: float, dims: list[str], seed: int = 0, rows: Tensor | None = None,
+          positions: Tensor | None = None) -> Tensor:
+    """`of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is
+    one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset
+    and the token's position alone (in a step over a value that holds no positions, its index along `pos`),
+    then moved to the value's device and dtype. So batch size, sweep point and forward call never change it,
+    no two rows or positions share one, and a document draws the same bits on any device. A value with no
+    rows is one draw from `seed`."""
+    lead = [i for i, a in enumerate(dims) if a in ("rows", "entries", "pos")]
+    if rows is None or not lead:
+        return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
+    shape = [of.shape[i] for i in lead]
+    rest = [n for i, n in enumerate(of.shape) if i not in lead]
+    draws = []
+    for index in itertools.product(*map(range, shape)):
+        row = int(rows[index[0]])
+        position = int(positions[index]) if positions is not None else index[-1] if len(index) > 1 else None
+        draws.append(torch.randn(rest, generator=seeded(seed, row, position)))
+    drawn = torch.stack(draws).reshape(*shape, *rest).movedim(list(range(len(lead))), lead)
     return of + scale * drawn.to(device=of.device, dtype=of.dtype)
 
 
+def seeded(*key) -> torch.Generator:
+    """A CPU generator seeded by `key` (a document's seed, a row, a position) and nothing else."""
+    digest = hashlib.blake2b(repr(key).encode(), digest_size=8).digest()
+    return torch.Generator().manual_seed(int.from_bytes(digest, "big"))
+
+
 def either_bound(args: dict) -> None:
-    if args.get("min") is None and args.get("max") is None:
+    """`clamp`'s arguments: at least one bound, and a `min` no greater than its `max`."""
+    low, high = args.get("min"), args.get("max")
+    if low is None and high is None:
         raise ValueError("'clamp' needs 'min' or 'max', or both")
+    if isinstance(low, (int, float)) and isinstance(high, (int, float)) and low > high:
+        raise ValueError(f"'clamp' min {low} is greater than its max {high}")
 
 
 @op("edits", check=either_bound)

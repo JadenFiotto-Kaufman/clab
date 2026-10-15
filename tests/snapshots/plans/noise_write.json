@@ -1,5 +1,5 @@
 {
- "description": "Gaussian noise as a write and as a step. `noisy` adds noise of standard deviation 0.5 to layer 0's residual stream at the prompt's last three tokens ({'index': '-3:'}, a slice counted from the end, three positions on every row) and scores the answer; `jitter` is the same op as a step, over the clean residual stream read at the last token. The noise is one draw per call from a CPU generator seeded by `seed`, moved to the value's device and dtype, so the same document draws the same bits on any device; a write calls it once per batch.",
+ "description": "Gaussian noise as a write and as a step. `noisy` adds noise of standard deviation 0.5 to layer 0's residual stream at the prompt's last three tokens ({'index': '-3:'}, a slice counted from the end, three positions on every row) and scores the answer; `jitter` is the same op as a step, over the clean residual stream read at the last token. The noise at each row's position is its own draw from a CPU generator seeded by `seed`, the row and the token position alone (in the step, the index along pos), moved to the value's device and dtype: batch size, sweep point and forward call never change it, and the same document draws the same bits on any device.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"

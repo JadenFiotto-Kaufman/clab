@@ -42,7 +42,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, without gradients except where a fit trains; then each saved
     value into `plan.results` (a trained featurizer as its bundle's tensors)."""
     assert plan.run is not None
-    plan.run.versions = versions()
+    plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
     state = made(plan, found["widths"])
     with torch.no_grad():
@@ -53,15 +53,14 @@ def run(engine, plan: Plan, batch_size: int) -> None:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
-    for record in ("positions", "layers"):
-        per = dict(found[record])
-        for fit, by_point in found["bodies"].items():        # a body's records, as each eval run resolved them
-            for sources in by_point.values():
-                for label, (_, body) in sources["evals"].items():
-                    for where, resolved in body[record].items():
-                        key = f"{fit}.{label}.{where}"
-                        per[key] = {**per.get(key, {}), **resolved}
-        setattr(plan.run, record, {where: by_coordinate(plan, by_point) for where, by_point in per.items()})
+    positions = dict(found["positions"])
+    for fit, by_point in found["bodies"].items():        # a body's records, as each eval run resolved them
+        for sources in by_point.values():
+            for label, (_, body) in sources["evals"].items():
+                for where, resolved in body["positions"].items():
+                    key = f"{fit}.{label}.{where}"
+                    positions[key] = {**positions.get(key, {}), **resolved}
+    plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
 
 

@@ -28,9 +28,12 @@ def site(record, rows: list[list[int]], pads: list[int], last_only: bool = False
             "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows]), "tok": torch.tensor(tok)}
 
 
-def decoding(record, n: int, pads: list[int]) -> dict:
-    """What the engine needs to reach a record at a decode call: the call's one position, the last."""
-    return {"component": record.site.component, "positions": torch.full((n, 1), -1), "select": selection(record, pads)}
+def decoding(record, prompts: list[int], pads: list[int]) -> dict:
+    """What the engine needs to reach a record at a decode call: the call's one position, the last; and, in
+    `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
+    number is the input's."""
+    return {"component": record.site.component, "positions": torch.full((len(prompts), 1), -1),
+            "select": selection(record, pads), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
 def selection(record, pads: list[int]) -> dict:
@@ -49,6 +52,7 @@ def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live
     dims = address.dims(record.site.component, None, False)
     within = space(o)
     return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live),
+            "rows": torch.arange(rows.start, rows.stop),
             "featurizer": lookup(state, within, at) if within is not None else None,
             "features": features(o), "dims": dims[:-1] + ["features"] if within is not None else dims}
 
@@ -114,12 +118,15 @@ def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: 
         keep = site["keep"]
         value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
                  "tok": site["tok"][keep]}
-    return with_ops(engine, plan, record, value, state, at, rows)
+    return with_ops(engine, plan, record, value, state, at, rows, site["tok"])
 
 
-def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice) -> Any:
+def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice,
+             places: Tensor | None) -> Any:
     """A read's value with its ops applied in listed order: one in a featurizer's space on the value's
-    coordinates there, the change written back. Past a probe's `encode` a column names its classes."""
+    coordinates there, the change written back. Past a probe's `encode` a column names its classes. An op is
+    given each row's dataset row and each position's token position (`places`, `[rows, width]`; a ragged
+    value's own `row` and `tok`)."""
     dims = address.dims(record.site.component, None, positions.width(positions.parse(record.pos)) is None)
     vocabulary = None
     for o in record.ops:
@@ -127,7 +134,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         f = lookup(state, within, at) if within is not None else None
         args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary)
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
-                      features=features(o))
+                      features=features(o), rows=torch.arange(rows.start, rows.stop), places=places)
         if f is None:
             dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
         if encodes(o):
@@ -136,15 +143,18 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
 
 
 def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
-          featurizer: featurizers.Kind | None = None, features: Tensor | None = None) -> Any:
+          featurizer: featurizers.Kind | None = None, features: Tensor | None = None, rows: Tensor | None = None,
+          places: Tensor | None = None) -> Any:
     """Op `name` on a value, or in `featurizer`'s space on its coordinates there (the `features` it keeps),
-    the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
+    the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them.
+    `rows` and `places` say which dataset row and token position each of the value's rows and positions
+    is, where the run knows them; a ragged value's are its `row` and `tok`."""
     if isinstance(value, dict) and "tok" in value:
-        got = apply(engine, name, value["values"], args, dims, eos, featurizer, features)
+        got = apply(engine, name, value["values"], args, dims, eos, featurizer, features, value["row"], value["tok"])
         kind = ops.kind(name, args)
         return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args, kind) \
             else got
 
     def fn(x: Any) -> Any:
-        return ops.call(name, x, args, engine=engine, dims=dims, eos=eos)
+        return ops.call(name, x, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)
     return fn(value) if featurizer is None else featurizer.within(cast(Tensor, value), fn, features)

@@ -129,8 +129,8 @@ size, versions, timing, and how each input tokenized). `clab.describe()` prints 
 
 ## Extending clab
 
-Every extensible thing is a plain function or class registered by a decorator under its name, and its
-signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
+Every extensible thing is a plain function or class under its name, registered by a decorator (ops: declared
+by one, and listed in order at the end of `ops/__init__.py`), and its signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
 named in every error.
 
 - **Ops** (`clab/runtime/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,

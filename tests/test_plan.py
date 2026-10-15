@@ -195,8 +195,8 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
      r"selector: an int \(2, -1\), a slice in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)$"),
     (lambda d: d["sites"]["target"].update(layers=[1, 1]), r"sites\.target\.layers: picks \[1, 1\] name 1 "
      r"twice$"),
-    (lambda d: d["sites"]["target"].update(layers="::0"), r"sites\.target\.layers: '::0': a slice's step "
-     r"is not 0$"),
+    (lambda d: d["sites"]["target"].update(layers="5:2"), r"sites\.target\.layers: '5:2' picks nothing, however "
+     r"many things there are$"),
     (lambda d: d["steps"]["patched"]["reads"]["logits"].update(site={"component": "nope"}),
      r"steps\.patched\.reads\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
@@ -251,7 +251,8 @@ def test_a_selector_picks_as_python_slices_and_lists_do():
 
 def test_a_selectors_static_width_needs_its_ends_on_one_side():
     widths = {0: 1, -1: 1, "[1, 3, 7]": 3, "2:5": 3, ":3": 3, "0:6:2": 3, "-4:-1": 3, "-3:": 3, "-6::2": 3,
-              "5:1:-1": 4, ":": None, "2:": None, "-2:3": None, "1:-1": None, "::2": None, "::-1": None}
+              "5:1:-1": 4, ":-3:-1": 2, "3::-1": 4, ":": None, "2:": None, "-2:3": None, "1:-1": None, "::2": None,
+              "::-1": None}
     for selector, width in widths.items():
         selector = [1, 3, 7] if selector == "[1, 3, 7]" else selector
         assert positions.fixed(selector) == width, selector
@@ -262,10 +263,10 @@ def test_a_selectors_static_width_needs_its_ends_on_one_side():
 @pytest.mark.parametrize("pos, reach", [
     ({"frame": "1:4", "index": 1}, (False, [2], True)),
     ({"frame": [3, 1], "index": ":"}, (False, [1, 3], True)),
-    ({"frame": [3, 1], "index": 0}, (False, [3], True)),
-    ({"frame": "generated", "index": 2}, (False, [3], True)),
-    ({"frame": "generated", "index": [2, 0]}, (False, [1, 3], True)),
-    ({"frame": "generated", "index": -1}, (False, None, False)),
+    ({"frame": [3, 1], "index": 0}, (False, [1, 3], False)),       # a row that stops after call 2 names call 1
+    ({"frame": "1:", "index": 2}, (False, [3], True)),
+    ({"frame": "1:", "index": [2, 0]}, (False, [1, 3], True)),
+    ({"frame": "1:", "index": -1}, (False, None, False)),
     ({"frame": "2:", "index": ":"}, (False, None, False)),
     ({"frame": ":", "index": ":"}, (True, None, True)),
     ({"frame": "0:3", "index": -1}, (True, [1, 2], False)),
@@ -277,8 +278,29 @@ def test_what_a_record_reaches_before_the_run(pos, reach):
     assert positions.reach({"scope": None, **pos}) == reach
 
 
-@pytest.mark.parametrize("value", ["all", "1:2:3:4", "a:b", "1", "", [], True, 1.5])
+@pytest.mark.parametrize("value", ["all", "1:2:3:4", "a:b", "1", "", [], True, 1.5, "::0", "-0:", "01:", ":-0"])
 def test_anything_but_the_three_forms_is_refused_naming_them(value):
     with pytest.raises(PlanError, match=r"sites\.target\.layers: .* is not a selector: an int \(2, -1\), a slice "
                                         r"in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)"):
         edited("patching", lambda d: d["sites"]["target"].update(layers=value))
+
+
+@pytest.mark.parametrize("pos, message", [
+    ({"index": "0:0"}, r"\.index: '0:0' picks nothing, however many things there are"),
+    ({"index": ":0"}, r"\.index: ':0' picks nothing"),
+    ({"index": "5:2"}, r"\.index: '5:2' picks nothing"),
+    ({"index": "-1:-3"}, r"\.index: '-1:-3' picks nothing"),
+    ({"frame": "3:1"}, r"\.frame: '3:1' picks nothing"),
+    ({"frame": "1:3", "index": "5:"}, r": index '5:' picks none of the 2 tokens of frame '1:3''s decode calls"),
+    ({"frame": "1:3", "index": -3}, r": index -3 picks none of the 2 tokens of frame '1:3''s decode calls"),
+    ({"frame": [2], "index": [1, 2]}, r": index \[1, 2\] picks none of the 1 tokens"),
+])
+def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
+    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=pos))
+
+
+def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():
+    """`"-2:3"` picks something of three things and nothing of five: it has no static width, and is a selector."""
+    assert positions.fixed("-2:3") is None and positions.select("-2:3", 3) == [1, 2]
+    edited("generate_probe", lambda d: d["sites"]["target"].update(layers="-2:3"))
