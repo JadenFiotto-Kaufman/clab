@@ -282,6 +282,9 @@ class Pos(Record):
     tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
     token is never an input to any call, so a word ending on it is `alignment_missing` (with
     `max_new_tokens: 1` a scope in the generated tokens never matches), unless the scope is `before`.
+    `turn` is a role of the chat, in call 0 only: its messages are its occurrences, in order (`{"turn":
+    "user", "occurrence": 1}` is the second user message, `":"` every one of them); a role the row has no
+    message of is refused by name.
 
     **before** (default false): the positions that predict the scope's tokens, each the position just
     before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
@@ -290,9 +293,7 @@ class Pos(Record):
     included (the prefill's last position chose generated token 0). A scope token at position 0 has no
     position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
     the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
-    `before`. `turn` is a role of the chat, in
-    call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
-    user message, `":"` every one of them); a role the row has no message of is refused by name.
+    `before`.
 
     **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
     in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
@@ -406,9 +407,9 @@ class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
     `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
     literals of one dataset, joined per row as they are, with nothing between (`["days.input",
-    "days.answer"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they name before anything later reads them;
-    each read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed
-    order, before the step's own.
+    "days.answer"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they
+    name before anything later reads them; each read binds `<step>.<read>`; `interventions` pulls named
+    bundles of writes and reads in, in listed order, before the step's own.
 
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
     template without a generation prompt, so the rendered prompt ends with the template's close of the last
