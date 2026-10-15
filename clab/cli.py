@@ -301,14 +301,15 @@ def how(run: "plan.Run") -> str:
 
 
 def show(filled: "plan.Plan") -> str:
-    """A filled plan as text: how it ran, then each result with the step that made it, its dims, its sweep
-    axes and its shape (per coordinate when swept)."""
+    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), then each result
+    with the step that made it, its dims, its sweep axes and its shape (per coordinate when swept)."""
     run = filled.run
     assert run is not None
     lines = [f"{plan.name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
-             f"  served: {run.dtype} on {', '.join(run.devices) or '—'}",
-             "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
+             f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
+             f"  versions: clab {run.versions.get('clab')}, python {run.versions.get('python')} and "
+             f"{max(len(run.versions) - 2, 0)} more installed where the model was (the manifest lists them)"]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for name in filled.saves:
         entry = filled.steps[name.partition(".")[0]]

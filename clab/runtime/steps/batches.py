@@ -88,32 +88,6 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
                            for key, record in reads.items() for layer in layers(engine, record)]
 
 
-# The reads the run's first forward or generation adds, one per layer, which no document's read is named like
-# (a read's key has no dot).
-SERVED = "run.served@"
-
-
-def observing(engine, plan: Plan, reads: list[dict], rows: int) -> list[dict]:
-    """`reads`, and until the run has seen what served it, the residual stream after every layer at each row's
-    last token, which `observed` records: an NDIF deployment's dtype is not in its model key, so a server may
-    serve a document's checkpoint at another dtype, and the run record says which."""
-    assert plan.run is not None
-    if plan.run.dtype is not None:
-        return reads
-    return reads + [{"component": "layer_output", "layer": layer, "name": f"{SERVED}{layer}", "select": {},
-                     "positions": torch.full((rows, 1), -1)} for layer in range(engine.sizes()["num_layers"])]
-
-
-def observed(plan: Plan, got: dict) -> None:
-    """The reads `observing` added, out of `got` and into `plan.run`: the residual stream's dtype, and the
-    devices it lived on in forward order."""
-    values = [got.pop(k) for k in [k for k in got if k.startswith(SERVED)]]
-    if values:
-        assert plan.run is not None
-        plan.run.dtype = str(values[0].dtype).removeprefix("torch.")
-        plan.run.devices = list(dict.fromkeys(str(v.device) for v in values))
-
-
 def layers(engine, record) -> list:
     """The layers a record is made at: those its site's `layers` select among the model's (an int's one)."""
     return made_at(record.site, engine.sizes()["num_layers"])

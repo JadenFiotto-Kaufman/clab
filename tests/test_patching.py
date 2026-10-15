@@ -47,7 +47,7 @@ def test_results_are_detached_cpu_clones(filled):
 def test_the_run_record_says_how_it_ran(filled):
     run = filled["nnterp"].run
     assert (run.engine, run.batch_size, run.device, run.options) == ("nnterp", BATCH_SIZE, "cpu", {"device_map": None})
-    assert (run.dtype, run.devices) == ("float32", ["cpu"])                 # what the run saw where the model is
+    assert (run.dtype, run.devices) == (["float32"], ["cpu"])               # the model's parameters, where it is
     assert {"clab", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
     assert run.tokens["pairs.input"][0] == ["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom",
                                             "orrow", "▁is"]
@@ -246,13 +246,16 @@ def test_a_loaded_engine_takes_no_load_options(engines):
 
 
 def test_the_run_record_names_both_clabs_and_where_ndif_ran(engines, monkeypatch):
-    """`client` is the clab that sent the run and `versions` the one where the model is (here the same process),
-    each with its commit; under remote=True the server places the model, so the run's device is None."""
+    """`client` is what is installed where the run was sent from and `versions` where the model is (here the
+    same process), every distribution, clab's with its commit; under remote=True the server places the model,
+    so the run's device is None."""
     from clab.cli import how
     from clab.runtime.steps import version
 
     run = engines("nnterp", plan_of("patching").model).execute(plan_of("patching"), batch_size=2).run
-    assert run is not None and run.client == {"clab": version()} and run.versions["clab"] == version()
+    assert run is not None and run.client == run.versions and run.versions["clab"] == version()
+    assert {"torch", "transformers", "nnsight", "pydantic", "python"} <= set(run.versions)    # all of them
+    assert list(run.versions)[:-1] == sorted(list(run.versions)[:-1], key=str.lower)
     assert version().startswith("0.0.1+")                     # a checkout: git describe's commit
     home, _ = stand_in(engines, plan_of("patching"), monkeypatch)
     assert home.run is not None and (home.run.device, home.run.devices) == (None, ["cpu"])
@@ -276,7 +279,7 @@ def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
     assert "patching on ndif (batch size 2, device cpu, remote \"local\")" in capsys.readouterr().out
     run = Plan.load(str(out)).run
     assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
-        ("ndif", "cpu", {"remote": "local"}, "float32", ["cpu"])
+        ("ndif", "cpu", {"remote": "local"}, ["float32"], ["cpu"])
     assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
     assert "clab: the nnterp engine takes no 'remote'; it loads with: device_map; it runs with: nothing" in \
         capsys.readouterr().err

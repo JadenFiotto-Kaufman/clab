@@ -9,8 +9,7 @@ from ... import address
 from ...plan.model import Plan, horizon
 from .. import positions
 from . import kind
-from .batches import (batches, bind, decoding, edit, joined, layers, observed, observing, read, site, stacked,
-                      with_ops)
+from .batches import batches, bind, decoding, edit, joined, layers, read, site, stacked, with_ops
 from .preflight import head, place, prompted, texts
 from .state import put
 
@@ -68,9 +67,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                                   "layer": layer})
                 reads.append({**decoding(record, prompts, pads), "name": f"{key}@{layer}", "layer": layer,
                               "calls": calls})
-        ids, got = generated(engine, name, batch, writes, observing(engine, plan, reads, chunk.stop - chunk.start),
-                             dict(step.model_extra or {}))
-        observed(plan, got)
+        ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
             if "calls" in record:
                 made = range(1, ids.shape[1]) if record["calls"] is None else \

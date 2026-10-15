@@ -33,7 +33,7 @@ kind = registers(KINDS)
 def begin(engine, plan: Plan, batch_size: int, options: dict) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
     the device, the options it loaded with and those it runs with (`options`, each declared by its `execute`'s
-    signature) after their defaults, and the client's clab; returns the start time."""
+    signature) after their defaults, and what is installed on the client (`versions`); returns the start time."""
     runs = registry.spelled(type(engine).execute, ("self", "plan", "batch_size"))
     for key in options:
         if key not in runs:
@@ -46,13 +46,14 @@ def begin(engine, plan: Plan, batch_size: int, options: dict) -> float:
                          f"{plan.model.key}@{plan.model.revision}")
     given = {**engine.options, **{k: options.get(k, p.default) for k, p in runs.items()}}
     plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=given,
-                   client={"clab": version()}, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
+                   client=versions(), started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
 
 def run(engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, without gradients except where a fit trains; then each saved
-    value into `plan.results` (a trained featurizer as its bundle's tensors)."""
+    value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
+    dtypes and devices of the model's parameters (`placed`)."""
     assert plan.run is not None
     plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
@@ -74,6 +75,17 @@ def run(engine, plan: Plan, batch_size: int) -> None:
                     positions[key] = {**positions.get(key, {}), **resolved}
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
+    plan.run.dtype, plan.run.devices = placed(engine.model)
+
+
+def placed(model) -> tuple[list[str], list[str]]:
+    """The distinct dtypes and devices of `model`'s parameters, each in the order first met. `run` reads them
+    inside the session after the steps, so they are the server's under the ndif engine, and those of a model
+    that loads its weights at its first forward once it has."""
+    dtypes, devices = {}, {}
+    for p in model.parameters():
+        dtypes[str(p.dtype).removeprefix("torch.")] = devices[str(p.device)] = None
+    return list(dtypes), list(devices)
 
 
 def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
@@ -111,10 +123,11 @@ def finished(value):
 
 
 def versions() -> dict[str, str]:
-    """The installed versions where the model is, clab's with its commit (`version`): `run` calls it inside
-    the session, so under the ndif engine they are the server's, beside the client's clab in `run.client`."""
-    found = {p: importlib.metadata.version(p) for p in ("nnsight", "nnterp", "transformers", "torch")}
-    return {"clab": version(), **found, "python": platform.python_version()}
+    """Every distribution installed here by name, sorted, clab's with its commit (`version`), and `python`. `run`
+    calls it inside the session, so under the ndif engine they are the server's; `begin` calls it on the client."""
+    found = {d.metadata["Name"]: d.version for d in importlib.metadata.distributions()}
+    found["clab"] = version()
+    return {**dict(sorted(found.items(), key=lambda item: item[0].lower())), "python": platform.python_version()}
 
 
 def version() -> str:
