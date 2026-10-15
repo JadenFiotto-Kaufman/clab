@@ -31,7 +31,7 @@ class Subspace(Kind):
 
     def settle(self) -> None:
         skew = self.theta - self.theta.T
-        eye = torch.eye(skew.shape[0], dtype=skew.dtype)
+        eye = torch.eye(skew.shape[0], dtype=skew.dtype, device=skew.device)
         self.basis = (self.origin @ torch.linalg.solve(eye - skew, eye + skew))[:, :self.k]
 
     def encode(self, h: Tensor) -> Tensor:

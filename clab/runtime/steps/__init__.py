@@ -61,7 +61,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     assert plan.run is not None
     plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
-    state = made(plan, found["widths"])
+    state = made(plan, found["widths"], home(engine))
     with torch.no_grad():
         for name, entry in plan.steps.items():
             for step in points(entry):
@@ -105,13 +105,19 @@ def by_coordinate(plan: Plan, by_point: dict) -> Any:
     return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
 
 
-def made(plan: Plan, widths: dict) -> dict:
+def home(engine) -> str:
+    """Where the run makes featurizers: the engine's device, or where the model's first parameter is when the
+    engine does not place the model (on an NDIF server)."""
+    return engine.device or str(next(engine.model.parameters()).device)
+
+
+def made(plan: Plan, widths: dict, device: str) -> dict:
     """The run's state at its start: each declared featurizer used at a site, at each of its points, made
-    where the model is."""
+    where the model is (`device`)."""
     state: dict = {}
     for name, entry in plan.featurizers.items():
         for spec in points(entry) if name in widths else []:
-            put(state, name, spec.at, instance(plan, spec, widths[name], None))
+            put(state, name, spec.at, instance(plan, spec, widths[name], None, device))
     return state
 
 

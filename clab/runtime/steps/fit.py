@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from ...plan.model import Plan, agreeing
-from . import KINDS, kind
+from . import KINDS, home, kind
 from .preflight import instance
 from .state import lookup, put
 
@@ -17,9 +17,10 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
-    weights never hold a gradient."""
+    weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there."""
     sources = lookup(found["bodies"], name, step.at)
-    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found["widths"][f], step.seed)
+    device = home(engine)
+    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found["widths"][f], step.seed, device)
                for f in step.train}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     optimizer = step.optimizer
