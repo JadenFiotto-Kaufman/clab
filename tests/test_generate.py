@@ -68,13 +68,13 @@ def test_remote_local_is_bit_equal_to_local(engines, filled, name):
 
 
 def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
-    """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_stop` is
-    missing on every row, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
+    """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_last` is each
+    row's sixth call, 5, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
     word's last token where it is an input: row 0 said `▁substr` as token 1 (position 12, call 2), row 1
     `▁energ` as token 2 (position 11, call 3)."""
     plan = filled["generated_answer", "nnterp"]
     assert plan.run.positions["answer.at_said"] == [[12], [11], "alignment_missing", "alignment_missing"]
-    assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
+    assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
     p = plan.results["p_answer"]
     assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 11] and p["values"].shape == (2,)
     said = plan.run.tokens["answer"]
@@ -144,8 +144,8 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
     assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
-def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
-    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: `eos` is
+def test_the_last_call_is_the_one_that_chose_eos_and_decode_stops_before_it(engines):
+    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: frame -1 is
     call 2, the one that chose it, whose one position is token 1, and decode leaves the EOS out."""
     def change(d):
         answer = d["steps"]["answer"]
@@ -157,7 +157,7 @@ def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[p + 1] for p in PROMPT]
+        assert values.run.positions["answer.at_last"] == [[p + 1] for p in PROMPT]
         assert values.results["answer"][:, 2].tolist() == [1] * 4
         assert values.results["text"] == ["Handler substr"] * 4
         assert values.results["pieces"] == [["Handler", "▁substr"]] * 4
@@ -199,7 +199,7 @@ def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, pro
     pos = {"frame": 0, "scope": None, "index": ":", **pos}
     row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
     found = positions.occurrences(pos["scope"], row, said, tokenizer, [text] if text else [])
-    return positions.resolve(pos, prompt, list(range(1, prompt)), said, bool(said) and said[-1] == 1, found)
+    return positions.resolve(pos, prompt, list(range(1, prompt)), said, found)
 
 
 def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
@@ -228,8 +228,8 @@ def test_each_stage_narrows_the_one_before():
     assert resolved({"frame": "1:"}, [*words, 1], tokenizer) == list(range(2, 2 + n))
     assert resolved({"frame": ":"}, [*words, 1], tokenizer) == list(range(1, 2 + n))
     assert resolved({"frame": "1:3", "index": 1}, [*words, 1], tokenizer) == [3]
-    assert resolved({"frame": "eos"}, [*words, 1, 0], tokenizer) == [1 + n]              # the call that chose EOS
-    assert resolved({"frame": "eos"}, words, tokenizer) == "alignment_missing"           # it never stopped
+    assert resolved({"frame": -1}, [*words, 1, 0], tokenizer) == [1 + n]                 # the call that chose EOS
+    assert resolved({"frame": -1}, [*words, 7], tokenizer) == [1 + n]                    # or ran out at its last
     assert resolved({"frame": n + 1, "index": -1}, words, tokenizer) == "alignment_missing"
     beta = {"frame": "1:", "scope": {"text": "beta"}, "index": -1}
     assert resolved(beta, [*words, 1], tokenizer, "beta") == [1 + n]
@@ -249,9 +249,6 @@ def test_each_stage_narrows_the_one_before():
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "eos"}),
-     r"steps\.patched\.writes\.patch\.pos: frame 'eos' with index ':' names calls that depend on how far each "
-     r"row gets"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
      r"steps\.patched\.writes\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
@@ -315,7 +312,7 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[p] for p in PROMPT]
+        assert values.run.positions["answer.at_last"] == [[p] for p in PROMPT]
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
@@ -411,7 +408,7 @@ def test_rows_that_stop_at_different_calls(engines):
                                     [4598, 25148, 18190, 1, 1, 1], [28728, 5117, 1325, 13194, 21367, 28630]]
     assert v["text"] == ["Handler", "Handler substr energcalc tossorter", "Handler substr energ",
                          "FridayreichсиhovervelopeAlpha"]
-    assert positions["answer.at_stop"] == [[11], "alignment_missing", [11], "alignment_missing"]
+    assert positions["answer.at_last"] == [[11], [13], [11], [13]]     # stopped at calls 1 and 3, or ran to 5
     assert positions["answer.at1"] == [[p] for p in PROMPT]
     assert positions["answer.at2"] == ["alignment_missing", [10], [10], [10]]
     assert not v["answer.at1"].isnan().any() and v["answer.at2"][0].isnan().all()
@@ -433,7 +430,7 @@ def test_min_new_tokens_holds_eos_off(engines):
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, 2, held=True)
         assert 1 not in plan.results["answer"].flatten().tolist()
-        assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
+        assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
         assert plan.run.positions["answer.at2"] == [[p + 1] for p in PROMPT]
 
 
@@ -515,7 +512,7 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     def found(pos):
         pos = {"frame": 0, "scope": None, "index": ":", **pos}
         hits = positions.occurrences(pos["scope"], row, said, tokenizer, ["beta"])
-        return positions.resolve(pos, 2, [1], said, True, hits)
+        return positions.resolve(pos, 2, [1], said, hits)
     assert found(every) == [1]
     assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
     assert found({**every, "scope": {"text": "beta", "occurrence": ":"}}) == [1, 3]
@@ -708,7 +705,7 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
 
 @pytest.mark.parametrize("pos, message", [
     ({"frame": ":", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame ':': a scoped write beyond the"),
-    ({"frame": "eos", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'eos': a scoped write beyond the"),
+    ({"frame": -1, "scope": {"text": "is"}, "index": -1}, r"\.frame: frame -1: a scoped write beyond the"),
     ({"frame": "1:", "scope": {"text": "is"}}, r"\.index: index ':': a scoped write lands at the call fed"),
 ])
 def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):

@@ -116,9 +116,9 @@ def every(selector) -> bool:
 
 
 def bounded(frame) -> bool:
-    """Whether a frame names the same calls on every row that gets that far, a static number of them: not
-    `"eos"`, not a frame to the row's last call (`":"`, `"1:"`, `"2:"`)."""
-    return frame != "eos" and fixed(frame) is not None
+    """Whether a frame names the same calls on every row that gets that far, a static number of them: not a
+    frame to the row's last call (`":"`, `"1:"`, `"2:"`)."""
+    return fixed(frame) is not None
 
 
 def width(pos: dict) -> int | None:
@@ -136,7 +136,7 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     that gets that far, which a write needs, landing as each call runs. `horizon` is how many calls a row makes
     at most (a generation's `max_new_tokens`), when known.
 
-    A frame counted from the end, or `eos`, depends on how far each row gets. Any other frame names call `k`
+    A frame counted from the end depends on how far each row gets. Any other frame names call `k`
     on every row that makes it, as `k in select(frame, k + 1)` says. An index other than `":"` must not
     depend on how far the row gets either: over a frame holding the prompt it does (the prompt's length
     differs by row); over decode calls, each holding one position, the record is exact when a row that stops
@@ -145,7 +145,7 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     other than every decode call names calls only the run will know. A scope's index counts its text's
     tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
-    if frame == "eos" or from_end(frame):
+    if from_end(frame):
         return True, None, False
     holds = 0 in select(frame, 1)
     if holds or every(index):
@@ -202,10 +202,9 @@ def prefill(pos: dict) -> bool:
 # -- the three stages ---------------------------------------------------------------------------------
 
 
-def framed(frame, n: int, stopped: bool) -> list[int]:
-    """Stage one: the calls `frame` picks among a row's `n` calls (`stopped`: its last one chose EOS)."""
-    if frame == "eos":
-        return [n - 1] if stopped else []
+def framed(frame, n: int) -> list[int]:
+    """Stage one: the calls `frame` picks among a row's `n` calls; `-1` is its last, whether it chose EOS or
+    the generation ran out."""
     return select(frame, n)
 
 
@@ -246,13 +245,13 @@ def indexed(index, tokens: list[int], width: int | None) -> list[int]:
     return got
 
 
-def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int], stopped: bool,
+def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
             occurrences: list[set[int]]) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, the positions its prefill holds
-    (`prompted`), what it generated up to its first EOS (`said`, `stopped`), and where its scope's text occurs
+    (`prompted`), what it generated up to its first EOS (`said`), and where its scope's text occurs
     (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided."""
     try:
-        tokens = held(framed(pos["frame"], max(len(said), 1), stopped), prompted, prompt)
+        tokens = held(framed(pos["frame"], max(len(said), 1)), prompted, prompt)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
     except Unaligned as e:
         if prefill(pos):
@@ -305,7 +304,7 @@ def landing(pos: dict, texts: list[str], inputs: list[int], eos: set[int], token
     is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
     said = continuation([*inputs, -1], eos)
     found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts)
-    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, False, found)
+    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, found)
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 
 

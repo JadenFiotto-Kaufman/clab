@@ -224,7 +224,7 @@ def indices(where: str, write: bool, record, step, rows: list[dict], encoded: li
     found = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
         try:
-            got = place(pos, row, enc, [], False, tokenizer, head(step, record))
+            got = place(pos, row, enc, [], tokenizer, head(step, record))
         except ValueError as e:
             why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
                 "that is all call 0 holds of it" if head(step, record) else ""
@@ -243,12 +243,12 @@ def prompted(encoded: dict, tokenizer, head_only: bool) -> list[int]:
     return [len(ids) - 1] if head_only else [i for i, t in enumerate(ids) if t not in special]
 
 
-def place(pos: dict, row: dict, encoded: dict, said: list[int], stopped: bool, tokenizer,
+def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
           head_only: bool) -> list[int] | str:
     """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: the positions
     its prefill holds and where the scope's text occurs."""
     found = positions.occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
-    return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, stopped, found)
+    return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, found)
 
 
 def texts(pos: dict, row: dict) -> list[str]:

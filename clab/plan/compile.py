@@ -266,7 +266,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
-    if step.kind != "generate" and (frame == "eos" or positions.select(frame, 1) != [0]):
+    if step.kind != "generate" and positions.select(frame, 1) != [0]:
         fail(f"{path}.pos.frame", f"frame {frame!r}: a forward makes one call, the prefill; its frame picks that "
              "call (0, or ':', the whole timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
@@ -557,7 +557,7 @@ def decided(path: str, pos: dict, most: int | None) -> None:
         fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
              "listed before the run, so the step gives max_new_tokens, which bounds them")
     fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
-         "lands as its call runs, so its frame is not counted from the row's last call or 'eos', and its index "
+         "lands as its call runs, so its frame is not counted from the row's last call, and its index "
          "names the same calls on a row that stops early as on one that runs on: ':' over the prompt, and not "
          "counted from the end over several decode calls; or it takes a text scope")
 

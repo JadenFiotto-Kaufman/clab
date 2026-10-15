@@ -71,7 +71,7 @@ the op calls.
 
 ### `pos`
 
-- `frame: one of 'eos' or selector or a sweep = 0`
+- `frame: selector or a sweep = 0`
 - `scope: scope or null = None`
 - `index: selector or a sweep = ':'`
 
@@ -81,7 +81,7 @@ the op calls.
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
           | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
-frame    := selector | "eos"                                          # default 0
+frame    := selector                                                  # default 0
 scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
           | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
@@ -95,9 +95,10 @@ picks none of the tokens of a frame of a static number of decode calls (`{"frame
 "5:"}`).
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
-counts from the row's last call; `"1:"` is every decode call, `":"` the prefill and every decode call
-(in a `forward`, its one call: so a named intervention written at `":"` is on in every call of
-whichever step names it), `"eos"` the call where the row stopped (the one that chose its EOS). A
+counts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the
+generation ran to `max_new_tokens`); `"1:"` is every decode call, `":"` the prefill and every decode
+call (in a `forward`, its one call: so a named intervention written at `":"` is on in every call of
+whichever step names it). A
 position is where an input token sits, in a forward and in a generation alike: the prefill holds every
 prompt token, its last position the distribution over generated token 0; under the cache decode call k
 holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -186,7 +187,7 @@ a forward does; every other key goes to the engine's `generate` as-is (`max_new_
 `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
 prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
 generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
-selects is known by then: its frame not counted from the row's last call and not `eos`, and with an
+selects is known by then: its frame not counted from the row's last call, and with an
 index that names the same calls on a row that stops early as on one that runs on (not one counted from
 the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
 every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
@@ -194,8 +195,8 @@ gives. With a `column` or `text` scope, decode calls only, index -1 and an occur
 first. A scoped write is found
 online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
 occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
-to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes `eos` or
-a frame counted from a row's last call. A row's calls are what the engine actually generated, up to the
+to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame
+counted from a row's last call. A row's calls are what the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
 new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value

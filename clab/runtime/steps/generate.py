@@ -86,7 +86,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                           if positions.landing(pos, texts(pos, row), x[:k], eos, engine.tokenizer)] or positions.MISSING
                          for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             else:
-                where = [place(pos, row, e, x, bool(x) and x[-1] in eos, engine.tokenizer, head(step, record))
+                where = [place(pos, row, e, x, engine.tokenizer, head(step, record))
                          for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             resolved[f"{name}.{key}"] += where
             if key in later:
