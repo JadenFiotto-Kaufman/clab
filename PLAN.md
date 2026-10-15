@@ -44,8 +44,8 @@ Operands: a number, or a name. Several writes on one site compose in listed
 order (`steer` then `restore`).
 
 **Metrics:** `match`, `logit_diff`, `token_prob`, `token_logit`,
-`cross_entropy`, `kl`, `js`, `top_k`; `token_form: bare` picks the unspaced
-spelling. **Reduces:** `mean`, `pca` (with `k`).
+`cross_entropy`, `kl`, `js`, `top_k`; an answer column is tokenized as
+written (PR 12). **Reduces:** `mean`, `pca` (with `k`).
 
 **Featurizers:** `subspace` (cayley-parametrized rotation, `k`, optional
 `seed`, optional `file_path`), `gate` (a soft mask, annealed), `pca` (loaded
@@ -518,8 +518,8 @@ forward-only documents.
 - **`model` knows three keys** — `key`, `revision`, `dtype` (spelled torch's
   way: `float32`, `bfloat16`; the document and the plan use the same
   spelling) — and every other key is passed to the engine's loader untouched
-  (`attn_implementation`, `device_map`, ...). An engine's loader refuses what
-  it cannot honor. `schema.json` allows additional properties on `model`.
+  (`attn_implementation`, ...; placement is the run's `device`, not a model
+  key). An engine's loader refuses what it cannot honor. `schema.json` allows additional properties on `model`.
 - **`generate` owns `input`, `writes`, `reads`, `interventions`**; every other
   key is forwarded to the engine's `generate` as-is (`max_new_tokens`,
   `do_sample`, `temperature`, ...), sweepable like any value. The generated
@@ -709,8 +709,9 @@ clab; its lead is operating on real models).
   reads the server address from nnsight's own configuration/env; `--remote`
   leaves the CLI; `remote="local"` stays as an engine kwarg for tests.
 - **Run options**, named so: `engine`, `batch_size`, `device` are common;
-  engine-specific options pass through to the engine's constructor
-  (`-o device_map=auto`), which refuses what it cannot honor. The document's
+  engine-specific options pass through to the engine's constructor or
+  `execute`, by signature (`-o remote=local`), which refuses what it cannot
+  honor; placement is `--device` alone, `auto` included (PR 12). The document's
   `model` block says what the checkpoint is; run options say how and where
   it runs. `plan.run` records every option given and what preflight observed
   (device, served dtype, versions of the serving side).
@@ -761,10 +762,12 @@ clab; its lead is operating on real models).
 ### Ratified after the M6 stack landed (2026-10-15, PR 12)
 
 - `device` is every engine's one placement argument; `device_map` is gone.
-  An engine resolves the value as it likes (`nnterp`/`hooks` hand any
-  value to transformers as a device map, so `"auto"` works; `ndif` refuses
-  one, the server places the model). Each engine documents the values it
-  accepts in its own constructor docstring, which `describe engines` prints.
+  An engine resolves the value as it likes: `nnterp`/`hooks` take a single
+  torch device or a transformers map such as `"auto"` (one key passed to the
+  loader, never both); `ndif` honours a torch device under `remote: "local"`
+  and refuses any but `"cpu"` under the server, which places the model. Each
+  engine documents the values it accepts in its own constructor docstring,
+  which `describe engines` prints.
 - `select` takes a selector per axis, the same grammar as `layers` and
   `pos`; a head sweep is `{"sweep": [0, 1, ...]}`; any axis the components
   table lists as narrowing the component may be selected.
