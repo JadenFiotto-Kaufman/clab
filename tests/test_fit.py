@@ -14,9 +14,10 @@ import pytest
 import torch
 from safetensors.torch import load_file, save_file
 
-from clab import Plan, featurizers
+from clab import Plan
 from clab.cli import main
-from clab.plan import PlanError, dims_of
+from clab.plan.model import PlanError, dims_of
+from clab.runtime import featurizers
 from conftest import BATCH_SIZE, DOCUMENTS, FIT, ROOT, bundle_header, close, edited, plain, same, snapshot, stand_in
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -116,7 +117,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
     over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
     order the rows are shuffled in, and that changes the trajectory."""
-    from clab import steps
+    from clab.runtime import steps
 
     def change(d, seed=0):
         d["steps"]["fit"].update(batch_size=1, seed=seed)

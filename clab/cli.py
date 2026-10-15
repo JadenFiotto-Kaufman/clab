@@ -21,8 +21,12 @@ from typing import Any, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
-from . import address, compiler, featurizers, ops, output, plan
-from .registry import spell as spell_type
+from . import output
+from .plan import address
+from .plan import compile as compiler
+from .plan import model as plan
+from .plan.registry import spell as spell_type
+from .runtime import featurizers, ops
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,

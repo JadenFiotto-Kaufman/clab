@@ -39,8 +39,8 @@ import torch
 from safetensors import safe_open
 from torch import Tensor
 
-from . import registry
-from .registry import Value
+from ...plan import registry
+from ...plan.registry import Value
 
 SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"

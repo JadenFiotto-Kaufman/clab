@@ -25,9 +25,9 @@ import torch
 from safetensors.torch import load_file, save_file
 from torch import Tensor
 
-from . import data, featurizers, ops, positions
-from .plan import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, kind_of, labelled, name as named,
-                   points, uses)
+from ..plan.model import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, kind_of, labelled, name as named,
+                        points, uses)
+from ..runtime import data, featurizers, ops, positions
 
 
 def dump(plan: Plan, out: str) -> None:

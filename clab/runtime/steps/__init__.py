@@ -18,10 +18,11 @@ from typing import Any, cast
 import torch
 from torch import Tensor
 
-from . import address, data, featurizers, ops, positions
-from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, encodes, kind_of,
-                   labelled, parameters, points, probe_of, space, uses, walk)
-from .registry import registers
+from ...plan import address
+from ...plan.model import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, encodes, kind_of,
+                         labelled, parameters, points, probe_of, space, uses, walk)
+from ...plan.registry import registers
+from .. import data, featurizers, ops, positions
 
 KINDS: dict = {}
 kind = registers(KINDS)

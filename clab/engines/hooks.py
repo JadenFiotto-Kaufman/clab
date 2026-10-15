@@ -18,8 +18,8 @@ from nnterp import StandardizedTransformer
 from torch import Tensor
 from transformers import AutoModelForCausalLM
 
-from .. import ops, steps
-from ..address import COMPONENTS
+from ..plan.address import COMPONENTS
+from ..runtime import ops, steps
 from ..plan import Model, Plan
 from . import engine
 from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops

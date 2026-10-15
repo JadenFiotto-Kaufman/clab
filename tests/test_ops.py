@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-from clab import ops
+from clab.runtime import ops
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden

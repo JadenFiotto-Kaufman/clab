@@ -11,8 +11,8 @@ import torch  # noqa: E402
 from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
-from clab.featurizers import FORMAT  # noqa: E402
 from clab.plan import Model  # noqa: E402
+from clab.runtime.featurizers import FORMAT  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")

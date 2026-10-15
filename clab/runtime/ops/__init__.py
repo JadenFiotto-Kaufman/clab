@@ -49,9 +49,10 @@ from typing import Annotated, Any, Callable, Literal
 import torch
 from torch import Tensor
 
-from . import featurizers, registry
-from .address import EXAMPLE_AXES, pos_axis
-from .registry import Featurizer, Tokens, Value
+from ...plan import registry
+from ...plan.address import EXAMPLE_AXES, pos_axis
+from ...plan.registry import Featurizer, Tokens, Value
+from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside a write, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
