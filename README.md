@@ -139,10 +139,11 @@ named in every error.
   a bundle a featurizer loads, that featurizer's kind. A parameter annotated `Value`, `Tokens` or
   `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
-- **Featurizer kinds** (`clab/runtime/featurizers/`, `@kind`) declare what their bundle holds and what a fit
-  trains; each mode a kind has (`encode`, `apply`) is one function in that mode's table (`@of(APPLY, "<kind>")`),
-  and the `featurizer` op reads the layout each mode produces from `MODES`.
-- **Step kinds** (`clab/runtime/steps/`, `@kind`), **featurizer kinds** (`clab/runtime/featurizers/`, `@kind`) and
+- **Featurizer kinds** (`clab/runtime/featurizers/`, one module each) are classes on the `Kind` protocol,
+  registered under their lowercase name: class attributes declare what their bundle holds and what a fit
+  trains, the constructor's signature is the document's fields, and each mode a kind has (`encode`, `apply`)
+  is its method of that name; the `featurizer` op reads the layout each mode produces from `MODES`.
+- **Step kinds** (`clab/runtime/steps/`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
   plan's `model` block; `execute(plan, batch_size=, remote=)` is its one entry point.
 

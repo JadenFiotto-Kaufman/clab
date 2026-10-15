@@ -391,7 +391,7 @@ Featurizer kinds: the fields each kind takes, what an instance is, and how a val
 A featurizer is a space a read or write happens in, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
 and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
-`labels` (its class list). An instance is a dict of tensors, never an `nn.Module`, made where the model is: a
+`labels` (its class list). An instance holds plain tensors, never an `nn.Module`, made where the model is: a
 declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
 `seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
 the plan and checks key by key against the document; a loaded one is fixed. It is called by the `featurizer`
@@ -402,20 +402,26 @@ edit op in its space runs on its coordinates, and the change is written back as 
 that changes nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly. A fit
 trains an instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>`
 (a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over what the body's
-encodes of it saw in that run of the body, which the instance keeps while a fit trains it).
+encodes of it saw in that run of the body, which the instance keeps while a fit trains it). Its math runs on
+the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a float32
+featurizer's float32 math alone.
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
 `layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
 saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
 fields and the model when the plan compiles, the site at every use, and `width` against the model's size
-before any forward.
+before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
+keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
+`sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
+width: nothing says what model or site it was made at, so neither is checked.
 
-Each kind is one `@kind` function that makes an instance and declares the rest in one line; what it does to a
-value is one function per operation, in the table for that operation: one per mode (`ENCODE`, `APPLY`, which
-`MODES` names with the layout each produces), `REPLACE`, and where a kind has one, `SETTLE`, `PROJECT`,
-`ANNEAL`, `SCALARS`. A new kind touches one place per operation it supports; a mode's function takes the
-instance, the value and the mode's own arguments.
+Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
+attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
+(`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
+(`drawn`) and the scalars a fit's objective may name (`scalars`); its constructor makes an instance. Its modes
+are the methods of the same names, `encode(h)` and `apply(h, ...)`, a kind defining only those it has; the
+rest is the protocol `Kind` declares, with a default for what a kind need not have.
 
 ### `subspace`
 
@@ -457,13 +463,23 @@ Modes: `encode` gives its coordinates, the last axis becoming features; `apply` 
 - `latents: int or null = None`
 - `file_path: str or null = None`
 - `seed: int or null = None`
+- `activation: one of 'relu', 'jumprelu', 'topk' = 'relu'`
+- `k: int or null = None`
+- `centered: bool = True`
 
 A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
 dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
 `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
-both biases zero. Its coordinates are the latents `relu((h - b_dec) @ W_enc + b_enc)`, and a write keeps its
-error term exactly. Its scalars, over every vector the body's encodes of it saw in that run of the body:
-`reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
+both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec) @ W_enc + b_enc`, or
+`h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a write keeps its error term exactly.
+`activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
+published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
+zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
+`W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
+are checked against each other and the site's width, nothing says what model it was trained on, and the
+document states its `activation` and `centered`, which have no default for it. Its
+scalars, over every vector the body's encodes of it saw in that run of the body: `reconstruction`, the
+mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
 Modes: `encode` gives its coordinates, the last axis becoming features; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term.
 

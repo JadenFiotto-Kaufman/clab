@@ -131,12 +131,12 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         if f is None:
             dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
         if encodes(o):
-            vocabulary = ops.featurizer_of(o.op, args).get("classes")
+            vocabulary = getattr(ops.featurizer_of(o.op, args), "classes", None)
     return value
 
 
 def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
-          featurizer: dict | None = None, features: Tensor | None = None) -> Any:
+          featurizer: featurizers.Kind | None = None, features: Tensor | None = None) -> Any:
     """Op `name` on a value, or in `featurizer`'s space on its coordinates there (the `features` it keeps),
     the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
@@ -147,4 +147,4 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
 
     def fn(x: Any) -> Any:
         return ops.call(name, x, args, engine=engine, dims=dims, eos=eos)
-    return fn(value) if featurizer is None else featurizers.within(featurizer, cast(Tensor, value), fn, features)
+    return fn(value) if featurizer is None else featurizer.within(cast(Tensor, value), fn, features)

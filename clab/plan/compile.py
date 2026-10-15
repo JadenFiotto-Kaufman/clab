@@ -41,7 +41,7 @@ def compile(plan: Plan) -> Plan:
         compiled["featurizers"][name] = expand(cx, name, ("featurizers", name),
                                                lambda point, name=name: featurizer(cx, point, name))
         cx.names[name] = {"dims": [], "data": None, "kind": "featurizer"}
-        for scalar in featurizers.SCALARS.get(kind_of(plan, name), ()):
+        for scalar in featurizers.KINDS[kind_of(plan, name)].scalars:
             cx.names[f"{name}.{scalar}"] = {"dims": [], "data": None, "kind": "scalar"}
     for name in plan.steps:
         compiled["steps"][name] = expand(cx, name, ("steps", name), lambda point, name=name: step(
@@ -281,11 +281,11 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
         if within is not None:
             featurizer_ref(cx, within, f"{at}.featurizer")
-            kind = kind_of(plan, within)
-            if kind not in featurizers.ENCODE or kind not in featurizers.REPLACE:
-                fail(f"{at}.featurizer", f"{within!r} is a {kind!r} featurizer, which has no coordinates to edit and "
-                     f"write back into the value; call it with the featurizer op (modes: "
-                     f"{', '.join(featurizers.modes(kind))})")
+            kind = featurizers.KINDS[kind_of(plan, within)]
+            if not kind.writable():
+                fail(f"{at}.featurizer", f"{within!r} is a {kind.kind!r} featurizer, which has no coordinates to edit "
+                     f"and write back into the value; call it with the featurizer op (modes: "
+                     f"{', '.join(kind.modes())})")
         kind = called(cx, plan, at, o.op, arguments(o))
         for key, value in arguments(o).items():
             if isinstance(value, str) and value in own and value not in live:
@@ -325,7 +325,8 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     try:
         fn = ops.options(name, args, kind)
         if fn is not None:
-            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], repr(fn.__name__))
+            article = "an" if kind[0] in "aeiou" or kind == "sae" else "a"        # "an sae", said letter by letter
+            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], f"{article} {kind}'s `{fn.__name__}`")
     except ValueError as e:
         fail(path, f"featurizer {ref!r}: {e}")
     for key, p in ops.parameters(name, args, kind).items():
@@ -420,7 +421,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
-        trainable = [k for k, d in featurizers.DECLARED.items() if d["trains"]]
+        trainable = [k for k, c in featurizers.KINDS.items() if c.trains]
         if kind_of(plan, f) not in trainable:
             fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
                  f"train (trainable kinds: {', '.join(trainable)})")
@@ -447,8 +448,8 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
-        if term not in body_ops and not (thing in spec.train and scalar in featurizers.SCALARS.get(
-                kind_of(plan, thing), ())):
+        if term not in body_ops and not (thing in spec.train and scalar in featurizers.KINDS[
+                kind_of(plan, thing)].scalars):
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
@@ -470,7 +471,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                  + "; it runs over minibatches of the same rows of each, so they have as many")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
-        for scalar in featurizers.SCALARS.get(kind_of(plan, f), {}):
+        for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:
             cx.names[f"{name}.history.{f}.{scalar}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
     for n, s in body.items():
         if s["kind"] == "op":
@@ -568,7 +569,7 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     fields = f.model_extra or {}
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
-    missing = [k for k in featurizers.DECLARED[f.kind]["drawn"] if fields.get(k) is None]
+    missing = [k for k in featurizers.KINDS[f.kind].drawn if fields.get(k) is None]
     if fields.get("file_path") is None and missing:
         fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
              "load one with 'file_path'")
@@ -576,9 +577,9 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     if fields.get("file_path") is None:
         return record
     try:
-        tensors, header = featurizers.bundle(cx.root, f.kind, fields, plan.model,
-                                             featurizers.labels(cx.rows, fields["classes"]) if "classes" in fields
-                                             else None)
+        tensors, header = featurizers.bundles.load(cx.root, f.kind, fields, plan.model,
+                                                   featurizers.labels(cx.rows, fields["classes"]) if "classes" in fields
+                                                   else None)
     except ValueError as e:
         fail(f"{path}.file_path", str(e))
     return {**record, "bundle": tensors, "header": header}

@@ -590,7 +590,8 @@ class Plan(Record):
                 if fields.get("file_path") is not None and f.bundle is None:
                     classes = featurizers.labels({n: d.rows or [] for n, d in self.data.items()}, fields["classes"]) \
                         if "classes" in fields else None
-                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model, classes)
+                    f.bundle, f.header = featurizers.bundles.load(corpus_root(self), f.kind, fields, self.model,
+                                                                  classes)
         return self
 
     @field_serializer("document", when_used="json")

@@ -3,20 +3,22 @@
 import torch
 from torch import Tensor
 
-from . import ENCODE, kind, of
+from . import Kind
 
 
-@kind(saves=("W", "b"), trains=("W", "b"), axis="classes", header=("classes",))
-def linear(width: int, classes: str, labels: list, file_path: str | None = None, bundle: dict | None = None) -> dict:
+class Linear(Kind):
     """A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
     the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
     those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
     read in mode `encode` and never written through."""
-    if bundle is not None:
-        return {"kind": "linear", "classes": labels, "W": bundle["W"], "b": bundle["b"]}
-    return {"kind": "linear", "classes": labels, "W": torch.zeros(width, len(labels)), "b": torch.zeros(len(labels))}
+    saves = trains = ("W", "b")
+    axis, header = "classes", ("classes",)
 
+    def __init__(self, width: int, classes: str, labels: list, file_path: str | None = None,
+                 bundle: dict | None = None):
+        self.classes = labels
+        self.W: Tensor = bundle["W"] if bundle is not None else torch.zeros(width, len(labels))
+        self.b: Tensor = bundle["b"] if bundle is not None else torch.zeros(len(labels))
 
-@of(ENCODE, "linear")
-def linear_encode(f: dict, h: Tensor) -> Tensor:
-    return h @ f["W"].to(h.dtype) + f["b"].to(h.dtype)
+    def encode(self, h: Tensor) -> Tensor:
+        return h @ self.W.to(h) + self.b.to(h)

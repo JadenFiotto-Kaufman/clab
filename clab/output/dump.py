@@ -80,4 +80,5 @@ def header(plan: Plan, name: str, value: Any) -> dict[str, str] | None:
         return None
     classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
         if "classes" in fields else None
-    return featurizers.header(kind, fields, plan.model, classes, site, featurizers.width(kind, value), named(plan))
+    return featurizers.bundles.header(kind, fields, plan.model, classes, site, featurizers.KINDS[kind].width(value),
+                                      named(plan))

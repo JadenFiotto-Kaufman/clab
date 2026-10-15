@@ -18,11 +18,11 @@ def readout(of: Tensor, engine: Any) -> Tensor:
 
 def mode_layout(dims: list[str], args: dict, kind: str) -> list[str]:
     """its mode's (see Featurizer kinds)"""
-    return featurizers.layout(kind, args["mode"], dims)
+    return featurizers.KINDS[kind].layout(args["mode"], dims)
 
 
 def mode_function(args: dict, kind: str) -> Callable:
-    return featurizers.mode(kind, args["mode"])
+    return featurizers.KINDS[kind].mode(args["mode"])
 
 
 @op("transforms", layout=mode_layout, options=mode_function)
@@ -31,4 +31,4 @@ def featurizer(of: Tensor, featurizer: Featurizer, mode: str, **options: Any) ->
     beside (`with`, for a lora's `apply`): `encode` gives its coordinates (a probe's: its scores, one per
     class), `apply` its version of the value. Its axes depend on an argument: they are the mode's, which the
     featurizer's kind declares (see Featurizer kinds), and the op declares them as that function."""
-    return featurizers.call(featurizer, mode, of, options)
+    return featurizer.call(mode, of, options)

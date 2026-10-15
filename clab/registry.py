@@ -3,22 +3,25 @@ arguments are checked against that function's signature."""
 
 import inspect
 import types
-from typing import Annotated, Any, Callable, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin
 
 from pydantic import TypeAdapter, ValidationError
 from torch import Tensor
+
+if TYPE_CHECKING:       # a featurizer instance; its package imports this module, so only the checker sees it
+    from .runtime.featurizers import Kind
 
 # How a document fills a parameter that names a thing the run binds: a named value or a number, a dataset
 # column resolved through a vocabulary, a featurizer's name.
 Value = Annotated[Tensor, "Value"]
 Tokens = Annotated[Tensor, "Tokens"]
-Featurizer = Annotated[dict, "Featurizer"]
+Featurizer = Annotated["Kind", "Featurizer"]
 
 
-def registers(table: dict) -> Callable:
-    """A decorator that adds the function it decorates to `table` under the function's own name."""
+def registers(table: dict, name: str | None = None) -> Callable:
+    """A decorator that adds the function (or class) it decorates to `table` under `name`, else its own name."""
     def add(fn: Callable) -> Callable:
-        table[fn.__name__] = fn
+        table[name or fn.__name__] = fn
         return fn
     return add
 

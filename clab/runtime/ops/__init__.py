@@ -107,7 +107,7 @@ def featurizer_of(name: str, args: dict) -> Any:
 def kind(name: str, args: dict) -> str | None:
     """The kind of the featurizer instance bound as op `name`'s `Featurizer` argument, if any."""
     f = featurizer_of(name, args)
-    return f["kind"] if isinstance(f, dict) else None
+    return f.kind if isinstance(f, featurizers.Kind) else None
 
 
 def check(name: str, args: dict) -> None:
@@ -182,7 +182,7 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
     the selection as it was before any of these writes. An argument bound to a read of the same forward
     (`{"live": <the read's name>}`) is that read's value in `got`, where the forward put it. An op with a
     `featurizer` (an instance) runs on the selection's coordinates in its space, on the features its `select`
-    keeps, and the change is written back (`featurizers.within`). A write narrows at most
+    keeps, and the change is written back (`Kind.within`). A write narrows at most
     one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
     width; only the positions its `keep` marks are written.
     """
@@ -202,9 +202,9 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
             if f is None:
                 new = call(o["op"], new, args, original=original, dims=o["dims"])
                 continue
-            start = featurizers.encode(f, original)
-            start = start if features is None else start.index_select(-1, features)
-            new = featurizers.within(f, new, lambda z, args=args, o=o, start=start: call(
+            start = f.encode(original)
+            start = start if features is None else start.index_select(-1, features.to(start.device))
+            new = f.within(new, lambda z, args=args, o=o, start=start: call(
                 o["op"], z, args, original=start, dims=o["dims"]), features)
         for dim, index in w["select"].items():
             new = new.to(current.dtype)

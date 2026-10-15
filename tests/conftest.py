@@ -22,7 +22,7 @@ BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch 
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
 # Documents that train or load a featurizer, pinned in test_fit.py.
 FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "random_subspace",
-       "sae_feature_ablation", "sae_train", "sae_train_ablation"]
+       "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]
 GENERATE = ["generate_probe", "generated_answer"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
@@ -166,7 +166,8 @@ def stand_ins(root: str) -> None:
              {"basis": torch.eye(16)[:, :8].contiguous()}),
             ("basis.safetensors", {"kind": "pca", "k": "4", "document": "pca_harvest"},
              {"basis": torch.zeros(16, 4), "mean": torch.zeros(16)}),
-            ("fit.dictionary.safetensors", {"kind": "sae", "document": "sae_train"},
+            ("fit.dictionary.safetensors", {"kind": "sae", "activation": "relu", "centered": "true",
+                                            "document": "sae_train"},
              {"W_enc": torch.zeros(16, 32), "b_enc": torch.zeros(32), "W_dec": torch.zeros(32, 16),
               "b_dec": torch.zeros(16)}),
             ("fit.lora.safetensors", {"kind": "lora", "rank": "4", "alpha": "8", "document": "lora_train"},
