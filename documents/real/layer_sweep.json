@@ -1,0 +1,37 @@
+{
+  "description": "Where the day is, layer by layer: the residual stream leaving each of the 16 blocks (`layer_output`, `layers` swept 0 to 15) is read from the counterfactual prompt and swapped into the base prompt at the same place, once at the day token and once at the last token, and the patched model's top token is scored against the counterfactual answer. Every prompt here is BOS and seven one-token words, so `pos: -4` is the day's name. `iia_day` and `iia_last` are the interchange accuracies, one per layer: the fraction of the 42 pairs where the patch makes the model say the counterfactual's tomorrow. The day sits at its own token through layer 11 and is read off the last token from layer 12 (the two shares summing to about 1 at layers 12 and 13, the last token alone from 14). The two positions are two patched steps on one swept site, so their layers are one axis and zip; one step with `pos` swept would need the counterfactual's read and the write to share a swept `pos`, which two sweeps with one label cannot. Both engines patch the block's output at the module boundary and agree to the bit.",
+  "model": {
+    "key": "meta-llama/Llama-3.2-1B",
+    "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dtype": "float32"
+  },
+  "data": {"days": {"path": "weekdays_full/data"}},
+  "sites": {
+    "target": {"component": "layer_output", "layers": {"sweep": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]}},
+    "head": {"component": "lm_head_output"}
+  },
+  "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "days.counterfactual_inputs[0]",
+      "reads": {"day": {"site": "target", "pos": -4}, "last": {"site": "target", "pos": -1}}
+    },
+    "at_day": {
+      "kind": "forward",
+      "input": "days.input",
+      "writes": {"patch": {"site": "target", "pos": -4, "ops": [{"op": "swap", "with": "counterfactual.day"}]}},
+      "reads": {"logits": {"site": "head", "pos": -1}}
+    },
+    "at_last": {
+      "kind": "forward",
+      "input": "days.input",
+      "writes": {"patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.last"}]}},
+      "reads": {"logits": {"site": "head", "pos": -1}}
+    },
+    "hit_day": {"kind": "op", "op": "match", "of": "at_day.logits", "expected": "days.cf_answer"},
+    "hit_last": {"kind": "op", "op": "match", "of": "at_last.logits", "expected": "days.cf_answer"},
+    "iia_day": {"kind": "op", "op": "mean", "of": "hit_day"},
+    "iia_last": {"kind": "op", "op": "mean", "of": "hit_last"}
+  },
+  "saves": ["iia_day", "iia_last"]
+}

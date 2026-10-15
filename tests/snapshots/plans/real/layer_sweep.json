@@ -1,0 +1,2523 @@
+{
+ "description": "Where the day is, layer by layer: the residual stream leaving each of the 16 blocks (`layer_output`, `layers` swept 0 to 15) is read from the counterfactual prompt and swapped into the base prompt at the same place, once at the day token and once at the last token, and the patched model's top token is scored against the counterfactual answer. Every prompt here is BOS and seven one-token words, so `pos: -4` is the day's name. `iia_day` and `iia_last` are the interchange accuracies, one per layer: the fraction of the 42 pairs where the patch makes the model say the counterfactual's tomorrow. The day sits at its own token through layer 11 and is read off the last token from layer 12 (the two shares summing to about 1 at layers 12 and 13, the last token alone from 14). The two positions are two patched steps on one swept site, so their layers are one axis and zip; one step with `pos` swept would need the counterfactual's read and the write to share a swept `pos`, which two sweeps with one label cannot. Both engines patch the block's output at the module boundary and agree to the bit.",
+ "model": {
+  "key": "meta-llama/Llama-3.2-1B",
+  "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08"
+ },
+ "data": {
+  "days": {
+   "path": "weekdays_full/data",
+   "sha256": "603f02ca59b02132622ea3e1b3cd250259a43362278aafa0e658d0a8de3ccb67",
+   "n_rows": 42
+  }
+ },
+ "steps": {
+  "counterfactual": [
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 1
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 1
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 2
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 2
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 3
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 3
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 4
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 4
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 5
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 5
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 6
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 6
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 7
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 7
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 8
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 8
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 9
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 9
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 10
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 10
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 11
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 11
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 12
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 12
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 13
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 13
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 14
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 14
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.counterfactual_inputs[0]",
+    "reads": {
+     "day": {
+      "site": {
+       "component": "layer_output",
+       "layers": 15
+      },
+      "pos": -4,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "last": {
+      "site": {
+       "component": "layer_output",
+       "layers": 15
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days"
+   }
+  ],
+  "at_day": [
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 1
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 2
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 3
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 4
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 5
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 6
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 7
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 8
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 9
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 10
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 11
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 12
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 13
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 14
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 15
+      },
+      "pos": -4,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.day"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days"
+   }
+  ],
+  "at_last": [
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 1
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 2
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 3
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 4
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 5
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 6
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 7
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 8
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 9
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 10
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 11
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 12
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 13
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 14
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days"
+   },
+   {
+    "kind": "forward",
+    "input": "days.input",
+    "writes": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 15
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "swap",
+        "with": "counterfactual.last"
+       }
+      ]
+     }
+    },
+    "reads": {
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ]
+     }
+    },
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days"
+   }
+  ],
+  "hit_day": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_day.logits",
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   }
+  ],
+  "hit_last": [
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   },
+   {
+    "kind": "op",
+    "op": "match",
+    "of": "at_last.logits",
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "expected": "days.cf_answer"
+   }
+  ],
+  "iia_day": [
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_day",
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days",
+    "dims": []
+   }
+  ],
+  "iia_last": [
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 0
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 1
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 2
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 3
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 4
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 5
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 6
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 7
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 8
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 9
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 10
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 11
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 12
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 13
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 14
+    },
+    "dataset": "days",
+    "dims": []
+   },
+   {
+    "kind": "op",
+    "op": "mean",
+    "of": "hit_last",
+    "at": {
+     "layers": 15
+    },
+    "dataset": "days",
+    "dims": []
+   }
+  ]
+ },
+ "saves": [
+  "iia_day",
+  "iia_last"
+ ],
+ "document": "documents/real/layer_sweep.json",
+ "compiled": true,
+ "sweeps": {
+  "layers": {
+   "path": "sites.target.layers",
+   "values": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ]
+  }
+ }
+}

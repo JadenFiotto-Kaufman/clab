@@ -20,6 +20,10 @@ SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
 UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
+# The real-model documents, by their path under documents/: compiled and schema-checked with the rest, run only by
+# test_real.py, on a GPU.
+REAL = sorted(f"real/{os.path.splitext(n)[0]}" for n in os.listdir(os.path.join(DOCUMENTS, "real"))
+              if n.endswith(".json"))
 # Documents that train or load a featurizer, pinned in test_fit.py.
 FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "random_subspace",
        "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]

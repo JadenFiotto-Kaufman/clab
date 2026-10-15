@@ -11,7 +11,7 @@ import pytest
 from clab import Plan
 from clab.plan.model import PlanError, points
 from clab.runtime import positions
-from conftest import NAMES, document, edited, plan_of, snapshot
+from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 
 def step(plan: Plan, name: str) -> Any:
@@ -31,9 +31,10 @@ def compiled_form(plan: Plan) -> dict:
 def test_the_corpus_is_the_31_documents_and_the_examples_since():
     assert len(NAMES) == 31 + 9 and {"sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
                                      "clamp_write", "cosine_metric"} <= set(NAMES)
+    assert REAL == ["real/behavior", "real/das", "real/head_patching", "real/layer_sweep", "real/pattern_patching"]
 
 
-@pytest.mark.parametrize("name", NAMES)
+@pytest.mark.parametrize("name", NAMES + REAL)
 def test_document_compiles_to_its_snapshot(name, corpus):
     plan = Plan(os.path.join(corpus, "documents", f"{name}.json")).compile()
     assert plan.compiled
@@ -80,6 +81,9 @@ def test_a_written_or_dumped_document_path_is_relative_to_the_corpus():
     assert os.path.isabs(plan.document or "")
     assert plan.model_dump(mode="json")["document"] == "documents/patching.json"
     assert plan.data["pairs"].n_rows == 4
+    real = plan_of("real/behavior")         # a document in a directory under documents/ shares the corpus's data/
+    assert real.model_dump(mode="json")["document"] == "documents/real/behavior.json"
+    assert real.data["days"].n_rows == 42
 
 
 @pytest.mark.parametrize("name", ["pca_control", "das_apply"])

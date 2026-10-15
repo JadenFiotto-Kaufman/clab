@@ -1,0 +1,77 @@
+{
+ "description": "The weekday task's baseline on Llama-3.2-1B, before anything is patched: one forward over the 42 prompts of data/weekdays_full (\"If today is Sunday, tomorrow is\", each weekday with each of the six others as its counterfactual), the head read at the last position, and two scores of what it says. `correct` is 1 where the most likely next token is the base answer (\" Monday\"), and `accuracy` is its mean; `p` is the answer's probability per prompt and `p_answer` its mean. The model answers every prompt, with a little under half its probability on the answer: the task is in the model, so the interchanges beside this document have something to move. Both engines read the head at the module boundary and agree to the bit; a GPU run is the CPU's to float32 rounding.",
+ "model": {
+  "key": "meta-llama/Llama-3.2-1B",
+  "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08"
+ },
+ "data": {
+  "days": {
+   "path": "weekdays_full/data",
+   "sha256": "603f02ca59b02132622ea3e1b3cd250259a43362278aafa0e658d0a8de3ccb67",
+   "n_rows": 42
+  }
+ },
+ "steps": {
+  "answer": {
+   "kind": "forward",
+   "input": "days.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "days"
+  },
+  "correct": {
+   "kind": "op",
+   "op": "match",
+   "of": "answer.logits",
+   "dataset": "days",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "expected": "days.base_answer"
+  },
+  "accuracy": {
+   "kind": "op",
+   "op": "mean",
+   "of": "correct",
+   "dataset": "days",
+   "dims": []
+  },
+  "p": {
+   "kind": "op",
+   "op": "token_prob",
+   "of": "answer.logits",
+   "dataset": "days",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "token": "days.base_answer"
+  },
+  "p_answer": {
+   "kind": "op",
+   "op": "mean",
+   "of": "p",
+   "dataset": "days",
+   "dims": []
+  }
+ },
+ "saves": [
+  "accuracy",
+  "p_answer",
+  "p"
+ ],
+ "document": "documents/real/behavior.json",
+ "compiled": true
+}
