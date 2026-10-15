@@ -2791,7 +2791,7 @@
   },
   "Run": {
    "additionalProperties": false,
-   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A\nswept step's are keyed by coordinate.",
+   "description": "How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how\neach dataset input tokenized and what each generate step's rows generated (token strings per row, under\nthe input or the step's name), and the position every read and write resolved to, per row (an index into\nthe row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A\nswept step's are keyed by coordinate. `headerless` names each featurizer whose bundle carried no clab\nheader (a published SAE): nothing said what model or site made it, so only its shapes were checked.",
    "properties": {
     "engine": {
      "title": "Engine",
@@ -2841,6 +2841,14 @@
      "default": {},
      "title": "Positions",
      "type": "object"
+    },
+    "headerless": {
+     "default": [],
+     "items": {
+      "type": "string"
+     },
+     "title": "Headerless",
+     "type": "array"
     }
    },
    "required": [

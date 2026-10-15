@@ -12,13 +12,13 @@ from torch import Tensor
 # column resolved through a vocabulary, a featurizer's name.
 Value = Annotated[Tensor, "Value"]
 Tokens = Annotated[Tensor, "Tokens"]
-Featurizer = Annotated[dict, "Featurizer"]
+Featurizer = Annotated[Any, "Featurizer"]
 
 
-def registers(table: dict) -> Callable:
-    """A decorator that adds the function it decorates to `table` under the function's own name."""
+def registers(table: dict, name: str | None = None) -> Callable:
+    """A decorator that adds the function (or class) it decorates to `table` under `name`, else its own name."""
     def add(fn: Callable) -> Callable:
-        table[fn.__name__] = fn
+        table[name or fn.__name__] = fn
         return fn
     return add
 

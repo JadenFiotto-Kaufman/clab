@@ -4,7 +4,6 @@ import torch
 from torch import Tensor
 
 from ...plan.model import Plan, agreeing
-from .. import featurizers
 from . import KINDS, kind
 from .preflight import instance
 from .state import lookup, put
@@ -22,23 +21,23 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     sources = lookup(found["bodies"], name, step.at)
     trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found["widths"][f], step.seed)
                for f in step.train}
-    params = [p.requires_grad_() for f in trained.values() for p in featurizers.parameters(f)]
+    params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     optimizer = step.optimizer
     opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if s.kind == "op"]
     n = len(sources["train"][0].data[next(iter(datasets(step)))].rows or [])
-    scalars = [(f, sc) for f, inst in trained.items() for sc in featurizers.SCALARS.get(inst["kind"], {})]
+    scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
     for epoch in range(step.epochs):
         for f in trained.values():
-            featurizers.anneal(f, epoch, step.epochs)
+            f.anneal(epoch, step.epochs)
         # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
         order = torch.randperm(n, generator=torch.Generator().manual_seed(step.seed * 1_000_003 + epoch)).tolist()
         for lo in range(0, n, step.batch_size):
             with torch.enable_grad():
                 for f in trained.values():
-                    featurizers.settle(f)
+                    f.settle()
             body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + step.batch_size])
             with torch.enable_grad():
                 loss = sum(weight * term(body, trained, t, step.at) for t, weight in step.objective.items())
@@ -48,16 +47,16 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
             opt.step()
             opt.zero_grad()
             for f in trained.values():
-                featurizers.project(f)
+                f.project()
         for f in trained.values():
-            featurizers.settle(f)
+            f.settle()
         scored = body_run(engine, name, step, state, trained, sources["train"], None)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
                 history[o].append(overall(value))
         for f, sc in scalars:
-            history[f"{f}.{sc}"].append(featurizers.scalar(trained[f], sc))
+            history[f"{f}.{sc}"].append(trained[f].scalar(sc))
         if step.early_stop is None:
             kept = snapshot(trained)
             continue
@@ -69,8 +68,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
             if since >= step.early_stop.patience:
                 break
     for f, inst in trained.items():
-        inst.update(kept[f] if kept else {})
-        featurizers.settle(inst)
+        vars(inst).update(kept[f] if kept else {})
+        inst.settle()
     for label in step.eval:
         final = body_run(engine, name, step, state, trained, sources["evals"][label], None)
         for key, s in step.steps.items():
@@ -78,7 +77,7 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
             for member in members:
                 put(state, f"{name}.{label}.{member}", step.at, lookup(final, member, step.at))
     for f, inst in trained.items():
-        inst.pop("seen", None)
+        inst.seen = None
         put(state, f"{name}.{f}", step.at, inst)
     for key, values in history.items():
         if values:
@@ -93,8 +92,8 @@ def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple,
     plan, found = source if index is None else narrowed(source[0], source[1], index, datasets(step))
     body = dict(state)
     for f, inst in trained.items():
-        inst["training"] = index is not None
-        inst["seen"] = []
+        inst.training = index is not None
+        inst.seen = []
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
     with torch.set_grad_enabled(index is not None):
@@ -122,7 +121,7 @@ def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:
     """An objective term: a body op's value averaged over every axis, or a trained featurizer's scalar."""
     thing, _, member = name.partition(".")
     if member and thing in trained:
-        return featurizers.scalar(trained[thing], member)
+        return trained[thing].scalar(member)
     return overall(lookup(body, name, at))
 
 
@@ -133,5 +132,5 @@ def overall(value: Tensor) -> Tensor:
 
 def snapshot(trained: dict) -> dict:
     """Each trained featurizer as it is now, its tensors detached copies: what restoring the epoch puts back."""
-    return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in inst.items() if k != "seen"}
+    return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in vars(inst).items() if k != "seen"}
             for f, inst in trained.items()}

@@ -19,7 +19,6 @@ from torch import Tensor
 
 from ...plan.model import Plan, Run, coordinate, labelled, points
 from ...registry import registers
-from .. import featurizers
 from .preflight import instance, preflight
 from .state import lookup, put
 
@@ -69,7 +68,7 @@ def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
     value = lookup(state, name, at)
-    return featurizers.tensors(value) if step.kind == "fit" and member in step.train else value
+    return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
 def by_coordinate(plan: Plan, by_point: dict) -> Any:

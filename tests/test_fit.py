@@ -18,7 +18,8 @@ from clab import Plan
 from clab.cli import main
 from clab.plan.model import PlanError, dims_of
 from clab.runtime import featurizers
-from clab.runtime.featurizers.gate import mask
+from clab.runtime.featurizers.gate import Gate
+from clab.runtime.featurizers.subspace import Subspace
 from conftest import BATCH_SIZE, DOCUMENTS, FIT, ROOT, bundle_header, close, edited, plain, same, snapshot, stand_in
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -144,7 +145,7 @@ def test_a_pca_encodes_its_mean_as_zero():
     g = torch.Generator().manual_seed(0)
     bundle = {"basis": torch.linalg.qr(torch.randn(16, 4, generator=g))[0], "mean": torch.randn(16, generator=g)}
     f = featurizers.make("pca", {"k": 4, "file_path": "x"}, 16, bundle, None, None)
-    assert torch.equal(featurizers.encode(f, bundle["mean"][None]), torch.zeros(1, 4))
+    assert torch.equal(f.encode(bundle["mean"][None]), torch.zeros(1, 4))
 
 
 def test_a_fit_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
@@ -167,7 +168,7 @@ def test_das_apply_scores_the_saved_rotation_as_das_scored_it_held_out(ran):
 def test_random_subspace_draws_a_different_subspace_per_seed(ran):
     """Each seed draws its own Haar-random rotation; the three rank-4 bases are orthonormal and span three
     different subspaces, and score differently."""
-    bases = [featurizers.make("subspace", {"k": 4, "seed": s}, 16, None, None, None)["basis"] for s in (0, 1, 2)]
+    bases = [Subspace(16, k=4, seed=s).basis for s in (0, 1, 2)]
     projections = [b @ b.T for b in bases]
     for b in bases:
         torch.testing.assert_close(b.T @ b, torch.eye(4), atol=1e-6, rtol=0)
@@ -344,25 +345,25 @@ def test_writing_back_a_values_own_coordinates_changes_nothing_to_the_bit(kind):
                       "W_dec": torch.randn(32, 16, generator=g), "b_dec": torch.randn(16, generator=g)}}.get(kind)
     fields = {"subspace": {"k": 4}, "pca": {"k": 4, "file_path": "x"}, "sae": {"file_path": "x"}}.get(kind, {})
     f = featurizers.make(kind, fields, 16, bundle, 0, None)
-    assert torch.equal(featurizers.within(f, h, lambda z: z, None), h)
-    assert torch.equal(featurizers.within(f, h, lambda z: z, torch.tensor([1, 3])), h)
-    moved = featurizers.within(f, h, lambda z: z * 0, torch.tensor([1]))
+    assert torch.equal(f.within(h, lambda z: z, None), h)
+    assert torch.equal(f.within(h, lambda z: z, torch.tensor([1, 3])), h)
+    moved = f.within(h, lambda z: z * 0, torch.tensor([1]))
     assert not torch.equal(moved, h) or kind == "sae"         # an sae latent at zero on every vector moves nothing
 
 
 def test_a_gate_is_soft_while_trained_hard_when_scored_and_anneals_linearly():
-    f = featurizers.make("gate", {"temperature": {"start": 1.0, "end": 0.05}}, 4, None, None, None)
-    f["theta"] = torch.tensor([2.0, -1.0, 0.5, -0.1])
-    f["training"] = True
-    torch.testing.assert_close(mask(f), torch.sigmoid(f["theta"]))
-    f["training"] = False
-    assert mask(f).tolist() == [1.0, 0.0, 1.0, 0.0]
+    f = Gate(4, temperature={"start": 1.0, "end": 0.05})
+    f.theta = torch.tensor([2.0, -1.0, 0.5, -0.1])
+    f.training = True
+    torch.testing.assert_close(f.mask(), torch.sigmoid(f.theta))
+    f.training = False
+    assert f.mask().tolist() == [1.0, 0.0, 1.0, 0.0]
     temps = []
     for epoch in range(20):
-        featurizers.anneal(f, epoch, 20)
-        temps.append(f["T"])
+        f.anneal(epoch, 20)
+        temps.append(f.T)
     assert temps[0] == 1.0 and abs(temps[-1] - 0.05) < 1e-12 and abs(temps[10] - (1 - 0.95 * 10 / 19)) < 1e-12
-    torch.testing.assert_close(featurizers.scalar(f, "mask"), torch.sigmoid(f["theta"] / 0.05).mean())
+    torch.testing.assert_close(f.scalar("mask"), torch.sigmoid(f.theta / 0.05).mean())
 
 
 def test_a_trained_bundle_carries_its_site_and_document(ran):

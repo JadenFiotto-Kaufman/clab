@@ -28,9 +28,13 @@ def preflight(engine, plan: Plan) -> dict:
     a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
     input that does not tokenize to the same length on every row, which would misalign the keys; a `pca`
     over no more vectors than its `k`; a featurizer used at two widths, at a width its bundle's header does
-    not say, or with a `select` outside its features; and a trained featurizer used at no site.
+    not say (or, with no header, whose tensors are not as wide), or with a `select` outside its features; and a
+    trained featurizer used at no site.
     """
     refuse(engine, plan)
+    assert plan.run is not None
+    plan.run.headerless = [name for name, entry in plan.featurizers.items()
+                           if any(f.bundle is not None and f.header is None for f in points(entry))]
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
@@ -145,9 +149,13 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
                                  f"whose width is {width}")
+            if f.header is None and f.bundle is not None and featurizers.KINDS[f.kind].width(f.bundle) != width:
+                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']} has no clab header and is "
+                                 f"{featurizers.KINDS[f.kind].width(f.bundle)} wide; this document uses {name!r} at "
+                                 f"{site.component}, whose width is {width}")
             features: Any = (o.select or {}).get("features")
             if features is not None:
-                n = featurizers.size(instance(plan, f, width, None))
+                n = instance(plan, f, width, None).size()
                 if any(not 0 <= i < n for i in features):
                     raise ValueError(f"{where}: select features {features} outside the {n} features of {name!r}")
     for name, step in walk(plan.steps):
@@ -157,7 +165,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     return out
 
 
-def instance(plan: Plan, spec, width: int, seed: int | None) -> dict:
+def instance(plan: Plan, spec, width: int, seed: int | None) -> featurizers.Kind:
     """A featurizer point `spec` made: from its bundle, or drawn from its seed, else `seed`; a probe's class
     list from its `classes` column."""
     fields = spec.model_extra or {}

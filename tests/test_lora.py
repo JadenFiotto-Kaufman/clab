@@ -12,7 +12,7 @@ from safetensors.torch import save_file
 
 from clab import Plan
 from clab.plan.model import PlanError, points
-from clab.runtime import featurizers
+from clab.runtime.featurizers.lora import Lora
 from conftest import BATCH_SIZE, bundle_header, edited, same, stand_in
 from test_fit import TINY, corpus_copy
 
@@ -28,19 +28,19 @@ def lora_train(change=None) -> Plan:
 
 
 def test_an_untrained_adapter_is_the_identity_to_the_bit():
-    f = featurizers.make("lora", {"rank": 4, "alpha": 8}, 16, None, 0, None)
+    f = Lora(16, rank=4, alpha=8, seed=0)
     h, other = torch.randn(3, 2, 16, generator=G), torch.randn(3, 2, 4, 4, generator=G)
-    assert torch.equal(featurizers.call(f, "apply", h, {}), h)
-    assert torch.equal(featurizers.call(f, "apply", h, {"with": other}), h)
-    assert f["A"].shape == (16, 4) and f["B"].eq(0).all() and f["scale"] == 2.0
+    assert torch.equal(f.call("apply", h, {}), h)
+    assert torch.equal(f.call("apply", h, {"with": other}), h)
+    assert f.A.shape == (16, 4) and f.B.eq(0).all() and f.scale == 2.0
 
 
 def test_apply_is_h_plus_the_scaled_low_rank_update():
-    f = {"kind": "lora", "A": torch.randn(16, 4, generator=G), "B": torch.randn(4, 16, generator=G), "scale": 2.0}
+    f = Lora(16, bundle={"A": torch.randn(16, 4, generator=G), "B": torch.randn(4, 16, generator=G)},
+             header={"rank": "4", "alpha": "8"})
     h, other = torch.randn(3, 2, 16, generator=G), torch.randn(3, 2, 4, 4, generator=G)
-    assert torch.equal(featurizers.call(f, "apply", h, {}), h + 2.0 * ((h @ f["A"]) @ f["B"]))
-    assert torch.equal(featurizers.call(f, "apply", h, {"with": other}),
-                       h + 2.0 * ((other.flatten(2) @ f["A"]) @ f["B"]))
+    assert torch.equal(f.call("apply", h, {}), h + 2.0 * ((h @ f.A) @ f.B))
+    assert torch.equal(f.call("apply", h, {"with": other}), h + 2.0 * ((other.flatten(2) @ f.A) @ f.B))
 
 
 def test_training_an_adapter_lowers_ce_the_same_everywhere(engines, monkeypatch):
@@ -72,11 +72,11 @@ def test_a_loaded_adapter_applies_as_the_trained_one_did(engines, tmp_path):
     doc["saves"].append("adapted.logits")
     plan = Plan(**doc, document=os.path.join(root, "documents", "lora_apply.json")).compile()
     spec = points(plan.featurizers["lora"])[0]
-    loaded = featurizers.make("lora", {"file_path": "x"}, 16, spec.bundle, None, None, spec.header)
-    assert loaded["scale"] == 2.0 and (spec.header or {})["rank"] == "4"
+    loaded = Lora(16, bundle=spec.bundle, header=spec.header)
+    assert loaded.scale == 2.0 and (spec.header or {})["rank"] == "4"
     h = torch.randn(4, 16, generator=G)
-    f = {**trained.results["fit.lora"], "kind": "lora", "scale": 8 / 4}
-    assert torch.equal(featurizers.call(loaded, "apply", h, {}), featurizers.call(f, "apply", h, {}))
+    f = Lora(16, bundle=trained.results["fit.lora"], header={"rank": "4", "alpha": "8"})
+    assert torch.equal(loaded.call("apply", h, {}), f.call("apply", h, {}))
     applied = engine.execute(plan, batch_size=BATCH_SIZE).results
     assert same(applied["adapted.logits"], trained.results["fit.held_out.adapted.logits"])
 

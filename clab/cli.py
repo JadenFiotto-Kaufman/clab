@@ -97,11 +97,12 @@ def arguments(name: str) -> list[str]:
 def modes(kind: str) -> list[str]:
     """Each mode a featurizer kind has, with what it produces and the mode's own arguments."""
     out = []
-    for m in featurizers.modes(kind):
-        fn = featurizers.mode(kind, m)
+    cls = featurizers.KINDS[kind]
+    for m in cls.modes():
+        fn = cls.mode(m)
         own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
-               for k, p in featurizers.registry.spelled(fn, ("f", "h")).items()]
-        produces = featurizers.MODES[m]["produces"].format(axis=featurizers.DECLARED[kind]["axis"])
+               for k, p in featurizers.registry.spelled(fn, ("self", "h")).items()]
+        produces = featurizers.MODES[m]["produces"].format(axis=cls.axis)
         out.append(f"`{m}`" + (f"({', '.join(own)})" if own else "") + f" gives {produces}"
                    + (f": {summary(fn)}" if doc(fn) else ""))
     return out
@@ -140,8 +141,8 @@ def per_op(base: dict) -> dict:
         # The featurizer op's further arguments are every mode's of every kind, which compile binds to the one
         # its featurizer's kind has; only that op's options can be listed ahead of a document, so by name.
         if name == "featurizer":
-            params.update({k: p for table in featurizers.MODES.values() for fn in table["table"].values()
-                           for k, p in featurizers.registry.spelled(fn, ("f", "h")).items()})
+            params.update({k: p for cls in featurizers.KINDS.values() for m in cls.modes()
+                           for k, p in featurizers.registry.spelled(cls.mode(m), ("self", "h")).items()})
         # An optional thing (`Value | None`) is written as the thing, or left out.
         named = {k: next((a for a in get_args(p.annotation) if a in kinds), p.annotation) for k, p in params.items()}
         args = {k: {"anyOf": [kinds.get(named[k]) or TypeAdapter(p.annotation).json_schema(), sweep]}
@@ -183,10 +184,10 @@ def describe(what: str | None = None) -> str:
         sections.append("\n".join(lines))
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
-        for name, fn in featurizers.KINDS.items():
+        for name, cls in featurizers.KINDS.items():
             params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
-                      for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
-            lines += [f"  {name}({', '.join(params)})", f"      {summary(fn)}",
+                      for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
+            lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
                       f"      modes: {'; '.join(m.replace('`', '') for m in modes(name))}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
@@ -238,11 +239,11 @@ def markdown() -> str:
                     + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + address.selectable(n)),
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
-    for name, fn in featurizers.KINDS.items():
+    for name, cls in featurizers.KINDS.items():
         params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
-                  for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
+                  for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
         listed = "; ".join(modes(name))
-        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n\n" + "Modes: " + listed
+        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Modes: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",

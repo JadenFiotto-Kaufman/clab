@@ -521,7 +521,8 @@ class Run(Record):
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
     the input or the step's name), and the position every read and write resolved to, per row (an index into
     the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
-    swept step's are keyed by coordinate."""
+    swept step's are keyed by coordinate. `headerless` names each featurizer whose bundle carried no clab
+    header (a published SAE): nothing said what model or site made it, so only its shapes were checked."""
     engine: str
     remote: bool | str
     batch_size: int
@@ -530,6 +531,7 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
+    headerless: list[str] = []
 
 
 class Plan(Record):
@@ -590,7 +592,8 @@ class Plan(Record):
                 if fields.get("file_path") is not None and f.bundle is None:
                     classes = featurizers.labels({n: d.rows or [] for n, d in self.data.items()}, fields["classes"]) \
                         if "classes" in fields else None
-                    f.bundle, f.header = featurizers.bundle(corpus_root(self), f.kind, fields, self.model, classes)
+                    f.bundle, f.header = featurizers.bundles.load(corpus_root(self), f.kind, fields, self.model,
+                                                                  classes)
         return self
 
     @field_serializer("document", when_used="json")

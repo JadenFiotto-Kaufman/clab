@@ -8,6 +8,7 @@ from clab import Plan
 from clab.cli import describe
 from clab.plan.model import PlanError, dims_of, points
 from clab.runtime import featurizers
+from clab.runtime.featurizers.gate import Gate
 from conftest import BATCH_SIZE, edited, same
 
 G = torch.Generator().manual_seed(3)
@@ -18,7 +19,7 @@ SAE = {"W_enc": torch.randn(16, 32, generator=G), "b_enc": torch.randn(32, gener
        "W_dec": torch.randn(32, 16, generator=G), "b_dec": torch.randn(16, generator=G)}
 
 
-def made(kind: str) -> dict:
+def made(kind: str) -> featurizers.Kind:
     fields = {"subspace": {"k": 4}, "pca": {"k": 4, "file_path": "x"}, "sae": {"file_path": "x"}}.get(kind, {})
     bundle = {"subspace": {"basis": BASIS}, "pca": {"basis": BASIS, "mean": MEAN}, "sae": SAE}.get(kind)
     return featurizers.make(kind, fields, 16, bundle, 0, None)
@@ -31,27 +32,27 @@ def test_apply_is_each_kinds_version_of_the_value():
     expected = {"subspace": H @ projection, "pca": MEAN + (H - MEAN) @ projection,
                 "sae": torch.relu((H - SAE["b_dec"]) @ SAE["W_enc"] + SAE["b_enc"]) @ SAE["W_dec"] + SAE["b_dec"]}
     for kind, value in expected.items():
-        torch.testing.assert_close(featurizers.call(made(kind), "apply", H, {}), value, atol=1e-5, rtol=0)
-    gate = made("gate")
-    gate["theta"] = torch.linspace(-1, 1, 16)
-    assert torch.equal(featurizers.call(gate, "apply", H, {}), H * (gate["theta"] > 0).float())
-    gate["training"] = True
-    assert torch.equal(featurizers.call(gate, "apply", H, {}), H * torch.sigmoid(gate["theta"]))
+        torch.testing.assert_close(made(kind).call("apply", H, {}), value, atol=1e-5, rtol=0)
+    gate = Gate(16)
+    gate.theta = torch.linspace(-1, 1, 16)
+    assert torch.equal(gate.call("apply", H, {}), H * (gate.theta > 0).float())
+    gate.training = True
+    assert torch.equal(gate.call("apply", H, {}), H * torch.sigmoid(gate.theta))
 
 
 def test_encode_is_the_coordinates_on_the_kinds_axis():
     for kind in ("subspace", "pca", "sae", "gate"):
-        assert torch.equal(featurizers.call(made(kind), "encode", H, {}), featurizers.encode(made(kind), H))
-        assert featurizers.layout(kind, "encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "features"]
-        assert featurizers.layout(kind, "apply", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "hidden_size"]
-    assert featurizers.layout("linear", "encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "classes"]
+        assert torch.equal(made(kind).call("encode", H, {}), made(kind).encode(H))
+        assert featurizers.KINDS[kind].layout("encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "features"]
+        assert featurizers.KINDS[kind].layout("apply", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "hidden_size"]
+    assert featurizers.KINDS["linear"].layout("encode", ["rows", "pos", "hidden_size"]) == ["rows", "pos", "classes"]
 
 
 def test_a_mode_the_kind_lacks_is_refused_by_name():
     with pytest.raises(ValueError, match=r"kind 'linear' has no mode 'apply'; its modes: encode"):
-        featurizers.mode("linear", "apply")
+        featurizers.KINDS["linear"].mode("apply")
     with pytest.raises(ValueError, match=r"kind 'sae' has no mode 'decode'; its modes: encode, apply"):
-        featurizers.mode("sae", "decode")
+        featurizers.KINDS["sae"].mode("decode")
 
 
 def reconstructed(mode: str = "apply", **more) -> Plan:
@@ -73,14 +74,14 @@ def test_a_read_through_apply_keeps_the_sites_layout_on_both_engines(engines):
            for kind in ("nnterp", "hooks")]
     assert same(*got)
     f = featurizers.make("sae", {"file_path": "x"}, 16, points(plan.featurizers["dictionary"])[0].bundle, None, None)
-    torch.testing.assert_close(got[0]["base.recon"], featurizers.call(f, "apply", got[0]["base.plain"], {}),
+    torch.testing.assert_close(got[0]["base.recon"], f.call("apply", got[0]["base.plain"], {}),
                                atol=1e-6, rtol=0)
 
 
 @pytest.mark.parametrize("make, message", [
     (lambda: reconstructed("decode"), r"steps\.base\.reads\.recon\.ops\[0\]: featurizer 'dictionary': kind 'sae' has "
                                       r"no mode 'decode'; its modes: encode, apply"),
-    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': 'sae_apply' takes no 'scale'; its arguments: "
+    (lambda: reconstructed(scale=2.0), r"featurizer 'dictionary': 'Sae\.apply' takes no 'scale'; its arguments: "
                                        r"none"),
 ])
 def test_a_mode_or_argument_the_kind_lacks_is_refused_at_compile(make, message):
