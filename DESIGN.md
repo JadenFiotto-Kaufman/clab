@@ -1,7 +1,7 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10 and §11 (through "Ratified after M4", whose last two entries are M5: one
-`featurizer` op with per-kind modes, and LoRA as a featurizer kind), which win wherever they and this document disagree.** `FORMAT.md` and
+**Amended by PLAN.md §10 to §13 ("Ratified after M4" ends with M5: one `featurizer` op with per-kind
+modes, and LoRA as a featurizer kind; §13 is M6), which win wherever they and this document disagree.** `FORMAT.md` and
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 
@@ -33,7 +33,12 @@ document in these places:
   without its file-read rows, each result replaced by `{file, step, dims, axes, shape, dtype}`.
 - §10: verified in M2 that a pydantic `Plan` survives `nnsight.save(plan)` under `remote="local"` and the
   stand-in server's `torch.save`/`torch.load` round trip, pickled by class reference with nothing of clab or
-  nnterp by value; the stand-in test asserts it.
+  nnterp by value. Since M6 the plan no longer comes home: the session saves `{"results", "run"}` and the
+  client assigns them into its own plan; the stand-in test asserts the request names clab's plan, engines
+  and steps by reference and that only that dict comes back. `remote` is no longer an `execute` argument:
+  the `ndif` engine (the nnterp engine over a meta shell, `dispatch=False`) opens the session with its
+  `remote` option (`True`, or `"local"` for tests), and `execute(plan, batch_size=)` is the entry point of
+  all three engines; `device` and each engine's own options are its constructor's (PLAN.md §13).
 - §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
   step).
 - M3, §3: `generate`'s options are not three: the step forwards every key it does not own to the engine's

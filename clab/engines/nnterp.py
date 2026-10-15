@@ -1,4 +1,5 @@
-"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
+"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session. The batch's
+inputs go to the run's `device` (with a `device_map`, transformers moves them on from there).
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -17,26 +18,29 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops
+from .standard import SIZES, build, by_site, envoy, keep, landed, nnterp_name, now, placed, stops
 
 
 @engine("nnterp")
 class NnterpEngine:
     name: str
 
-    def __init__(self, model: Model):
-        """The checkpoint `model` pins, on the CPU; the block's other keys go to the loader as they are."""
-        self.spec = model
-        self.model = load(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, device="cpu", dispatch=True, dtype=getattr(torch, model.dtype),
-            **extra))
+    def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
+        """The checkpoint `model` pins, on `device` (or placed by `device_map`, which nnsight hands to
+        transformers); the block's other keys go to the loader as they are."""
+        self.spec, self.device, self.options = model, device, {"device_map": device_map}
+        self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
+            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype),
+            **placed("nnterp", device, device_map), **extra))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
-        """The whole plan in one session; the filled plan is the one thing that comes home."""
-        started = steps.begin(self, plan, batch_size, remote)
-        with self.model.session(remote=remote):
+    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+        """The whole plan in one session, opened with the `remote` option where the engine has one (`ndif`);
+        the results and the run record are the one thing that comes home, into the client's own plan."""
+        started = steps.begin(self, plan, batch_size)
+        with self.model.session(remote=self.options.get("remote", False)):
             steps.run(self, plan, batch_size)
-            nnsight.save(plan)
+            home = nnsight.save({"results": plan.results, "run": plan.run})
+        plan.results, plan.run = home["results"], home["run"]
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
         return plan
@@ -67,7 +71,7 @@ class NnterpEngine:
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        inputs = {k: batch[k] for k in ("input_ids", "attention_mask", "position_ids")}
+        inputs = {k: batch[k].to(self.device) for k in ("input_ids", "attention_mask", "position_ids")}
         with model.trace(inputs):
             for component, layer in order:
                 here, there = sites[(component, layer)]
@@ -100,7 +104,7 @@ class NnterpEngine:
         online = any("online" in w for w in writes)
         result: dict = {}
         seen: list = []
-        inputs = {k: batch[k] for k in ("input_ids", "attention_mask")}
+        inputs = {k: batch[k].to(self.device) for k in ("input_ids", "attention_mask")}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")

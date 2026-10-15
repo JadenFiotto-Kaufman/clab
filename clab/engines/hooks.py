@@ -6,7 +6,8 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
 (the module whose output or input nnterp's own key for it names), the sizes,
 and what the checkpoint supports. A component nnterp reaches inside a
 module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs, as is `remote`.
+before anything runs. The batch's inputs go to the run's `device` (with a `device_map`, transformers moves them
+on from there).
 """
 
 import time
@@ -22,32 +23,35 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, by_site, envoy, keep, landed, load, nnterp_name, now, stops
+from .standard import SIZES, build, by_site, envoy, keep, landed, nnterp_name, now, placed, stops
 
 
 @engine("hooks")
 class HooksEngine:
     name: str
 
-    def __init__(self, model: Model):
-        """The checkpoint `model` pins, as `AutoModelForCausalLM` on the CPU, with what the meta shell says of it:
-        each component's native module and boundary, the sizes, and the modules the readout runs."""
-        shell = load(model, "hooks", lambda extra: StandardizedTransformer(
+    def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
+        """The checkpoint `model` pins, as `AutoModelForCausalLM` on `device` (or placed by `device_map`), with
+        what the meta shell says of it: each component's native module and boundary, the sizes, and the modules
+        the readout runs."""
+        shell = build(model, "hooks", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
         support = shell.support()
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
-        self.spec = model
+        placement = placed("hooks", device, device_map)
+        self.spec, self.device, self.options = model, device, {"device_map": device_map}
         self.tokenizer = shell.tokenizer
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
                        "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
-        self.model: Any = load(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
-            model.key, revision=model.revision, dtype=getattr(torch, model.dtype), **extra).eval())
-        self.config["order"] = order(self.model, sites)
+        self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
+            model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
+            device_map=placement.get("device_map"), **extra).eval())
+        if device_map is None:
+            self.model.to(device)
+        self.config["order"] = order(self.model, sites, device)
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, remote: bool | str = False) -> Plan:
-        if remote:
-            raise ValueError("the hooks engine runs in this process; remote runs need the nnterp engine")
-        started = steps.begin(self, plan, batch_size, remote)
+    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+        started = steps.begin(self, plan, batch_size)
         steps.run(self, plan, batch_size)
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
@@ -76,8 +80,7 @@ class HooksEngine:
         handles = [hook(self.model, self.config, component, layer, here, there, got, None)
                    for (component, layer), (here, there) in sites.items()]
         try:
-            self.model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
-                       position_ids=batch["position_ids"])
+            self.model(**{k: batch[k].to(self.device) for k in ("input_ids", "attention_mask", "position_ids")})
         finally:
             for handle in handles:
                 handle.remove()
@@ -100,7 +103,8 @@ class HooksEngine:
         handles += [hook(self.model, self.config, component, layer, here, there, got, call)
                     for (component, layer), (here, there) in sites.items()]
         try:
-            ids = self.model.generate(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], **options)
+            ids = self.model.generate(**{k: batch[k].to(self.device) for k in ("input_ids", "attention_mask")},
+                                      **options)
         finally:
             for handle in handles:
                 handle.remove()
@@ -153,7 +157,7 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
     return module.register_forward_hook(post)
 
 
-def order(model, sites: dict) -> dict[str, int]:
+def order(model, sites: dict, device: str) -> dict[str, int]:
     """When each served component's hook fires in a forward (`<component>@<layer>`), measured on a two-token
     input: components at one module boundary fire together and share a rank."""
     fired: list = []
@@ -170,7 +174,7 @@ def order(model, sites: dict) -> dict[str, int]:
                        module.register_forward_hook(noted((path, boundary))))
     try:
         with torch.no_grad():
-            model(input_ids=torch.tensor([[1, 2]]))
+            model(input_ids=torch.tensor([[1, 2]], device=device))
     finally:
         for handle in handles:
             handle.remove()

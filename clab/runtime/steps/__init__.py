@@ -4,8 +4,8 @@
 This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards and generations,
 its tokenizer, its sizes, its readout and the ids its generation stops on (EOS), and does everything else
 itself, in plain torch: positions in the prefill from the encoded rows, and beyond it from the ids each row
-generated, up to its first EOS. Under the nnterp engine it runs inside
-one session; under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
+generated, up to its first EOS. Under the nnterp and ndif engines it runs inside one session (on the server,
+under ndif); under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
 
@@ -26,14 +26,15 @@ KINDS: dict = {}
 kind = registers(KINDS)
 
 
-def begin(engine, plan: Plan, batch_size: int, remote: bool | str) -> float:
-    """What every engine's `execute` checks first, and the run record it starts; returns the start time."""
+def begin(engine, plan: Plan, batch_size: int) -> float:
+    """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
+    the device and every engine option; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     if plan.model != engine.spec:
         raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
                          f"{plan.model.key}@{plan.model.revision}")
-    plan.run = Run(engine=engine.name, remote=remote, batch_size=batch_size,
+    plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=dict(engine.options),
                    started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
@@ -99,7 +100,8 @@ def finished(value):
 
 
 def versions() -> dict[str, str]:
-    """The installed versions where the model is."""
+    """The installed versions where the model is: `run` calls it inside the session, so under the ndif engine
+    they are the server's."""
     found = {p: importlib.metadata.version(p) for p in ("clab", "nnsight", "nnterp", "transformers", "torch")}
     return {**found, "python": platform.python_version()}
 

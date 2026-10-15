@@ -20,7 +20,8 @@ from clab.plan.model import PlanError, dims_of
 from clab.runtime import featurizers
 from clab.runtime.featurizers.gate import Gate
 from clab.runtime.featurizers.subspace import Subspace
-from conftest import BATCH_SIZE, DOCUMENTS, FIT, ROOT, bundle_header, close, edited, plain, same, snapshot, stand_in
+from conftest import (BATCH_SIZE, DOCUMENTS, FIT, ROOT, TRIP, bundle_header, close, edited, plain, same,
+                      snapshot, stand_in)
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -34,13 +35,14 @@ def corpus_copy(root) -> str:
 
 @pytest.fixture(scope="module")
 def ran(tmp_path_factory) -> dict:
-    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train`, `lora_train` and
-    `pca_harvest` (on nnterp) into `documents/artifacts` first."""
+    """Each fit document run from the CLI on each engine (ndif under `remote="local"`) and loaded back, `das`,
+    `sae_train`, `lora_train` and `pca_harvest` (on nnterp) into `documents/artifacts` first."""
     root = corpus_copy(tmp_path_factory.mktemp("fits"))
     out = {}
 
     def run(name: str, kind: str, to: str) -> Plan:
-        assert main(["run", os.path.join(root, "documents", f"{name}.json"), "--engine", kind,
+        options = ["-o", "remote=local"] if kind == "ndif" else []
+        assert main(["run", os.path.join(root, "documents", f"{name}.json"), "--engine", kind, *options,
                      "--batch-size", str(BATCH_SIZE), "--out", to]) == 0
         cwd = os.getcwd()
         try:
@@ -56,7 +58,7 @@ def ran(tmp_path_factory) -> dict:
     out["lora_train", "nnterp"] = run("lora_train", "nnterp", artifacts)
     run("pca_harvest", "nnterp", artifacts)
     for name in FIT:
-        for kind in ("nnterp", "hooks"):
+        for kind in ("nnterp", "hooks", "ndif"):
             if (name, kind) not in out:
                 out[name, kind] = run(name, kind, os.path.join(root, "out", f"{name}-{kind}"))
     return out
@@ -73,6 +75,7 @@ def test_numbers_match_the_snapshot(ran, name, kind):
 @pytest.mark.parametrize("name", FIT)
 def test_the_engines_agree_to_the_bit(ran, name):
     assert same(ran[name, "nnterp"].results, ran[name, "hooks"].results)
+    assert same(ran[name, "nnterp"].results, ran[name, "ndif"].results)       # ndif under remote="local"
 
 
 def with_history(change=None) -> Plan:
@@ -149,12 +152,11 @@ def test_a_pca_encodes_its_mean_as_zero():
 
 
 def test_a_fit_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
-    engine = engines("nnterp", with_history().model)
-    local = engine.execute(with_history(), batch_size=BATCH_SIZE).results
-    assert same(engine.execute(with_history(), batch_size=BATCH_SIZE, remote="local").results, local)
-    came, trip = stand_in(engine, with_history(), monkeypatch)
-    assert trip["by_reference"] and trip["names"] == ["plan"] and trip["types"] == ["Plan"]
-    assert same(came.results, local)
+    local = engines("nnterp", with_history().model).execute(with_history(), batch_size=BATCH_SIZE).results
+    there = engines("ndif", with_history().model, remote="local").execute(with_history(), batch_size=BATCH_SIZE)
+    assert same(there.results, local)
+    came, trip = stand_in(engines, with_history(), monkeypatch)
+    assert trip == TRIP and same(came.results, local)
 
 
 def test_das_apply_scores_the_saved_rotation_as_das_scored_it_held_out(ran):
@@ -216,9 +218,10 @@ def test_training_a_dictionary_lowers_its_reconstruction_the_same_everywhere(eng
     reconstruction = values["fit.history.dictionary.reconstruction"]
     assert reconstruction.shape == (20,) and (reconstruction[1:] < reconstruction[:-1]).all()
     assert same(engines("hooks", sae_train().model).execute(sae_train(), batch_size=BATCH_SIZE).results, values)
-    assert same(engine.execute(sae_train(), batch_size=BATCH_SIZE, remote="local").results, values)
-    came, trip = stand_in(engine, sae_train(), monkeypatch)
-    assert trip["by_reference"] and trip["names"] == ["plan"] and same(came.results, values)
+    there = engines("ndif", sae_train().model, remote="local").execute(sae_train(), batch_size=BATCH_SIZE)
+    assert same(there.results, values)
+    came, trip = stand_in(engines, sae_train(), monkeypatch)
+    assert trip == TRIP and same(came.results, values)
     torch.testing.assert_close(values["fit.dictionary"]["W_dec"].norm(dim=1), torch.ones(32), atol=1e-6, rtol=0)
     assert all(p.grad is None for p in engine.model.parameters())
 

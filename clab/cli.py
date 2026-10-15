@@ -27,7 +27,7 @@ from .plan import model as plan
 from .registry import spell as spell_type
 from .runtime import featurizers, ops
 
-WHAT = ("records", "steps", "ops", "components", "featurizers", "pos")
+WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
@@ -156,9 +156,17 @@ def per_op(base: dict) -> dict:
     return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
 
 
+def run_options(name: str) -> list[str]:
+    """Engine `name`'s run options: `device`, then its own, each `key: type = default`."""
+    from .engines import ENGINES, options
+
+    device = inspect.signature(ENGINES[name].__init__).parameters["device"]
+    return [f"{k}: {spell_type(p.annotation)} = {p.default!r}" for k, p in {"device": device, **options(name)}.items()]
+
+
 def describe(what: str | None = None) -> str:
     """The format's tables, read off the code: one of `records`, `steps`, `ops`, `components`, `featurizers`,
-    `pos`, or all of them."""
+    `pos`, `engines`, or all of them."""
     sections = []
     if what in (None, "records"):
         sections.append("\n".join(["records:"] + [f"  {name.replace('`', '')}({', '.join(fields(model))})"
@@ -192,6 +200,13 @@ def describe(what: str | None = None) -> str:
         sections.append("\n".join(lines))
     if what in (None, "pos"):
         sections.append("pos:\n" + doc(plan.Pos))
+    if what in (None, "engines"):
+        from . import engines
+        lines = ["engines (`clab run --engine NAME --device D -o KEY=VALUE`):"]
+        for name, cls in engines.ENGINES.items():
+            lines += [f"  {name}({', '.join(run_options(name))})",
+                      "      " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split())]
+        sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
 
@@ -245,6 +260,11 @@ def markdown() -> str:
         listed = "; ".join(modes(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Modes: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
+    from . import engines
+    parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]
+    for name, cls in engines.ENGINES.items():
+        parts += [f"### `{name}`\n", "\n".join(f"- `{o}`" for o in run_options(name)) + "\n\n"
+                  + doc(inspect.getmodule(cls)) + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",
@@ -257,8 +277,10 @@ def show(filled: "plan.Plan") -> str:
     axes and its shape (per coordinate when swept)."""
     run = filled.run
     assert run is not None
-    lines = [f"{plan.name(filled)}: run on {run.engine}, remote {run.remote}, batch size {run.batch_size}, "
+    given = "".join(f", {k} {json.dumps(v)}" for k, v in run.options.items())
+    lines = [f"{plan.name(filled)}: run on {run.engine}, device {run.device}{given}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
+             f"  served: {run.dtype} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for name in filled.saves:
@@ -298,6 +320,17 @@ def tabulated(rows: list[dict], as_csv: bool) -> str:
     return buffer.getvalue().rstrip("\n")
 
 
+def option(text: str) -> tuple[str, Any]:
+    """A `-o key=value`: the value as JSON (`true`, `2`, `{"a": 1}`), else as the text it is (`auto`)."""
+    key, sep, value = text.partition("=")
+    if not sep or not key:
+        raise ValueError(f"-o {text!r}: an option is KEY=VALUE")
+    try:
+        return key, json.loads(value)
+    except json.JSONDecodeError:
+        return key, value
+
+
 def main(argv: list[str] | None = None) -> int:
     from .engines import ENGINES
 
@@ -307,8 +340,10 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("document")
     run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
-    run.add_argument("--remote", default="no", choices=("no", "local", "yes"))
     run.add_argument("--batch-size", type=int, default=8)
+    run.add_argument("--device", default="cpu", help="where the engine places the model (default cpu)")
+    run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
+                     help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
     look = commands.add_parser("show", help="print what a run's output directory holds")
     look.add_argument("out")
     rows = commands.add_parser("table", help="print saved values of a run's output directory as one table")
@@ -343,15 +378,17 @@ def main(argv: list[str] | None = None) -> int:
 
     import clab
 
-    remote = {"no": False, "local": "local", "yes": True}[args.remote]
     name = os.path.splitext(os.path.basename(args.document))[0]
     out = args.out or os.path.join("out", name)
     try:
-        clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, remote=remote)
+        options = dict(option(text) for text in args.options)
+        clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, device=args.device,
+                 **options)
     except (ValueError, NotImplementedError) as e:
         print(f"clab: {e}", file=sys.stderr)
         return 1
-    print(f"{name} on {args.engine} (batch size {args.batch_size}, remote {args.remote}) -> {out}")
+    given = "".join(f", {k} {json.dumps(v)}" for k, v in options.items())
+    print(f"{name} on {args.engine} (batch size {args.batch_size}, device {args.device}{given}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
     for key, d in described.items():

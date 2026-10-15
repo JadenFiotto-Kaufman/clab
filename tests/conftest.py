@@ -94,12 +94,14 @@ def same(a, b) -> bool:
     return a == b
 
 
-def stand_in(engine, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
-    """`plan` run with `remote=True` against this design's own model of a server (DESIGN.md section 10(b)):
-    serialize the session, run the *deserialized* tracer with the model's persistent objects, take what its
-    outermost boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it
-    and push it into the caller's frame as RemoteBackend._push does. Returns what came home and what the trip
-    saw: whether clab went by reference, and the names and types that came back."""
+def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
+    """`plan` run on the ndif engine against this design's own model of a server (DESIGN.md section 10(b)):
+    serialize the session the client's meta shell opens, run the *deserialized* tracer with the persistent
+    objects of a loaded model (the nnterp engine's, which is what a server holds), take what its outermost
+    boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it and push
+    it into the caller's frame as RemoteBackend._push does. Returns what came home and what the trip saw:
+    whether the request named clab's plan, engines and steps by reference with nothing shipped by value, and
+    the names and types that came back, with the keys and types of the one dict that did."""
     import io
 
     from nnsight.schema.request import RequestModel
@@ -107,41 +109,51 @@ def stand_in(engine, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     from nnsight.tracing.tracer import _saves, mark
     from nnsight.tracing.util import push
 
+    client, server = engines("ndif", plan.model, remote=True), engines("nnterp", plan.model)
     trip: dict = {}
 
     class StandIn(Backend):
         def __call__(self, tracer):
             blob = RequestModel.serialize(tracer, compress=False)
-            trip["by_reference"] = b"clab.plan.model" in blob and b"_make_skeleton_class" not in blob
-            server = RequestModel.deserialize(blob, engine.model._remoteable_persistent_objects(), compress=False)
-            assert server.info is not None
-            server.execute(server.info.code)
-            result = {k: v for k, v in server.info.frame.f_locals.items() if id(v) in _saves()}
+            trip["by_reference"] = all(name in blob for name in (b"clab.plan.model", b"clab.engines.ndif",
+                                                                 b"clab.runtime.steps")) \
+                and b"_make_skeleton_class" not in blob
+            deserialized = RequestModel.deserialize(blob, server.model._remoteable_persistent_objects(),
+                                                    compress=False)
+            assert deserialized.info is not None
+            deserialized.execute(deserialized.info.code)
+            result = {k: v for k, v in deserialized.info.frame.f_locals.items() if id(v) in _saves()}
             buffer = io.BytesIO()
             torch.save(result, buffer)
             buffer.seek(0)
             result = torch.load(buffer, weights_only=False)
-            trip.update(names=sorted(result), types=[type(v).__name__ for v in result.values()])
+            trip.update(names=sorted(result), types=[type(v).__name__ for v in result.values()],
+                        carried={k: type(x).__name__ for v in result.values() if isinstance(v, dict)
+                                 for k, x in v.items()})
             for value in result.values():
                 mark(value)
             assert tracer.info is not None
             push(tracer.info.frame, result)
 
-    monkeypatch.setattr(type(engine.model), "_remote_backend", lambda self, *args: StandIn())
-    return engine.execute(plan, batch_size=BATCH_SIZE, remote=True), trip
+    monkeypatch.setattr(type(client.model), "_remote_backend", lambda self, *args: StandIn())
+    return client.execute(plan, batch_size=BATCH_SIZE), trip
+
+
+# What the stand-in's trip shows of every run: the request by reference, and the results and run record home.
+TRIP = {"by_reference": True, "names": ["home"], "types": ["dict"], "carried": {"results": "dict", "run": "Run"}}
 
 
 @pytest.fixture(scope="session")
 def engines():
-    """Each engine loaded once per model block, for the whole session."""
-    from clab.engines import ENGINES
+    """Each engine loaded once per model block and options, for the whole session."""
+    from clab.engines import load
 
     loaded: dict = {}
 
-    def get(kind: str, model: Model):
-        key = (kind, model.model_dump_json())
+    def get(kind: str, model: Model, **options):
+        key = (kind, model.model_dump_json(), tuple(sorted(options.items())))
         if key not in loaded:
-            loaded[key] = ENGINES[kind](model)
+            loaded[key] = load(kind, model, **options)
         return loaded[key]
 
     return get

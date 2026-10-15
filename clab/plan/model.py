@@ -117,8 +117,9 @@ DATASET = "the dataset whose rows the step's values are aligned to"
 
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
-    engine's loader untouched (`attn_implementation`, `device_map`, ...), and a loader refuses what it cannot
-    honor. The attention interior needs `attn_implementation: "eager"`."""
+    engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
+    the model runs (`device`, `device_map`) is a run option, not the document's. The attention interior needs
+    `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
@@ -547,16 +548,22 @@ class Axis(Record):
 
 
 class Run(Record):
-    """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
-    each dataset input tokenized and what each generate step's rows generated (token strings per row, under
-    the input or the step's name), and the position every read and write resolved to, per row (an index into
-    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
-    swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among:
-    a `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
+    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, and every engine
+    option after its defaults in `options`) and what the run observed where the model is: the `versions`
+    installed there (the server's, under `ndif`), the dtype of the residual stream (`dtype`) and the devices
+    it lived on, in forward order (`devices`). `tokens` and `positions` describe values without holding any:
+    how each dataset input tokenized and what each generate step's rows generated (token strings per row,
+    under the input or the step's name), and the position every read and write resolved to, per row (an
+    index into the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not
+    reach). A swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers`
+    select among: a `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
     engine: str
-    remote: bool | str
     batch_size: int
+    device: str
+    options: dict[str, Any] = {}
     versions: dict[str, str] = {}
+    dtype: str | None = None
+    devices: list[str] = []
     started: str = ""
     seconds: float = 0.0
     tokens: dict[str, Any] = {}

@@ -4,6 +4,8 @@ cannot run refused by name."""
 import math
 from typing import Any
 
+import torch
+
 from ... import address
 from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, encodes, kind_of, parameters,
                            points, probe_of, uses, walk)
@@ -30,7 +32,10 @@ def preflight(engine, plan: Plan) -> dict:
     over no more vectors than its `k`; a featurizer used at two widths, at a width its bundle's header does
     not say (or, with no header, whose tensors are not as wide), or with a `select` outside its features; and a
     trained featurizer used at no site.
+
+    Records in `plan.run` the dtype and devices the residual stream has where the model is (`served`).
     """
+    assert plan.run is not None
     refuse(engine, plan)
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
@@ -51,6 +56,8 @@ def preflight(engine, plan: Plan) -> dict:
             for _, body in [sources["train"], *sources["evals"].values()]:
                 body["widths"] = found["widths"]
             put(found["bodies"], name, step.at, sources)
+    bodies = [sources["train"][1]["inputs"] for by_point in found["bodies"].values() for sources in by_point.values()]
+    plan.run.dtype, plan.run.devices = served(engine, next((i for i in [found["inputs"], *bodies] if i), {}))
     return found
 
 
@@ -124,6 +131,20 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
             for where, o, shape, site in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)
     return found
+
+
+def served(engine, inputs: dict) -> tuple[str | None, list[str]]:
+    """The dtype of the residual stream where the model is, and the devices it lives on in forward order, as
+    one forward of the first of `inputs`' first row (the root's, else a fit body's) shows them at its last
+    token after every layer; None and none for a plan with no input."""
+    if not inputs:
+        return None, []
+    ids = [next(iter(inputs.values()))["rows"][0]["ids"]]
+    reads = [{"component": "layer_output", "layer": layer, "name": str(layer), "positions": torch.tensor([[-1]]),
+              "select": {}} for layer in range(engine.sizes()["num_layers"])]
+    got = engine.forward(data.pad(engine.tokenizer, ids, len(ids[0])), [], reads)
+    values = [got[r["name"]] for r in reads]
+    return str(values[0].dtype).removeprefix("torch."), list(dict.fromkeys(str(v.device) for v in values))
 
 
 def made_at(site, n: int) -> list:

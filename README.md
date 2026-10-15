@@ -8,8 +8,9 @@ into a `Plan`, compiles the plan (rows loaded, names resolved, sweeps expanded i
 nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved value
 to a directory with a manifest.
 
-Two engines ship: `nnterp` (primary: nnterp's standardized names on every architecture, remote-capable) and
-`hooks` (plain HuggingFace with forward hooks, for module-boundary components).
+Three engines ship: `nnterp` (primary: nnterp's standardized names on every architecture), `hooks` (plain
+HuggingFace with forward hooks, for module-boundary components) and `ndif` (the nnterp engine over a
+weightless model, its session run on the NDIF server nnsight is configured for).
 
 ## Install
 
@@ -22,7 +23,10 @@ uv sync
 ```
 uv run clab run documents/patching.json                  # writes out/patching/
 uv run clab run documents/patching.json --engine hooks --out out/patching-hooks --batch-size 2
-uv run clab run documents/patching.json --remote local   # nnsight's in-process serialize/deserialize path
+uv run clab run documents/patching.json --engine ndif                # on NDIF (nnsight's CONFIG or env)
+uv run clab run documents/patching.json --engine ndif -o remote=local # nnsight's in-process simulation of it
+uv run clab run documents/patching.json --device cuda                 # run options: --engine, --batch-size,
+uv run clab run documents/patching.json -o device_map=auto            # --device, and -o for the engine's own
 uv run clab run documents/generated_answer.json --batch-size 2
 ```
 
@@ -84,7 +88,8 @@ uv run clab table out/generate_probe p_answer patched    # the saved values as o
 uv run clab table out/generate_probe p_answer --csv      # the same as CSV on stdout, every cell whole
 ```
 
-`show` prints the run's engine, remote flag, batch size, versions, start time and seconds, then one line per
+`show` prints the run's engine, device and options, batch size, start time and seconds, the served dtype and
+devices, the versions, then one line per
 saved value: the step that made it, its `dims`, its sweep axes and its shape (per coordinate when swept).
 `table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
 generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
@@ -110,22 +115,24 @@ back = Plan.load("out/patching")     # the filled plan again, from its directory
 back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token, iia, logit_diff, the columns used
 ```
 
-`clab.run(plan_or_path, engine=..., out=None, batch_size=8, remote=False)` is the four steps of a run, which
+`clab.run(plan_or_path, engine=..., out=None, batch_size=8, device="cpu", **options)` is the four steps of a
+run (`options` are the engine's own: `clab describe engines` lists them), which
 are also there to take one at a time:
 
 ```python
-from clab.engines import ENGINES
+from clab.engines import load
 
 plan = Plan("documents/pos_sweep.json")       # Plan(pos_sweep, uncompiled): the document as a model
 compiled = plan.compile()                     # Plan(pos_sweep, compiled, 3 points)
-engine = ENGINES["nnterp"](compiled.model)    # loads the checkpoint; one engine serves many plans
+engine = load("nnterp", compiled.model)       # loads the checkpoint; one engine serves many plans
 filled = engine.execute(compiled, batch_size=8)
 filled.dump("out/pos_sweep")
 ```
 
 A plan's methods are views and serialization, never execution: `compile`, `dump`, `Plan.load`, `write` (the
-plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, remote, batch
-size, versions, timing, and how each input tokenized). `clab.describe()` prints the format's tables.
+plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, batch size,
+device and every engine option; the versions, dtype and devices where the model was; timing; how each input
+tokenized). `clab.describe()` prints the format's tables.
 
 ## Extending clab
 
@@ -147,7 +154,8 @@ named in every error.
   is its method of that name; the `featurizer` op reads the layout each mode produces from `MODES`.
 - **Step kinds** (`clab/runtime/steps/`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
-  plan's `model` block; `execute(plan, batch_size=, remote=)` is its one entry point.
+  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (which
+  `clab describe engines` lists); `execute(plan, batch_size=)` is its one entry point.
 
 ## The output
 

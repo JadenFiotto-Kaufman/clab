@@ -22,7 +22,7 @@ from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 from clab import Plan
 from clab.plan import PlanError
 from clab.runtime import positions
-from conftest import BATCH_SIZE, GENERATE, ROOT, close, edited, plain, plan_of, same, snapshot, stand_in
+from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -38,9 +38,9 @@ def filled(engines) -> dict:
     return out
 
 
-def run(engines, plan: Plan, kind: str = "nnterp", **kwargs) -> Any:
-    """`plan` executed on `kind` at the pinned batch size: the filled plan."""
-    return engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE, **kwargs)
+def run(engines, plan: Plan, kind: str = "nnterp", **options) -> Any:
+    """`plan` executed on `kind` (loaded with `options`) at the pinned batch size: the filled plan."""
+    return engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE)
 
 
 @pytest.mark.parametrize("name", GENERATE)
@@ -62,8 +62,8 @@ def test_the_engines_agree_to_the_bit(filled, name):
 
 @pytest.mark.parametrize("name", GENERATE)
 def test_remote_local_is_bit_equal_to_local(engines, filled, name):
-    there = run(engines, plan_of(name), remote="local")
-    assert there.run.remote == "local" and same(there.results, filled[name, "nnterp"].results)
+    there = run(engines, plan_of(name), "ndif", remote="local")
+    assert there.run.options == {"remote": "local"} and same(there.results, filled[name, "nnterp"].results)
     assert there.run.positions == filled[name, "nnterp"].run.positions
 
 
@@ -331,9 +331,9 @@ def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_pat
 @pytest.mark.parametrize("name", GENERATE)
 def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch, name):
     plan = plan_of(name)
-    home, trip = stand_in(engines("nnterp", plan.model), plan, monkeypatch)
-    assert trip == {"by_reference": True, "names": ["plan"], "types": ["Plan"]}
-    assert home is not plan and same(home.results, filled[name, "nnterp"].results)
+    home, trip = stand_in(engines, plan, monkeypatch)
+    assert trip == TRIP
+    assert home is plan and same(home.results, filled[name, "nnterp"].results)    # what came home, in the client's plan
     assert home.run is not None and home.run.positions == filled[name, "nnterp"].run.positions
 
 
@@ -357,7 +357,7 @@ class Steer(LogitsProcessor):
         return scores
 
 
-def steered(engines, kind: str, batch_size: int, held: bool, change=None, **kwargs) -> Any:
+def steered(engines, kind: str, batch_size: int, held: bool, change=None, **options) -> Any:
     """generated_answer.json steered by `Steer`, with EOS held off (`held`) or not, reading the head at calls
     1 and 2, layer 1 at the prompt's last token from inside a read beyond the prefill and from the prefill,
     and scoring call 2; `change` edits the document further."""
@@ -379,13 +379,13 @@ def steered(engines, kind: str, batch_size: int, held: bool, change=None, **kwar
         if change:
             change(d)
     plan = edited("generated_answer", changed).compile()
-    engine = engines(kind, plan.model)
+    engine = engines(kind, plan.model, **options)
     width = max(len(engine.tokenizer(r["input"])["input_ids"]) for r in plan.data["prompts"].rows or [])
     for entry in plan.steps.values():
         step: Any = entry
         if getattr(step, "kind", None) == "generate":
             step.__pydantic_extra__["logits_processor"] = LogitsProcessorList([Steer(engine.tokenizer, width)])
-    return engine.execute(plan, batch_size=batch_size, **kwargs)
+    return engine.execute(plan, batch_size=batch_size)
 
 
 def missing_as(value: Any) -> Any:
@@ -460,7 +460,7 @@ def test_a_write_at_a_decode_call_changes_the_tokens_from_there_on(engines):
     runs: dict = {(kind, size): engines(kind, plan.model).execute(edited("generated_answer", written).compile(),
                                                             batch_size=size)
             for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
-    runs["local"] = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE, remote="local")
+    runs["local"] = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
     v = runs["nnterp", 2].results
     for key in ("swapped", "added"):
         assert torch.equal(v[key][:, :2], v["clean"][:, :2]) and (v[key][:, 2] != v["clean"][:, 2]).any(), key
@@ -624,7 +624,7 @@ def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
     change = scoped_write("substr", held=False)
     runs: dict = {(kind, size): steered(engines, kind, size, held=False, change=change)
                   for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
-    runs["local"] = steered(engines, "nnterp", BATCH_SIZE, held=False, change=change, remote="local")
+    runs["local"] = steered(engines, "ndif", BATCH_SIZE, held=False, change=change, remote="local")
     plan = runs["nnterp", 2]
     v = plan.results
     assert plan.run.positions["swapped.w"] == ["alignment_missing", [10], [10], "alignment_missing"]

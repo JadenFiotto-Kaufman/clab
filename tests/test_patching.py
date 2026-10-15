@@ -9,14 +9,14 @@ import torch
 import clab
 from clab import Plan
 from clab.cli import main
-from conftest import BATCH_SIZE, ROOT, document, edited, plan_of, same, snapshot, stand_in
+from conftest import BATCH_SIZE, ROOT, TRIP, document, edited, plan_of, same, snapshot, stand_in
 
 SAVED = ["iia", "logit_diff"]
 
 
-def run(engines, kind: str, name: str = "patching", **kwargs) -> Plan:
+def run(engines, kind: str, name: str = "patching", **options) -> Plan:
     plan = plan_of(name)
-    return engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE, **kwargs)
+    return engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE)
 
 
 @pytest.fixture(scope="module")
@@ -44,7 +44,8 @@ def test_results_are_detached_cpu_clones(filled):
 
 def test_the_run_record_says_how_it_ran(filled):
     run = filled["nnterp"].run
-    assert (run.engine, run.remote, run.batch_size) == ("nnterp", False, BATCH_SIZE)
+    assert (run.engine, run.batch_size, run.device, run.options) == ("nnterp", BATCH_SIZE, "cpu", {"device_map": None})
+    assert (run.dtype, run.devices) == ("float32", ["cpu"])                 # what the run saw where the model is
     assert {"clab", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
     assert run.tokens["pairs.input"][0] == ["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom",
                                             "orrow", "▁is"]
@@ -65,22 +66,23 @@ def test_an_engine_refuses_a_plan_for_another_checkpoint(engines):
 
 
 def test_remote_local_is_bit_equal_to_local(engines, filled):
-    there = run(engines, "nnterp", remote="local")
-    assert there.run is not None and there.run.remote == "local" and same(there.results, filled["nnterp"].results)
+    there = run(engines, "ndif", remote="local")
+    assert there.run is not None and there.run.options == {"remote": "local"}
+    assert same(there.results, filled["nnterp"].results)
 
 
 def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
     """The way home, against this design's own model of a server (`conftest.stand_in`), not nnsight's server
-    code. It shows a filled `Plan` survives that trip whole, pickled by class reference with nothing of clab
-    shipped by value; only a real server (M5) shows the rest."""
+    code. The ndif engine's request names clab's plan, engine and steps by class reference with nothing of clab
+    shipped by value, and what comes home is the results and the run record, never the plan, which the
+    client assigns into its own plan."""
     import cloudpickle
 
     plan = plan_of("patching")
-    home, trip = stand_in(engines("nnterp", plan.model), plan, monkeypatch)
-    assert trip == {"by_reference": True, "names": ["plan"], "types": ["Plan"]}
+    home, trip = stand_in(engines, plan, monkeypatch)
+    assert trip == TRIP
     assert not any(m.split(".")[0] in ("clab", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
-    assert home is not plan and plan.results == {}                 # what came back is the server's copy
-    assert same(home.results, filled["nnterp"].results)
+    assert home is plan and same(home.results, filled["nnterp"].results)
     assert home.run is not None and home.run.positions == filled["nnterp"].run.positions
 
 
@@ -162,7 +164,9 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
 
     monkeypatch.setattr(engine, "forward", recording)
     engine.execute(plan, batch_size=BATCH_SIZE)
-    assert len(seen) == 2 + 3 * 2         # two batches of counterfactual, then of each of three patched points
+    # preflight's look at the served dtype and devices, then two batches of counterfactual, then of each of
+    # three patched points
+    assert len(seen) == 1 + 2 + 3 * 2
     assert not keys(seen) & {"sweep", "at"}
 
 
@@ -173,5 +177,53 @@ def test_hooks_refuses_what_lives_inside_a_forward(engines, name, component):
     plan = plan_of(name)
     with pytest.raises(ValueError, match=f"does not serve {component}: nnterp reads it inside a module's forward"):
         engines("hooks", plan.model).execute(plan)
-    with pytest.raises(ValueError, match="remote runs need the nnterp engine"):
-        engines("hooks", plan.model).execute(plan, remote="local")
+
+
+def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(monkeypatch):
+    """`load` checks the options against the engine's constructor before calling it: an unknown key is named
+    with the ones the engine takes, and so is a value of another type."""
+    from clab.engines import load, options
+
+    model = plan_of("patching").model
+    for where in ("nnterp", "ndif"):
+        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+    with pytest.raises(ValueError, match="unknown engine 'vllm'; valid: nnterp, hooks, ndif"):
+        load("vllm", model)
+    assert list(options("nnterp")) == ["device_map"] and list(options("ndif")) == ["remote"]
+    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its arguments: device_map"):
+        load("nnterp", model, remote="local")
+    with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; its arguments: remote"):
+        load("ndif", model, device_map="auto")
+    with pytest.raises(ValueError, match="remote: 'yes' is not one of True, 'local'"):
+        load("ndif", model, remote="yes")
+
+
+def test_an_option_the_engine_cannot_honor_is_refused_by_name():
+    with pytest.raises(ValueError, match="device: the ndif engine cannot honor 'cuda': the server places the model"):
+        clab.run(document("patching"), engine="ndif", device="cuda")
+    with pytest.raises(ValueError, match="device: the nnterp engine cannot honor it beside device_map 'auto'"):
+        clab.run(document("patching"), engine="nnterp", device="cuda", device_map="auto")
+    with pytest.raises(ValueError, match=r"model.device_map: the hooks engine cannot honor it: where the model runs is "
+                                         r"a run option: -o device_map=\.\.\."):
+        clab.run(edited("patching", lambda d: d["model"].update(device_map="auto")), engine="hooks")
+
+
+def test_a_loaded_engine_takes_no_options(engines):
+    plan = plan_of("patching")
+    with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu with {'device_map': None}; device and "
+                                         "options are given when an engine loads"):
+        clab.run(plan, engine=engines("hooks", plan.model), device_map="auto")
+
+
+def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
+    out = tmp_path / "patching"
+    assert main(["run", document("patching"), "--engine", "ndif", "-o", "remote=local", "--device", "cpu",
+                 "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 0
+    assert "patching on ndif (batch size 2, device cpu, remote \"local\")" in capsys.readouterr().out
+    run = Plan.load(str(out)).run
+    assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
+        ("ndif", "cpu", {"remote": "local"}, "float32", ["cpu"])
+    assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
+    assert "clab: the nnterp engine takes no 'remote'; its arguments: device_map" in capsys.readouterr().err
+    assert main(["run", document("patching"), "-o", "remote", "--out", str(out)]) == 1
+    assert "clab: -o 'remote': an option is KEY=VALUE" in capsys.readouterr().err
