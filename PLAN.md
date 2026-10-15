@@ -785,6 +785,14 @@ clab; its lead is operating on real models).
 - The lock pins a cu130 torch this host's driver cannot run; GPU snapshots
   record what they were made with.
 
+- A sequence metric (name open): scores a multi-token answer as a whole.
+  Takes a text column; works on a read whose scope is that column's span in
+  a teacher-forced input; aligns each position with its next answer token;
+  returns the per-row sum of log-probabilities, `mean` optional. The token
+  metrics score one distribution per row and so take `piece` (PR 12) to pick
+  one token of a multi-token answer; aggregating over the answer needs this
+  op. Roadmap.
+
 ### Decisions pending (owner)
 
 - Chat rendering: `add_generation_prompt` — today a `generate` from a chat
