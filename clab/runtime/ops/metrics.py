@@ -2,7 +2,6 @@
 position out."""
 
 import math
-from typing import Literal
 
 import torch
 from torch import Tensor
@@ -29,34 +28,32 @@ def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
     """1 where the most likely token is `expected`, else 0."""
     hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
     return hit.masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
-               token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
     """The logit of `a` less the logit of `b`."""
     return _pick(of, a, dims) - _pick(of, b, dims)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The probability of `token`."""
     return _pick(of.softmax(-1), token, dims)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_logit(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The logit of `token`."""
     return _pick(of, token, dims)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
-                  token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     """The negative log-probability of `target`, in nats."""
     return -_pick(of.log_softmax(-1), target, dims)
 

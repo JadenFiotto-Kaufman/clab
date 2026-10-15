@@ -302,7 +302,7 @@ def check_tokens(engine, plan: Plan, where: str, name: str, args: dict) -> None:
     for key, p in parameters(plan, name, args).items():
         if p.annotation == ops.Tokens and key in args:
             try:
-                tokens(engine, plan, args[key], args.get("token_form", "spaced"), None)
+                tokens(engine, plan, args[key], None)
             except ValueError as e:
                 raise ValueError(f"{where}: {e}") from None
 

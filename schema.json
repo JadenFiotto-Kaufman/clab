@@ -1392,20 +1392,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -1489,20 +1475,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -1571,20 +1543,6 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
          "type": "string"
         },
         {
@@ -1664,20 +1622,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -1745,20 +1689,6 @@
       "target": {
        "anyOf": [
         {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
          "type": "string"
         },
         {
@@ -2809,20 +2739,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -2867,20 +2783,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -2910,20 +2812,6 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
          "type": "string"
         },
         {
@@ -2964,20 +2852,6 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
       }
      },
      "required": [
@@ -3006,20 +2880,6 @@
       "target": {
        "anyOf": [
         {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "token_form": {
-       "anyOf": [
-        {
-         "enum": [
-          "spaced",
-          "bare"
-         ],
          "type": "string"
         },
         {

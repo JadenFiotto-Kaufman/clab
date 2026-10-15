@@ -27,7 +27,7 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
             per_row = dims_of(plan, given)[:1] == ["rows"]
             value = value[rows] if rows is not None and per_row else value
         elif annotation == ops.Tokens:
-            value, per_row = (tokens(engine, plan, value, args.get("token_form", "spaced"), rows) if vocabulary is None
+            value, per_row = (tokens(engine, plan, value, rows) if vocabulary is None
                               else indexed(plan, value, vocabulary, rows)), True
         elif annotation == ops.Featurizer:
             value = lookup(state, value, at)
@@ -44,10 +44,11 @@ def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Te
     return torch.tensor([vocabulary.index(v) for v in (values[rows] if rows is not None else values)])
 
 
-def tokens(engine, plan: Plan, column: str, form: str, rows: slice | None) -> Tensor:
+def tokens(engine, plan: Plan, column: str, rows: slice | None) -> Tensor:
+    """A column's texts as token ids (`data.token_ids`), sliced to `rows`."""
     name, _, col = column.partition(".")
     texts = [r[col] for r in plan.data[name].rows or []]
-    return data.token_ids(engine.tokenizer, texts[rows] if rows is not None else texts, form, column)
+    return data.token_ids(engine.tokenizer, texts[rows] if rows is not None else texts, column)
 
 
 def put(state: dict, name: str, at: dict, value) -> None:

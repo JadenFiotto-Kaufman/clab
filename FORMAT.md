@@ -305,8 +305,9 @@ Ops come in four groups: **metrics** score each example (one number per row and 
 value's layout and change its contents; **transforms** turn each example's value into another of a
 different layout (logits from a residual stream, tokens from logits, text from ids).
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a
-dataset column, resolved through the value's own vocabulary: one token per row against logits, or one of a
+An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a dataset
+column, resolved through the value's own vocabulary: one token per row against logits (the text tokenized
+exactly as written, so `" Friday"` and `"Friday"` are different tokens on most tokenizers), or one of a
 probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
 featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are arguments
 of every op: the op runs on the value's coordinates in that featurizer's space (on the features
@@ -321,11 +322,11 @@ write, an operand may name a read of the same forward at a site the forward reac
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `match` | `expected: Tokens`, `token_form: one of "spaced", "bare" = "spaced"` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected`, else 0. |
-| `logit_diff` | `a: Tokens`, `b: Tokens`, `token_form: one of "spaced", "bare" = "spaced"` | needs vocab_size or classes; removes its vocabulary axis | The logit of `a` less the logit of `b`. |
-| `token_prob` | `token: Tokens`, `token_form: one of "spaced", "bare" = "spaced"` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token`. |
-| `token_logit` | `token: Tokens`, `token_form: one of "spaced", "bare" = "spaced"` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
-| `cross_entropy` | `target: Tokens`, `token_form: one of "spaced", "bare" = "spaced"` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target`, in nats. |
+| `match` | `expected: Tokens` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected`, else 0. |
+| `logit_diff` | `a: Tokens`, `b: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `a` less the logit of `b`. |
+| `token_prob` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token`. |
+| `token_logit` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
+| `cross_entropy` | `target: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target`, in nats. |
 | `kl` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats. |
 | `js` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
 | `cosine` | `with: Value` | needs hidden_size; removes hidden_size | The cosine similarity of each vector and `with`'s, over `hidden_size`. |

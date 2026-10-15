@@ -61,7 +61,7 @@ def test_describe_lists_the_engines_and_spells_literals_as_json():
                           "        batch_size: int = 8 — how many of a step's rows go through the model in one "
                           "forward or generation"]
     assert lines[14].startswith('        remote: one of true, "local" = true — true for the NDIF server')
-    assert 'token_form: one of "spaced", "bare" = "spaced"' in describe("ops")
+    assert "    match(expected: Tokens)  [" in describe("ops")
 
 
 def test_every_engine_option_says_what_it_takes():

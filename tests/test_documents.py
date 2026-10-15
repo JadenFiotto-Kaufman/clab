@@ -390,26 +390,26 @@ def test_a_swept_value_joins_an_unswept_one_beside_each_point(engines):
     assert filled.table("clean_ld", "logit_diff", columns=[]) == rows
 
 
-def test_bare_spells_the_answer_without_its_space_on_gpt2(engines):
-    """On GPT-2 " one" and "one" (and " is"/"is", " a"/"a") are different single tokens, so `token_form: bare`
-    changes the number."""
+def test_a_token_column_is_tokenized_as_written_on_gpt2(engines):
+    """On GPT-2 " one" and "one" (and " is"/"is", " a"/"a") are different single tokens, and a token column is
+    tokenized exactly as written: a column without the leading space scores the token without it."""
     def change(d):
-        d["data"]["pairs"] = {"rows": [{**row, "cf_answer": answer, "base_answer": " one"} for row, answer in
-                                       zip(ROWS, (" one", " is", " a", " one"))]}
+        d["data"]["pairs"] = {"rows": [{**row, "cf_answer": a, "bare_answer": a.strip(), "base_answer": " one"}
+                                       for row, a in zip(ROWS, (" one", " is", " a", " one"))]}
         d["steps"]["spaced"] = {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
-        d["steps"]["bare"] = {**d["steps"]["spaced"], "token_form": "bare"}
+        d["steps"]["bare"] = {**d["steps"]["spaced"], "token": "pairs.bare_answer"}
         d["saves"] = ["patched.logits", "spaced", "bare"]
     plan = edited("gpt2_reach", change).compile()
     engine = engines("nnterp", plan.model)
     values = engine.execute(plan, batch_size=BATCH_SIZE).results
     probs = values["patched.logits"][:, 0].softmax(-1)
     rows = plan.data["pairs"].rows or []
-    assert len({engine.tokenizer(r["cf_answer"].strip())["input_ids"][0] for r in rows}) == 3
-    for form, text in (("spaced", lambda a: a), ("bare", str.strip)):
-        ids = [engine.tokenizer(text(r["cf_answer"]), add_special_tokens=False)["input_ids"] for r in rows]
+    assert len({engine.tokenizer(r["bare_answer"])["input_ids"][0] for r in rows}) == 3
+    for name, column in (("spaced", "cf_answer"), ("bare", "bare_answer")):
+        ids = [engine.tokenizer(r[column], add_special_tokens=False)["input_ids"] for r in rows]
         assert all(len(i) == 1 for i in ids)
         expected = probs[torch.arange(len(rows)), torch.tensor([i[0] for i in ids])]
-        torch.testing.assert_close(values[form][:, 0], expected)
+        torch.testing.assert_close(values[name][:, 0], expected)
     assert not torch.allclose(values["spaced"], values["bare"])
 
 

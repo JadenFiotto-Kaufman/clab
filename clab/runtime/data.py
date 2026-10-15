@@ -82,11 +82,12 @@ def pad(tokenizer, ids: list[list[int]], width: int) -> dict:
     return {"input_ids": input_ids, "attention_mask": mask, "position_ids": (mask.cumsum(-1) - 1).clamp(min=0)}
 
 
-def token_ids(tokenizer, texts: list[str], form: str, column: str) -> torch.Tensor:
-    """One token id per row. `bare` spells the text as the first word of a text is, without its leading space."""
+def token_ids(tokenizer, texts: list[str], column: str) -> torch.Tensor:
+    """One token id per row: each text tokenized exactly as written, without special tokens, which must be one
+    token (`" Friday"` and `"Friday"` are different tokens on most tokenizers; the column says which)."""
     ids = []
     for row, text in enumerate(texts):
-        got = tokenizer(text if form == "spaced" else text.strip(), add_special_tokens=False)["input_ids"]
+        got = tokenizer(text, add_special_tokens=False)["input_ids"]
         if len(got) != 1:
             raise ValueError(f"{column} row {row}: {text!r} is {len(got)} tokens on this tokenizer; "
                              "an answer must be one")
