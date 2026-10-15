@@ -758,13 +758,34 @@ clab; its lead is operating on real models).
   hook on `@op` for compile-time argument rules; `noise` draws per
   (seed, row, position) so batch size never changes a result.
 
+### Ratified after the M6 stack landed (2026-10-15, PR 12)
+
+- `device` is every engine's one placement argument; `device_map` is gone.
+  An engine resolves the value as it likes (`nnterp`/`hooks` hand any
+  value to transformers as a device map, so `"auto"` works; `ndif` refuses
+  one, the server places the model). Each engine documents the values it
+  accepts in its own constructor docstring, which `describe engines` prints.
+- `select` takes a selector per axis, the same grammar as `layers` and
+  `pos`; a head sweep is `{"sweep": [0, 1, ...]}`; any axis the components
+  table lists as narrowing the component may be selected.
+- `token_form` is removed: an answer column is tokenized as written and
+  must be one token. (Replaces the pending `"spaced"` rename.)
+- Featurizers are made on the model's device (PR 11), bundle headers are
+  written sorted and swapped in from a temporary file, the corpus root is
+  the nearest ancestor of a document holding `data/`.
+
+### Owner items raised by PR 11 review, open
+
+- Best-epoch restore is reachable only through `early_stop`.
+- Compiled plans and manifests store every expanded sweep point in full
+  (a 70B head sweep is ~10 MB on the wire): roadmap.
+- The lock pins a cu130 torch this host's driver cannot run; GPU snapshots
+  record what they were made with.
+
 ### Decisions pending (owner)
 
 - Chat rendering: `add_generation_prompt` — today a `generate` from a chat
   starts without an assistant turn. Recommend `True` for generate steps.
-- `token_form: "spaced"` tokenises the column verbatim (a column of
-  `"Tuesday"` silently scores the un-spaced token). Recommend renaming to
-  `"verbatim"`; alternative: normalise to a leading space.
 - Rows lacking the anchor text in the prefill: refuse (today) or
   `"missing": "skip"` on the scope.
 - Same-label sweeps zip when their values are equal (three lines).
