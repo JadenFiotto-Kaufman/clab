@@ -22,7 +22,7 @@ BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch 
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
 # Documents that train or load a featurizer, pinned in test_fit.py.
 FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "random_subspace",
-       "sae_feature_ablation", "sae_train", "sae_train_ablation"]
+       "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]
 GENERATE = ["generate_probe", "generated_answer"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.

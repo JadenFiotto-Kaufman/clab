@@ -1,0 +1,112 @@
+{
+ "description": "A published JumpReLU sparse autoencoder, spliced in. `documents/artifacts/sae_gemma_scope.safetensors` is laid out as Gemma Scope publishes one: `W_enc`, `W_dec`, `b_enc`, `b_dec` and a per-latent `threshold`, and no clab header, so nothing says what model it was trained on and only its shapes are checked (the run record lists it under `headerless`). Its encoder does not subtract `b_dec` (`centered: false`), and a latent is its pre-activation where that exceeds its threshold, else zero. `base.latents` reads the latents of layer 0's output at the last position; `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `kl` scores how far the next-token distribution moves from the clean forward's. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "featurizers": {
+  "dictionary": {
+   "kind": "sae",
+   "file_path": "documents/artifacts/sae_gemma_scope.safetensors",
+   "activation": "jumprelu",
+   "centered": false
+  }
+ },
+ "steps": {
+  "base": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "reads": {
+    "latents": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "featurizer",
+       "featurizer": "dictionary",
+       "mode": "encode"
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "features"
+     ]
+    },
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "spliced": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "writes": {
+    "reconstruct": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "featurizer",
+       "featurizer": "dictionary",
+       "mode": "apply"
+      }
+     ]
+    }
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "kl": {
+   "kind": "op",
+   "op": "kl",
+   "of": "spliced.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "against": "base.logits"
+  }
+ },
+ "saves": [
+  "base.latents",
+  "kl"
+ ],
+ "document": "documents/sae_published_jumprelu.json",
+ "compiled": true
+}

@@ -1,0 +1,101 @@
+{
+ "description": "A published TopK sparse autoencoder, spliced in. `documents/artifacts/sae_saelens.safetensors` is laid out as SAELens publishes one: `W_enc`, `W_dec`, `b_enc` and `b_dec`, and no clab header, so nothing says what model it was trained on and only its shapes are checked (the run record lists it under `headerless`). With `activation: topk` and `k: 4` a vector's latents are the relu of its four largest pre-activations (its encoder subtracts `b_dec` first), every other latent zero, so `base.latents`, the latents of layer 0's output at the last position, has at most four nonzero entries per row. `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `p_answer` scores the counterfactual answer's probability there. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "featurizers": {
+  "dictionary": {
+   "kind": "sae",
+   "file_path": "documents/artifacts/sae_saelens.safetensors",
+   "activation": "topk",
+   "k": 4
+  }
+ },
+ "steps": {
+  "base": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "reads": {
+    "latents": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "featurizer",
+       "featurizer": "dictionary",
+       "mode": "encode"
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "features"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "spliced": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "writes": {
+    "reconstruct": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "featurizer",
+       "featurizer": "dictionary",
+       "mode": "apply"
+      }
+     ]
+    }
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "p_answer": {
+   "kind": "op",
+   "op": "token_prob",
+   "of": "spliced.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "token": "prompts.cf_answer"
+  }
+ },
+ "saves": [
+  "base.latents",
+  "p_answer"
+ ],
+ "document": "documents/sae_published_topk.json",
+ "compiled": true
+}
