@@ -1,0 +1,24 @@
+{
+  "description": "How confident the generation was when it said the answer: the head read on every call (`frame: \":\"`) at the positions whose next token is the row's `said` word in what it generated (a scope with `before`: the calls that chose the word's tokens, the prefill's last position for generated token 0). `p` is the probability the model gave each of the word's tokens as it chose it, `nll` minus its log, `p_seq` the word's negative log-likelihood (the sum over its tokens). The two rows that never say their word are `alignment_missing`: no entries, and NaN in `p_seq`.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"prompts": {"path": "weekdays/said"}},
+  "sites": {"head": {"component": "lm_head_output"}},
+  "steps": {
+    "answer": {
+      "kind": "generate",
+      "input": "prompts.input",
+      "max_new_tokens": 6,
+      "min_new_tokens": 6,
+      "do_sample": false,
+      "reads": {"logits": {"site": "head", "pos": {"frame": ":", "scope": {"column": "prompts.said", "before": true}}}}
+    },
+    "p": {"kind": "op", "op": "token_prob", "of": "answer.logits", "token": "prompts.said"},
+    "nll": {"kind": "op", "op": "cross_entropy", "of": "answer.logits", "target": "prompts.said"},
+    "p_seq": {"kind": "op", "op": "sum", "of": "nll", "over": ["pos"]}
+  },
+  "saves": ["p", "nll", "p_seq"]
+}

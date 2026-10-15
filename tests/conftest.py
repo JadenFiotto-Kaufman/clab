@@ -27,7 +27,7 @@ REAL = sorted(f"real/{os.path.splitext(n)[0]}" for n in os.listdir(os.path.join(
 # Documents that train or load a featurizer, pinned in test_fit.py.
 FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "random_subspace",
        "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]
-GENERATE = ["generate_probe", "generated_answer"]
+GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "generated_contains"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
 INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
@@ -71,7 +71,7 @@ def plain(value) -> Any:
 
 
 def close(a, b, path: str = "") -> None:
-    """`a` and `b` (plain values) equal, floats to 1e-6."""
+    """`a` and `b` (plain values) equal, floats to 1e-6, NaN to NaN."""
     assert type(a) is type(b) or {type(a), type(b)} <= {int, float}, path
     if isinstance(a, dict):
         assert a.keys() == b.keys(), path
@@ -82,15 +82,16 @@ def close(a, b, path: str = "") -> None:
         for i, (x, y) in enumerate(zip(a, b)):
             close(x, y, f"{path}[{i}]")
     elif isinstance(a, float):
-        assert abs(a - b) <= 1e-6, (path, a, b)
+        assert abs(a - b) <= 1e-6 or a != a and b != b, (path, a, b)         # NaN, a missing row, on both
     else:
         assert a == b, (path, a, b)
 
 
 def same(a, b) -> bool:
-    """Bit-equal, all the way down."""
+    """Bit-equal, all the way down, a missing value (NaN) where the other's is."""
     if isinstance(a, torch.Tensor):
-        return isinstance(b, torch.Tensor) and a.dtype == b.dtype and torch.equal(a, b)
+        return isinstance(b, torch.Tensor) and a.dtype == b.dtype and torch.equal(a.isnan(), b.isnan()) and \
+            torch.equal(a.nan_to_num(0.0), b.nan_to_num(0.0))
     if isinstance(a, dict):
         return isinstance(b, dict) and a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):

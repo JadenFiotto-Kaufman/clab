@@ -1,0 +1,27 @@
+{
+  "description": "An answer scored as every spelling of it, and as any of a set. `{\"column\": \"qa.answer\", \"strip\": true, \"lower\": true}` makes the answer's token the class of every token whose text, stripped and lowercased, is the same: \" Yes\" stands for ▁Yes, ▁yes, ▁YES, Yes, yes and YES on this tokenizer, and `p_spelled` is their summed probability, `hit_spelled` whether the most likely token is any of them; `p_exact` is \" Yes\" alone. `qa.accepted` holds a set per row, any of whose members is the answer: `p_any` sums them, `hit_any` hits on any, `nll_any` is minus the log of the sum. A class or a set has no one logit, so `logit_diff` and `token_logit` refuse them. The weights are random; the classes are the point.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"qa": {"rows": [
+    {"input": "If today is Friday, is tomorrow Saturday? Answer:", "answer": " Yes", "accepted": [" Yes", " True"]},
+    {"input": "If today is Monday, is tomorrow Sunday? Answer:", "answer": " No", "accepted": [" No", " False"]},
+    {"input": "If today is Sunday, is tomorrow Monday? Answer:", "answer": " Yes", "accepted": [" Yes", " True"]},
+    {"input": "If today is Tuesday, is tomorrow Friday? Answer:", "answer": " No", "accepted": [" No", " False"]}
+  ]}},
+  "sites": {"head": {"component": "lm_head_output"}},
+  "steps": {
+    "clean": {"kind": "forward", "input": "qa.input", "reads": {"logits": {"site": "head", "pos": -1}}},
+    "p_spelled": {"kind": "op", "op": "token_prob", "of": "clean.logits",
+                  "token": {"column": "qa.answer", "strip": true, "lower": true}},
+    "hit_spelled": {"kind": "op", "op": "match", "of": "clean.logits",
+                    "expected": {"column": "qa.answer", "strip": true, "lower": true}},
+    "p_exact": {"kind": "op", "op": "token_prob", "of": "clean.logits", "token": "qa.answer"},
+    "p_any": {"kind": "op", "op": "token_prob", "of": "clean.logits", "token": "qa.accepted"},
+    "hit_any": {"kind": "op", "op": "match", "of": "clean.logits", "expected": "qa.accepted"},
+    "nll_any": {"kind": "op", "op": "cross_entropy", "of": "clean.logits", "target": "qa.accepted"}
+  },
+  "saves": ["p_spelled", "hit_spelled", "p_exact", "p_any", "hit_any", "nll_any"]
+}
