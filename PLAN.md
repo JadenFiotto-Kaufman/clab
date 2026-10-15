@@ -745,6 +745,19 @@ clab; its lead is operating on real models).
   the remote table is rerun, expecting 17/17 bit-equal to a local GPU run.
 - Dropped: `clab check`.
 
+### Ratified during the M6 stack (2026-10-15)
+
+- `frame` is a plain selector: `"generated"` (= `"1:"`) and `"eos"` (= `-1`
+  plus a per-row filter) are gone; `-1` is the row's last call whether it
+  stopped or ran out. "Exclude rows that did not stop" is a row-filter
+  question, decided with the anchor-text one below, not a frame literal.
+- Published SAE files: `activation` and `centered` have no defaults and must
+  be stated; a bundle is clab's only when its `format` starts with `clab/`;
+  header checks are strict, no implied defaults. No `run.headerless`.
+- The run record gains `num_layers`; negative int `layers` allowed; `check=`
+  hook on `@op` for compile-time argument rules; `noise` draws per
+  (seed, row, position) so batch size never changes a result.
+
 ### Decisions pending (owner)
 
 - Chat rendering: `add_generation_prompt` — today a `generate` from a chat
