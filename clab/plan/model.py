@@ -521,8 +521,7 @@ class Run(Record):
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
     the input or the step's name), and the position every read and write resolved to, per row (an index into
     the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
-    swept step's are keyed by coordinate. `headerless` names each featurizer whose bundle carried no clab
-    header (a published SAE): nothing said what model or site made it, so only its shapes were checked."""
+    swept step's are keyed by coordinate."""
     engine: str
     remote: bool | str
     batch_size: int
@@ -531,7 +530,6 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
-    headerless: list[str] = []
 
 
 class Plan(Record):

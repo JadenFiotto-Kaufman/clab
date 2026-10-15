@@ -32,9 +32,6 @@ def preflight(engine, plan: Plan) -> dict:
     trained featurizer used at no site.
     """
     refuse(engine, plan)
-    assert plan.run is not None
-    plan.run.headerless = [name for name, entry in plan.featurizers.items()
-                           if any(f.bundle is not None and f.header is None for f in points(entry))]
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}

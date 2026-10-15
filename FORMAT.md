@@ -414,7 +414,7 @@ fields and the model when the plan compiles, the site at every use, and `width` 
 before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
 keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
 `sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
-width; the run record lists it under `headerless`.
+width: nothing says what model or site it was made at, so neither is checked.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on

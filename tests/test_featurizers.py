@@ -1,6 +1,6 @@
 """Featurizer math is device- and autocast-safe, and a published SAE (a safetensors file with no clab header, as
 SAELens and Gemma Scope publish one) loads: its tensor names and shapes checked, its activation the document's,
-the run record naming it headerless; a clab-written sae bundle records its activation and round-trips."""
+its model and site unchecked; a clab-written sae bundle records its activation and round-trips."""
 
 import json
 import os
@@ -195,12 +195,11 @@ def test_a_published_file_as_wide_as_another_site_is_refused_before_any_forward(
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
-def test_the_run_record_names_a_headerless_bundle_and_only_that(engines):
+def test_a_published_file_has_no_header_and_a_clab_bundle_keeps_its_own():
     plan = Plan(os.path.join(DOCUMENTS, "sae_published_topk.json")).compile()
     assert points(plan.featurizers["dictionary"])[0].header is None
-    assert engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).run.headerless == ["dictionary"]
     clab_written = Plan(os.path.join(DOCUMENTS, "sae_feature_ablation.json")).compile()
-    assert engines("hooks", clab_written.model).execute(clab_written, batch_size=BATCH_SIZE).run.headerless == []
+    assert (points(clab_written.featurizers["dictionary"])[0].header or {})["format"] == "clab/1"
 
 
 def test_a_published_dictionary_is_the_same_remote_local_and_through_the_stand_in_server(engines, monkeypatch):
@@ -211,7 +210,6 @@ def test_a_published_dictionary_is_the_same_remote_local_and_through_the_stand_i
     assert same(engine.execute(plan(), batch_size=BATCH_SIZE, remote="local").results, local)
     came, trip = stand_in(engine, plan(), monkeypatch)
     assert trip["by_reference"] and same(came.results, local)
-    assert came.run is not None and came.run.headerless == ["dictionary"]
 
 
 def topk_train(d):
