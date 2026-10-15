@@ -12,9 +12,10 @@ if TYPE_CHECKING:       # a featurizer instance; its package imports this module
     from .runtime.featurizers import Kind
 
 # How a document fills a parameter that names a thing the run binds: a named value or a number, a dataset
-# column resolved through a vocabulary, a featurizer's name.
+# column resolved through a vocabulary, a dataset column as text, a featurizer's name.
 Value = Annotated[Tensor, "Value"]
 Tokens = Annotated[Tensor, "Tokens"]
+Text = Annotated[list, "Text"]
 Featurizer = Annotated["Kind", "Featurizer"]
 
 

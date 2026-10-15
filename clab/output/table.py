@@ -116,7 +116,8 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     assert plan.run is not None
     tokens = dict(plan.run.tokens)
     for a, b in swap.items():
-        tokens.update({f"{a}.{k.partition('.')[2]}": v for k, v in plan.run.tokens.items() if k.partition(".")[0] == b})
+        tokens.update({data.renamed(k, {b: a}): v for k, v in plan.run.tokens.items()
+                       if b in [p.partition(".")[0] for p in k.split(" + ")]})
     run = plan.run.model_copy(update={"tokens": tokens, "positions": {
         k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
     return body_view(plan, fit, swap=swap).model_copy(update={
@@ -211,6 +212,12 @@ def part(value: Any, pick: tuple) -> Any:
     return value
 
 
+def columns(plan: Plan, args: dict) -> list[str]:
+    """The dataset columns among an op's arguments (a column reference, as the string or the object), by name."""
+    refs = [data.column_of(v) for v in args.values()]
+    return [r[0].partition(".")[2] for r in refs if r is not None and r[0].partition(".")[0] in plan.data]
+
+
 def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
     """The read a value's positions come from (following `of`), and the dataset columns its chain uses."""
     used = []
@@ -218,12 +225,11 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
         thing, _, member = name.partition(".")
         step = points(plan.steps[thing])[0]
         args = arguments(step) if step.kind == "op" else {}
-        used += [v.partition(".")[2] for v in args.values() if isinstance(v, str) and v.partition(".")[0] in plan.data]
+        used += columns(plan, args)
         if step.kind != "op":
-            used.insert(0, data.parse_input(step.input)[1])
+            used[:0] = [data.parse_input(c)[1] for c in data.input_columns(step.input)]
             for o in step.reads[member].ops if member else []:
-                used += [v.partition(".")[2] for v in arguments(o).values()
-                         if isinstance(v, str) and v.partition(".")[0] in plan.data]
+                used += columns(plan, arguments(o))
             return (name if member else None), list(dict.fromkeys(used))
         name = step.of
 
@@ -236,7 +242,7 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     assert plan.run is not None
     thing, _, member = source.partition(".")
     producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
-    prompt = plan.run.tokens[producer.input]
+    prompt = plan.run.tokens[data.input_name(producer.input)]
     said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]

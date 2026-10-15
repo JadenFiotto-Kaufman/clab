@@ -19,9 +19,10 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims_of(plan, step.of) \
         else None
     dims = dims_of(plan, step.of)
-    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else \
+        torch.arange(len(plan.data[step.dataset].rows or [])) if "entries" in dims and step.dataset else None
     value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
-                                             vocabulary),
+                                             vocabulary, dims=dims),
                   dims, stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

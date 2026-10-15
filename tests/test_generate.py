@@ -198,7 +198,7 @@ def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, pro
     """`pos` (defaults filled) resolved in a row of a `prompt`-token prompt that generated `said`, EOS 1."""
     pos = {"frame": 0, "scope": None, "index": ":", **pos}
     row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
-    found = positions.occurrences(pos["scope"], row, said, tokenizer, [text] if text else [])
+    found = positions.occurrences(pos["scope"], row, said, tokenizer, [(text, False, False)] if text else [])
     return positions.resolve(pos, prompt, list(range(1, prompt)), said, found)
 
 
@@ -511,7 +511,7 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
 
     def found(pos):
         pos = {"frame": 0, "scope": None, "index": ":", **pos}
-        hits = positions.occurrences(pos["scope"], row, said, tokenizer, ["beta"])
+        hits = positions.occurrences(pos["scope"], row, said, tokenizer, [("beta", False, False)])
         return positions.resolve(pos, 2, [1], said, hits)
     assert found(every) == [1]
     assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
@@ -867,20 +867,25 @@ def test_overlapping_texts_take_the_union_of_their_tokens(engines):
     assert got == sorted(set(got)) and [tokens[i] for i in got] == ["▁this", "▁is"]
 
 
+def as_written(*texts: str) -> list[tuple[str, bool, bool]]:
+    """Texts a scope searches for as written, neither stripped nor lowercased."""
+    return [(t, False, False) for t in texts]
+
+
 def test_occurrences_are_ordered_by_where_they_end():
     """`b` inside `abc` ends first, so it is occurrence 0 and `abc` occurrence 1, in the prompt, in the
     generated inputs and online alike; of two that end together, the one that starts first comes first."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     scope = {"text": ["abc", "b"], "occurrence": 0}
-    assert positions.located(scope, ["abc", "b"], "xabcx") == [(2, 3), (1, 4)]
-    assert positions.located(scope, ["bc", "abc"], "xabcx") == [(1, 4), (2, 4)]
+    assert positions.located(as_written("abc", "b"), "xabcx") == [(2, 3), (1, 4)]
+    assert positions.located(as_written("bc", "abc"), "xabcx") == [(1, 4), (2, 4)]
     ids = tokenizer("x a b c x", add_special_tokens=False)["input_ids"]
     words = tokenizer.decode(ids)
-    spans = positions.located(scope, ["a b c", "b"], words)
+    spans = positions.located(as_written("a b c", "b"), words)
     assert [words[a:b] for a, b in spans] == ["b", "a b c"]
     def lands_at(k):
         pos = {"frame": "1:", "scope": {**scope, "occurrence": k}, "index": -1}
-        return [j for j in range(len(ids)) if positions.landing(pos, ["a b c", "b"], ids[:j + 1], set(), tokenizer)]
+        return [j for j in range(len(ids)) if positions.landing(pos, as_written("a b c", "b"), ids[:j + 1], set(), tokenizer)]
     first, second = lands_at(0), lands_at(1)
     assert len(first) == len(second) == 1 and first[0] < second[0]     # `b` is known before `a b c` is
 
@@ -893,7 +898,7 @@ def test_a_scoped_write_counts_its_occurrences_within_its_frame():
     assert tokenizer.convert_ids_to_tokens(ids) == ["▁Bob", "▁met", "▁Bob", "▁met"]
 
     def calls(pos):
-        return [k for k in range(1, len(ids) + 1) if positions.landing(pos, ["Bob"], ids[:k], set(), tokenizer)]
+        return [k for k in range(1, len(ids) + 1) if positions.landing(pos, as_written("Bob"), ids[:k], set(), tokenizer)]
     at3 = {"frame": 3, "scope": {"text": "Bob", "occurrence": 0}, "index": -1}
     assert calls(at3) == [3]
     assert resolved(at3, ids, tokenizer, "Bob") == [2 + 2]                # call 3's input, after a 2-token prompt

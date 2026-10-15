@@ -49,6 +49,21 @@ layer's value; a slice or a list of picks is one value, a `layers` axis first, l
 it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
 (`{<axis>: <selector>}`, which Components describes).
 
+### A column read as text
+
+- `column: str`
+- `strip: bool = false`
+- `lower: bool = false`
+
+A column read as text, where a scope searches for it or a metric scores it: `"<dataset>.<column>"`, or
+`{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
+whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
+rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
+the input for the text so compared, its positions the original's. Against logits each of an answer's
+tokens stands for its class: every token of the vocabulary whose text, so compared, is the same
+(` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.
+A row's value may be a list of strings: a set, any of which is the answer.
+
 ### A write or a read
 
 - `site: str or site`
@@ -83,8 +98,10 @@ the `featurizer` op it names the featurizer the op calls.
 pos      := int                                # shorthand: {"frame": 0, "index": int}
           | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
 frame    := selector                                                  # default 0
-scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
-          | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
+scope    := {"column": column or a list, "occurrence"?: selector, "before"?: bool}
+          | {"text": one or a list, "occurrence"?: selector, "strip"?: bool, "lower"?: bool, "before"?: bool}
+          | {"turn": "<role>", "occurrence"?: selector, "before"?: bool}   # occurrence default 0
+column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
 ```
 
@@ -115,11 +132,21 @@ they end, then where they start: where an occurrence becomes known and where ind
 found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
 (default 0, the first of any) picks which of those occurrences among the tokens the
 scope is; the scope is the tokens of the picked ones, in order
-(their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
-whitespace first. The prompt and the generated
+(their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a
+column's reference) compare each text stripped of surrounding whitespace and lowercased, the positions
+the original's. The prompt and the generated
 tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
 token is never an input to any call, so a word ending on it is `alignment_missing` (with
-`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in
+`max_new_tokens: 1` a scope in the generated tokens never matches), unless the scope is `before`.
+
+**before** (default false): the positions that predict the scope's tokens, each the position just
+before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
+record is the calls' positions whose next token is the scope's. In the prefill that is the position
+before each token; in a generation it is the call that chose each generated token, the last one
+included (the prefill's last position chose generated token 0). A scope token at position 0 has no
+position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
+the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
+`before`. `turn` is a role of the chat, in
 call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
 user message, `":"` every one of them); a role the row has no message of is refused by name.
 
@@ -156,13 +183,15 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`.
 
 ### `forward`
 
-- `input: str`
+- `input: str or list of str or TextPart`
 - `writes: object of write or read = {}`
 - `reads: object of write or read = {}`
 - `interventions: str or list of str or null = null`
 
 One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-`<dataset>.<column>[i]`, a text or a chat; `writes` land where they name before anything later reads them;
+`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
+literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+"days.answer"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they name before anything later reads them;
 each read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed
 order, before the step's own.
 
@@ -178,7 +207,7 @@ differ in the last bits. Results reproduce to the bit at a fixed batch size.
 
 ### `generate`
 
-- `input: str`
+- `input: str or list of str or TextPart`
 - `writes: object of write or read = {}`
 - `reads: object of write or read = {}`
 - `interventions: str or list of str or null = null`
@@ -301,32 +330,50 @@ every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` 
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
-1, and the accuracy is a `mean` step after it); **reductions** remove the rows axis; **edits** keep the
-value's layout and change its contents; **transforms** turn each example's value into another of a
-different layout (logits from a residual stream, tokens from logits, text from ids).
+1, and the accuracy is a `mean` step after it; `contains` scores a decoded generation's text); **reductions**
+remove axes, by default every one but the feature axes (`over` names them; over `pos`, one value per row);
+**edits** keep the value's layout and change its contents; **transforms** turn each example's value into
+another of a different layout (logits from a residual stream, tokens from logits, text from ids).
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a dataset
-column, resolved through the value's own vocabulary: one token per row against logits (the text tokenized
-exactly as written, so `" Friday"` and `"Friday"` are different tokens on most tokenizers), or one of a
-probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are arguments
-of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": <selector>}}` keeps; an operand is laid out on them) and the change is written back
-as a delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
-instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
-version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
-write, an operand may name a read of the same forward at a site the forward reaches before the write's
-(`patched.premix` in `patched`): it is that read's value in this batch, at the read's positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
+(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
+vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
+`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
+else is a literal. Inside a read or write, `featurizer` and `select` are arguments of every op: the op runs on
+the value's coordinates in that featurizer's space (on the features `{"select": {"features": <selector>}}`
+keeps; an operand is laid out on them) and the change is written back as a delta, so an op that changes no
+coordinate changes nothing to the bit. The `featurizer` op calls a featurizer instead, in one of its kind's
+modes (`encode` gives the coordinates themselves, `apply` the featurizer's version of the value).
+`renormalize`'s reference is the value at the site before the step's writes. Inside a write, an operand may
+name a read of the same forward at a site the forward reaches before the write's (`patched.premix` in
+`patched`): it is that read's value in this batch, at the read's positions.
+
+A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
+written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
+tokens: a one-token answer scores every position of its row; a longer one scores token i at the row's
+position i, so the read carries k positions on that row (a scope with `before` reads the positions that
+predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers differ in
+length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and read do not
+line up is refused by name, before any forward where the read's positions are the prompt's. Under the
+reference's `strip` or `lower` each of the answer's tokens stands for its class: every token of the vocabulary
+whose text, stripped and lowercased as the flags say, is the token's own (its text is what it adds after
+another token, so a leading space is its own). A row's answer may be a set, a list of strings any of which is
+the answer, its members one width: at each position the ids any member's token (or class) may be, each once.
+`match` hits where the most likely token is any of a position's ids, `token_prob` is their summed
+probability, `cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several
+ids have not, so a class or a set of more than one is refused there. A missing row (a scope the row does not
+say) stays missing: NaN, or no entries.
 
 ### Metrics
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `match` | `expected: Tokens` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected`, else 0. |
+| `match` | `expected: Tokens` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected` (any of its class or set), else 0. |
 | `logit_diff` | `a: Tokens`, `b: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `a` less the logit of `b`. |
-| `token_prob` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token`. |
+| `token_prob` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token` (of a class or a set, its members' summed). |
 | `token_logit` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
-| `cross_entropy` | `target: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target`, in nats. |
+| `cross_entropy` | `target: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target` (of a class or a set, of its members' summed probability), in nats. |
+| `contains` | `text: Text` | needs rows | 1 where a row's text (a `decode`d generation) contains `text`, the row's answer (any member of a set), compared as its reference says, else 0. Every row generated something, so none is missing. |
 | `kl` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats. |
 | `js` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
 | `cosine` | `with: Value` | needs hidden_size; removes hidden_size | The cosine similarity of each vector and `with`'s, over `hidden_size`. |
@@ -335,7 +382,9 @@ write, an operand may name a read of the same forward at a site the forward reac
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | removes the axes `over` names | The mean over the axes `over` names, of the rows that have a value (a missing row is NaN); by default over every axis but the feature axes. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The mean over the axes `over` names (a ragged value's `pos`: each row's entries), of the values that are there (a missing one is NaN); by default over every axis but the feature axes. |
+| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
+| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, entries, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits

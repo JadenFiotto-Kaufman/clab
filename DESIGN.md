@@ -89,6 +89,10 @@ document in these places:
 - PR 12 (PLAN.md §13): `device` is an engine's one placement option (on nnterp and hooks one torch device or
   a device map transformers computes, `auto` among them; `device_map` is gone); `select` takes a selector per axis, as `layers` does;
   the metric ops have no `token_form`: a token column is tokenized exactly as written.
+- PR 12, answers (PLAN.md §13): a metric lines its answer up with the read, token i at position i; a column
+  read as text is a reference with `strip` and `lower`, which make an answer's token its class of spellings;
+  a row's answer may be a set; a scope may be `before` (the positions that predict its tokens); a step's
+  `input` may be a list, joined per row; `sum`, `min` and `contains` join the ops.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

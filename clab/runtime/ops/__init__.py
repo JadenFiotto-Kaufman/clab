@@ -26,22 +26,39 @@ every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` 
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
-1, and the accuracy is a `mean` step after it); **reductions** remove the rows axis; **edits** keep the
-value's layout and change its contents; **transforms** turn each example's value into another of a
-different layout (logits from a residual stream, tokens from logits, text from ids).
+1, and the accuracy is a `mean` step after it; `contains` scores a decoded generation's text); **reductions**
+remove axes, by default every one but the feature axes (`over` names them; over `pos`, one value per row);
+**edits** keep the value's layout and change its contents; **transforms** turn each example's value into
+another of a different layout (logits from a residual stream, tokens from logits, text from ids).
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a dataset
-column, resolved through the value's own vocabulary: one token per row against logits (the text tokenized
-exactly as written, so `" Friday"` and `"Friday"` are different tokens on most tokenizers), or one of a
-probe's classes against its scores (a metric scores a `vocab_size` or a `classes` axis); `Featurizer` a
-featurizer's name; anything else is a literal. Inside a read or write, `featurizer` and `select` are arguments
-of every op: the op runs on the value's coordinates in that featurizer's space (on the features
-`{"select": {"features": <selector>}}` keeps; an operand is laid out on them) and the change is written back
-as a delta, so an op that changes no coordinate changes nothing to the bit. The `featurizer` op calls a featurizer
-instead, in one of its kind's modes (`encode` gives the coordinates themselves, `apply` the featurizer's
-version of the value). `renormalize`'s reference is the value at the site before the step's writes. Inside a
-write, an operand may name a read of the same forward at a site the forward reaches before the write's
-(`patched.premix` in `patched`): it is that read's value in this batch, at the read's positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
+(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
+vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
+`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
+else is a literal. Inside a read or write, `featurizer` and `select` are arguments of every op: the op runs on
+the value's coordinates in that featurizer's space (on the features `{"select": {"features": <selector>}}`
+keeps; an operand is laid out on them) and the change is written back as a delta, so an op that changes no
+coordinate changes nothing to the bit. The `featurizer` op calls a featurizer instead, in one of its kind's
+modes (`encode` gives the coordinates themselves, `apply` the featurizer's version of the value).
+`renormalize`'s reference is the value at the site before the step's writes. Inside a write, an operand may
+name a read of the same forward at a site the forward reaches before the write's (`patched.premix` in
+`patched`): it is that read's value in this batch, at the read's positions.
+
+A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
+written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
+tokens: a one-token answer scores every position of its row; a longer one scores token i at the row's
+position i, so the read carries k positions on that row (a scope with `before` reads the positions that
+predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers differ in
+length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and read do not
+line up is refused by name, before any forward where the read's positions are the prompt's. Under the
+reference's `strip` or `lower` each of the answer's tokens stands for its class: every token of the vocabulary
+whose text, stripped and lowercased as the flags say, is the token's own (its text is what it adds after
+another token, so a leading space is its own). A row's answer may be a set, a list of strings any of which is
+the answer, its members one width: at each position the ids any member's token (or class) may be, each once.
+`match` hits where the most likely token is any of a position's ids, `token_prob` is their summed
+probability, `cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several
+ids have not, so a class or a set of more than one is refused there. A missing row (a scope the row does not
+say) stays missing: NaN, or no entries.
 """
 
 import inspect
@@ -52,7 +69,7 @@ from torch import Tensor
 
 from ... import registry
 from ...address import EXAMPLE_AXES, pos_axis
-from ...registry import Featurizer, Tokens, Value  # noqa: F401  (ops.Tokens, ops.Value)
+from ...registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
 from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside a write, the
@@ -242,7 +259,8 @@ from . import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
-    transforms.readout, transforms.featurizer, reductions.mean, reductions.pca, metrics.match, metrics.logit_diff,
-    metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.kl, metrics.js, transforms.top_k,
-    transforms.argmax, transforms.decode, edits.noise, edits.clamp, metrics.cosine])
+    transforms.readout, transforms.featurizer, reductions.mean, reductions.sum, reductions.min, reductions.pca,
+    metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit, metrics.cross_entropy,
+    metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax, transforms.decode, edits.noise,
+    edits.clamp, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"

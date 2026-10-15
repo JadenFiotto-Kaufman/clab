@@ -179,21 +179,40 @@ class Site(Record):
         return self
 
 
+class Column(Record):
+    """A column read as text, where a scope searches for it or a metric scores it: `"<dataset>.<column>"`, or
+    `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
+    whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
+    rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
+    the input for the text so compared, its positions the original's. Against logits each of an answer's
+    tokens stands for its class: every token of the vocabulary whose text, so compared, is the same
+    (` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.
+    A row's value may be a list of strings: a set, any of which is the answer."""
+    column: str
+    strip: bool = False
+    lower: bool = False
+
+
+ColumnRef = Union[str, Column]
+
+
 class Scope(Record):
-    """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
-    named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
-    `{"turn": "<role>"}`: that role's messages of a chat, each an occurrence. `column` and `text` may each be
-    a list: the scope's texts are then every one listed (a string is the one-element list), their occurrences
-    together, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (a
-    selector; default 0, the first); `column` and `text` also take `strip`, whether each text is stripped of
-    surrounding whitespace before it is located (a turn's contents are located as the template rendered
+    """`{"column": <column>}`: the row's own text of that column (a `Column`: the string or the object), each
+    member of a set; `{"text": "<literal>"}`: that text; or `{"turn": "<role>"}`: that role's messages of a
+    chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
+    listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
+    scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first), and `before`,
+    whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
+    `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
-    column: str | list[str] | None = None
+    column: ColumnRef | list[ColumnRef] | None = None
     text: str | list[str] | None = None
     turn: str | None = None
     occurrence: Swept[Selector] = 0
     strip: bool = False
+    lower: bool = False
+    before: bool = False
 
     @model_validator(mode="after")
     def _one(self):
@@ -202,8 +221,13 @@ class Scope(Record):
                              "{'turn': '<role>'}")
         if [] in (self.column, self.text):
             raise ValueError("a scope's list of columns or texts names at least one")
-        if self.turn is not None and "strip" in self.model_fields_set:
-            raise ValueError("a turn's messages are located as the chat template rendered them; it takes no strip")
+        for flag in ("strip", "lower"):
+            if self.turn is not None and flag in self.model_fields_set:
+                raise ValueError(f"a turn's messages are located as the chat template rendered them; it takes no "
+                                 f"{flag}")
+            if self.column is not None and flag in self.model_fields_set:
+                raise ValueError(f"a column's {flag} goes on its reference: {{'column': {{'column': "
+                                 f"'<dataset>.<column>', {flag!r}: true}}}}")
         if self.turn is not None and not self.turn.isidentifier():
             raise ValueError(f"turn {self.turn!r} is a role; its messages are its occurrences, so "
                              "`{'turn': 'user', 'occurrence': 1}` is the second user message")
@@ -218,8 +242,10 @@ class Pos(Record):
     pos      := int                                # shorthand: {"frame": 0, "index": int}
               | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
     frame    := selector                                                  # default 0
-    scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
-              | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
+    scope    := {"column": column or a list, "occurrence"?: selector, "before"?: bool}
+              | {"text": one or a list, "occurrence"?: selector, "strip"?: bool, "lower"?: bool, "before"?: bool}
+              | {"turn": "<role>", "occurrence"?: selector, "before"?: bool}   # occurrence default 0
+    column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     ```
 
@@ -250,11 +276,21 @@ class Pos(Record):
     found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
     (default 0, the first of any) picks which of those occurrences among the tokens the
     scope is; the scope is the tokens of the picked ones, in order
-    (their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
-    whitespace first. The prompt and the generated
+    (their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a
+    column's reference) compare each text stripped of surrounding whitespace and lowercased, the positions
+    the original's. The prompt and the generated
     tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
     token is never an input to any call, so a word ending on it is `alignment_missing` (with
-    `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in
+    `max_new_tokens: 1` a scope in the generated tokens never matches), unless the scope is `before`.
+
+    **before** (default false): the positions that predict the scope's tokens, each the position just
+    before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
+    record is the calls' positions whose next token is the scope's. In the prefill that is the position
+    before each token; in a generation it is the call that chose each generated token, the last one
+    included (the prefill's last position chose generated token 0). A scope token at position 0 has no
+    position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
+    the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
+    `before`. `turn` is a role of the chat, in
     call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
     user message, `":"` every one of them); a role the row has no message of is refused by name.
 
@@ -361,9 +397,16 @@ class Interventions(Record):
     reads: dict[str, Access] = {}
 
 
+class TextPart(Record):
+    """`{"text": "<literal>"}`: literal text in a list `input`."""
+    text: str
+
+
 class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-    `<dataset>.<column>[i]`, a text or a chat; `writes` land where they name before anything later reads them;
+    `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
+    literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+    "days.answer"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they name before anything later reads them;
     each read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed
     order, before the step's own.
 
@@ -377,7 +420,7 @@ class Forward(Record):
     batch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can
     differ in the last bits. Results reproduce to the bit at a fixed batch size."""
     kind: Literal["forward"]
-    input: str
+    input: str | list[str | TextPart]
     writes: dict[str, Access] = {}
     reads: dict[str, Access] = {}
     interventions: str | list[str] | None = None
@@ -386,9 +429,12 @@ class Forward(Record):
 
     @field_validator("input")
     @classmethod
-    def _input(cls, text: str) -> str:
-        data.parse_input(text)
-        return text
+    def _input(cls, given):
+        if isinstance(given, list) and not any(isinstance(part, str) for part in given):
+            raise ValueError("a list input names at least one column, whose dataset its rows are")
+        for column in data.input_columns(given):
+            data.parse_input(column)
+        return given
 
 
 class Generate(Forward):

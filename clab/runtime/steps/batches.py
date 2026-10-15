@@ -10,7 +10,7 @@ from ... import address
 from ...plan.model import Plan, arguments, encodes, space
 from .. import data, featurizers, ops, positions
 from .preflight import head, made_at
-from .state import bound, lookup, put
+from .state import bound, lookup, put, within_row
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], last_only: bool = False) -> dict:
@@ -66,7 +66,7 @@ def features(o, f) -> Tensor | None:
 def batches(engine, step, found: dict, batch_size: int):
     """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
     input's longest row, and each row's padding."""
-    encoded = found["inputs"][step.input]
+    encoded = found["inputs"][data.input_name(step.input)]
     n = len(encoded["rows"])
     for lo in range(0, n, batch_size):
         chunk = slice(lo, min(lo + batch_size, n))
@@ -136,7 +136,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     for o in record.ops:
         within = space(o)
         f = lookup(state, within, at) if within is not None else None
-        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary)
+        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims)
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
                       features=features(o, f), rows=torch.arange(rows.start, rows.stop), places=places)
         if f is None:
@@ -146,6 +146,19 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     return value
 
 
+def dense(value: dict, dims: list[str], rows: Tensor) -> tuple[Tensor, list[str]]:
+    """A ragged value over the dataset rows `rows` as a rectangular one, `entries` become `rows, pos`: each
+    row's entries in order, NaN past its last (a row with none is missing all the way)."""
+    axis = dims.index("entries")
+    values = value["values"].movedim(axis, 0)
+    row = value["row"] - rows[0]
+    j = within_row(value["row"])
+    width = int(j.max()) + 1 if len(j) else 1
+    out = torch.full((len(rows), width, *values.shape[1:]), float("nan"), dtype=values.dtype, device=values.device)
+    out[row.to(values.device), j.to(values.device)] = values
+    return out.movedim((0, 1), (axis, axis + 1)), dims[:axis] + ["rows", "pos"] + dims[axis + 1:]
+
+
 def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
           featurizer: featurizers.Kind | None = None, features: Tensor | None = None, rows: Tensor | None = None,
           places: Tensor | None = None) -> Any:
@@ -153,6 +166,13 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
     the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them.
     `rows` and `places` say which dataset row and token position each of the value's rows and positions
     is, where the run knows them; a ragged value's are its `row` and `tok`."""
+    over = args.get("over") if ops.DECLARED[name]["group"] == "reductions" else None
+    if isinstance(value, dict) and "tok" in value and over is not None and "pos" in over:
+        if "rows" not in over:          # each row's entries are its positions: one value per row
+            assert rows is not None
+            value, dims = dense(value, dims, rows)
+            return apply(engine, name, value, args, dims, eos, rows=rows)
+        args = {**args, "over": [a for a in over if a not in ("rows", "pos")] + ["entries"]}
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, featurizer, features, value["row"], value["tok"])
         kind = ops.kind(name, args)

@@ -500,6 +500,13 @@ def held_out(label: str):
     return change
 
 
+def test_a_probe_class_column_is_compared_exactly(engines):
+    plan = probe(lambda d: d["steps"]["fit"]["steps"]["ce"].update(target={"column": "days.label", "lower": True}))
+    with pytest.raises(ValueError, match=r"ce: target names a class of probe 'probe', which is compared exactly; "
+                                         r"strip and lower compare an answer's tokens"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
 def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines):
     """Under eval the label column is the held-out dataset's; a label there the probe has no class for is
     refused naming that dataset, before the fit's first forward."""

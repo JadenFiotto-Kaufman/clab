@@ -7,7 +7,7 @@ from torch import Tensor
 
 from ... import address
 from ...plan.model import Plan, horizon
-from .. import positions
+from .. import data, positions
 from . import kind
 from .batches import batches, bind, decoding, edit, joined, layers, read, site, stacked, with_ops
 from .preflight import head, place, prompted, texts
@@ -37,7 +37,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     batch whose rows all stopped early makes fewer calls; its ids are filled after their EOS to the longest
     batch's."""
     eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
-    encoded = found["inputs"][step.input]["rows"]
+    encoded = found["inputs"][data.input_name(step.input)]["rows"]
     first = {k: r for k, r in step.reads.items() if positions.prefill(positions.parse(r.pos))}
     later = {k: r for k, r in step.reads.items() if k not in first}
     beyond = {k: w for k, w in step.writes.items() if not positions.prefill(positions.parse(w.pos))}

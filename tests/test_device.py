@@ -57,11 +57,14 @@ def test_a_read_built_on_the_cpu_selects_on_the_values_device():
 
 
 def test_metrics_and_edits_take_cpu_ids_and_operands():
-    logits, ids, d = torch.randn(3, 1, 11, generator=G), torch.tensor([1, 4, 9]), ["rows", "pos", "vocab_size"]
-    for fn in (metrics.match, metrics.token_logit, metrics.token_prob, metrics.cross_entropy):
-        torch.testing.assert_close(fn(logits.cuda(), ids, d).cpu(), fn(logits, ids, d), msg=fn.__name__)
-    assert torch.equal(metrics.logit_diff(logits.cuda(), ids, ids.flip(0), d).cpu(),
-                       metrics.logit_diff(logits, ids, ids.flip(0), d))
+    logits, d = torch.randn(3, 1, 11, generator=G), ["rows", "pos", "vocab_size"]
+    ids = torch.tensor([[1, 2], [4, -1], [9, 0]])            # per row a set, padded with -1
+    one = ids[:, :1]
+    for fn, given in ((metrics.match, ids), (metrics.token_logit, one), (metrics.token_prob, ids),
+                      (metrics.cross_entropy, ids)):
+        torch.testing.assert_close(fn(logits.cuda(), given, d).cpu(), fn(logits, given, d), msg=fn.__name__)
+    assert torch.equal(metrics.logit_diff(logits.cuda(), one, one.flip(0), d).cpu(),
+                       metrics.logit_diff(logits, one, one.flip(0), d))
     against = torch.randn(3, 1, 11, generator=G)
     torch.testing.assert_close(metrics.kl(logits.cuda(), against).cpu(), metrics.kl(logits, against))
     direction = torch.randn(8, generator=G)

@@ -66,6 +66,31 @@
    "title": "Axis",
    "type": "object"
   },
+  "Column": {
+   "additionalProperties": false,
+   "description": "A column read as text, where a scope searches for it or a metric scores it: `\"<dataset>.<column>\"`, or\n`{\"column\": \"<dataset>.<column>\", \"strip\"?: bool, \"lower\"?: bool}` (an indexed input's variables are named\nwhole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never\nrewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches\nthe input for the text so compared, its positions the original's. Against logits each of an answer's\ntokens stands for its class: every token of the vocabulary whose text, so compared, is the same\n(` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.\nA row's value may be a list of strings: a set, any of which is the answer.",
+   "properties": {
+    "column": {
+     "title": "Column",
+     "type": "string"
+    },
+    "strip": {
+     "default": false,
+     "title": "Strip",
+     "type": "boolean"
+    },
+    "lower": {
+     "default": false,
+     "title": "Lower",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "column"
+   ],
+   "title": "Column",
+   "type": "object"
+  },
   "Data": {
    "additionalProperties": false,
    "description": "A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline, or `hf` names a\npinned hub dataset (`revision`, `take` rows of `split`). `split` keeps the rows of that split.",
@@ -350,7 +375,7 @@
   },
   "Forward": {
    "additionalProperties": false,
-   "description": "One forward over every row of a dataset input. `input` is `<dataset>.<column>` or\n`<dataset>.<column>[i]`, a text or a chat; `writes` land where they name before anything later reads them;\neach read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed\norder, before the step's own.\n\nA chat input (a list of `{\"role\", \"content\"}` messages) is rendered through the checkpoint's own chat\ntemplate without a generation prompt, so the rendered prompt ends with the template's close of the last\nmessage (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and\n`{\"scope\": {\"turn\": \"user\", \"occurrence\": 1}}` names the second user message's own tokens.\n\nRows run in consecutive batches of the run's batch size, each padded on the left to the input's longest\nrow, with position ids that count real tokens. A row's numbers then do not depend on which rows share its\nbatch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can\ndiffer in the last bits. Results reproduce to the bit at a fixed batch size.",
+   "description": "One forward over every row of a dataset input. `input` is `<dataset>.<column>` or\n`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{\"text\": \"<literal>\"}`\nliterals of one dataset, joined per row as they are, with nothing between (`[\"days.input\",\n\"days.answer\"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they name before anything later reads them;\neach read binds `<step>.<read>`; `interventions` pulls named bundles of writes and reads in, in listed\norder, before the step's own.\n\nA chat input (a list of `{\"role\", \"content\"}` messages) is rendered through the checkpoint's own chat\ntemplate without a generation prompt, so the rendered prompt ends with the template's close of the last\nmessage (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and\n`{\"scope\": {\"turn\": \"user\", \"occurrence\": 1}}` names the second user message's own tokens.\n\nRows run in consecutive batches of the run's batch size, each padded on the left to the input's longest\nrow, with position ids that count real tokens. A row's numbers then do not depend on which rows share its\nbatch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can\ndiffer in the last bits. Results reproduce to the bit at a fixed batch size.",
    "properties": {
     "kind": {
      "const": "forward",
@@ -358,8 +383,25 @@
      "type": "string"
     },
     "input": {
-     "title": "Input",
-     "type": "string"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "$ref": "#/$defs/TextPart"
+         }
+        ]
+       },
+       "type": "array"
+      }
+     ],
+     "title": "Input"
     },
     "writes": {
      "additionalProperties": {
@@ -413,8 +455,25 @@
      "type": "string"
     },
     "input": {
-     "title": "Input",
-     "type": "string"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "items": {
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "$ref": "#/$defs/TextPart"
+         }
+        ]
+       },
+       "type": "array"
+      }
+     ],
+     "title": "Input"
     },
     "writes": {
      "additionalProperties": {
@@ -1258,6 +1317,170 @@
      "type": "object",
      "properties": {
       "op": {
+       "const": "sum"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Featurizer"
+      },
+      "select": {
+       "anyOf": [
+        {
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
+           },
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Select"
+      },
+      "over": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
+       "const": "min"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Featurizer"
+      },
+      "select": {
+       "anyOf": [
+        {
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
+           },
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Select"
+      },
+      "over": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
        "const": "pca"
       },
       "featurizer": {
@@ -1386,7 +1609,14 @@
       "expected": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1459,7 +1689,14 @@
       "a": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1469,7 +1706,14 @@
       "b": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1543,7 +1787,14 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1616,7 +1867,14 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1689,7 +1947,14 @@
       "target": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1700,6 +1965,86 @@
      "required": [
       "op",
       "target"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
+       "const": "contains"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Featurizer"
+      },
+      "select": {
+       "anyOf": [
+        {
+         "additionalProperties": {
+          "oneOf": [
+           {
+            "anyOf": [
+             {
+              "type": "integer"
+             },
+             {
+              "pattern": "^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$",
+              "type": "string"
+             },
+             {
+              "items": {
+               "type": "integer"
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+             }
+            ]
+           },
+           {
+            "$ref": "#/$defs/Sweep"
+           }
+          ]
+         },
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": null,
+       "title": "Select"
+      },
+      "text": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op",
+      "text"
      ],
      "additionalProperties": false
     },
@@ -2690,6 +3035,92 @@
        "type": "string"
       },
       "op": {
+       "const": "sum"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "over": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
+       "const": "min"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "over": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
        "const": "pca"
       },
       "of": {
@@ -2733,7 +3164,14 @@
       "expected": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2767,7 +3205,14 @@
       "a": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2777,7 +3222,14 @@
       "b": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2812,7 +3264,14 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2846,7 +3305,14 @@
       "token": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2880,7 +3346,14 @@
       "target": {
        "anyOf": [
         {
-         "type": "string"
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2893,6 +3366,47 @@
       "op",
       "of",
       "target"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
+       "const": "contains"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "text": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "string"
+          },
+          {
+           "$ref": "#/$defs/Column"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of",
+      "text"
      ],
      "additionalProperties": false
     },
@@ -3246,7 +3760,7 @@
   },
   "Pos": {
    "additionalProperties": false,
-   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos      := int                                # shorthand: {\"frame\": 0, \"index\": int}\n          | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: selector}     # index default \":\"\nframe    := selector                                                  # default 0\nscope    := {\"column\" | \"text\": one or a list, \"occurrence\"?: selector, \"strip\"?: bool}\n          | {\"turn\": \"<role>\", \"occurrence\"?: selector}               # occurrence default 0\nselector := int | \"<start>:<stop>:<step>\" | [int, ...]                # one, a slice, picks\n```\n\nEach stage is a selector over what the stage before it left (`positions.select`): an int counts one\n(negative from the last), a slice string is a range in Python notation, half-open, each part optional\n(`\":\"` every one, `\"-4:-1\"`, `\"2:\"`, `\"::2\"`), a list picks those, in the order written. A selector\nthat picks nothing however many things there are (`\"0:0\"`, `\"5:2\"`) is refused, and so is an index that\npicks none of the tokens of a frame of a static number of decode calls (`{\"frame\": \"1:3\", \"index\":\n\"5:\"}`).\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the\ngeneration ran to `max_new_tokens`); `\"1:\"` is every decode call, `\":\"` the prefill and every decode\ncall (in a `forward`, its one call: so a named intervention written at `\":\"` is on in every call of\nwhichever step names it). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where\nthey end, then where they start: where an occurrence becomes known and where index -1 lands, so a write\nfound online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`\n(default 0, the first of any) picks which of those occurrences among the tokens the\nscope is; the scope is the tokens of the picked ones, in order\n(their union where occurrences of different texts overlap), and `strip` strips each text of surrounding\nwhitespace first. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in\ncall 0 only: its messages are its occurrences, in order (`{\"turn\": \"user\", \"occurrence\": 1}` is the second\nuser message, `\":\"` every one of them); a role the row has no message of is refused by name.\n\n**index** (default `\":\"`): counts the scope's tokens, over the tokens of every call the frame selected,\nin order: `{\"frame\": \"0:3\", \"index\": -1}` is one position, the last token of call 2, the same as\n`{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static\nnumber of calls (an int, picks, or a slice with a static width, not `\":\"` or `\"1:\"`), its index has a\nstatic width (an int, picks, or\na slice whose two ends count from the same side: `\"-4:-1\"`, `\"-3:\"`, `\"2:5\"`; see `positions.fixed`),\nand a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,\none entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence\na row does not have, or a rectangular index that does not fit, is refused by name before any forward:\nthe data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in\na rectangular read and absent from a ragged one.",
+   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos      := int                                # shorthand: {\"frame\": 0, \"index\": int}\n          | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: selector}     # index default \":\"\nframe    := selector                                                  # default 0\nscope    := {\"column\": column or a list, \"occurrence\"?: selector, \"before\"?: bool}\n          | {\"text\": one or a list, \"occurrence\"?: selector, \"strip\"?: bool, \"lower\"?: bool, \"before\"?: bool}\n          | {\"turn\": \"<role>\", \"occurrence\"?: selector, \"before\"?: bool}   # occurrence default 0\ncolumn   := \"<dataset>.<column>\" | {\"column\": \"<dataset>.<column>\", \"strip\"?: bool, \"lower\"?: bool}\nselector := int | \"<start>:<stop>:<step>\" | [int, ...]                # one, a slice, picks\n```\n\nEach stage is a selector over what the stage before it left (`positions.select`): an int counts one\n(negative from the last), a slice string is a range in Python notation, half-open, each part optional\n(`\":\"` every one, `\"-4:-1\"`, `\"2:\"`, `\"::2\"`), a list picks those, in the order written. A selector\nthat picks nothing however many things there are (`\"0:0\"`, `\"5:2\"`) is refused, and so is an index that\npicks none of the tokens of a frame of a static number of decode calls (`{\"frame\": \"1:3\", \"index\":\n\"5:\"}`).\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the\ngeneration ran to `max_new_tokens`); `\"1:\"` is every decode call, `\":\"` the prefill and every decode\ncall (in a `forward`, its one call: so a named intervention written at `\":\"` is on in every call of\nwhichever step names it). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where\nthey end, then where they start: where an occurrence becomes known and where index -1 lands, so a write\nfound online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`\n(default 0, the first of any) picks which of those occurrences among the tokens the\nscope is; the scope is the tokens of the picked ones, in order\n(their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a\ncolumn's reference) compare each text stripped of surrounding whitespace and lowercased, the positions\nthe original's. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches), unless the scope is `before`.\n\n**before** (default false): the positions that predict the scope's tokens, each the position just\nbefore one, the same width: among a frame's calls, the tokens those calls predict are searched, and the\nrecord is the calls' positions whose next token is the scope's. In the prefill that is the position\nbefore each token; in a generation it is the call that chose each generated token, the last one\nincluded (the prefill's last position chose generated token 0). A scope token at position 0 has no\nposition before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond\nthe prefill lands as its call runs, before the token it would predict is chosen, so it takes no\n`before`. `turn` is a role of the chat, in\ncall 0 only: its messages are its occurrences, in order (`{\"turn\": \"user\", \"occurrence\": 1}` is the second\nuser message, `\":\"` every one of them); a role the row has no message of is refused by name.\n\n**index** (default `\":\"`): counts the scope's tokens, over the tokens of every call the frame selected,\nin order: `{\"frame\": \"0:3\", \"index\": -1}` is one position, the last token of call 2, the same as\n`{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static\nnumber of calls (an int, picks, or a slice with a static width, not `\":\"` or `\"1:\"`), its index has a\nstatic width (an int, picks, or\na slice whose two ends count from the same side: `\"-4:-1\"`, `\"-3:\"`, `\"2:5\"`; see `positions.fixed`),\nand a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,\none entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence\na row does not have, or a rectangular index that does not fit, is refused by name before any forward:\nthe data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in\na rectangular read and absent from a ragged one.",
    "properties": {
     "frame": {
      "default": 0,
@@ -3425,7 +3939,7 @@
   },
   "Scope": {
    "additionalProperties": false,
-   "description": "`{\"column\": \"<dataset>.<column>\"}`: the row's own text of that column (an indexed input's variables are\nnamed whole: `pairs.counterfactual_inputs_variables[0].entity`); `{\"text\": \"<literal>\"}`: that text; or\n`{\"turn\": \"<role>\"}`: that role's messages of a chat, each an occurrence. `column` and `text` may each be\na list: the scope's texts are then every one listed (a string is the one-element list), their occurrences\ntogether, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (a\nselector; default 0, the first); `column` and `text` also take `strip`, whether each text is stripped of\nsurrounding whitespace before it is located (a turn's contents are located as the template rendered\nthem).",
+   "description": "`{\"column\": <column>}`: the row's own text of that column (a `Column`: the string or the object), each\nmember of a set; `{\"text\": \"<literal>\"}`: that text; or `{\"turn\": \"<role>\"}`: that role's messages of a\nchat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one\nlisted (a string is the one-element list), their occurrences together, ordered by where each ends. Every\nscope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first), and `before`,\nwhether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes\n`strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered\nthem).",
    "oneOf": [
     {
      "required": [
@@ -3450,8 +3964,18 @@
        "type": "string"
       },
       {
+       "$ref": "#/$defs/Column"
+      },
+      {
        "items": {
-        "type": "string"
+        "anyOf": [
+         {
+          "type": "string"
+         },
+         {
+          "$ref": "#/$defs/Column"
+         }
+        ]
        },
        "type": "array"
       },
@@ -3523,6 +4047,16 @@
     "strip": {
      "default": false,
      "title": "Strip",
+     "type": "boolean"
+    },
+    "lower": {
+     "default": false,
+     "title": "Lower",
+     "type": "boolean"
+    },
+    "before": {
+     "default": false,
+     "title": "Before",
      "type": "boolean"
     }
    },
@@ -3655,6 +4189,21 @@
     "sweep"
    ],
    "title": "Sweep",
+   "type": "object"
+  },
+  "TextPart": {
+   "additionalProperties": false,
+   "description": "`{\"text\": \"<literal>\"}`: literal text in a list `input`.",
+   "properties": {
+    "text": {
+     "title": "Text",
+     "type": "string"
+    }
+   },
+   "required": [
+    "text"
+   ],
+   "title": "TextPart",
    "type": "object"
   }
  },

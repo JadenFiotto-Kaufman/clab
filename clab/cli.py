@@ -29,6 +29,7 @@ from .runtime import featurizers, ops
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
+           "A column read as text": plan.Column,
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
 STEPS = {name: model for name, model in plan.KINDS.items()}
@@ -147,7 +148,8 @@ def schema() -> dict:
 def per_op(base: dict) -> dict:
     """An op record's schema as one branch per op: its own fields beside the op's arguments, nothing else."""
     sweep = {"$ref": "#/$defs/Sweep"}
-    kinds = {ops.Value: {"type": ["number", "string"]}, ops.Tokens: {"type": "string"},
+    column = {"anyOf": [{"type": "string"}, {"$ref": "#/$defs/Column"}]}
+    kinds = {ops.Value: {"type": ["number", "string"]}, ops.Tokens: column, ops.Text: column,
              ops.Featurizer: {"type": "string"}}
     branches = []
     for name in ops.OPS:

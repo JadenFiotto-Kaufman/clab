@@ -13,7 +13,9 @@ from typing import Any
 
 from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
-from .model import (Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of, parameters,
+from pydantic import ValidationError
+
+from .model import (Column, Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of, parameters,
                     points, space, uses)
 
 
@@ -186,13 +188,25 @@ def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
 
 
 def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
-    dataset, column, index = data.parse_input(spec.input)
-    if dataset not in cx.rows:
-        fail(f"{path}.input", f"no dataset {dataset!r}; datasets: {', '.join(cx.rows)}")
-    column_ref(cx, f"{dataset}.{column}", f"{path}.input", dataset)
-    rows = cx.rows[dataset]
-    if index is not None and any(not isinstance(r[column], list) or index >= len(r[column]) for r in rows):
-        fail(f"{path}.input", f"column {column!r} has no entry {index} on every row")
+    joined = not isinstance(spec.input, str)
+    dataset = None
+    for i, part in enumerate(spec.input if joined else [spec.input]):
+        if not isinstance(part, str):
+            continue
+        at = f"{path}.input" + (f"[{i}]" if joined else "")
+        name_, column, index = data.parse_input(part)
+        if name_ not in cx.rows:
+            fail(at, f"no dataset {name_!r}; datasets: {', '.join(cx.rows)}")
+        dataset = dataset or name_
+        column_ref(cx, f"{name_}.{column}", at, dataset)
+        rows = cx.rows[dataset]
+        if index is not None and any(not isinstance(r[column], list) or index >= len(r[column]) for r in rows):
+            fail(at, f"column {column!r} has no entry {index} on every row")
+        if joined:
+            for r, row in enumerate(rows):
+                if not isinstance(data.field(row, part), str):
+                    fail(at, f"{part!r} is not text on row {r} of {dataset!r}; a list input joins text")
+    assert dataset is not None
     given: dict[str, list] = {"writes": [], "reads": []}
     for n in [spec.interventions] if isinstance(spec.interventions, str) else spec.interventions or []:
         if n not in plan.interventions:
@@ -273,6 +287,9 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
     if write and frame != 0 and step.kind == "generate":
         decided(f"{path}.pos", pos, horizon(step))
+    if write and scope.get("before") and not positions.prefill(pos):
+        fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
+             "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
     if "column" in scope:
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
@@ -344,12 +361,15 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
+    if spec.op == "contains" and not of.get("text"):
+        fail(f"{path}.of", f"contains reads text, a decode's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
     found = references(cx, plan, path, spec.op, arguments(spec))
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
     paired(path, spec.op, of["dims"], found)
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
-    cx.names[name] = {"dims": dims, "data": dataset, "kind": "value"}
+    cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
+                      "text": spec.op == "decode" and not arguments(spec).get("tokens")}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
@@ -361,8 +381,9 @@ def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> d
         value, at = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
             found[key] = {**value_ref(cx, value, at), "name": value}
-        elif p.annotation == ops.Tokens and value is not None:
-            found[key] = {"dims": ["rows"], "data": column_ref(cx, value, at, None), "kind": "column", "name": value}
+        elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
+            dataset, ref = text_ref(cx, value, at, None), data.column_of(value)
+            found[key] = {"dims": ["rows"], "data": dataset, "kind": "column", "name": ref[0] if ref else value}
         elif p.annotation == ops.Featurizer and value is not None:
             featurizer_ref(cx, value, at)
     return found
@@ -562,17 +583,31 @@ def decided(path: str, pos: dict, most: int | None) -> None:
          "counted from the end over several decode calls; or it takes a text scope")
 
 
-def text_ref(cx: Compiling, value, path: str, dataset: str) -> None:
-    """`<dataset>.<column path>` naming text on every row of `dataset` (the step's)."""
-    name, _, column = value.partition(".")
+def text_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
+    """A column reference (`"<dataset>.<column path>"`, or `{"column", "strip"?, "lower"?}`) naming text on
+    every row, of `dataset` (the step's) when one is given: a string, or a non-empty list of them (a set).
+    Returns its dataset."""
+    if isinstance(value, dict):
+        try:
+            Column(**value)
+        except ValidationError as e:
+            fail(path, "; ".join(err["msg"] if not err["loc"] else f"{err['loc'][0]}: {err['msg']}"
+                                 for err in e.errors()))
+    ref = data.column_of(value)
+    if ref is None:
+        fail(path, f"{value!r} is not a column: '<dataset>.<column>' or {{'column': '<dataset>.<column>', "
+                   "'strip'?: bool, 'lower'?: bool}")
+    name, _, column = ref[0].partition(".")
     column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}", path, dataset)
     for i, row in enumerate(cx.rows[name]):
         try:
             found = data.lookup(row, column)
         except (KeyError, IndexError, TypeError):
-            fail(path, f"{value!r} is not on row {i} of {name!r}")
-        if not isinstance(found, str):
-            fail(path, f"{value!r} is {type(found).__name__} on row {i} of {name!r}; a scope's column is text")
+            fail(path, f"{ref[0]!r} is not on row {i} of {name!r}")
+        if not (isinstance(found, str) or isinstance(found, list) and found and all(isinstance(f, str) for f in found)):
+            fail(path, f"{ref[0]!r} is {type(found).__name__} on row {i} of {name!r}; a column read as text is a "
+                       "string, or a list of them (a set)")
+    return name
 
 
 def featurizer_ref(cx: Compiling, value, path: str) -> None:
