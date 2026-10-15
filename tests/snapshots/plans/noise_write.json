@@ -1,0 +1,127 @@
+{
+ "description": "Gaussian noise as a write and as a step. `noisy` adds noise of standard deviation 0.5 to layer 0's residual stream at the prompt's last three tokens ({'index': '-3:'}, a slice counted from the end, three positions on every row) and scores the answer; `jitter` is the same op as a step, over the clean residual stream read at the last token. The noise is one draw per call from a CPU generator seeded by `seed`, moved to the value's device and dtype, so the same document draws the same bits on any device; a write calls it once per batch.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "clean": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    },
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "clean_ld": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "clean.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
+  },
+  "noisy": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "writes": {
+    "noise": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": {
+      "index": "-3:"
+     },
+     "ops": [
+      {
+       "op": "noise",
+       "scale": 0.5,
+       "seed": 7
+      }
+     ]
+    }
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "noisy_ld": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "noisy.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
+  },
+  "jitter": {
+   "kind": "op",
+   "op": "noise",
+   "of": "clean.resid",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos",
+    "hidden_size"
+   ],
+   "scale": 0.5,
+   "seed": 7
+  }
+ },
+ "saves": [
+  "clean_ld",
+  "noisy_ld",
+  "clean.resid",
+  "jitter"
+ ],
+ "document": "documents/noise_write.json",
+ "compiled": true
+}

@@ -52,11 +52,11 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if holds:
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
-                               "layer": record.site.layers, "ops": edits})
+                               "layer": layers(engine, record)[0], "ops": edits})
             online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
                                  "eos": sorted(eos)}} if pos["scope"] else {}
-            writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
-                           "calls": None if online else calls, **online})
+            writes.append({**decoding(record, n, pads), "name": key, "layer": layers(engine, record)[0],
+                           "ops": edits, "calls": None if online else calls, **online})
         for key, record in later.items():
             holds, calls, _ = positions.reach(positions.parse(record.pos))
             for layer in layers(engine, record):

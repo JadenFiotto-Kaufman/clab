@@ -16,11 +16,11 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     """The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
     A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
-    not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` under `layers: "all"`, the token
-    axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into the row's prompt
-    tokens, then in a generation its generated ones, with the forward `call` holding it for a read in a generation;
-    `key`/`key_token` on an attention pattern), the dataset columns the step used (`columns=` to choose), and
-    `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
+    not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
+    layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into
+    the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it for a
+    read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step used
+    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged value gives a row per entry. A row a
     read beyond the prefill did not reach gives one row, `alignment_missing` true, with
     no value. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
@@ -116,8 +116,9 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     tokens = dict(plan.run.tokens)
     for a, b in swap.items():
         tokens.update({f"{a}.{k.partition('.')[2]}": v for k, v in plan.run.tokens.items() if k.partition(".")[0] == b})
-    run = plan.run.model_copy(update={"tokens": tokens, "positions": {
-        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
+    run = plan.run.model_copy(update={"tokens": tokens, **{record: {
+        k.removeprefix(f"{fit}.{label}."): v for k, v in getattr(plan.run, record).items()
+        if k.startswith(f"{fit}.{label}.")} for record in ("positions", "layers")}})
     return body_view(plan, fit, swap=swap).model_copy(update={
         "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 
@@ -135,8 +136,8 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     out, marked = [], set()
     for index in itertools.product(*(range(shape[i]) for i in axes)):
         at = dict(zip(axes, index))
-        whole = {{"rows": "row", "layers": "layer"}.get(dims[i], dims[i]): k for i, k in at.items()
-                 if dims[i] not in ("pos", "key")}
+        whole = {{"rows": "row", "layers": "layer"}.get(dims[i], dims[i]): layer(place, k) if dims[i] == "layers"
+                 else k for i, k in at.items() if dims[i] not in ("pos", "key")}
         if mark := unreached(place, whole.get("row")):
             if tuple(whole.items()) not in marked:      # one row says so, in place of its tokens
                 marked.add(tuple(whole.items()))
@@ -155,17 +156,22 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
 
 
 def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
-    """A ragged value's rows: one per entry (per layer under `layers: "all"`), labelled with its row and the
+    """A ragged value's rows: one per entry (per layer on a `layers` axis), labelled with its row and the
     token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach."""
     stack = value["values"] if "layers" in dims else value["values"][None]
     out = []
-    for layer in range(stack.shape[0]):
+    for k in range(stack.shape[0]):
         for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist())):
-            row = {"layer": layer} if "layers" in dims else {}
-            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": stack[layer, i].tolist()})
+            row = {"layer": layer(place, k)} if "layers" in dims else {}
+            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": stack[k, i].tolist()})
     marks = [{"row": r, **unreached(place, r)} for r in range(len(place["positions"]))
              if unreached(place, r)] if place else []
     return sorted(out + marks, key=lambda row: row["row"]) if marks else out
+
+
+def layer(place: dict | None, k: int) -> int:
+    """Index `k` on a `layers` axis as the model's layer it is, as the run recorded its read's layers."""
+    return place["layers"][k] if place and place["layers"] is not None else k
 
 
 def unreached(place: dict | None, row: int | None) -> dict:
@@ -225,8 +231,8 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
 def located(plan: Plan, source: str, at: dict) -> dict:
     """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
     tokens (the prompt's, then in a generation what each row generated), whether it was read in a
-    generation (whose positions are labelled with their call), the positions each row resolved to, and the keys
-    it selects."""
+    generation (whose positions are labelled with their call), the positions each row resolved to, the keys
+    it selects, and the layers it was made at when it has a `layers` axis."""
     assert plan.run is not None
     thing, _, member = source.partition(".")
     producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
@@ -234,12 +240,13 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
-    resolved = plan.run.positions[source]
+    resolved, layers = plan.run.positions[source], plan.run.layers.get(source)
     keys = (producer.reads[member].site.select or {}).get("key")
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "width": max(map(len, prompt)), "keys": keys,
-            "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved}
+            "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
+            "layers": layers[labelled(plan, producer.at)] if producer.at and layers is not None else layers}
 
 
 def materialized(plan: Plan, name: str) -> list[dict]:

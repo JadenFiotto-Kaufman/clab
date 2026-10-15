@@ -13,16 +13,17 @@ thing wherever it lands, which is what lets it travel into a remote session and 
 import inspect
 import json
 import os
+import types
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
-from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError, field_serializer,
-                      field_validator, model_validator)
+from pydantic import (BaseModel, BeforeValidator, ConfigDict, Discriminator, Field, Tag, ValidationError,
+                      WithJsonSchema, field_serializer, field_validator, model_validator)
 from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import core_schema
 from torch import Tensor
 
 from .. import address
-from ..runtime import data, featurizers, ops
+from ..runtime import data, featurizers, ops, positions
 
 
 class PlanError(ValueError):
@@ -91,8 +92,10 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, member) or isinstance(value, dict) and "sweep" not in value
     if get_origin(member) is Annotated:
         member = get_args(member)[0]
+    if get_origin(member) in (Union, types.UnionType):
+        return any(shaped(m, value) for m in get_args(member))
     if get_origin(member) is Literal:
-        return isinstance(value, tuple(type(a) for a in get_args(member)))
+        return value in get_args(member)
     if get_origin(member) in (list, tuple):
         return isinstance(value, (list, tuple))
     number = isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -102,6 +105,12 @@ def shaped(member: Any, value: Any) -> bool:
 
 T = TypeVar("T")
 Swept = Annotated[Union[T, Sweep], ByShape()]
+
+# Which of a number of things (layers, forward calls, occurrences, tokens) a range picks: an int, a slice
+# string in Python notation, or a list of distinct picks; `pos` documents it, `positions.select` resolves it.
+Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(positions.checked), WithJsonSchema(
+    {"anyOf": [{"type": "integer"}, {"type": "string", "pattern": positions.SLICE},
+               {"type": "array", "items": {"type": "integer"}, "minItems": 1, "uniqueItems": True}]})]
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 
@@ -143,10 +152,12 @@ class Data(Record):
 
 
 class Site(Record):
-    """A component, narrowed: `layers` (an int, or `"all"`: one value, the layer axis first) on a block's
-    component, and `select` (`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens."""
+    """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
+    layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
+    it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
+    (`{<axis>: [indices]}`) on the axes it publishes besides its rows and tokens."""
     component: str = Field(json_schema_extra={"enum": list(address.COMPONENTS)})
-    layers: Swept[int | Literal["all"]] | None = None
+    layers: Swept[Selector] | None = None
     select: dict[str, Swept[list[int]]] | None = None
 
     @model_validator(mode="after")
@@ -166,25 +177,20 @@ class Site(Record):
         return self
 
 
-# A half-open `[start, stop]`, each end negative from the end.
-Span = Annotated[list[int], Field(min_length=2, max_length=2)]
-
-
 class Scope(Record):
     """`{"column": "<dataset>.<column>"}`: the row's own text of that column (an indexed input's variables are
     named whole: `pairs.counterfactual_inputs_variables[0].entity`); `{"text": "<literal>"}`: that text; or
     `{"turn": "<role>"}`: that role's messages of a chat, each an occurrence. `column` and `text` may each be
     a list: the scope's texts are then every one listed (a string is the one-element list), their occurrences
-    together, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (the
-    selector
-    `frame` and `index` use: an int, negative from the last, a `[start, stop]` span or `"all"`; default 0,
-    the first); `column` and `text` also take `strip`, whether each text is stripped of surrounding whitespace
-    before it is located (a turn's contents are located as the template rendered them)."""
+    together, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (a
+    selector; default 0, the first); `column` and `text` also take `strip`, whether each text is stripped of
+    surrounding whitespace before it is located (a turn's contents are located as the template rendered
+    them)."""
     model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
     column: str | list[str] | None = None
     text: str | list[str] | None = None
     turn: str | None = None
-    occurrence: Swept[int | Span | Literal["all"]] = 0
+    occurrence: Swept[Selector] = 0
     strip: bool = False
 
     @model_validator(mode="after")
@@ -207,20 +213,23 @@ class Pos(Record):
     `index` picks positions within that.
 
     ```
-    pos   := int                                   # shorthand: {"frame": 0, "index": int}
-           | {"frame"?: frame, "scope"?: scope, "index"?: index}
-    frame := int | [start, stop] | "generated" | "all" | "eos"         # default 0
-    scope := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
-           | {"turn": "<role>", "occurrence"?: selector}
-    index := int | [start, stop] | "all"                               # default "all"
-    selector := int | [start, stop] | "all"                            # occurrence's; default 0
+    pos      := int                                # shorthand: {"frame": 0, "index": int}
+              | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
+    frame    := selector | "generated" | "eos"                            # default 0
+    scope    := {"column" | "text": one or a list, "occurrence"?: selector, "strip"?: bool}
+              | {"turn": "<role>", "occurrence"?: selector}               # occurrence default 0
+    selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     ```
 
+    Each stage is a selector over what the stage before it left (`positions.select`): an int counts one
+    (negative from the last), a slice string is a range in Python notation, half-open, each part optional
+    (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written.
+
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
-    counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
-    prefill and every decode call (in a `forward`, its one call: so a named intervention written at `"all"`
-    is on in every call of whichever step names it), `"eos"` the call where the row stopped (the one that
-    chose its EOS). A
+    counts from the row's last call; `"generated"` is every decode call (`"1:"`), `":"` the prefill and
+    every decode call (in a `forward`, its one call: so a named intervention written at `":"` is on in
+    every call of whichever step names it), `"eos"` the call where the row stopped (the one that chose its
+    EOS). A
     position is where an input token sits, in a forward and in a generation alike: the prefill holds every
     prompt token, its last position the distribution over generated token 0; under the cache decode call k
     holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -235,30 +244,32 @@ class Pos(Record):
     they end, then where they start: where an occurrence becomes known and where index -1 lands, so a write
     found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
     (default 0, the first of any) picks which of those occurrences among the tokens the
-    scope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order
+    scope is; the scope is the tokens of the picked ones, in order
     (their union where occurrences of different texts overlap), and `strip` strips each text of surrounding
     whitespace first. The prompt and the generated
     tokens are searched apart, so a text straddling the boundary is not found; and a row's last generated
     token is never an input to any call, so a word ending on it is `alignment_missing` (with
     `max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in
     call 0 only: its messages are its occurrences, in order (`{"turn": "user", "occurrence": 1}` is the second
-    user message, `"all"` every one of them); a role the row has no message of is refused by name.
+    user message, `":"` every one of them); a role the row has no message of is refused by name.
 
-    **index** (default `"all"`): an int counts the scope's tokens (negative from the end), a span is
-    half-open. It counts over the tokens of every call the frame selected, in order: `{"frame": [0, 3],
-    "index": -1}` is one position, the last token of call 2, the same as `{"frame": 2, "index": -1}`.
+    **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
+    in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
+    `{"frame": 2, "index": -1}`.
 
-    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or
-    a span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`
-    scope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per
-    token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not
-    have, or a rectangular index that does not fit, is refused by name before any forward: the data decided.
+    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names calls by
+    an end it gives (an int, picks, or a slice with a stop), its index has a static width (an int, picks, or
+    a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `positions.fixed`),
+    and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
+    one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
+    a row does not have, or a rectangular index that does not fit, is refused by name before any forward:
+    the data decided.
     Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
     a rectangular read and absent from a ragged one.
     """
-    frame: Swept[int | Span | Literal["generated", "all", "eos"]] = 0
+    frame: Swept[Literal["generated", "eos"] | Selector] = 0
     scope: Scope | None = None
-    index: Swept[int | Span | Literal["all"]] = "all"
+    index: Swept[Selector] = ":"
 
     @model_validator(mode="after")
     def _grammar(self):
@@ -375,14 +386,14 @@ class Generate(Forward):
     `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
     prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
     generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
-    selects is known by then: without a scope, a call, a span of calls or `generated` with an index counted
-    from their start (or -1 of a single call), or the prefill with them and index `all`; with a `column` or
-    `text` scope, decode calls only (a call, a span from 1 or `generated`), index -1 and an occurrence
-    counted from the first. A scoped write is found online, decoding the inputs fed so far at each call: it
-    lands at the call fed the last token of each occurrence it picks, as that occurrence appears (its
-    earlier tokens were fed before the text was there to find), and a row with fewer occurrences than it
-    picks is `alignment_missing`. No write takes `eos` or a frame counted from a row's last call. A row's
-    calls are what the engine actually generated, up to the
+    selects is known by then: without a scope, calls named by an end it gives (a call, picks, a slice with a
+    stop) or `generated`, with an index counted from their start (or -1 of a single call), or the prefill
+    with them and index `":"`; with a `column` or `text` scope, decode calls only (a call, picks or a slice
+    from 1, or `generated`), index -1 and an occurrence counted from the first. A scoped write is found
+    online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
+    occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
+    to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes `eos` or
+    a frame counted from a row's last call. A row's calls are what the engine actually generated, up to the
     one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
     engine's generation stops on (its generation config's). The step's own value is the
     new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
@@ -520,8 +531,9 @@ class Run(Record):
     """How a plan ran, set by `execute`. `tokens` and `positions` describe values without holding any: how
     each dataset input tokenized and what each generate step's rows generated (token strings per row, under
     the input or the step's name), and the position every read and write resolved to, per row (an index into
-    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach). A
-    swept step's are keyed by coordinate."""
+    the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not reach), and
+    the layers each read with a `layers` axis was made at, the axis's labels, in its order. A swept step's
+    are keyed by coordinate."""
     engine: str
     remote: bool | str
     batch_size: int
@@ -530,6 +542,7 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
+    layers: dict[str, Any] = {}
 
 
 class Plan(Record):

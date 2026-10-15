@@ -11,7 +11,7 @@
     "harvest": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {"acts": {"site": "target", "pos": {"index": "all"}}}
+      "reads": {"acts": {"site": "target", "pos": {"index": ":"}}}
     },
     "basis": {"kind": "op", "op": "pca", "of": "harvest.acts", "k": 4}
   },

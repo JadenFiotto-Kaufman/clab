@@ -1,0 +1,124 @@
+{
+ "description": "Clamping as a write: every element of layer 1's residual stream at every prompt token ({'index': ':'}) clamped to [-0.01, 0.01] (this checkpoint's residual stream is small: its median magnitude there is about 0.009), read back at the last token after the write, and the answer scored against the un-intervened model. `clamp` takes `min`, `max` or both; the read of the clamped value lets the bound be checked.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "prompts": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "clean": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    },
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 1
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "clean_ld": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "clean.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
+  },
+  "clamped": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "writes": {
+    "clamp": {
+     "site": {
+      "component": "layer_output",
+      "layers": 1
+     },
+     "pos": {},
+     "ops": [
+      {
+       "op": "clamp",
+       "min": -0.01,
+       "max": 0.01
+      }
+     ]
+    }
+   },
+   "reads": {
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ]
+    },
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": 1
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "prompts"
+  },
+  "clamped_ld": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "clamped.logits",
+   "dataset": "prompts",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer"
+  }
+ },
+ "saves": [
+  "clean_ld",
+  "clamped_ld",
+  "clean.resid",
+  "clamped.resid"
+ ],
+ "document": "documents/clamp_write.json",
+ "compiled": true
+}

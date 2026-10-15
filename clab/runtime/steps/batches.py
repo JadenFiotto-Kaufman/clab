@@ -9,7 +9,7 @@ from torch import Tensor
 from ... import address
 from ...plan.model import Plan, arguments, encodes, space
 from .. import data, featurizers, ops, positions
-from .preflight import head
+from .preflight import head, made_at
 from .state import bound, lookup, put
 
 
@@ -76,8 +76,8 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
     writes_here = {k: w for k, w in step.writes.items() if k not in beyond}
     sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
              for key, record in {**writes_here, **reads}.items()}
-    live = {f"{name}.{key}": f"{key}@{record.site.layers}" for key, record in reads.items()}
-    writes = [{**sites[key], "name": key, "layer": record.site.layers,
+    live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in reads.items()}
+    writes = [{**sites[key], "name": key, "layer": layers(engine, record)[0],
                "ops": [edit(engine, plan, record, o, state, step.at, rows, live) for o in record.ops]}
               for key, record in writes_here.items()]
     return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
@@ -85,13 +85,13 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
 
 
 def layers(engine, record) -> list:
-    """The layers a read is made at: every one under `layers: "all"`, else its own."""
-    return list(range(engine.sizes()["num_layers"])) if record.site.layers == "all" else [record.site.layers]
+    """The layers a record is made at: those its site's `layers` select among the model's (an int's one)."""
+    return made_at(record.site, engine.sizes()["num_layers"])
 
 
 def stacked(record, values: list) -> Any:
-    """A read's per-layer values as its value: the one, or under `layers: "all"` stacked layer-first."""
-    if record.site.layers != "all":
+    """A read's per-layer values as its value: the one, or under `layers` that stack, stacked layer-first."""
+    if not address.stacks(record.site.layers):
         return values[0]
     if isinstance(values[0], Tensor):
         return torch.stack(values)
@@ -101,7 +101,7 @@ def stacked(record, values: list) -> Any:
 def joined(state: dict, name: str, step, parts: list[dict]) -> None:
     """Each read's per-batch values joined along rows (a ragged read's entries, after the layer axis)."""
     for key, record in step.reads.items():
-        axis = 1 if record.site.layers == "all" else 0
+        axis = 1 if address.stacks(record.site.layers) else 0
         values = [p[key] for p in parts]
         put(state, f"{name}.{key}", step.at, torch.cat(values, axis) if isinstance(values[0], Tensor) else
             {k: torch.cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})

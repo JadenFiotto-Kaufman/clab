@@ -33,7 +33,10 @@ def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
     for change in (lambda d: d["steps"]["iia"].update(op="matches"),
                    lambda d: d["sites"]["target"].update(component="nope"),
                    lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
-                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": -1, "all": True}),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": -1, "span": [0, 2]}),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "all"}),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [1, 1]}),
+                   lambda d: d["sites"]["target"].update(layers="1:2:3:4"),
                    lambda d: d.update(compiled=True),
                    lambda d: d["steps"]["iia"].update(dims=["rows"])):
         bad = copy.deepcopy(doc)

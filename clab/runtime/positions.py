@@ -14,7 +14,7 @@ TEXTUAL = ("column", "text")        # the scopes that locate text, which a row m
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
-class Unaligned(Exception):
+class Unaligned(ValueError):
     """A row the record does not reach: its marker, and why, which in the prefill is a refusal."""
 
     def __init__(self, marker: str, why: str):
@@ -30,58 +30,142 @@ def parse(pos) -> dict:
     return {"frame": pos.frame, "scope": scope, "index": pos.index}
 
 
+# -- selectors ----------------------------------------------------------------------------------------
+
+SLICE = r"^(-?[0-9]+)?:(-?[0-9]+)?(:(-?[0-9]+)?)?$"
+FORMS = "an int (2, -1), a slice in Python notation ('2:5', '-3:', ':') or a list of picks ([1, 3, 7])"
+
+
+def checked(selector):
+    """A selector as written, refused unless it is an int, a slice string or a list of distinct int picks."""
+    if isinstance(selector, bool) or not isinstance(selector, (int, str, list)):
+        raise ValueError(f"{selector!r} is not a selector: {FORMS}")
+    if isinstance(selector, str):
+        sliced(selector)
+    if isinstance(selector, list):
+        if not selector or not all(isinstance(i, int) and not isinstance(i, bool) for i in selector):
+            raise ValueError(f"{selector!r} is not a selector: {FORMS}; a list of picks names at least one int")
+        if len(set(selector)) < len(selector):
+            raise ValueError(f"picks {selector} name {next(i for i in selector if selector.count(i) > 1)} twice")
+    return selector
+
+
+def sliced(text: str) -> slice:
+    """A slice string as the `slice` Python reads it: `start:stop:step`, each part an int or empty."""
+    if not re.match(SLICE, text):
+        raise ValueError(f"{text!r} is not a selector: {FORMS}")
+    parts = [int(x) if x else None for x in (text.split(":") + [""])[:3]]
+    if parts[2] == 0:
+        raise ValueError(f"{text!r}: a slice's step is not 0")
+    return slice(*parts)
+
+
 def select(selector, n: int) -> list[int]:
-    """The indices an int, a `[start, stop]` span (negative from the end, half-open) or `"all"` picks among
-    `n` things."""
-    if selector == "all":
-        return list(range(n))
-    start, stop = (selector, selector + 1 or n) if isinstance(selector, int) else selector
-    start, stop = (start + n if start < 0 else start), (stop + n if stop < 0 else stop)
-    return list(range(max(start, 0), min(stop, n)))
+    """The indices a selector picks among `n` things, in the order it names them: an int, the one it counts
+    (negative from the end), if there is one; a slice string, its range by Python's rules; a list of picks,
+    each one there is, as written. Two picks that count the same thing (`[0, -2]` of two) are refused."""
+    if isinstance(selector, str):
+        return list(range(n)[sliced(selector)])
+    picks = [selector] if isinstance(selector, int) else selector
+    got = [i + n if i < 0 else i for i in picks if -n <= i < n]
+    if len(set(got)) < len(got):
+        raise Unaligned(MISSING, f"picks {selector} count one of these {n} twice")
+    return got
+
+
+def fixed(selector) -> int | None:
+    """How many things a selector picks whatever their number (its static width), or None when that grows
+    with the number. One for an int; a list of picks, its length; a slice, its length when its two ends
+    count from the same side: both from the start (`"2:5"`, `":3"`, `"0:6:2"`) or both from the end
+    (`"-4:-1"`, `"-3:"`), an omitted start counting from the start and an omitted stop from the end (with a
+    negative step, both ends written). `":"` and `"2:"` have none. Where there are fewer things than a
+    static width needs, the record does not fit that row, which is a refusal or `alignment_missing`."""
+    if isinstance(selector, int):
+        return 1
+    if isinstance(selector, list):
+        return len(selector)
+    s = sliced(selector)
+    start, stop, step = s.start, s.stop, s.step or 1
+    if step > 0:
+        start = start or 0
+        if stop is None:                    # to the end: as wide as a start counted from the end leaves
+            return len(range(start, 0, step)) if start < 0 else None
+    if start is None or stop is None or (start < 0) != (stop < 0):
+        return None
+    return len(range(start, stop, step))
+
+
+def from_end(selector) -> bool:
+    """Whether what a selector picks depends on how many things there are: a negative int or pick, a slice with
+    a negative end or step."""
+    if isinstance(selector, int):
+        return selector < 0
+    if isinstance(selector, list):
+        return min(selector) < 0
+    s = sliced(selector)
+    return any(x is not None and x < 0 for x in (s.start, s.stop, s.step))
+
+
+def every(selector) -> bool:
+    """Whether a selector picks every one of however many things there are (`":"`)."""
+    if not isinstance(selector, str):
+        return False
+    s = sliced(selector)
+    return s.start in (None, 0) and s.stop is None and s.step in (None, 1)
+
+
+def extent(selector) -> int:
+    """How many things a selector counted from the start (`from_end` false) and with an end reaches over."""
+    if isinstance(selector, str):
+        return sliced(selector).stop or 0
+    return (max(selector) if isinstance(selector, list) else selector) + 1
 
 
 # -- what the run needs to know before it starts ------------------------------------------------------
 
 
-def fixed(selector) -> int | None:
-    """How many things a selector picks whatever their number: one for an int, a span's length when its ends
-    count from the same side; None otherwise."""
-    if isinstance(selector, int):
-        return 1
-    if isinstance(selector, list) and (selector[0] < 0) == (selector[1] < 0):
-        return selector[1] - selector[0]
-    return None
+def bounded(frame) -> bool:
+    """Whether a frame names calls by an end it gives, the same calls on every row that gets that far: an int,
+    a list of picks, a slice with a stop; not `"generated"`, `"eos"` or a slice to the row's last call."""
+    return not isinstance(frame, str) or frame not in ("generated", "eos") and sliced(frame).stop is not None
 
 
 def width(pos: dict) -> int | None:
-    """A record's width on every row, or None when it is ragged: its frame names calls (an int or a span,
-    not a set each row has its own), its index picks a fixed number, and a scope, if any, is one occurrence
-    in the prefill."""
+    """A record's width on every row, or None when it is ragged: its frame is `bounded`, its index has a
+    static width (`fixed`), and a scope, if any, is one occurrence in the prefill."""
     scope = pos["scope"]
-    if isinstance(pos["frame"], str) or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
+    if not bounded(pos["frame"]) or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
         return None
     return fixed(pos["index"])
 
 
 def reach(pos: dict) -> tuple[bool, list[int] | None, bool]:
     """Whether a record can name a prefill position on some row; the decode calls it can name (None: every
-    one); and whether those are exactly the calls it names on each row that gets that far, which a write
-    needs, landing as each call runs. Not exact: a frame counted from the row's last call or `eos`, an index
-    into a frame holding the prompt (whose length differs by row), a negative index over several calls."""
-    frame, index = pos["frame"], pos["index"]
-    span = {"generated": [1, None], "all": [0, None]}.get(frame) if isinstance(frame, str) else \
-        [frame, frame + 1] if isinstance(frame, int) else frame
-    if span is None or span[0] < 0 or (span[1] or 0) < 0:
+    one), in order; and whether those are exactly the calls it names on each row that gets that far, which a
+    write needs, landing as each call runs. Not exact: a frame counted from the row's last call or `eos`, an
+    index into a frame holding the prompt (whose length differs by row), an index counted from the end over
+    several calls, a frame to the row's last call from past call 1 or by a step, and an index without a stop
+    over one."""
+    frame, index = ("1:" if pos["frame"] == "generated" else pos["frame"]), pos["index"]
+    if frame == "eos" or from_end(frame):
         return True, None, False
-    start, stop = span
-    calls = None if stop is None else list(range(max(start, 1), stop))
-    if start == 0 or index == "all":
-        return start == 0, calls, index == "all" or calls == []
-    single, bounds = stop is not None and stop - start == 1, index if isinstance(index, list) else [index]
-    if not single and min(bounds) < 0:
-        return False, calls, False
-    picked = [start + i for i in select(index, 1 if single else max(bounds) + 1)]
-    return False, [k for k in picked if stop is None or k < stop], True
+    if bounded(frame):
+        called = select(frame, extent(frame))
+        decode = sorted(k for k in called if k)
+        if 0 in called or every(index):
+            return 0 in called, decode, every(index) or decode == []
+        if from_end(index) and len(called) > 1:
+            return False, decode, False
+        return False, sorted(called[i] for i in select(index, len(called))), True
+    s = sliced(frame)                               # every call from the slice's start, by its step
+    start = s.start or 0
+    if s.step not in (None, 1) or start > 1:
+        return start == 0, None, False
+    if start == 0 or every(index):
+        return start == 0, None, every(index)
+    if from_end(index) or isinstance(index, str) and sliced(index).stop is None:
+        return False, None, False
+    return False, sorted(1 + i for i in select(index, extent(index))), True
 
 
 def prefill(pos: dict) -> bool:

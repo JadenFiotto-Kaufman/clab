@@ -124,7 +124,7 @@ def refused(engines, plan, kind: str = "hooks"):
      r"blanked.blank: row 0: the row has no 'system' message"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(occurrence=2),
      r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input; it has no occurrence 2"),
-    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [9, -1]},
+    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "9:-1"},
                                                                            ops=[{"op": "swap", "with": 0.0}]),
      r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
     ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],

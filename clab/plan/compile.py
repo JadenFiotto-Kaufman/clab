@@ -256,14 +256,15 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         site = plan.sites[spec.site]
     else:
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
-    if write and site.layers == "all":
-        fail(f"{path}.site", "a write names its layer; layers 'all' is a read's (or sweep the layers)")
+    if write and address.stacks(site.layers):
+        fail(f"{path}.site", f"a write names its layer, an int; layers {site.layers!r} stack several, which is a "
+             "read's (or sweep the layers)")
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
-    if frame not in (0, "all") and step.kind != "generate":
-        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0, or 'all' (the whole "
+    if frame not in (0, ":") and step.kind != "generate":
+        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0, or ':' (the whole "
              "timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
@@ -297,7 +298,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
             operands(at, found, selection, within, ragged, live, chosen)
             for key, info in found.items():
-                if info["name"] in live and live[info["name"]]["site"].get("layers") == "all":
+                if info["name"] in live and address.stacks(live[info["name"]]["site"].get("layers")):
                     fail(f"{at}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
                          "forward is one layer's read")
         # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
@@ -514,28 +515,28 @@ def decided(path: str, pos: dict) -> None:
     """A write beyond the prefill lands at each call it selects as that call runs, so what it selects must be
     known by then. Without a scope its calls must be known before the run (`positions.reach`). With a text
     scope it is found online, call by call, in the inputs fed so far, and lands at the call fed the first
-    occurrence's last token: so its frame is decode calls only (a call, a span from 1 or 'generated'), and its
-    index -1, since the occurrence's earlier tokens were fed before the text was there to find; and which
-    occurrences it means count from the first."""
+    occurrence's last token: so its frame is decode calls only (a call, picks or a slice from 1, or
+    'generated'), and its index -1, since the occurrence's earlier tokens were fed before the text was there
+    to find; and which occurrences it means count from the first."""
     frame, index = pos["frame"], pos["index"]
     if pos["scope"] is not None:
-        if positions.reach({**pos, "index": "all"})[0]:
+        if positions.reach({**pos, "index": ":"})[0]:
             fail(f"{path}.frame", f"frame {frame!r}: a scoped write beyond the prefill is found call by call in the "
-                 "generated inputs, so its frame is decode calls known before the run: a call, a span from 1 or "
-                 "'generated'")
+                 "generated inputs, so its frame is decode calls known before the run: a call, picks or a slice "
+                 "from 1, or 'generated'")
         if index != -1:
             fail(f"{path}.index", f"index {index!r}: a scoped write lands at the call fed its text's last token, the "
                  "first call that can know the text is there; earlier tokens were already fed, so its index is -1")
         which = pos["scope"].get("occurrence", 0)
-        if which != "all" and min(which if isinstance(which, list) else [which]) < 0:
+        if positions.from_end(which):
             fail(f"{path}.scope.occurrence", f"occurrence {which!r} counts from the last occurrence, which is known "
                  "only when the row ends; a write lands as its call runs, so it counts from the first")
         return
     if not positions.reach(pos)[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
-             "lands as its call runs, so it names a call, a span of calls or 'generated' with an index counted "
-             "from their start (or -1 of a single call), or the prefill with them and index 'all'; or it takes "
-             "a text scope")
+             "lands as its call runs, so it names calls by an end it gives (a call, picks, a slice with a stop) "
+             "or 'generated', with an index counted from their start (or -1 of a single call), or the prefill "
+             "with them and index ':'; or it takes a text scope")
 
 
 def text_ref(cx: Compiling, value, path: str, dataset: str) -> None:

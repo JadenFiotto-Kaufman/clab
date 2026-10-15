@@ -1,5 +1,5 @@
 {
-  "description": "Three swaps on ONE site at disjoint positions, in one forward: the counterfactual's -4, -3 and -2 at layer 0, each read and each written on its own. window_patch.json is the same experiment as one write of the window {'index': [-4, -1]}, and the two produce the same logits to the bit — which is the test of what a window is. An effect carried jointly by several positions can read nothing at every layer when each position is patched alone.",
+  "description": "Three swaps on ONE site at disjoint positions, in one forward: the counterfactual's -4, -3 and -2 at layer 0, each read and each written on its own. window_patch.json is the same experiment as one write of the window {'index': '-4:-1'}, and the two produce the same logits to the bit — which is the test of what a window is. An effect carried jointly by several positions can read nothing at every layer when each position is patched alone.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",

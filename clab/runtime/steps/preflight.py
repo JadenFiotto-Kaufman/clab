@@ -15,6 +15,7 @@ def preflight(engine, plan: Plan) -> dict:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
+    the layers each read with a `layers` axis is made at (`layers`, the axis's labels),
     room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
     fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
     `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
@@ -60,7 +61,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found: dict = {"inputs": {}, "positions": {}, "said": {}}
+    found: dict = {"inputs": {}, "positions": {}, "said": {}, "layers": {}}
     shapes: dict = {}
     for name, entry in steps.items():
         for step in points(entry):
@@ -96,8 +97,10 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
             for side in ("writes", "reads"):
                 for key, record in getattr(step, side).items():
                     where, site = f"{name}.{key}", record.site
-                    if isinstance(site.layers, int) and not 0 <= site.layers < sizes["num_layers"]:
-                        raise ValueError(f"{where}: layer {site.layers}; the model has {sizes['num_layers']} layers")
+                    if site.layers is not None:
+                        got = picked(where, site.layers, sizes["num_layers"])
+                        if address.stacks(site.layers):
+                            put(found["layers"], where, step.at, got)
                     for axis, index in (site.select or {}).items():
                         shortest = min(len(e["ids"]) for e in encoded)
                         size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
@@ -124,6 +127,27 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
             for where, o, shape, site in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)
     return found
+
+
+def made_at(site, n: int) -> list:
+    """The layers a site is made at among the model's `n`: those its `layers` select, or `[None]` for a
+    model's own value, which has none."""
+    return [None] if site.layers is None else positions.select(site.layers, n)
+
+
+def picked(where: str, layers, n: int) -> list[int]:
+    """The layers a site's `layers` select among the model's `n`, each one there: an int or a pick outside
+    them, or a slice that picks none, is refused by name."""
+    for i in [layers] if isinstance(layers, int) else layers if isinstance(layers, list) else []:
+        if not -n <= i < n:
+            raise ValueError(f"{where}: layer {i}; the model has {n} layers")
+    try:
+        got = positions.select(layers, n)
+    except ValueError as e:
+        raise ValueError(f"{where}: {e}") from None
+    if not got:
+        raise ValueError(f"{where}: layers {layers!r} pick none of the model's {n} layers")
+    return got
 
 
 def widths(engine, plan: Plan) -> dict[str, int]:
@@ -249,7 +273,8 @@ def refuse(engine, plan: Plan) -> None:
         for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
             reason, layers = reasons.get(record.site.component), record.site.layers
             if isinstance(reason, dict):
-                reason = next((r for layer, r in reason.items() if r and layers in (layer, "all")), None)
+                named = picked(f"{name}.{key}", layers, engine.sizes()["num_layers"])
+                reason = next((r for layer, r in reason.items() if r and layer in named), None)
             if reason:
                 raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {record.site.component}: "
                                  f"{reason}")
@@ -293,7 +318,8 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
         theirs = lookup(shapes, value, step.at)
         read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
         same = value.partition(".")[0] == where.partition(".")[0]
-        if same and engine.rank(read.component, read.layers) >= engine.rank(site.component, site.layers):
+        if same and engine.rank(read.component, made_at(read, sizes["num_layers"])[0]) >= \
+                engine.rank(site.component, made_at(site, sizes["num_layers"])[0]):
             raise ValueError(f"{where}: operand {value!r} is read at {read.component} layer {read.layers}, which the "
                              f"{engine.name} engine's forward does not reach before this write's {site.component} "
                              f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")

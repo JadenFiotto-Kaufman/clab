@@ -9,9 +9,9 @@ from .batches import batches, bind, joined, layers, read, stacked
 def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
     """The step's input in consecutive batches, each through `engine.forward`; each read joined along rows.
 
-    A `layers: "all"` read is one read per layer, its ops run on each, stacked layer-first; a ragged read is
-    gathered at the batch's widest row and kept as `{values, row, tok}`: one entry per token, its row and its
-    token index."""
+    A read whose `layers` are a slice or picks is one read per layer, its ops run on each, stacked
+    layer-first; a ragged read is gathered at the batch's widest row and kept as `{values, row, tok}`: one
+    entry per token, its row and its token index."""
     parts = []
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         sites, writes, reads = bind(engine, plan, name, step, step.reads, state, found, chunk, pads)

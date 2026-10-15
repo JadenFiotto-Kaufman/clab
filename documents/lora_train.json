@@ -26,7 +26,7 @@
           "kind": "forward",
           "input": "train.input",
           "writes": {
-            "adapt": {"site": "target", "pos": {"index": "all"}, "ops": [{"op": "featurizer", "featurizer": "fit.lora", "mode": "apply"}]}
+            "adapt": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "featurizer", "featurizer": "fit.lora", "mode": "apply"}]}
           },
           "reads": {"logits": {"site": "head", "pos": -1}}
         },

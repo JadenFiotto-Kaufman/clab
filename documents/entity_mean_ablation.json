@@ -1,5 +1,5 @@
 {
-  "description": "Mean ablation where the mean is taken over a RAGGED read: the tokens of each row's entity (`{'scope': {'column': 'prompts.entity'}, 'index': 'all'}` — the row's own entity text, located in its prompt — one token for Friday, three for Thursday), averaged over every entity token in the corpus, then swapped in at the answer position. A mean over a ragged read is one vector, so it lands at any window. A row whose entity text is not in its prompt is refused by name before any forward, since the data decided it; an entity that occurs twice takes its first occurrence.",
+  "description": "Mean ablation where the mean is taken over a RAGGED read: the tokens of each row's entity (`{'scope': {'column': 'prompts.entity'}, 'index': ':'}` — the row's own entity text, located in its prompt — one token for Friday, three for Thursday), averaged over every entity token in the corpus, then swapped in at the answer position. A mean over a ragged read is one vector, so it lands at any window. A row whose entity text is not in its prompt is refused by name before any forward, since the data decided it; an entity that occurs twice takes its first occurrence.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -14,7 +14,7 @@
     "harvest": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {"acts": {"site": "target", "pos": {"scope": {"column": "prompts.entity"}, "index": "all"}}}
+      "reads": {"acts": {"site": "target", "pos": {"scope": {"column": "prompts.entity"}, "index": ":"}}}
     },
     "mean": {"kind": "op", "op": "mean", "of": "harvest.acts"},
     "clean": {
