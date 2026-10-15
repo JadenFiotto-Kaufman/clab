@@ -45,7 +45,8 @@ order (`steer` then `restore`).
 
 **Metrics:** `match`, `logit_diff`, `token_prob`, `token_logit`,
 `cross_entropy`, `kl`, `js`, `top_k`; an answer column is tokenized as
-written (PR 12). **Reduces:** `mean`, `pca` (with `k`).
+written; `contains` scores a decoded generation (PR 12). **Reduces:**
+`mean`, `sum`, `min`, `pca` (with `k`).
 
 **Featurizers:** `subspace` (cayley-parametrized rotation, `k`, optional
 `seed`, optional `file_path`), `gate` (a soft mask, annealed), `pca` (loaded
@@ -771,8 +772,20 @@ clab; its lead is operating on real models).
 - `select` takes a selector per axis, the same grammar as `layers` and
   `pos`; a head sweep is `{"sweep": [0, 1, ...]}`; any axis the components
   table lists as narrowing the component may be selected.
-- `token_form` is removed: an answer column is tokenized as written and
-  must be one token. (Replaces the pending `"spaced"` rename.)
+- `token_form` is removed: an answer column is tokenized as written.
+  (Replaces the pending `"spaced"` rename.)
+- **Answers** (proposal `proposals/answers.md`, ratified 2026-10-15): a
+  scope takes `before` (the positions that predict its tokens, in a
+  generation the calls that chose them); a metric aligns its token column
+  with the read per row (k tokens to k positions, metric keeps `pos`; a
+  one-token column broadcasts only when every row is one token; mismatch
+  refused by name); `input` may be a per-row join list of columns and
+  `{"text"}` literals; a column read as text is `"ds.col"` or
+  `{"column", "strip", "lower"}`, where on an answer the flags define a
+  vocabulary class (`match` any member, `token_prob` the mass,
+  `cross_entropy` minus its log, logits refused for >1 id); a row's answer
+  may be a list, an acceptable set; reductions `sum` and `min`; a text metric
+  `contains` over a decoded generation. `piece` was tried and dropped.
 - Featurizers are made on the model's device (PR 11), bundle headers are
   written sorted and swapped in from a temporary file, the corpus root is
   the nearest ancestor of a document holding `data/`.
@@ -785,13 +798,6 @@ clab; its lead is operating on real models).
 - The lock pins a cu130 torch this host's driver cannot run; GPU snapshots
   record what they were made with.
 
-- A sequence metric (name open): scores a multi-token answer as a whole.
-  Takes a text column; works on a read whose scope is that column's span in
-  a teacher-forced input; aligns each position with its next answer token;
-  returns the per-row sum of log-probabilities, `mean` optional. The token
-  metrics score one distribution per row and so take `piece` (PR 12) to pick
-  one token of a multi-token answer; aggregating over the answer needs this
-  op. Roadmap.
 
 ### Decisions pending (owner)
 
