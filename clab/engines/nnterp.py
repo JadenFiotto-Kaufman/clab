@@ -1,5 +1,9 @@
-"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session. The batch's
-inputs go to the run's `device` (with a `device_map`, transformers moves them on from there).
+"""The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
+
+`device` is one torch device, which nnsight's loader takes as its `device`, or a device map transformers
+computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
+several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
+from there.
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -18,7 +22,7 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, placed, stops
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -26,13 +30,16 @@ class NnterpEngine:
     name: str
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
-    def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
-        """The checkpoint `model` pins, on `device` (or placed by `device_map`, which nnsight hands to
-        transformers); the block's other keys go to the loader as they are."""
-        self.spec, self.device, self.options = model, device, {"device_map": device_map}
+    def __init__(self, model: Model, *, device: str = "cpu"):
+        """The checkpoint `model` pins, placed by `device`: the loader's `device_map` when transformers computes
+        it, else its `device`; the block's other keys go to the loader as they are.
+
+        device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
+        """
+        self.spec, self.device, self.options = model, device, {}
+        placed = {"device_map": device} if device in COMPUTED else {"device": device}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype),
-            **placed("nnterp", device, device_map), **extra))
+            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
@@ -73,7 +80,7 @@ class NnterpEngine:
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), self.device)):
+        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self))):
             for component, layer in order:
                 here, there = sites[(component, layer)]
                 host = envoy(model, component, layer)
@@ -109,7 +116,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), self.device)):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), steps.home(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)

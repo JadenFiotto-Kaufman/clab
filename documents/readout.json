@@ -1,5 +1,5 @@
 {
-  "description": "What the model says, read out rather than scored: at the last token of each prompt, the three tokens it finds most likely, decoded, each with its probability — a list per row, which its table writes as the row's value. Beside it, the probability of the expected answer spelled bare, as the first word of a text is, rather than after a space.",
+  "description": "What the model says, read out rather than scored: at the last token of each prompt, the three tokens it finds most likely, decoded, each with its probability — a list per row, which its table writes as the row's value. Beside it, the probability of the expected answer.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -17,8 +17,7 @@
       "kind": "op",
       "op": "token_prob",
       "of": "clean.logits",
-      "token": "prompts.base_answer",
-      "token_form": "bare"
+      "token": "prompts.base_answer"
     }
   },
   "saves": ["top3", "p_answer"]

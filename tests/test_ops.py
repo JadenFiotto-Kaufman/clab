@@ -12,13 +12,15 @@ torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
 LOGITS = torch.randn(3, 1, 7)                  # rows, pos, vocab
 IDS = torch.tensor([1, 4, 6])
+ONE = IDS[:, None]                              # a token argument: per row, the ids it may be
 DIMS = ["rows", "pos", "hidden_size"]
 
 
 def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
-                             "featurizer", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
-                             "cross_entropy", "kl", "js", "top_k", "argmax", "decode", "noise", "clamp", "cosine"]
+                             "featurizer", "mean", "sum", "min", "pca", "match", "logit_diff", "token_prob",
+                             "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "decode",
+                             "noise", "clamp", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -27,10 +29,10 @@ def test_each_op_declares_its_group_and_bundle():
     groups = {name: ops.DECLARED[name]["group"] for name in ops.OPS}
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
                                                                "normalize", "project_out", "noise", "clamp"}
-    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "pca"}
+    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "featurizer", "top_k", "argmax", "decode"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
-                                                                 "cross_entropy", "kl", "js", "cosine"}
+                                                                 "cross_entropy", "contains", "kl", "js", "cosine"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
 
 
@@ -77,27 +79,76 @@ def test_mean_over_the_example_axes_by_default():
 
 def test_metrics_on_logits():
     d = ["rows", "pos", "vocab_size"]
-    assert torch.equal(metrics.match(LOGITS, LOGITS.argmax(-1)[:, 0], d), torch.ones(3, 1))
-    assert torch.equal(metrics.match(LOGITS, (LOGITS.argmax(-1)[:, 0] + 1) % 7, d), torch.zeros(3, 1))
+    assert torch.equal(metrics.match(LOGITS, LOGITS.argmax(-1)[:, :1], d), torch.ones(3, 1))
+    assert torch.equal(metrics.match(LOGITS, (LOGITS.argmax(-1)[:, :1] + 1) % 7, d), torch.zeros(3, 1))
     picked = LOGITS[torch.arange(3), 0, IDS][:, None]
-    assert torch.equal(metrics.token_logit(LOGITS, IDS, d), picked)
-    assert torch.equal(metrics.logit_diff(LOGITS, IDS, IDS, d), torch.zeros(3, 1))
-    torch.testing.assert_close(metrics.token_prob(LOGITS, IDS, d), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
-    torch.testing.assert_close(metrics.cross_entropy(LOGITS, IDS, d),
+    assert torch.equal(metrics.token_logit(LOGITS, ONE, d), picked)
+    assert torch.equal(metrics.logit_diff(LOGITS, ONE, ONE, d), torch.zeros(3, 1))
+    torch.testing.assert_close(metrics.token_prob(LOGITS, ONE, d), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
+    torch.testing.assert_close(metrics.cross_entropy(LOGITS, ONE, d),
                                torch.nn.functional.cross_entropy(LOGITS[:, 0], IDS, reduction="none")[:, None])
+
+
+def test_a_set_of_ids_is_one_answer_any_of_whose_ids_is_it():
+    """A row's ids padded with -1: `match` hits on any, `token_prob` sums them, `cross_entropy` is minus the log
+    of that sum."""
+    d = ["rows", "pos", "vocab_size"]
+    sets = torch.tensor([[1, 2], [4, -1], [6, 0]])
+    p = LOGITS.softmax(-1)[:, 0]
+    mass = torch.stack([p[0, 1] + p[0, 2], p[1, 4], p[2, 6] + p[2, 0]])[:, None]
+    torch.testing.assert_close(metrics.token_prob(LOGITS, sets, d), mass)
+    torch.testing.assert_close(metrics.cross_entropy(LOGITS, sets, d), -mass.log())
+    top = LOGITS.argmax(-1)[:, 0]
+    assert torch.equal(metrics.match(LOGITS, torch.stack([top, torch.full((3,), -1)], -1), d), torch.ones(3, 1))
+
+
+def test_token_i_of_an_answer_scores_position_i():
+    """`[rows, pos, m]` ids: each position its own token."""
+    d = ["rows", "pos", "vocab_size"]
+    logits = torch.randn(2, 3, 7)
+    ids = torch.tensor([[[1], [2], [3]], [[4], [5], [6]]])
+    assert torch.equal(metrics.token_logit(logits, ids, d), logits.gather(-1, ids).squeeze(-1))
+
+
+def test_sum_and_min_skip_what_is_missing_and_a_row_with_nothing_stays_missing():
+    nan = float("nan")
+    x = torch.tensor([[1.0, 2.0, nan], [nan, nan, nan], [3.0, -1.0, 0.5]])
+    d = ["rows", "pos"]
+    s, m = reductions.sum(x, d, over=["pos"]), reductions.min(x, d, over=["pos"])
+    assert s[[0, 2]].tolist() == [3.0, 2.5] and s[1].isnan()
+    assert m[[0, 2]].tolist() == [1.0, -1.0] and m[1].isnan()
+
+
+def test_a_ragged_value_reduces_per_row_over_pos_and_over_every_entry_over_rows_and_pos():
+    from clab.runtime.steps.batches import apply
+    value = {"values": torch.tensor([1.0, 2.0, 5.0]), "row": torch.tensor([0, 0, 2]), "tok": torch.tensor([3, 4, 1])}
+    assert ops.out_dims("sum", ["entries"], {"over": ["pos"]}) == ["rows"]
+    assert ops.out_dims("sum", ["entries"], {"over": ["rows", "pos"]}) == []
+    with pytest.raises(ValueError, match="a ragged value's rows are reduced with their positions"):
+        ops.out_dims("sum", ["entries"], {"over": ["rows"]})
+    per_row = apply(None, "sum", value, {"over": ["pos"]}, ["entries"], rows=torch.arange(3))
+    assert per_row[[0, 2]].tolist() == [3.0, 5.0] and per_row[1].isnan()
+    assert apply(None, "mean", value, {"over": ["rows", "pos"]}, ["entries"]).item() == pytest.approx(8 / 3)
+
+
+def test_contains_finds_the_answer_in_each_rows_text():
+    said = ["It is Friday.", "monday then", "nothing"]
+    answers = [(["Friday"], False, False), (["Monday", " Tuesday"], False, True), ([" nothing "], True, False)]
+    assert metrics.contains(said, answers, ["rows"]).tolist() == [1.0, 1.0, 1.0]
+    assert metrics.contains(said, [(["friday"], False, False)] * 3, ["rows"]).tolist() == [0.0, 0.0, 0.0]
 
 
 def test_metrics_on_ragged_entries_take_each_entrys_own_token():
     entries = LOGITS[:, 0]                                # entries, vocab: one entry per row here
-    assert torch.equal(metrics.token_logit(entries, IDS, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
-    assert torch.equal(metrics.match(entries, entries.argmax(-1), ["entries", "vocab_size"]), torch.ones(3))
+    assert torch.equal(metrics.token_logit(entries, ONE, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
+    assert torch.equal(metrics.match(entries, entries.argmax(-1)[:, None], ["entries", "vocab_size"]), torch.ones(3))
 
 
 def test_metrics_broadcast_over_a_leading_layer_axis():
     stacked = torch.stack([LOGITS, LOGITS * 2])          # layers, rows, pos, vocab
-    out = metrics.token_logit(stacked, IDS, ["layers", "rows", "pos", "vocab_size"])
+    out = metrics.token_logit(stacked, ONE, ["layers", "rows", "pos", "vocab_size"])
     assert out.shape == (2, 3, 1)
-    assert torch.equal(out[1], 2 * metrics.token_logit(LOGITS, IDS, ["rows", "pos", "vocab_size"]))
+    assert torch.equal(out[1], 2 * metrics.token_logit(LOGITS, ONE, ["rows", "pos", "vocab_size"]))
 
 
 def test_kl_and_js():
@@ -223,9 +274,9 @@ def test_a_missing_row_is_missing_all_the_way_down():
     d = ["rows", "pos", "vocab_size"]
     logits = LOGITS.clone()
     logits[1] = float("nan")
-    hit = metrics.match(logits, logits.nan_to_num().argmax(-1)[:, 0], d)
+    hit = metrics.match(logits, logits.nan_to_num().argmax(-1)[:, :1], d)
     assert hit[[0, 2]].eq(1).all() and hit[1].isnan().all()
-    assert metrics.token_prob(logits, IDS, d)[1].isnan().all() and metrics.logit_diff(logits, IDS, IDS, d)[1].isnan().all()
+    assert metrics.token_prob(logits, ONE, d)[1].isnan().all() and metrics.logit_diff(logits, ONE, ONE, d)[1].isnan().all()
     assert transforms.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
     top = transforms.top_k(logits, 2)
     assert top["ids"][1].eq(-1).all() and top["probs"][1].isnan().all() and top["ids"][0].ge(0).all()

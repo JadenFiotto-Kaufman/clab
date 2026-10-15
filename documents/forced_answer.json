@@ -1,0 +1,24 @@
+{
+  "description": "An answer of several tokens, teacher forced: each prompt with its answer appended (`input` a list, joined per row), the head read at the positions that predict the answer's tokens (a scope on the appended answer, `occurrence: -1`, with `before`), and each token scored at its own position. On this tokenizer \" Tuesday\", \" Wednesday\" and \" Thursday\" are three tokens and the other days one, so the read is ragged, one entry per answer token. `nll` is each token's negative log-probability given the right prefix; `seq_nll` sums it per row, the answer's negative log-likelihood; `hit` says whether each token was the most likely one, `exact` whether all of a row's were (its `min`), `per_tok` the fraction that were (its `mean`). The weights are random, so the numbers mean nothing; the alignment is the point.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"days": {"path": "weekdays_full/data", "split": "test"}},
+  "sites": {"head": {"component": "lm_head_output"}},
+  "steps": {
+    "forced": {
+      "kind": "forward",
+      "input": ["days.input", "days.base_answer"],
+      "reads": {"logits": {"site": "head",
+                           "pos": {"scope": {"column": "days.base_answer", "occurrence": -1, "before": true}}}}
+    },
+    "nll": {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "days.base_answer"},
+    "seq_nll": {"kind": "op", "op": "sum", "of": "nll", "over": ["pos"]},
+    "hit": {"kind": "op", "op": "match", "of": "forced.logits", "expected": "days.base_answer"},
+    "exact": {"kind": "op", "op": "min", "of": "hit", "over": ["pos"]},
+    "per_tok": {"kind": "op", "op": "mean", "of": "hit", "over": ["pos"]}
+  },
+  "saves": ["nll", "seq_nll", "hit", "exact", "per_tok"]
+}

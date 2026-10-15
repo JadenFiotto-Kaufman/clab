@@ -29,8 +29,9 @@ def compiled_form(plan: Plan) -> dict:
 
 
 def test_the_corpus_is_the_31_documents_and_the_examples_since():
-    assert len(NAMES) == 31 + 9 and {"sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
-                                     "clamp_write", "cosine_metric"} <= set(NAMES)
+    assert len(NAMES) == 31 + 13 and {"sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
+                                      "clamp_write", "cosine_metric", "forced_answer", "answer_spellings",
+                                      "generated_contains", "generated_confidence"} <= set(NAMES)
     assert REAL == ["real/behavior", "real/das", "real/head_patching", "real/layer_sweep", "real/pattern_patching"]
 
 
@@ -156,7 +157,7 @@ def test_one_sweep_reached_from_two_steps_is_one_axis():
     plan = plan_of("head_patching")
     reads = [(p.reads["v_cf"].site.select or {})["num_heads"] for p in points(plan.steps["counterfactual"])]
     writes = [(p.writes["patch"].site.select or {})["num_heads"] for p in points(plan.steps["patched"])]
-    assert reads == writes == [[h] for h in range(4)]
+    assert reads == writes == list(range(4))
 
 
 def test_a_reference_carries_its_producers_axes():
@@ -205,10 +206,8 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
      r"sites\.target: unknown component 'block_output'; valid: token_embeddings"),
     (lambda d: d["steps"]["patched"].update(field="input"),
      r"steps\.patched: unknown field 'field'; valid: kind, input, writes, reads, interventions"),
-    (lambda d: d["steps"]["iia"].update(token_form="spelled"),
-     r"steps\.iia: token_form: 'spelled' is not one of 'spaced', 'bare'"),
     (lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
-     r"steps\.iia: 'match' takes no 'expect'; its arguments: expected, token_form"),
+     r"steps\.iia: 'match' takes no 'expect'; its arguments: expected$"),
     (lambda d: d["steps"]["patched"].update(kind="trace"),
      r"steps\.patched: unknown step kind 'trace'; valid: forward, generate, op, fit"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": 1, "scope": {"turn": "user", "text": "x"}}),

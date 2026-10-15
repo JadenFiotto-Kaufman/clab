@@ -1,0 +1,105 @@
+{
+ "batch_size": 2,
+ "values": {
+  "results": {
+   "text": [
+    "Handler substr energcalc tossorter",
+    "Handler substr energcalc tossorter",
+    "Handler substr energcalc tossorter",
+    "Handler substr energcalc tossorter"
+   ],
+   "said": [
+    1.0,
+    1.0,
+    0.0,
+    0.0
+   ],
+   "acc": 0.5
+  },
+  "positions": {},
+  "said": {
+   "prompts.input": [
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Th",
+     "urs",
+     "day",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Friday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Saturday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ],
+    [
+     "<s>",
+     "▁If",
+     "▁today",
+     "▁is",
+     "▁Sunday",
+     ",",
+     "▁tom",
+     "orrow",
+     "▁is"
+    ]
+   ],
+   "answer": [
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ",
+     "calc",
+     "▁toss",
+     "orter"
+    ]
+   ]
+  }
+ }
+}

@@ -1,5 +1,5 @@
 {
- "description": "SAE feature ablation. The residual stream at layer 0 is read through a loaded sparse autoencoder — an encoder/decoder pair with an ERROR TERM, so what the dictionary does not explain is put back exactly — and in `zeroed` one latent at a time is set to zero (`select: {features: [j]}`, swept). An ablated latent that was already zero on these prompts changes nothing, which is the point of doing this in feature space: `base.latents`, saved, says which were. The bundle here is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
+ "description": "SAE feature ablation. The residual stream at layer 0 is read through a loaded sparse autoencoder — an encoder/decoder pair with an ERROR TERM, so what the dictionary does not explain is put back exactly — and in `zeroed` one latent at a time is set to zero (`select: {features: j}`, swept). An ablated latent that was already zero on these prompts changes nothing, which is the point of doing this in feature space: `base.latents`, saved, says which were. The bundle here is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -73,9 +73,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          0
-         ]
+         "features": 0
         },
         "with": 0.0
        }
@@ -115,9 +113,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          1
-         ]
+         "features": 1
         },
         "with": 0.0
        }
@@ -157,9 +153,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          2
-         ]
+         "features": 2
         },
         "with": 0.0
        }
@@ -199,9 +193,7 @@
         "op": "swap",
         "featurizer": "dictionary",
         "select": {
-         "features": [
-          3
-         ]
+         "features": 3
         },
         "with": 0.0
        }
@@ -359,18 +351,10 @@
   "features": {
    "path": "steps.zeroed.writes.ablate.ops.0.select.features",
    "values": [
-    [
-     0
-    ],
-    [
-     1
-    ],
-    [
-     2
-    ],
-    [
-     3
-    ]
+    0,
+    1,
+    2,
+    3
    ]
   }
  }

@@ -37,6 +37,8 @@ def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
                    lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "all"}),
                    lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [1, 1]}),
                    lambda d: d["sites"]["target"].update(layers="1:2:3:4"),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(
+                       pos={"scope": {"column": "pairs.base_answer", "lower": True}}),
                    lambda d: d.update(compiled=True),
                    lambda d: d["steps"]["iia"].update(dims=["rows"])):
         bad = copy.deepcopy(doc)
@@ -54,7 +56,21 @@ def test_describe_lists_every_registry():
 
 def test_describe_lists_the_engines_and_spells_literals_as_json():
     lines = describe("engines").splitlines()
-    assert lines[2:4] == ['      loads with: device: str = "cpu", device_map: str or null = null',
-                          "      runs with: batch_size: int = 8"]
-    assert lines[8] == '      loads with: device: str = "cpu", remote: one of true, "local" = true'
-    assert 'token_form: one of "spaced", "bare" = "spaced"' in describe("ops")
+    assert lines[2:6] == ["      loads with:",
+                          '        device: str = "cpu" — one torch device ("cpu", "cuda:0") as the loader\'s device, or '
+                          '"auto", "balanced", ... as its device_map',
+                          "      runs with:",
+                          "        batch_size: int = 8 — how many of a step's rows go through the model in one "
+                          "forward or generation"]
+    assert lines[14].startswith('        remote: one of true, "local" = true — true for the NDIF server')
+    assert "    match(expected: Tokens)  [" in describe("ops")
+
+
+def test_every_engine_option_says_what_it_takes():
+    """`describe engines` reads what each option takes off the docstring of the method that declares it."""
+    from clab.cli import run_options
+    from clab.engines import ENGINES
+
+    for name in ENGINES:
+        for side, listed in run_options(name).items():
+            assert listed and all(text for _, text in listed), (name, side, listed)

@@ -6,8 +6,10 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
 (the module whose output or input nnterp's own key for it names), the sizes,
 and what the checkpoint supports. A component nnterp reaches inside a
 module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs. The batch's inputs go to the run's `device` (with a `device_map`, transformers moves them
-on from there).
+before anything runs. `device` is one torch device, which the loaded model moves to, or a device map
+transformers computes (`auto`, `balanced`, ...), which `from_pretrained` takes as its `device_map` and which
+may spread the model over several GPUs; the batch's inputs go where the model's first parameter is, and
+transformers moves them on from there.
 """
 
 import time
@@ -23,32 +25,34 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, placed, stops
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
 
 
 @engine("hooks")
 class HooksEngine:
     name: str
 
-    def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
-        """The checkpoint `model` pins, as `AutoModelForCausalLM` on `device` (or placed by `device_map`), with
-        what the meta shell says of it: each component's native module and boundary, the sizes, and the modules
-        the readout runs."""
+    def __init__(self, model: Model, *, device: str = "cpu"):
+        """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
+        `device_map` when transformers computes it, else moved there once loaded), with what the meta shell says
+        of it: each component's native module and boundary, the sizes, and the modules the readout runs.
+
+        device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
+        """
         shell = build(model, "hooks", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
         support = shell.support()
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
-        placement = placed("hooks", device, device_map)
-        self.spec, self.device, self.options = model, device, {"device_map": device_map}
+        self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
                        "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
-            device_map=placement.get("device_map"), **extra).eval())
-        if device_map is None:
+            device_map=device if device in COMPUTED else None, **extra).eval())
+        if device not in COMPUTED:
             self.model.to(device)
-        self.config["order"] = order(self.model, sites, device)
+        self.config["order"] = order(self.model, sites, steps.home(self))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
         """The whole plan in this process; `options` are a subclass's run options, which `steps.begin` records."""
@@ -81,7 +85,7 @@ class HooksEngine:
         handles = [hook(self.model, self.config, component, layer, here, there, got, None)
                    for (component, layer), (here, there) in sites.items()]
         try:
-            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), self.device))
+            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self)))
         finally:
             for handle in handles:
                 handle.remove()
@@ -104,7 +108,7 @@ class HooksEngine:
         handles += [hook(self.model, self.config, component, layer, here, there, got, call)
                     for (component, layer), (here, there) in sites.items()]
         try:
-            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), self.device), **options)
+            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), steps.home(self)), **options)
         finally:
             for handle in handles:
                 handle.remove()
@@ -159,7 +163,8 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, the
 
 def order(model, sites: dict, device: str) -> dict[str, int]:
     """When each served component's hook fires in a forward (`<component>@<layer>`), measured on a two-token
-    input: components at one module boundary fire together and share a rank."""
+    input on `device`, where the model takes its input: components at one module boundary fire together and
+    share a rank."""
     fired: list = []
 
     def noted(key: tuple):

@@ -8,6 +8,9 @@ chose its last token, so that token is never an input.
 """
 
 import re
+import sys
+
+from . import data
 
 MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
@@ -68,6 +71,24 @@ def select(selector, n: int) -> list[int]:
     if len(set(got)) < len(got):
         raise Unaligned(MISSING, f"picks {selector} count one of these {n} twice")
     return got
+
+
+def kept(selects: dict | None, sizes: dict[str, int]) -> dict[str, list[int]]:
+    """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
+    and on `key` its `keys`."""
+    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
+
+
+def keys(selector) -> list[int]:
+    """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
+    number counted from the start (`keyed` says so), so no row's length changes them."""
+    return select(selector, sys.maxsize)
+
+
+def keyed(selector) -> bool:
+    """Whether a selector picks the same keys of every row long enough to hold them: a fixed number, counted
+    from the start (`3`, `[0, 2]`, `"1:4"`; not `-1`, `"2:"`)."""
+    return fixed(selector) is not None and not from_end(selector)
 
 
 def probed(selector) -> tuple[int, list[int], list[int]]:
@@ -145,6 +166,8 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     other than every decode call names calls only the run will know. A scope's index counts its text's
     tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
+    if pos["scope"] and pos["scope"].get("before") and select(frame, 2) != [0]:
+        return True, None, False        # the position before a token may be any call's, the prefill's included
     if from_end(frame):
         return True, None, False
     holds = 0 in select(frame, 1)
@@ -221,18 +244,22 @@ def call_of(position: int, prompt: int) -> int:
 
 def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
-    role's messages) among `tokens`, in order."""
+    role's messages) among `tokens`, in order. Under `before` an occurrence beginning the row (at position 0)
+    has no position before it."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
     which = scope.get("occurrence", 0)
     picked = select(which, len(found))
-    what = f"{next(iter(scope))} {next(iter(scope.values()))!r}"
+    key = next(k for k in ("column", "text", "turn") if k in scope)
+    what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
     if not found:
         raise Unaligned(MISSING, f"the row has no {scope['turn']!r} message" if "turn" in scope else
                         f"{what} is not in its input")
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
         raise Unaligned(MISSING, f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
+    if scope.get("before") and any(0 in found[i] for i in picked):
+        raise Unaligned(MISSING, f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in found[i] for i in picked)]
 
 
@@ -249,10 +276,17 @@ def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
             occurrences: list[set[int]]) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, the positions its prefill holds
     (`prompted`), what it generated up to its first EOS (`said`), and where its scope's text occurs
-    (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided."""
+    (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided. A
+    scope that is `before` picks its tokens as any scope does, the row's last generated token among them when
+    the frame names its last call, and the record is the position before each."""
+    before = bool((pos["scope"] or {}).get("before"))
     try:
-        tokens = held(framed(pos["frame"], max(len(said), 1)), prompted, prompt)
+        calls = framed(pos["frame"], max(len(said), 1))
+        tokens = held(calls, prompted, prompt)
+        if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
+            tokens.append(prompt + len(said) - 1)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
+        got = [t - 1 for t in got] if before else got
     except Unaligned as e:
         if prefill(pos):
             raise ValueError(str(e)) from None
@@ -263,30 +297,35 @@ def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
 # -- where a scope's text occurs ----------------------------------------------------------------------
 
 
-def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[str]) -> list[set[int]]:
+def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[tuple]) -> list[set[int]]:
     """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
-    occurrence of any of its texts (`texts`: the columns' or the literals) in the prompt, by the tokenizer's
-    offsets, then in the generated inputs, by decoding growing prefixes; each part's in order of position
-    (end, then start). A token with an empty span (part of a split character) covers the character it begins."""
+    occurrence of any of its texts (`texts`: `(text, strip, lower)`, the columns' or the literals) in the
+    prompt, by the tokenizer's offsets, then in the generated inputs (under `before`, every generated token,
+    the last included: the tokens the calls chose), by decoding growing prefixes; each part's in order of
+    position (end, then start). A token with an empty span (part of a split character) covers the character
+    it begins."""
     if scope is None:
         return []
-    prompt, inputs = len(row["ids"]), said[:-1]
-    spans = turns(row, scope["turn"]) if "turn" in scope else located(scope, texts, row["text"])
+    prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
+    spans = turns(row, scope["turn"]) if "turn" in scope else located(texts, row["text"])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        found += [covering(chars, a, b, prompt) for a, b in located(scope, texts, words)]
+        found += [covering(chars, a, b, prompt) for a, b in located(texts, words)]
     return found
 
 
-def located(scope: dict, texts: list[str], words: str) -> list[tuple[int, int]]:
-    """Every character span in `words` where one of `texts` occurs (each stripped first under `strip`), in
-    order of end, then start: where an occurrence becomes known, so a write found online, a read and the run
-    record count them alike."""
-    texts = [t.strip() if scope.get("strip") else t for t in texts]
-    spans = [m.span() for t in texts if t for m in re.finditer(re.escape(t), words)]
+def located(texts: list[tuple], words: str) -> list[tuple[int, int]]:
+    """Every character span in `words` where one of `texts` occurs, each `(text, strip, lower)` compared as its
+    flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own); in order of end, then
+    start: where an occurrence becomes known, so a write found online, a read and the run record count them
+    alike."""
+    spans = []
+    for text, strip, lower in texts:
+        text = data.compared(text, strip, lower)
+        spans += [m.span() for m in re.finditer(re.escape(text), data.compared(words, False, lower))] if text else []
     return sorted(spans, key=lambda span: (span[1], span[0]))
 
 
@@ -296,7 +335,7 @@ def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> s
     return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
 
 
-def landing(pos: dict, texts: list[str], inputs: list[int], eos: set[int], tokenizer) -> bool:
+def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer) -> bool:
     """Whether a write with a text scope lands at the call fed `inputs[-1]`, given every input the row was fed
     so far: some occurrence its `occurrence` picks resolves, with index -1, to that token, on the prefix and
     counted only within the frame's calls, as `resolve` counts them; so each picked occurrence lands at its own

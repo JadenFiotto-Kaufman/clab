@@ -299,10 +299,23 @@ def test_a_swept_value_is_keyed_by_coordinate(filled, tmp_path):
     assert [r["at"] for r in rows] == [{"pos": p} for p in (-1, -2, -3) for _ in range(4)]
     assert {r["pos_token"] for r in rows} == {"▁is"}     # the value's own position, apart from the sweep's coordinate
     heads = filled["head_patching", "hooks"]
-    assert list(heads.results["iia"]) == [(0,), (1,), (2,), (3,)]
+    assert list(heads.results["iia"]) == [0, 1, 2, 3]
     heads.dump(str(tmp_path / "heads"))
     with safe_open(str(tmp_path / "heads" / "iia.safetensors"), "pt") as f:
-        assert sorted(f.keys()) == ["num_heads=[0]", "num_heads=[1]", "num_heads=[2]", "num_heads=[3]"]
+        assert sorted(f.keys()) == ["num_heads=0", "num_heads=1", "num_heads=2", "num_heads=3"]
+
+
+def test_a_saved_read_that_selects_a_head_tables_per_point(engines):
+    """head_patching.json's counterfactual read, saved: `select: {num_heads: <int>}` keeps the head axis at
+    size 1, and its table is a row per point, example and position whose value is that head's result."""
+    plan = edited("head_patching", lambda d: d["saves"].append("counterfactual.v_cf")).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows = filled.table("counterfactual.v_cf")
+    assert [r["at"] for r in rows] == [{"num_heads": h} for h in range(4) for _ in range(4)]
+    assert {r["pos_token"] for r in rows} == {"▁is"}
+    head_dim = filled.results["counterfactual.v_cf"][2].shape[-1]
+    assert all(len(r["value"]) == 1 and len(r["value"][0]) == head_dim for r in rows)
+    assert rows[8]["value"] == filled.results["counterfactual.v_cf"][2][0, 0].tolist()
 
 
 def test_tables_join_wide_and_label_layers_and_keys(filled):
@@ -390,26 +403,26 @@ def test_a_swept_value_joins_an_unswept_one_beside_each_point(engines):
     assert filled.table("clean_ld", "logit_diff", columns=[]) == rows
 
 
-def test_bare_spells_the_answer_without_its_space_on_gpt2(engines):
-    """On GPT-2 " one" and "one" (and " is"/"is", " a"/"a") are different single tokens, so `token_form: bare`
-    changes the number."""
+def test_a_token_column_is_tokenized_as_written_on_gpt2(engines):
+    """On GPT-2 " one" and "one" (and " is"/"is", " a"/"a") are different single tokens, and a token column is
+    tokenized exactly as written: a column without the leading space scores the token without it."""
     def change(d):
-        d["data"]["pairs"] = {"rows": [{**row, "cf_answer": answer, "base_answer": " one"} for row, answer in
-                                       zip(ROWS, (" one", " is", " a", " one"))]}
+        d["data"]["pairs"] = {"rows": [{**row, "cf_answer": a, "bare_answer": a.strip(), "base_answer": " one"}
+                                       for row, a in zip(ROWS, (" one", " is", " a", " one"))]}
         d["steps"]["spaced"] = {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
-        d["steps"]["bare"] = {**d["steps"]["spaced"], "token_form": "bare"}
+        d["steps"]["bare"] = {**d["steps"]["spaced"], "token": "pairs.bare_answer"}
         d["saves"] = ["patched.logits", "spaced", "bare"]
     plan = edited("gpt2_reach", change).compile()
     engine = engines("nnterp", plan.model)
     values = engine.execute(plan, batch_size=BATCH_SIZE).results
     probs = values["patched.logits"][:, 0].softmax(-1)
     rows = plan.data["pairs"].rows or []
-    assert len({engine.tokenizer(r["cf_answer"].strip())["input_ids"][0] for r in rows}) == 3
-    for form, text in (("spaced", lambda a: a), ("bare", str.strip)):
-        ids = [engine.tokenizer(text(r["cf_answer"]), add_special_tokens=False)["input_ids"] for r in rows]
+    assert len({engine.tokenizer(r["bare_answer"])["input_ids"][0] for r in rows}) == 3
+    for name, column in (("spaced", "cf_answer"), ("bare", "bare_answer")):
+        ids = [engine.tokenizer(r[column], add_special_tokens=False)["input_ids"] for r in rows]
         assert all(len(i) == 1 for i in ids)
         expected = probs[torch.arange(len(rows)), torch.tensor([i[0] for i in ids])]
-        torch.testing.assert_close(values[form][:, 0], expected)
+        torch.testing.assert_close(values[name][:, 0], expected)
     assert not torch.allclose(values["spaced"], values["bare"])
 
 
@@ -466,26 +479,28 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
 
 
 def test_select_on_key_counts_each_rows_own_tokens(engines):
-    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: [0,
-    1]}` is each row's own first two keys (BOS and the first prompt token), and a write there zeroes exactly
-    those, wherever each row's padding puts them."""
+    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: "0:2"}`
+    is each row's own first two keys (BOS and the first prompt token), as the picks `[0, 1]` are, and a write
+    at `{key: 0}` zeroes exactly the first, wherever each row's padding puts it; a table labels the keys a read
+    selected with their tokens."""
     def change(d):
         pattern = {"component": "attention_probabilities", "layers": 0}
         d["steps"] = {
             "clean": {"kind": "forward", "input": "pairs.input",
                       "reads": {"whole": {"site": pattern, "pos": -1},
-                                "first": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
+                                "first": {"site": {**pattern, "select": {"key": "0:2"}}, "pos": -1},
+                                "picks": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
             "zeroed": {"kind": "forward", "input": "pairs.input",
-                       "writes": {"zero": {"site": {**pattern, "select": {"key": [0]}}, "pos": -1,
+                       "writes": {"zero": {"site": {**pattern, "select": {"key": 0}}, "pos": -1,
                                            "ops": [{"op": "swap", "with": 0.0}]}},
                        "reads": {"whole": {"site": pattern, "pos": -1}}}}
-        d["saves"] = ["clean.whole", "clean.first", "zeroed.whole"]
+        d["saves"] = ["clean.whole", "clean.first", "clean.picks", "zeroed.whole"]
     plan = engines("nnterp", plan_of("attention_knockout").model).execute(
         edited("attention_knockout", change).compile(), batch_size=BATCH_SIZE)
     values, tokens = plan.results, plan.run.tokens["pairs.input"]
     width = max(map(len, tokens))
     pads = [width - len(t) for t in tokens]
-    assert pads == [0, 2, 2, 2]
+    assert pads == [0, 2, 2, 2] and torch.equal(values["clean.first"], values["clean.picks"])
     for r, pad in enumerate(pads):
         assert torch.equal(values["clean.first"][r], values["clean.whole"][r][..., pad:pad + 2])
         zeroed, clean = values["zeroed.whole"][r], values["clean.whole"][r]

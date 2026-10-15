@@ -106,9 +106,10 @@ def by_coordinate(plan: Plan, by_point: dict) -> Any:
 
 
 def home(engine) -> str:
-    """Where the run makes featurizers: where the model's first parameter is (on an NDIF server, or wherever a
-    `device_map` put it), else, while the model is a meta shell that loads its weights at its first forward,
-    the engine's device."""
+    """Where the model is, which is where the run makes featurizers and an engine sends a batch's inputs: where
+    its first parameter is (on an NDIF server, or wherever the engine's `device` put it: the first of several
+    under a device map that spreads it), else, while the model is a meta shell that loads its weights at its
+    first forward, the engine's device."""
     device = str(next(engine.model.parameters()).device)
     return (engine.device or "cpu") if device == "meta" else device
 

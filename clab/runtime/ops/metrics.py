@@ -2,12 +2,12 @@
 position out."""
 
 import math
-from typing import Literal
 
 import torch
 from torch import Tensor
 
-from ...registry import Tokens, Value
+from ...registry import Text, Tokens, Value
+from ..data import compared
 from . import VOCABULARY, op
 
 
@@ -16,49 +16,64 @@ def missing(of: Tensor) -> Tensor:
     return of.isnan().any(-1)
 
 
-def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
-    """One id per row (`[rows]`), on `x`'s device, shaped to broadcast against `x` along its rows (or entries)
-    axis."""
-    shape = [1] * x.dim()
-    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = -1
-    return ids.to(x.device).reshape(shape)
+# The metrics that read one id's logit, which a class or a set of several ids does not have.
+ONE_ID = ("logit_diff", "token_logit")
 
 
-def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
-    return x.gather(-1, _per_row(ids, x, dims).expand(*x.shape[:-1], 1)).squeeze(-1)
+def _aligned(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
+    """A token argument, on `x`'s device and expanded against `x`'s axes but its last: the ids each row (or
+    entry) may be, `[rows, m]` or `[entries, m]` for the same answer at every position, or `[rows, pos, m]`
+    for token i of the answer at position i; `m` is the most a row's set or class holds, padded with -1."""
+    shape = [1] * (x.dim() - 1) + [ids.shape[-1]]
+    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = ids.shape[0]
+    if ids.dim() == 3:
+        shape[dims.index("pos")] = ids.shape[1]
+    return ids.to(x.device).reshape(shape).expand(*x.shape[:-1], ids.shape[-1])
+
+
+def _gather(x: Tensor, ids: Tensor, dims: list[str]) -> tuple[Tensor, Tensor]:
+    """`x` at each of the ids along its last axis, and which of them are ids rather than padding."""
+    index = _aligned(ids, x, dims)
+    return x.gather(-1, index.clamp(min=0)), index >= 0
+
+
+def _one(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
+    """`x` at the one id each position has."""
+    return _gather(x, ids, dims)[0].squeeze(-1)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def match(of: Tensor, expected: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """1 where the most likely token is `expected`, else 0."""
-    hit = (of.argmax(-1, keepdim=True) == _per_row(expected, of, dims)).squeeze(-1).to(of.dtype)
+def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
+    """1 where the most likely token is `expected` (any of its class or set), else 0."""
+    hit = (of.argmax(-1, keepdim=True) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
     return hit.masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str],
-               token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
     """The logit of `a` less the logit of `b`."""
-    return _pick(of, a, dims) - _pick(of, b, dims)
+    return _one(of, a, dims) - _one(of, b, dims)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_prob(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The probability of `token`."""
-    return _pick(of.softmax(-1), token, dims)
+def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
+    """The probability of `token` (of a class or a set, its members' summed)."""
+    p, real = _gather(of.softmax(-1), token, dims)
+    return p.squeeze(-1) if p.shape[-1] == 1 else p.masked_fill(~real, 0.0).sum(-1)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def token_logit(of: Tensor, token: Tokens, dims: list[str], token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
+def token_logit(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The logit of `token`."""
-    return _pick(of, token, dims)
+    return _one(of, token, dims)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
-                  token_form: Literal["spaced", "bare"] = "spaced") -> Tensor:
-    """The negative log-probability of `target`, in nats."""
-    return -_pick(of.log_softmax(-1), target, dims)
+def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
+    """The negative log-probability of `target` (of a class or a set, of its members' summed probability), in
+    nats."""
+    logp, real = _gather(of.log_softmax(-1), target, dims)
+    return -(logp.squeeze(-1) if logp.shape[-1] == 1 else logp.masked_fill(~real, -math.inf).logsumexp(-1))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
@@ -80,3 +95,12 @@ def js(of: Tensor, against: Value) -> Tensor:
 def cosine(of: Tensor, with_: Value) -> Tensor:
     """The cosine similarity of each vector and `with`'s, over `hidden_size`."""
     return torch.nn.functional.cosine_similarity(of, torch.as_tensor(with_, dtype=of.dtype, device=of.device), dim=-1)
+
+
+@op("metrics", needs=(("rows",),), removes=())
+def contains(of: list, text: Text, dims: list[str]) -> Tensor:
+    """1 where a row's text (a `decode`d generation) contains `text`, the row's answer (any member of a set),
+    compared as its reference says, else 0. Every row generated something, so none is missing."""
+    hits = [any(compared(answer, strip, lower) in compared(said, False, lower) for answer in answers)
+            for said, (answers, strip, lower) in zip(of, text)]
+    return torch.tensor(hits, dtype=torch.float32)

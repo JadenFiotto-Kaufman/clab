@@ -12,9 +12,10 @@ if TYPE_CHECKING:       # a featurizer instance; its package imports this module
     from .runtime.featurizers import Kind
 
 # How a document fills a parameter that names a thing the run binds: a named value or a number, a dataset
-# column resolved through a vocabulary, a featurizer's name.
+# column resolved through a vocabulary, a dataset column as text, a featurizer's name.
 Value = Annotated[Tensor, "Value"]
 Tokens = Annotated[Tensor, "Tokens"]
+Text = Annotated[list, "Text"]
 Featurizer = Annotated["Kind", "Featurizer"]
 
 
@@ -31,6 +32,14 @@ def spelled(fn: Callable, supplied: tuple) -> dict[str, inspect.Parameter]:
     without the ones the run supplies and a `**` catch-all."""
     return {p.name.rstrip("_"): p for p in inspect.signature(fn).parameters.values()
             if p.name not in supplied and p.kind is not p.VAR_KEYWORD}
+
+
+def described(fn: Callable) -> dict[str, str]:
+    """What each of a function's parameters takes, as its docstring says on a line of its own:
+    `<name>: <what it takes>`."""
+    names = inspect.signature(fn).parameters
+    lines = (line.strip().partition(": ") for line in (inspect.getdoc(fn) or "").splitlines())
+    return {name: text for name, sep, text in lines if sep and name in names}
 
 
 def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:

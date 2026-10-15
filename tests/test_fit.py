@@ -195,7 +195,7 @@ def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, ran, n
     values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
     latents, clean, seen = values["base.latents"][:, 0], values["clean.logits"], set()
     for j in range(4):
-        zeroed = values["zeroed.logits"][(j,)]
+        zeroed = values["zeroed.logits"][j]
         for r in range(4):
             seen.add(bool(latents[r, j] == 0))
             assert torch.equal(zeroed[r], clean[r]) == bool(latents[r, j] == 0), (j, r)
@@ -437,6 +437,8 @@ def test_a_write_through_a_probe_is_refused():
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["zeroed"]["writes"]["ablate"]["ops"][0].update(select={"features": [40]}),
      r"zeroed\.ablate: select features \[40\] outside the 32 features of 'dictionary'"),
+    (lambda d: d["steps"]["zeroed"]["writes"]["ablate"]["ops"][0].update(select={"features": "40:"}),
+     r"zeroed\.ablate: select features '40:' keeps none of the 32 features of 'dictionary'"),
 ])
 def test_a_featurizer_used_outside_its_features_is_refused_before_any_forward(engines, change, message):
     plan = edited("sae_feature_ablation", change).compile()
@@ -496,6 +498,21 @@ def held_out(label: str):
         d["data"]["held"] = {"rows": held}
         d["steps"]["fit"]["eval"] = {"train": {"days": "held"}}
     return change
+
+
+def test_a_probes_labels_need_not_be_text():
+    def ints(d):
+        for row in d["data"]["days"]["rows"]:
+            row["label"] = int(row["label"] == "weekend")
+    plan = probe(ints)
+    assert plan.compiled
+
+
+def test_a_probe_class_column_is_compared_exactly(engines):
+    plan = probe(lambda d: d["steps"]["fit"]["steps"]["ce"].update(target={"column": "days.label", "lower": True}))
+    with pytest.raises(ValueError, match=r"ce: target names a class of probe 'probe', which is compared exactly; "
+                                         r"strip and lower compare an answer's tokens"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
 def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines):
