@@ -94,6 +94,17 @@ def same(a, b) -> bool:
     return a == b
 
 
+# The modules a run's request names by reference, and the marks of something shipped by value: a class
+# rebuilt from its definition (cloudpickle) or a function from its source (nnsight).
+REFERENCED = (b"clab.plan.model", b"clab.engines.ndif", b"clab.runtime.steps")
+BY_VALUE = (b"_make_skeleton_class", b"_load_function")
+
+
+def by_reference(blob: bytes) -> bool:
+    """Whether a serialized request names clab's plan, engine and steps by reference and ships nothing by value."""
+    return all(name in blob for name in REFERENCED) and not any(mark in blob for mark in BY_VALUE)
+
+
 def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     """`plan` run on the ndif engine against this design's own model of a server (DESIGN.md section 10(b)):
     serialize the session the client's meta shell opens, run the *deserialized* tracer with the persistent
@@ -115,9 +126,7 @@ def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     class StandIn(Backend):
         def __call__(self, tracer):
             blob = RequestModel.serialize(tracer, compress=False)
-            trip["by_reference"] = all(name in blob for name in (b"clab.plan.model", b"clab.engines.ndif",
-                                                                 b"clab.runtime.steps")) \
-                and b"_make_skeleton_class" not in blob
+            trip["by_reference"] = by_reference(blob)
             deserialized = RequestModel.deserialize(blob, server.model._remoteable_persistent_objects(),
                                                     compress=False)
             assert deserialized.info is not None

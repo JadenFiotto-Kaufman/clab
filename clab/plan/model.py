@@ -548,10 +548,12 @@ class Axis(Record):
 
 
 class Run(Record):
-    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, and every engine
-    option after its defaults in `options`) and what the run observed where the model is: the `versions`
-    installed there (the server's, under `ndif`), the dtype of the residual stream (`dtype`) and the devices
-    it lived on, in forward order (`devices`). `tokens` and `positions` describe values without holding any:
+    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the
+    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
+    `options`), the clab that sent it (`client`: its version, with its commit), and what the run observed
+    where the model is: the `versions` installed there (the server's, under `ndif`; clab's with its commit
+    too), the dtype of the residual stream (`dtype`) and the devices it lived on, in forward order
+    (`devices`), from the run's first forward. `tokens` and `positions` describe values without holding any:
     how each dataset input tokenized and what each generate step's rows generated (token strings per row,
     under the input or the step's name), and the position every read and write resolved to, per row (an
     index into the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not
@@ -559,8 +561,9 @@ class Run(Record):
     select among: a `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
     engine: str
     batch_size: int
-    device: str
+    device: str | None
     options: dict[str, Any] = {}
+    client: dict[str, str] = {}
     versions: dict[str, str] = {}
     dtype: str | None = None
     devices: list[str] = []

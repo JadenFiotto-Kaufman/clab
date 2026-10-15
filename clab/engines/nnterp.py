@@ -18,12 +18,13 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, keep, landed, nnterp_name, now, placed, stops
+from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, placed, stops
 
 
 @engine("nnterp")
 class NnterpEngine:
     name: str
+    remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
     def __init__(self, model: Model, *, device: str = "cpu", device_map: str | None = None):
         """The checkpoint `model` pins, on `device` (or placed by `device_map`, which nnsight hands to
@@ -34,10 +35,10 @@ class NnterpEngine:
             **placed("nnterp", device, device_map), **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
-        """The whole plan in one session, opened with the `remote` option where the engine has one (`ndif`);
+        """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
         the results and the run record are the one thing that comes home, into the client's own plan."""
         started = steps.begin(self, plan, batch_size)
-        with self.model.session(remote=self.options.get("remote", False)):
+        with self.model.session(remote=self.remote):
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})
         plan.results, plan.run = home["results"], home["run"]
@@ -71,8 +72,7 @@ class NnterpEngine:
         sites = by_site(writes, reads)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        inputs = {k: batch[k].to(self.device) for k in ("input_ids", "attention_mask", "position_ids")}
-        with model.trace(inputs):
+        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), self.device)):
             for component, layer in order:
                 here, there = sites[(component, layer)]
                 host = envoy(model, component, layer)
@@ -104,12 +104,11 @@ class NnterpEngine:
         online = any("online" in w for w in writes)
         result: dict = {}
         seen: list = []
-        inputs = {k: batch[k].to(self.device) for k in ("input_ids", "attention_mask")}
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), self.device)):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)

@@ -9,7 +9,8 @@ import torch
 import clab
 from clab import Plan
 from clab.cli import main
-from conftest import BATCH_SIZE, ROOT, TRIP, document, edited, plan_of, same, snapshot, stand_in
+from conftest import (BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot,
+                      stand_in)
 
 SAVED = ["iia", "logit_diff"]
 
@@ -84,6 +85,31 @@ def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
     assert not any(m.split(".")[0] in ("clab", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
     assert home is plan and same(home.results, filled["nnterp"].results)
     assert home.run is not None and home.run.positions == filled["nnterp"].run.positions
+
+
+def test_the_by_reference_check_sees_a_function_shipped_by_value(engines, monkeypatch):
+    """A scratch session body on the ndif shell that names the plan, the engine and the steps passes the check;
+    the same body calling a lambda it closes over (which nnsight ships by value, from its source) fails it."""
+    from nnsight.schema.request import RequestModel
+    from nnsight.tracing.backend import Backend
+
+    from clab.runtime import steps
+
+    plan = plan_of("patching")
+    client = engines("ndif", plan.model, remote=True)
+    blobs = []
+
+    class Capture(Backend):
+        def __call__(self, tracer):
+            blobs.append(RequestModel.serialize(tracer, compress=False))
+
+    monkeypatch.setattr(type(client.model), "_remote_backend", lambda self, *args: Capture())
+    helper = lambda x: x  # noqa: E731
+    with client.model.session(remote=True):           # serialized, never run: the backend only keeps the request
+        kept = [plan.model, steps.versions, client.spec]  # noqa: F841
+    with client.model.session(remote=True):
+        kept = [plan.model, steps.versions, client.spec, helper(1)]  # noqa: F841
+    assert by_reference(blobs[0]) and b"_load_function" in blobs[1] and not by_reference(blobs[1])
 
 
 def test_dump_and_load_are_inverses(filled, tmp_path):
@@ -164,9 +190,7 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
 
     monkeypatch.setattr(engine, "forward", recording)
     engine.execute(plan, batch_size=BATCH_SIZE)
-    # preflight's look at the served dtype and devices, then two batches of counterfactual, then of each of
-    # three patched points
-    assert len(seen) == 1 + 2 + 3 * 2
+    assert len(seen) == 2 + 3 * 2         # two batches of counterfactual, then of each of three patched points
     assert not keys(seen) & {"sweep", "at"}
 
 
@@ -213,6 +237,32 @@ def test_a_loaded_engine_takes_no_options(engines):
     with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu with {'device_map': None}; device and "
                                          "options are given when an engine loads"):
         clab.run(plan, engine=engines("hooks", plan.model), device_map="auto")
+    with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu"):
+        clab.run(plan, engine=engines("hooks", plan.model), device="cuda")
+
+
+def test_the_run_record_names_both_clabs_and_where_ndif_ran(engines, monkeypatch):
+    """`client` is the clab that sent the run and `versions` the one where the model is (here the same process),
+    each with its commit; under remote=True the server places the model, so the run's device is None."""
+    from clab.cli import how
+    from clab.runtime.steps import version
+
+    run = engines("nnterp", plan_of("patching").model).execute(plan_of("patching"), batch_size=2).run
+    assert run is not None and run.client == {"clab": version()} and run.versions["clab"] == version()
+    assert version().startswith("0.0.1+")                     # a checkout: git describe's commit
+    home, _ = stand_in(engines, plan_of("patching"), monkeypatch)
+    assert home.run is not None and (home.run.device, home.run.devices) == (None, ["cpu"])
+    assert how(home.run) == "device placed by the server, remote true"
+
+
+def test_the_cli_says_a_refusal_from_the_server_in_one_line(monkeypatch, capsys):
+    from nnsight.intervention.backends.remote import RemoteError
+
+    def refused(*args, **kwargs):
+        raise RemoteError("Traceback (most recent call last):\n  File ...\nValueError: patched.patch: row 0: no")
+    monkeypatch.setattr(clab, "run", refused)
+    assert main(["run", document("patching"), "--engine", "ndif"]) == 1
+    assert capsys.readouterr().err == "clab: ValueError: patched.patch: row 0: no\n"
 
 
 def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):

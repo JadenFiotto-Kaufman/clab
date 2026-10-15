@@ -60,6 +60,12 @@ def placed(engine: str, device: str, device_map: str | None) -> dict:
     return {"device_map": device_map}
 
 
+def inputs(batch: dict, keys: tuple, device: str | None) -> dict:
+    """The batch's `keys` on `device`; as they are where the engine does not place the model (an NDIF server,
+    whose model moves them itself)."""
+    return {k: batch[k] if device is None else batch[k].to(device) for k in keys}
+
+
 def build(model, engine: str, call: Callable[[dict], Any]) -> Any:
     """`call` with the model block's keys other than `key`, `revision` and `dtype`, as they are. A key in
     `OWNED` is refused by name, and one the loader rejects is reported as that key."""

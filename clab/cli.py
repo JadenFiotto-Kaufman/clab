@@ -24,7 +24,7 @@ from pydantic import BaseModel, TypeAdapter
 from . import address, output
 from .plan import compile as compiler
 from .plan import model as plan
-from .registry import spell as spell_type
+from . import registry
 from .runtime import featurizers, ops
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
@@ -40,6 +40,20 @@ NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: 
          plan.Entry: "step"}
 
 
+def as_json(value: Any) -> str:
+    """A value as a document writes it: JSON (`true`, `null`, `"local"`), or as Python spells it where JSON
+    cannot."""
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        return repr(value)
+
+
+def spell_type(annotation: Any, names: dict | None = None) -> str:
+    """A type as the tables spell it, a literal's values as JSON."""
+    return registry.spell(annotation, names, as_json)
+
+
 def spell(annotation: Any) -> str:
     return spell_type(annotation, NAMES)
 
@@ -52,7 +66,7 @@ def fields(model: type[BaseModel]) -> list[str]:
             continue
         field = model.model_fields[name]
         text = f"{name}: {spell(field.annotation)}"
-        out.append(text if field.is_required() else f"{text} = {field.default!r}")
+        out.append(text if field.is_required() else f"{text} = {as_json(field.default)}")
     return out
 
 
@@ -89,7 +103,7 @@ def arguments(name: str) -> list[str]:
     out = []
     for key, p in ops.parameters(name).items():
         text = f"{key}: {spell_type(p.annotation)}"
-        out.append(text if p.default is p.empty else f"{text} = {p.default!r}")
+        out.append(text if p.default is p.empty else f"{text} = {as_json(p.default)}")
     takes_more = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(ops.OPS[name]).parameters.values())
     return out + ["..."] * takes_more
 
@@ -100,7 +114,7 @@ def modes(kind: str) -> list[str]:
     cls = featurizers.KINDS[kind]
     for m in cls.modes():
         fn = cls.mode(m)
-        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
                for k, p in featurizers.registry.spelled(fn, ("self", "h")).items()]
         produces = featurizers.MODES[m]["produces"].format(axis=cls.axis)
         out.append(f"`{m}`" + (f"({', '.join(own)})" if own else "") + f" gives {produces}"
@@ -161,7 +175,8 @@ def run_options(name: str) -> list[str]:
     from .engines import ENGINES, options
 
     device = inspect.signature(ENGINES[name].__init__).parameters["device"]
-    return [f"{k}: {spell_type(p.annotation)} = {p.default!r}" for k, p in {"device": device, **options(name)}.items()]
+    return [f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}"
+            for k, p in {"device": device, **options(name)}.items()]
 
 
 def describe(what: str | None = None) -> str:
@@ -193,7 +208,7 @@ def describe(what: str | None = None) -> str:
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
         for name, cls in featurizers.KINDS.items():
-            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
                       for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
             lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
                       f"      modes: {'; '.join(m.replace('`', '') for m in modes(name))}"]
@@ -255,7 +270,7 @@ def markdown() -> str:
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, cls in featurizers.KINDS.items():
-        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
+        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {as_json(p.default)}`")
                   for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
         listed = "; ".join(modes(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Modes: " + listed
@@ -272,13 +287,19 @@ def markdown() -> str:
     return "\n".join(parts)
 
 
+def how(run: "plan.Run") -> str:
+    """Where a run ran and with which engine options: `device cpu, device_map null`, or `device placed by the
+    server, remote true`."""
+    return f"device {run.device or 'placed by the server'}" + "".join(f", {k} {as_json(v)}"
+                                                                      for k, v in run.options.items())
+
+
 def show(filled: "plan.Plan") -> str:
     """A filled plan as text: how it ran, then each result with the step that made it, its dims, its sweep
     axes and its shape (per coordinate when swept)."""
     run = filled.run
     assert run is not None
-    given = "".join(f", {k} {json.dumps(v)}" for k, v in run.options.items())
-    lines = [f"{plan.name(filled)}: run on {run.engine}, device {run.device}{given}, batch size {run.batch_size}, "
+    lines = [f"{plan.name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {run.dtype} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
@@ -341,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
-    run.add_argument("--device", default="cpu", help="where the engine places the model (default cpu)")
+    run.add_argument("--device", help="where the engine places the model (default cpu)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
     look = commands.add_parser("show", help="print what a run's output directory holds")
@@ -376,19 +397,24 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
+    from nnsight.intervention.backends.remote import RemoteError
+
     import clab
 
     name = os.path.splitext(os.path.basename(args.document))[0]
     out = args.out or os.path.join("out", name)
     try:
         options = dict(option(text) for text in args.options)
-        clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size, device=args.device,
-                 **options)
+        filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
+                          device=args.device, **options)
     except (ValueError, NotImplementedError) as e:
         print(f"clab: {e}", file=sys.stderr)
         return 1
-    given = "".join(f", {k} {json.dumps(v)}" for k, v in options.items())
-    print(f"{name} on {args.engine} (batch size {args.batch_size}, device {args.device}{given}) -> {out}")
+    except RemoteError as e:          # a refusal on the server comes home as nnsight's error, its last line the reason
+        print(f"clab: {(str(e).strip().splitlines() or [''])[-1]}", file=sys.stderr)
+        return 1
+    assert filled.run is not None
+    print(f"{name} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
     for key, d in described.items():

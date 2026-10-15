@@ -67,8 +67,9 @@ def thing(annotation: Any) -> Any:
     return named[0] if get_origin(annotation) in (Union, types.UnionType) and named else annotation
 
 
-def spell(annotation: Any, names: dict | None = None) -> str:
-    """A type as a reader of the format says it: `float or null`. `names` spells some types by name."""
+def spell(annotation: Any, names: dict | None = None, literal: Callable[[Any], str] = repr) -> str:
+    """A type as a reader of the format says it: `float or null`. `names` spells some types by name, and
+    `literal` a literal's values."""
     names = names or {}
     origin, args = get_origin(annotation), get_args(annotation)
     try:
@@ -77,18 +78,18 @@ def spell(annotation: Any, names: dict | None = None) -> str:
     except TypeError:
         pass
     if origin is Literal:
-        return "one of " + ", ".join(map(repr, args))
+        return "one of " + ", ".join(map(literal, args))
     if origin in (Union, types.UnionType):
-        return " or ".join(spell(a, names) for a in args)
+        return " or ".join(spell(a, names, literal) for a in args)
     if origin is Annotated:
         meta = annotation.__metadata__[0]
-        return meta if isinstance(meta, str) else spell(args[0], names)
+        return meta if isinstance(meta, str) else spell(args[0], names, literal)
     if origin in (list, tuple):
-        return f"list of {spell(args[0], names)}" if args else "list"
+        return f"list of {spell(args[0], names, literal)}" if args else "list"
     if origin is dict:
-        return f"object of {spell(args[1], names)}" if args else "object"
+        return f"object of {spell(args[1], names, literal)}" if args else "object"
     if annotation is type(None):
         return "null"
     if isinstance(annotation, type) and issubclass(annotation, dict) and hasattr(annotation, "__required_keys__"):
-        return "{" + ", ".join(f"{k}: {spell(v, names)}" for k, v in annotation.__annotations__.items()) + "}"
+        return "{" + ", ".join(f"{k}: {spell(v, names, literal)}" for k, v in annotation.__annotations__.items()) + "}"
     return getattr(annotation, "__name__", str(annotation))

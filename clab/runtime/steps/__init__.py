@@ -10,7 +10,10 @@ frame and never leaves the run: each value under its name, by the coordinates of
 """
 
 import importlib.metadata
+import json
+import os
 import platform
+import subprocess
 import time
 from typing import Any
 
@@ -28,14 +31,14 @@ kind = registers(KINDS)
 
 def begin(engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
-    the device and every engine option; returns the start time."""
+    the device, every engine option and the client's clab; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     if plan.model != engine.spec:
         raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
                          f"{plan.model.key}@{plan.model.revision}")
     plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=dict(engine.options),
-                   started=time.strftime("%Y-%m-%dT%H:%M:%S"))
+                   client={"clab": version()}, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
 
@@ -100,10 +103,30 @@ def finished(value):
 
 
 def versions() -> dict[str, str]:
-    """The installed versions where the model is: `run` calls it inside the session, so under the ndif engine
-    they are the server's."""
-    found = {p: importlib.metadata.version(p) for p in ("clab", "nnsight", "nnterp", "transformers", "torch")}
-    return {**found, "python": platform.python_version()}
+    """The installed versions where the model is, clab's with its commit (`version`): `run` calls it inside
+    the session, so under the ndif engine they are the server's, beside the client's clab in `run.client`."""
+    found = {p: importlib.metadata.version(p) for p in ("nnsight", "nnterp", "transformers", "torch")}
+    return {"clab": version(), **found, "python": platform.python_version()}
+
+
+def version() -> str:
+    """clab's version here, with the commit it is when one is known: the one an install from git recorded
+    (`direct_url.json`), else `git describe --always --dirty` of the checkout clab is imported from, else the
+    static version alone."""
+    dist = importlib.metadata.distribution("clab")
+    url = json.loads(dist.read_text("direct_url.json") or "{}")
+    commit = url.get("vcs_info", {}).get("commit_id")
+    if commit:
+        return f"{dist.version}+{commit[:12]}"
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    if not os.path.exists(os.path.join(root, ".git")):         # not a checkout (never a git repo above one)
+        return dist.version
+    try:
+        described = subprocess.run(["git", "-C", root, "describe", "--always", "--dirty"], capture_output=True,
+                                   text=True, timeout=10, check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return dist.version
+    return f"{dist.version}+{described}"
 
 
 # The kinds register in this order.

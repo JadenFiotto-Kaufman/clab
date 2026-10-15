@@ -3149,7 +3149,7 @@
   },
   "Run": {
    "additionalProperties": false,
-   "description": "How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, and every engine\noption after its defaults in `options`) and what the run observed where the model is: the `versions`\ninstalled there (the server's, under `ndif`), the dtype of the residual stream (`dtype`) and the devices\nit lived on, in forward order (`devices`). `tokens` and `positions` describe values without holding any:\nhow each dataset input tokenized and what each generate step's rows generated (token strings per row,\nunder the input or the step's name), and the position every read and write resolved to, per row (an\nindex into the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not\nreach). A swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers`\nselect among: a `layers` axis's labels are `positions.select(site.layers, num_layers)`.",
+   "description": "How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the\nengine does not place the model, as on an NDIF server, and every engine option after its defaults in\n`options`), the clab that sent it (`client`: its version, with its commit), and what the run observed\nwhere the model is: the `versions` installed there (the server's, under `ndif`; clab's with its commit\ntoo), the dtype of the residual stream (`dtype`) and the devices it lived on, in forward order\n(`devices`), from the run's first forward. `tokens` and `positions` describe values without holding any:\nhow each dataset input tokenized and what each generate step's rows generated (token strings per row,\nunder the input or the step's name), and the position every read and write resolved to, per row (an\nindex into the row's prompt tokens, then its generated ones; `alignment_missing` for a row it does not\nreach). A swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers`\nselect among: a `layers` axis's labels are `positions.select(site.layers, num_layers)`.",
    "properties": {
     "engine": {
      "title": "Engine",
@@ -3160,13 +3160,28 @@
      "type": "integer"
     },
     "device": {
-     "title": "Device",
-     "type": "string"
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Device"
     },
     "options": {
      "additionalProperties": true,
      "default": {},
      "title": "Options",
+     "type": "object"
+    },
+    "client": {
+     "additionalProperties": {
+      "type": "string"
+     },
+     "default": {},
+     "title": "Client",
      "type": "object"
     },
     "versions": {

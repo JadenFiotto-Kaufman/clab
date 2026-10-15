@@ -531,7 +531,7 @@ Changes from PLAN §5, one reason each:
 
 | signature | contract |
 |---|---|
-| `main(argv: list[str] \| None = None) -> int` | `clab run DOC [--engine nnterp\|hooks] [--out DIR] [--remote no\|local\|yes] [--batch-size N]`; default `--out` is `out/<document name>`. |
+| `main(argv: list[str] \| None = None) -> int` | `clab run DOC [--engine nnterp\|hooks\|ndif] [--out DIR] [--batch-size N] [--device D] [-o KEY=VALUE ...]`; default `--out` is `out/<document name>`. |
 
 `engines/`
 
@@ -552,8 +552,7 @@ meta-path finder).
 
 ```python
 class Engine(Protocol):
-    def execute(self, plan: dict, *, batch_size: int = 8,
-                remote: bool | str = False) -> dict: ...
+    def execute(self, plan: dict, *, batch_size: int = 8) -> dict: ...
     def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]: ...
     def generate(self, batch: dict, writes: list[dict], reads: list[dict],
                  options: dict) -> tuple[Tensor, dict[str, Tensor]]: ...

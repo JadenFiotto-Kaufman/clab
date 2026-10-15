@@ -50,3 +50,10 @@ def test_describe_lists_every_registry():
                  "featurizer kinds:",
                  "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode("):
         assert word in text, word
+
+
+def test_describe_lists_the_engines_and_spells_literals_as_json():
+    lines = describe("engines").splitlines()
+    assert lines[1] == '  nnterp(device: str = "cpu", device_map: str or null = null)'
+    assert lines[5] == '  ndif(device: str = "cpu", remote: one of true, "local" = true)'
+    assert 'token_form: one of "spaced", "bare" = "spaced"' in describe("ops")

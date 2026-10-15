@@ -5,7 +5,8 @@ device="cpu", **options)` from a plan's `model` block. The run options that say 
 `device` (where it places the model and the inputs; `cpu` by default) and the options its constructor's
 keyword parameters declare, each with its default: `options(name)` reads them, and `load` refuses an unknown
 key, naming the ones the engine takes, before anything loads; an option the engine cannot honor it refuses by
-name. It keeps `device` and every option after defaults (`options`), which `execute` records in `plan.run`.
+name. It keeps `device` (None where it does not place the model: an NDIF server does) and every option after
+defaults (`options`), which `execute` records in `plan.run`.
 
 `execute(plan, batch_size=...)` is the single entry point and the only method an engine that ignores
 `clab.runtime.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine:
@@ -34,7 +35,7 @@ from ..plan import Model, Plan
 class Engine(Protocol):
     name: str
     spec: Model
-    device: str
+    device: str | None
     options: dict[str, Any]
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...

@@ -23,7 +23,7 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, keep, landed, nnterp_name, now, placed, stops
+from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, placed, stops
 
 
 @engine("hooks")
@@ -80,7 +80,7 @@ class HooksEngine:
         handles = [hook(self.model, self.config, component, layer, here, there, got, None)
                    for (component, layer), (here, there) in sites.items()]
         try:
-            self.model(**{k: batch[k].to(self.device) for k in ("input_ids", "attention_mask", "position_ids")})
+            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), self.device))
         finally:
             for handle in handles:
                 handle.remove()
@@ -103,8 +103,7 @@ class HooksEngine:
         handles += [hook(self.model, self.config, component, layer, here, there, got, call)
                     for (component, layer), (here, there) in sites.items()]
         try:
-            ids = self.model.generate(**{k: batch[k].to(self.device) for k in ("input_ids", "attention_mask")},
-                                      **options)
+            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), self.device), **options)
         finally:
             for handle in handles:
                 handle.remove()
