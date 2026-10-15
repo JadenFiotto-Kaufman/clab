@@ -1,9 +1,10 @@
 """The one computation vocabulary: every op is a plain function over tensors.
 
-`@op(group, ...)` registers the function under its own name and declares it: its group, the axes the input
+`@op(group, ...)` declares a function as an op under its own name: its group, the axes the input
 must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of the argument that lists them),
-the axes it appends (`adds`), and, when its value is a bundle a featurizer loads, that featurizer's kind
-(`bundle`). An op whose axes and further arguments depend on what it is given declares them as functions
+the axes it appends (`adds`), when its value is a bundle a featurizer loads, that featurizer's kind
+(`bundle`), and a rule its arguments keep beyond their types (`check`). `OPS` lists them, in the order at the
+end of this file. An op whose axes and further arguments depend on what it is given declares them as functions
 instead (`layout`, `options`), as the `featurizer` op does for its modes. Compile reads the axes to lay out
 every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
 `Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
@@ -66,19 +67,20 @@ DECLARED: dict[str, dict] = {}
 
 
 def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (), bundle: str | None = None,
-       layout: Callable | None = None, options: Callable | None = None):
-    """Register the decorated function as an op under its own name, with its declaration: its `group`
-    (`metrics`, `reductions`, `edits` or `transforms`), its axes, and, for a value a featurizer loads, the
-    featurizer kind its `bundle` is for. An op whose result's axes depend on its arguments declares
-    `layout(dims, args, kind)` in place of the axes, and one whose `**` arguments do declares `options(args,
-    kind)`, the function they go to, whose first two parameters (the featurizer and the value) the op fills;
-    `kind` is that of the featurizer the op's `Featurizer` argument names."""
+       layout: Callable | None = None, options: Callable | None = None, check: Callable | None = None):
+    """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`,
+    `edits` or `transforms`), its axes, and, for a value a featurizer loads, the featurizer kind its `bundle`
+    is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of
+    the axes, and one whose `**` arguments do declares `options(args, kind)`, the function they go to, whose
+    first two parameters (the featurizer and the value) the op fills; `kind` is that of the featurizer the
+    op's `Featurizer` argument names. `check(args)` raises on arguments its signature accepts but the op
+    cannot mean. It joins `OPS` by its place in the list at the end of this file."""
     assert group in GROUPS
-    def register(fn: Callable) -> Callable:
+    def declare(fn: Callable) -> Callable:
         DECLARED[fn.__name__] = {"group": group, "needs": needs, "removes": removes, "adds": adds, "bundle": bundle,
-                                 "layout": layout, "options": options}
-        return registry.registers(OPS)(fn)
-    return register
+                                 "layout": layout, "options": options, "check": check}
+        return fn
+    return declare
 
 
 def parameters(name: str, args: dict | None = None, kind: str | None = None) -> dict[str, inspect.Parameter]:
@@ -115,6 +117,8 @@ def check(name: str, args: dict) -> None:
     if name not in OPS:
         raise ValueError(f"unknown op {name!r}; valid: {', '.join(OPS)}")
     registry.check(OPS[name], args, SUPPLIED + ("of",), repr(name))
+    if DECLARED[name]["check"] is not None:
+        DECLARED[name]["check"](args)
 
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
@@ -224,9 +228,12 @@ def live(got: dict | None, operand: dict) -> Tensor:
     return (got or {})[operand["live"]]
 
 
-# The ops register in this order, and the tables (`describe`, FORMAT.md, schema.json) list them in it.
-from .edits import add, normalize, project_out, renormalize, scale, sub, swap  # noqa: E402,F401
-from .transforms import featurizer, readout  # noqa: E402,F401
-from .reductions import mean, pca  # noqa: E402,F401
-from .metrics import (argmax, cross_entropy, decode, js, kl, logit_diff, match, token_logit,  # noqa: E402,F401
-                      token_prob, top_k)
+# The ops, in the order the tables (`describe`, FORMAT.md, schema.json) list them.
+from . import edits, metrics, reductions, transforms  # noqa: E402
+
+OPS.update((fn.__name__, fn) for fn in [
+    edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
+    transforms.readout, transforms.featurizer, reductions.mean, reductions.pca, metrics.match, metrics.logit_diff,
+    metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.kl, metrics.js, transforms.top_k,
+    transforms.argmax, transforms.decode, edits.noise, edits.clamp, metrics.cosine])
+assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
