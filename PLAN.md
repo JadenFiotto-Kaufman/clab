@@ -695,3 +695,87 @@ when the owner asks for open items.
   named intervention at the root, pulled into each step by name; there is
   no root-level `edits` block (steps that do not name it run the
   un-adapted model, which is the comparison a document wants).
+
+## 13. M6 — real models (ratified 2026-10-14)
+
+Decided after the first real NDIF run (17 documents; every remote result
+bit-identical to a local GPU run; one bug: client-built tensors never moved
+to the activation's device) and the two comparisons against the first
+attempt (four of five of its real-model experiments reproduce exactly on
+clab; its lead is operating on real models).
+
+- **Three engines: `nnterp`, `hooks`, `ndif`.** `ndif` builds a weightless
+  shell (`dispatch=False`) and opens the session with `remote=True`; it
+  reads the server address from nnsight's own configuration/env; `--remote`
+  leaves the CLI; `remote="local"` stays as an engine kwarg for tests.
+- **Run options**, named so: `engine`, `batch_size`, `device` are common;
+  engine-specific options pass through to the engine's constructor
+  (`-o device_map=auto`), which refuses what it cannot honor. The document's
+  `model` block says what the checkpoint is; run options say how and where
+  it runs. `plan.run` records every option given and what preflight observed
+  (device, served dtype, versions of the serving side).
+- **Device:** every tensor clab builds on the client moves to the
+  activation's device at the point of use; featurizer math runs with
+  autocast disabled. Default device stays `cpu`.
+- **What comes home: results and the run record**, never the plan; the
+  client assigns them into its own plan. Charter law 2's "`nnsight.save(plan)`
+  is the only thing that comes home" is amended accordingly.
+- **Published SAEs** load from a plain safetensors with no clab header: the
+  SAE kind recognises SAELens / Gemma Scope tensor names (`W_enc`, `W_dec`,
+  `b_enc`, `b_dec`, optional `threshold`), checks shapes against the site,
+  and supports ReLU, JumpReLU (`threshold`) and TopK (`k`) activations.
+  Loading from the Hub by release name waits for hub datasets.
+- **Featurizers are a protocol, one class per kind, one file per kind.**
+  Two user-facing modes only, `encode` and `apply`; `make`, `replace`,
+  `settle`, `anneal`, `scalars`, `header` are protocol machinery.
+- **Package layout by role:** `plan/` (model, compile, registry, address),
+  `runtime/` (steps split per kind + preflight + state + batches, ops split
+  by group, featurizers per kind, positions, data), `engines/` (nnterp,
+  hooks, ndif, standard), `output/` (dump, load, table), `cli.py`. A pure
+  move first, its own PR.
+- **Selectors are an int, a slice or a list of picks, everywhere a range
+  exists** (frame, index, occurrence, layers): slices are strings in Python
+  notation (`"2:5"`, `"-3:"`, `":"`), lists are explicit picks
+  (`[1, 3, 7]`); `"all"` becomes `":"`. One `select(selector, n)` serves
+  every stage. Migration touches the documents with spans.
+- **Ops added:** `noise` (`scale`, `seed`), `clamp` (`min`, `max`),
+  `cosine` (a metric over `hidden_size`).
+- **Real-model documents:** the five ports of the first attempt's real
+  experiments join the corpus under `documents/real/` with GPU snapshots;
+  the remote table is rerun, expecting 17/17 bit-equal to a local GPU run.
+- Dropped: `clab check`.
+
+### Decisions pending (owner)
+
+- Chat rendering: `add_generation_prompt` — today a `generate` from a chat
+  starts without an assistant turn. Recommend `True` for generate steps.
+- `token_form: "spaced"` tokenises the column verbatim (a column of
+  `"Tuesday"` silently scores the un-spaced token). Recommend renaming to
+  `"verbatim"`; alternative: normalise to a leading space.
+- Rows lacking the anchor text in the prefill: refuse (today) or
+  `"missing": "skip"` on the scope.
+- Same-label sweeps zip when their values are equal (three lines).
+
+### Roadmap additions from the three reports
+
+- Generation drift to shrink: `steps.generate`'s name-mangling,
+  `positions.reach`'s three-tuple read differently by four callers, and
+  position logic inside the engines (`standard.landed`) against the
+  charter's "targeting positions lives outside the engines".
+- `output.evaluated` (rebuilds a fit body's view to label one eval member)
+  is the fragile part of output; `output.py` is 389 lines where the first
+  attempt's writer was 149 — the difference buys `Plan.load` and joins.
+- A d×k subspace parameter (width×width `theta` is 16.7M parameters at
+  d = 4096) with a Woodbury step.
+- Featurizers only attach at `hidden_size` sites; a coordinate selector on
+  `file_path` for swept bundles; a cross-site adapter inside a generate.
+- `input_ids` as a component; `token_form: "id"`; `rmsprop`; a per-update
+  loss trace (`fit.history.objective`).
+- ndif/nnsight, not clab: no way to deploy with eager attention and
+  `attn_implementation` absent from the model key (the attention-interior
+  documents cannot run remotely; clab refuses them cleanly on the server);
+  gpt2 needs `--task` at deploy; `HF_HUB_OFFLINE=1` on the ray service
+  breaks `deploy`'s size estimate; this host's root filesystem is at 95%,
+  which stops Ray scheduling without a threshold override.
+- Two tests to carry over: featurizer math on a non-CPU device; under
+  autocast.
