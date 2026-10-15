@@ -116,8 +116,8 @@ def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: 
     """One layer of a prefill read in one batch: its entries when it is ragged, then its ops."""
     if positions.width(positions.parse(record.pos)) is None:
         keep = site["keep"]
-        value = {"values": value[keep], "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep],
-                 "tok": site["tok"][keep]}
+        value = {"values": value[keep.to(value.device)],
+                 "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep], "tok": site["tok"][keep]}
     return with_ops(engine, plan, record, value, state, at, rows, site["tok"])
 
 

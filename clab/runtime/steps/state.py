@@ -1,7 +1,7 @@
 """The run's state, each value under its name by the coordinates of the point that produced it, and an op's
 arguments resolved by name against it."""
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import Tensor
@@ -32,7 +32,7 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
         elif annotation == ops.Featurizer:
             value = lookup(state, value, at)
         if per_row and isinstance(of, dict) and "tok" in of:
-            value = value[of["row"] - (rows.start if rows is not None else 0)]
+            value = value[(of["row"] - (rows.start if rows is not None else 0)).to(cast(Tensor, value).device)]
         out[key] = value
     return out
 

@@ -37,7 +37,7 @@ def scale(of: Tensor, factor: float) -> Tensor:
 @op("edits")
 def renormalize(of: Tensor, original: Value) -> Tensor:
     """Each vector rescaled to the norm of `original`'s; inside a write, the value before the site's writes."""
-    return of * (original.norm(dim=-1, keepdim=True) / of.norm(dim=-1, keepdim=True))
+    return of * (original.to(of.device).norm(dim=-1, keepdim=True) / of.norm(dim=-1, keepdim=True))
 
 
 @op("edits")
@@ -49,6 +49,7 @@ def normalize(of: Tensor) -> Tensor:
 @op("edits")
 def project_out(of: Tensor, direction: Value) -> Tensor:
     """Each vector less its component along `direction`."""
+    direction = torch.as_tensor(direction, device=of.device)
     unit = direction / direction.norm(dim=-1, keepdim=True)
     return of - (of * unit).sum(-1, keepdim=True) * unit
 

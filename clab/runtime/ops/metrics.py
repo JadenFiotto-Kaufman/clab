@@ -17,10 +17,11 @@ def missing(of: Tensor) -> Tensor:
 
 
 def _per_row(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
-    """One id per row (`[rows]`), shaped to broadcast against `x` along its rows (or entries) axis."""
+    """One id per row (`[rows]`), on `x`'s device, shaped to broadcast against `x` along its rows (or entries)
+    axis."""
     shape = [1] * x.dim()
     shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = -1
-    return ids.reshape(shape)
+    return ids.to(x.device).reshape(shape)
 
 
 def _pick(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
@@ -63,14 +64,14 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str],
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def kl(of: Tensor, against: Value) -> Tensor:
     """KL(of ‖ against) between the two next-token distributions, in nats."""
-    p, q = of.log_softmax(-1), against.log_softmax(-1)
+    p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)
     return (p.exp() * (p - q)).sum(-1)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def js(of: Tensor, against: Value) -> Tensor:
     """The Jensen–Shannon divergence between the two distributions, in nats (at most log 2)."""
-    p, q = of.log_softmax(-1), against.log_softmax(-1)
+    p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)
     m = torch.logaddexp(p, q) - math.log(2)
     return 0.5 * (p.exp() * (p - m)).sum(-1) + 0.5 * (q.exp() * (q - m)).sum(-1)
 

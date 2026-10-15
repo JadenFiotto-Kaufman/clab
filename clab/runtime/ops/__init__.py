@@ -158,10 +158,11 @@ def select(value: Tensor, component: str, record: dict) -> Tensor:
 
     `record["positions"]` is `[rows, width]` token indices; `record["select"]`
     maps a dimension of that layout to the indices kept along it: one list for
-    every row, or (`[rows, n]`, on the `key` axis) each row's own.
+    every row, or (`[rows, n]`, on the `key` axis) each row's own. The indices, built where the plan runs,
+    move to the value's device.
     """
     x = value.movedim(pos_axis(component), 1)
-    x = x[torch.arange(x.shape[0])[:, None], record["positions"]]
+    x = x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)]
     for dim, index in record["select"].items():
         x = take(x, dim, index)
     return x
@@ -169,6 +170,7 @@ def select(value: Tensor, component: str, record: dict) -> Tensor:
 
 def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
     """`x` at `index` along `dim`: the same indices on every row, or (`[rows, n]`) each row's own."""
+    index = index.to(x.device)
     return x.index_select(dim, index) if index.dim() == 1 else x.gather(dim, per_row(x, dim, index))
 
 
@@ -192,14 +194,15 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
     selection's rows (the op's `rows`) and the token position of each of its positions (the write's `tok`,
     plus the decode `call` it lands at, which the engine stamps). A write narrows at most
     one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
-    width; only the positions its `keep` marks are written.
+    width; only the positions its `keep` marks are written. Every index, mask and result moves to the value's
+    device, and a result to its dtype, where it meets the value.
     """
     axis = pos_axis(component)
     before = value.movedim(axis, 1)
     x = before.clone()
-    rows = torch.arange(x.shape[0])[:, None]
+    rows = torch.arange(x.shape[0], device=x.device)[:, None]
     for w in writes:
-        pos = w["positions"]
+        pos = w["positions"].to(x.device)
         current, original = x[rows, pos], before[rows, pos]
         new = current
         for dim, index in w["select"].items():
@@ -216,11 +219,11 @@ def write(value: Tensor, component: str, writes: list[dict], got: dict | None = 
             new = f.within(new, lambda z, args=args, o=o, start=start: call(
                 o["op"], z, args, original=start, dims=o["dims"], **where), features)
         for dim, index in w["select"].items():
-            new = new.to(current.dtype)
+            new, index = new.to(device=current.device, dtype=current.dtype), index.to(current.device)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \
                 current.scatter(dim, per_row(new, dim, index), new)
-        keep = w.get("keep", torch.ones(pos.shape, dtype=torch.bool))
-        x[rows.expand_as(pos)[keep], pos[keep]] = new.to(x.dtype)[keep]
+        keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
+        x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
     return x.movedim(1, axis)
 
 
