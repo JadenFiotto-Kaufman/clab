@@ -178,8 +178,8 @@ named in every error.
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
   loads with); `execute(plan, batch_size=, ...)` is its one entry point, and its keyword parameters are what it
   runs with. One pool of options (`-o`, or `clab.run`'s keywords) goes to each by name; `clab describe engines`
-  lists both, each option with what its docstring says it takes (`device` is a transformers device map on
-  nnterp and hooks: `cpu`, `cuda:0`, `auto`, ...).
+  lists both, each option with what its docstring says it takes (on nnterp and hooks `device` is one torch
+  device, `cpu` or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
 
 ## The output
 

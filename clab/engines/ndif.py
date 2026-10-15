@@ -32,6 +32,11 @@ class NdifEngine(NnterpEngine):
         """
         if remote is True and device != "cpu":
             raise ValueError(f"device: the ndif engine cannot honor {device!r}: the server places the model")
+        try:
+            torch.device(device)
+        except RuntimeError:
+            raise ValueError(f"device: the ndif engine places a local model on one torch device ('cpu', "
+                             f"'cuda:0'), not {device!r}") from None
         self.spec, self.options, self.remote = model, {"remote": remote}, remote
         self.device: str | None = None if remote is True else device
         self.model = build(model, "ndif", lambda extra: StandardizedTransformer(

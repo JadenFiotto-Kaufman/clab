@@ -1,7 +1,9 @@
 """The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-`device` is a transformers device map, so one device or a model spread over several; the batch's inputs go
-where the model's first parameter is, and transformers moves them on from there.
+`device` is one torch device, which nnsight's loader takes as its `device`, or a device map transformers
+computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
+several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
+from there.
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -20,11 +22,7 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
-
-
-# The device maps transformers computes, which may spread a model over several devices.
-COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -33,26 +31,20 @@ class NnterpEngine:
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
     def __init__(self, model: Model, *, device: str = "cpu"):
-        """The checkpoint `model` pins, placed by `device`, which nnsight hands to transformers as its
-        `device_map`; the block's other keys go to the loader as they are.
+        """The checkpoint `model` pins, placed by `device`: the loader's `device_map` when transformers computes
+        it, else its `device`; the block's other keys go to the loader as they are.
 
-        device: a transformers device map: one device ("cpu", "cuda:0"), or "auto", "balanced", ... over the GPUs
+        device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
         """
         self.spec, self.device, self.options = model, device, {}
-        # nnsight loads through a transformers pipeline, which moves a model that one device holds onto its own
-        # default device (the first GPU) unless it is given that device too; a map transformers computes it keeps.
-        one = {} if device in COMPUTED else {"device": device}
+        placed = {"device_map": device} if device in COMPUTED else {"device": device}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), device_map=device,
-            **one, **extra))
+            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
         the results and the run record are the one thing that comes home, into the client's own plan. It runs
-        with no options of its own; `options` are a subclass's, which `steps.begin` records.
-
-        batch_size: how many of a step's rows go through the model in one forward or generation
-        """
+        with no options of its own; `options` are a subclass's, which `steps.begin` records."""
         started = steps.begin(self, plan, batch_size, options)
         with self.model.session(remote=self.remote):
             steps.run(self, plan, batch_size)

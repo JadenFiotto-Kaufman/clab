@@ -371,10 +371,11 @@ nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
 an attention pattern). `per_layer` says it is a block's value, so a site names
 its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the table lists as narrowing the
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
-in their order, and the axis stays in the layout, so an int keeps one index (`{"num_heads": 3}` is head 3
-alone, an axis of size 1, as `[3]` is), where an int `layers` drops its axis. `key` is as long as each row,
-so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream`
-marks the residual-stream values `readout` may project.
+in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int
+keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
+int `layers` drops its axis. `key` is as long as each row, so a selector there picks a fixed number of keys
+counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream` marks the residual-stream values `readout` may
+project.
 
 A selection of a component (what a read binds, and what a write's ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
@@ -537,28 +538,30 @@ The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`.
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block. The run options that say how and where it runs are
-`device` (where it places the model, its one placement argument, which each engine reads as it likes; `cpu`
-by default), `batch_size`, and the options an engine declares, each with its default: those it loads with are
-its constructor's keyword parameters, those it runs with its `execute`'s, and no option is both (`engine`
-refuses one that is). Every option, `device` and `batch_size` among them, says what it takes on a line of
-the docstring of the method that declares it, `<name>: <what it takes>`, which `clab describe engines`
-prints. `options(name)` reads them; `route` sends each option given to the one that declares it and refuses
-one neither does, naming both lists, before anything loads; an option the engine cannot honor it refuses by
-name. It keeps `device` as asked (None where it does not place the model: an NDIF server does) and the
-options it loaded with (`options`), which `execute` records in `plan.run` beside the ones it runs with, after
-their defaults.
+`device` (where it places the model, its one placement argument, which each engine reads as it likes; `cpu` by
+default), `batch_size`, and the options an engine declares, each with its default: those it loads with are its
+constructor's keyword parameters, those it runs with its `execute`'s, and no option is both (`engine` refuses
+one that is). What each option takes is a `<name>: <text>` line in the docstring of the method that declares
+it (`batch_size`'s in the protocol's `execute`), which `clab describe engines` and FORMAT.md print.
+`options(name)` reads them; `route` sends each option given to the one that declares it and refuses one
+neither does, naming both lists, before anything loads; an option the engine cannot honor it refuses by name.
+It keeps `device` as asked (None where it does not place the model: an NDIF server does) and the options it
+loaded with (`options`), which `execute` records in `plan.run` beside the ones it runs with, after their
+defaults.
 
 ### `nnterp`
 
 - Loads with:
-  - `device: str = "cpu"`: a transformers device map: one device ("cpu", "cuda:0"), or "auto", "balanced", ... over the GPUs
+  - `device: str = "cpu"`: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
 - Runs with:
   - `batch_size: int = 8`: how many of a step's rows go through the model in one forward or generation
 
 The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-`device` is a transformers device map, so one device or a model spread over several; the batch's inputs go
-where the model's first parameter is, and transformers moves them on from there.
+`device` is one torch device, which nnsight's loader takes as its `device`, or a device map transformers
+computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
+several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
+from there.
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -566,7 +569,7 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 ### `hooks`
 
 - Loads with:
-  - `device: str = "cpu"`: a transformers device map: one device ("cpu", "cuda:0"), or "auto", "balanced", ... over the GPUs
+  - `device: str = "cpu"`: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
 - Runs with:
   - `batch_size: int = 8`: how many of a step's rows go through the model in one forward or generation
 
@@ -578,8 +581,10 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
 (the module whose output or input nnterp's own key for it names), the sizes,
 and what the checkpoint supports. A component nnterp reaches inside a
 module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs. `device` is a transformers device map, so one device or a model spread over several;
-the batch's inputs go where the model's first parameter is, and transformers moves them on from there.
+before anything runs. `device` is one torch device, which the loaded model moves to, or a device map
+transformers computes (`auto`, `balanced`, ...), which `from_pretrained` takes as its `device_map` and which
+may spread the model over several GPUs; the batch's inputs go where the model's first parameter is, and
+transformers moves them on from there.
 
 ### `ndif`
 

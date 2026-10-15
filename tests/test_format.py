@@ -55,8 +55,8 @@ def test_describe_lists_every_registry():
 def test_describe_lists_the_engines_and_spells_literals_as_json():
     lines = describe("engines").splitlines()
     assert lines[2:6] == ["      loads with:",
-                          '        device: str = "cpu" — a transformers device map: one device ("cpu", "cuda:0"), or '
-                          '"auto", "balanced", ... over the GPUs',
+                          '        device: str = "cpu" — one torch device ("cpu", "cuda:0") as the loader\'s device, or '
+                          '"auto", "balanced", ... as its device_map',
                           "      runs with:",
                           "        batch_size: int = 8 — how many of a step's rows go through the model in one "
                           "forward or generation"]

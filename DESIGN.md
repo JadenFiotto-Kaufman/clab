@@ -86,8 +86,8 @@ document in these places:
   of the body, which the instance keeps (`seen`) only while its fit trains it; its decoder rows are projected
   back to unit norm after each optimizer step. The hooks engine serves `fit`: gradients flow
   through its hooks, and both engines agree to the bit (**verified**, every fit document).
-- PR 12 (PLAN.md §13): `device` is an engine's one placement option (on nnterp and hooks a transformers
-  device map, `auto` among them; `device_map` is gone); `select` takes a selector per axis, as `layers` does;
+- PR 12 (PLAN.md §13): `device` is an engine's one placement option (on nnterp and hooks one torch device or
+  a device map transformers computes, `auto` among them; `device_map` is gone); `select` takes a selector per axis, as `layers` does;
   the metric ops have no `token_form`: a token column is tokenized exactly as written.
 
 For ratification before any code is written. Present tense throughout: this is

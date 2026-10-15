@@ -173,13 +173,14 @@ def per_op(base: dict) -> dict:
 def run_options(name: str) -> dict[str, list[tuple[str, str]]]:
     """Engine `name`'s run options, each `key: type = default` beside what its docstring says it takes: those
     it loads with (`device`, then its own) and those it runs with (`batch_size`, then its own)."""
-    from .engines import ENGINES, options
+    from .engines import ENGINES, Engine, options
 
     cls: Any = ENGINES[name]
     declared = options(name)
     common = {"loads": {"device": inspect.signature(cls.__init__).parameters["device"]},
               "runs": {"batch_size": inspect.signature(cls.execute).parameters["batch_size"]}}
-    said = {"loads": registry.described(cls.__init__), "runs": registry.described(cls.execute)}
+    said = {"loads": registry.described(cls.__init__),
+            "runs": {**registry.described(Engine.execute), **registry.described(cls.execute)}}
     return {side: [(f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}", said[side].get(k, ""))
                    for k, p in {**common[side], **declared[side]}.items()] for side in ("loads", "runs")}
 

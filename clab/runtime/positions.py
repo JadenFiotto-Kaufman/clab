@@ -72,10 +72,15 @@ def select(selector, n: int) -> list[int]:
 
 
 def kept(selects: dict | None, sizes: dict[str, int]) -> dict[str, list[int]]:
-    """A site's or an op's `select` as the indices it keeps on each axis: the axis's selector among its size in
-    `sizes`. The `key` axis is as long as each row, so a selector there names a fixed number of keys counted
-    from the start (`keyed` says so), which no size changes."""
-    return {axis: select(s, sys.maxsize if axis == "key" else sizes[axis]) for axis, s in (selects or {}).items()}
+    """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
+    and on `key` its `keys`."""
+    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
+
+
+def keys(selector) -> list[int]:
+    """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
+    number counted from the start (`keyed` says so), so no row's length changes them."""
+    return select(selector, sys.maxsize)
 
 
 def keyed(selector) -> bool:

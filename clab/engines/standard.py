@@ -49,9 +49,14 @@ OWNED = {"device": "where the model runs is a run option: --device", "device_map
          "torch_dtype": "the dtype is spelled `dtype`"}
 
 
+# The device maps transformers computes, which may spread a model over several devices; any other `device` is one
+# torch device.
+COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
+
+
 def inputs(batch: dict, keys: tuple, device: str) -> dict:
     """The batch's `keys` on `device`: where the model's first parameter is (`steps.home`), which is where a
-    device map puts the model's input."""
+    computed device map puts the model's input."""
     return {k: batch[k].to(device) for k in keys}
 
 

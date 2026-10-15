@@ -305,6 +305,19 @@ def test_a_swept_value_is_keyed_by_coordinate(filled, tmp_path):
         assert sorted(f.keys()) == ["num_heads=0", "num_heads=1", "num_heads=2", "num_heads=3"]
 
 
+def test_a_saved_read_that_selects_a_head_tables_per_point(engines):
+    """head_patching.json's counterfactual read, saved: `select: {num_heads: <int>}` keeps the head axis at
+    size 1, and its table is a row per point, example and position whose value is that head's result."""
+    plan = edited("head_patching", lambda d: d["saves"].append("counterfactual.v_cf")).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows = filled.table("counterfactual.v_cf")
+    assert [r["at"] for r in rows] == [{"num_heads": h} for h in range(4) for _ in range(4)]
+    assert {r["pos_token"] for r in rows} == {"▁is"}
+    head_dim = filled.results["counterfactual.v_cf"][2].shape[-1]
+    assert all(len(r["value"]) == 1 and len(r["value"][0]) == head_dim for r in rows)
+    assert rows[8]["value"] == filled.results["counterfactual.v_cf"][2][0, 0].tolist()
+
+
 def test_tables_join_wide_and_label_layers_and_keys(filled):
     rows = filled["two_observes", "nnterp"].table("patching_ld", "ablation_ld", "clean_ld")
     assert len(rows) == 4 and {"patching_ld", "ablation_ld", "clean_ld"} <= set(rows[0])

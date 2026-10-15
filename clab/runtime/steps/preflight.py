@@ -15,7 +15,8 @@ def preflight(engine, plan: Plan) -> dict:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
-    room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
+    the indices every record's `select` keeps on each axis (`selects`, resolved here once, among the engine's
+    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
     fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
     `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
     each substituted dataset's rows under the body's name for it.
@@ -61,7 +62,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found: dict = {"inputs": {}, "positions": {}, "said": {}}
+    found: dict = {"inputs": {}, "positions": {}, "said": {}, "selects": {}}
     shapes: dict = {}
     for name, entry in steps.items():
         for step in points(entry):
@@ -104,6 +105,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                         size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
                             if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
                         selected(where, axis, index, size, what)
+                    kept = positions.kept(site.select, sizes)
+                    put(found["selects"], where, step.at, kept)
                     probe = None                        # past a probe's encode, a column names its classes
                     for o in record.ops:
                         if probe is None:
@@ -112,8 +115,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                             check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
                         if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
                             probe = o.featurizer
-                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in
-                                                                positions.kept(site.select, sizes).items()}
+                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
                     if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                         resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
                         put(found["positions"], where, step.at, resolved)
@@ -148,9 +150,9 @@ def picked(where: str, layers, n: int) -> list[int]:
     return got
 
 
-def selected(where: str, axis: str, selector, n: int, what: str) -> list[int]:
-    """The indices a `select` keeps on an axis of `n` (`what` says which), each one there: a pick outside them,
-    or a selector that keeps none of them, is refused by name."""
+def selected(where: str, axis: str, selector, n: int, what: str) -> None:
+    """Refuses by name a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps
+    none of it."""
     written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
     try:
         got = positions.kept({axis: selector}, {axis: n})[axis]
@@ -160,7 +162,6 @@ def selected(where: str, axis: str, selector, n: int, what: str) -> list[int]:
         raise ValueError(f"{where}: select {axis} {selector!r} outside {what}")
     if not got:
         raise ValueError(f"{where}: select {axis} {selector!r} keeps none of {what}")
-    return got
 
 
 def widths(engine, plan: Plan) -> dict[str, int]:
@@ -342,9 +343,8 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                              f"{engine.name} engine's forward does not reach before this write's {site.component} "
                              f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")
         if key in chosen:
-            per, own = (math.prod(len(kept[a]) if a in kept else sizes[a]
-                                  for a in address.dims(s.component, None, False)[2:])
-                        for s in (read, site) for kept in [positions.kept(s.select, sizes)])
+            per, own = (math.prod(kept.get(a) or sizes[a] for a in address.dims(s.component, None, False)[2:])
+                        for s, kept in ((read, theirs[1]), (site, shape[1])))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")

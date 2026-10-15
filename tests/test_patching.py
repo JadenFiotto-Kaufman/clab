@@ -233,6 +233,9 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
 def test_an_option_the_engine_cannot_honor_is_refused_by_name():
     with pytest.raises(ValueError, match="device: the ndif engine cannot honor 'cuda': the server places the model"):
         clab.run(document("patching"), engine="ndif", device="cuda")
+    with pytest.raises(ValueError, match=r"device: the ndif engine places a local model on one torch device \('cpu', "
+                                         r"'cuda:0'\), not 'auto'"):
+        clab.run(document("patching"), engine="ndif", device="auto", remote="local")
     with pytest.raises(ValueError, match=r"model.device_map: the hooks engine cannot honor it: where the model runs is "
                                          r"a run option: --device"):
         clab.run(edited("patching", lambda d: d["model"].update(device_map="auto")), engine="hooks")

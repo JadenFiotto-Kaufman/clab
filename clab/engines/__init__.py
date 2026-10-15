@@ -2,16 +2,16 @@
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block. The run options that say how and where it runs are
-`device` (where it places the model, its one placement argument, which each engine reads as it likes; `cpu`
-by default), `batch_size`, and the options an engine declares, each with its default: those it loads with are
-its constructor's keyword parameters, those it runs with its `execute`'s, and no option is both (`engine`
-refuses one that is). Every option, `device` and `batch_size` among them, says what it takes on a line of
-the docstring of the method that declares it, `<name>: <what it takes>`, which `clab describe engines`
-prints. `options(name)` reads them; `route` sends each option given to the one that declares it and refuses
-one neither does, naming both lists, before anything loads; an option the engine cannot honor it refuses by
-name. It keeps `device` as asked (None where it does not place the model: an NDIF server does) and the
-options it loaded with (`options`), which `execute` records in `plan.run` beside the ones it runs with, after
-their defaults.
+`device` (where it places the model, its one placement argument, which each engine reads as it likes; `cpu` by
+default), `batch_size`, and the options an engine declares, each with its default: those it loads with are its
+constructor's keyword parameters, those it runs with its `execute`'s, and no option is both (`engine` refuses
+one that is). What each option takes is a `<name>: <text>` line in the docstring of the method that declares
+it (`batch_size`'s in the protocol's `execute`), which `clab describe engines` and FORMAT.md print.
+`options(name)` reads them; `route` sends each option given to the one that declares it and refuses one
+neither does, naming both lists, before anything loads; an option the engine cannot honor it refuses by name.
+It keeps `device` as asked (None where it does not place the model: an NDIF server does) and the options it
+loaded with (`options`), which `execute` records in `plan.run` beside the ones it runs with, after their
+defaults.
 
 `execute(plan, batch_size=..., **options)` is the single entry point and the only method an engine that
 ignores `clab.runtime.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine:
@@ -51,7 +51,12 @@ class Engine(Protocol):
     device: str | None
     options: dict[str, Any]
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, **options: Any) -> Plan: ...
+    def execute(self, plan: Plan, *, batch_size: int = 8, **options: Any) -> Plan:
+        """The filled plan.
+
+        batch_size: how many of a step's rows go through the model in one forward or generation
+        """
+        ...
 
     def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]: ...
 

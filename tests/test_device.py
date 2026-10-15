@@ -90,9 +90,9 @@ def test_an_engine_runs_a_document_on_the_device(engines, kind, options, name):
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("device", ["auto", "cuda:0"])
 @pytest.mark.parametrize("name", ["patching", "generated_answer"])
-def test_a_device_map_places_the_model_and_its_inputs(engines, kind, device, name):
-    """On nnterp and hooks `device` is a transformers device map: "auto" (here, one GPU, so all of the model on
-    it) and one device both load the model there, each batch's inputs go where its first parameter is, and the
+def test_a_device_places_the_model_and_its_inputs(engines, kind, device, name):
+    """On nnterp and hooks "auto" (a map transformers computes; here one GPU, so all of the model on it) and one
+    torch device both put the model there, each batch's inputs go where its first parameter is, and the
     numbers are the CPU's to float32 rounding; the run records the device asked for and where it ran."""
     plan = plan_of(name)
     there = load(kind, plan.model, device).execute(plan_of(name), batch_size=BATCH_SIZE)
@@ -102,12 +102,15 @@ def test_a_device_map_places_the_model_and_its_inputs(engines, kind, device, nam
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_the_default_device_keeps_the_model_on_the_cpu_beside_a_gpu(kind):
-    """`cpu` is a device map naming one device; the model stays there, though a GPU is visible (a transformers
-    pipeline, which nnsight loads through, would otherwise move it to the GPU)."""
+@pytest.mark.parametrize("device, where", [("cpu", "cpu"), ("cuda:0", "cuda:0")])
+def test_one_torch_device_holds_the_model_beside_a_visible_gpu(capfd, kind, device, where):
+    """One torch device is where the model is, `cpu` included while a GPU is visible (a transformers pipeline,
+    which nnsight loads through, moves a model it is given no device for to the first GPU), and the loader
+    is given `device` alone, so transformers does not warn of `device` beside `device_map`."""
     plan = plan_of("patching")
-    run = load(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).run
-    assert run is not None and (run.device, run.devices) == ("cpu", ["cpu"])
+    run = load(kind, plan.model, device).execute(plan, batch_size=BATCH_SIZE).run
+    assert run is not None and (run.device, run.devices) == (device, [where])
+    assert "device_map" not in capfd.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
