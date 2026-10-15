@@ -10,7 +10,7 @@ torch can (here the `ndif2` conda env's), with clab installed in it without depe
     uv pip install --python /tmp/clab-gpu/bin/python --no-deps -e .
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/clab-gpu/bin/python -m pytest tests/test_real.py -q
 
-About seven minutes on an RTX A6000, two thirds of it das's four fits per engine.
+About four minutes on an idle RTX A6000, most of it das's four fits per engine.
 """
 
 import statistics
