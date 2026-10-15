@@ -2,21 +2,23 @@
 `cuda` at batch size 16, its numbers pinned per engine, the engines agreeing to the bit, and the findings each
 document's description states.
 
-The CPU-only suite skips this file: it needs a CUDA device and the checkpoint in the local Hugging Face cache. On
-this host the project venv's torch cannot use the driver, so it runs from a throwaway venv over a python whose
-torch can (here the `ndif2` conda env's), with clab installed in it without dependencies, from the repo root:
+The CPU-only suite skips this file: it needs a CUDA device and the checkpoint in the local Hugging Face cache. It
+runs from a venv whose torch matches your CUDA driver, with clab installed `--no-deps` and `PYTHONPATH` at the
+checkout, from the repo root:
 
-    uv venv --python ~/miniconda3/envs/ndif2/bin/python --system-site-packages /tmp/clab-gpu
+    uv venv --python <a python whose torch runs on your driver> --system-site-packages /tmp/clab-gpu
     uv pip install --python /tmp/clab-gpu/bin/python --no-deps -e .
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/clab-gpu/bin/python -m pytest tests/test_real.py -q
 
-About two minutes on an idle RTX A6000.
+About two minutes on an idle RTX A6000. Each snapshot records the GPU and the torch and transformers it was made
+with (`made_with`), which need not be the lock's.
 """
 
 import statistics
 
 import pytest
 import torch
+import transformers
 from huggingface_hub import try_to_load_from_cache
 
 from conftest import REAL, close, plain, plan_of, same, snapshot
@@ -51,7 +53,9 @@ def test_numbers_match_the_snapshot(filled, name, kind):
     plan = filled[name, kind]
     assert plan.run.devices == ["cuda:0"] and plan.run.dtype == ["float32"]
     values = pinned(plan.results)
-    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "values": values})
+    made_with = {"gpu": torch.cuda.get_device_name(), "torch": torch.__version__,
+                 "transformers": transformers.__version__}
+    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "made_with": made_with, "values": values})
     assert expected["batch_size"] == BATCH_SIZE
     close(values, expected["values"])
 

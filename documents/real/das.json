@@ -35,7 +35,7 @@
       "epochs": 20,
       "batch_size": 10,
       "seed": 0,
-      "optimizer": {"name": "adamw", "lr": 0.003, "weight_decay": 0.0},
+      "optimizer": {"name": "adamw", "lr": 0.003},
       "early_stop": {"metric": "iia", "mode": "max", "patience": 20},
       "eval": {"held_out": {"train": "test"}},
       "steps": {

@@ -86,6 +86,31 @@ def test_a_written_or_dumped_document_path_is_relative_to_the_corpus():
     assert real.data["days"].n_rows == 42
 
 
+@pytest.mark.parametrize("root, where", [
+    ("", "documents/real/sub/x.json"),                  # deeper under documents/
+    ("", "exps/x.json"),                                # under no documents/ at all
+    ("documents/proj", "exps/x.json"),                  # a project inside someone's ~/documents
+])
+def test_the_corpus_root_is_the_nearest_directory_above_the_document_holding_data(tmp_path, root, where):
+    """patching.json, written at `where` under `root`, beside the corpus's `data/`."""
+    os.makedirs(tmp_path / root, exist_ok=True)
+    os.symlink(os.path.join(os.path.dirname(os.path.dirname(document("patching"))), "data"), tmp_path / root / "data")
+    path = tmp_path / root / where
+    os.makedirs(path.parent)
+    with open(document("patching")) as f:
+        path.write_text(f.read())
+    plan = Plan(str(path)).compile()
+    assert plan.data["pairs"].n_rows == 4 and plan.model_dump(mode="json")["document"] == where
+
+
+def test_a_document_with_no_data_folder_above_it_resolves_beside_its_own_directory(tmp_path):
+    os.makedirs(tmp_path / "a" / "b")
+    path = tmp_path / "a" / "b" / "x.json"
+    with open(document("patching")) as f:
+        path.write_text(f.read())
+    assert Plan(str(path)).model_dump(mode="json")["document"] == "b/x.json"
+
+
 @pytest.mark.parametrize("name", ["pca_control", "das_apply"])
 def test_a_compiled_plan_loads_its_bundles_again_from_their_files(corpus, name):
     path = os.path.join(corpus, "documents", f"{name}.json")

@@ -1,5 +1,5 @@
 {
- "description": "Attention-pattern patching at layer 12 of Llama-3.2-1B: one head at a time, its pattern at the last query position (`attention_probabilities`) is swapped in from the counterfactual prompt and its values are left alone, 32 points, one per head. It asks whether where a head looks carries the day, apart from what it moves. It does not: no head's pattern flips a pair, and head 28, whose result alone moves the answer in head_patching.json, leaves the mean logit diff at -2.40 against a median of -2.40 over the heads. The pattern's last axis is the keys of the padded batch, so the two prompts of a pair must tokenize to the same length, which every pair here does (the run checks before any forward). The pattern is inside the attention's forward: it needs `attn_implementation: eager`, nnterp reads it there, and the hooks engine refuses it by name, as an NDIF deployment that runs sdpa does.",
+ "description": "Attention-pattern patching at layer 12 of Llama-3.2-1B: one head at a time, its pattern at the last query position (`attention_probabilities`) is swapped in from the counterfactual prompt and its values are left alone, 32 points, one per head, the head scored as it is read. It asks whether where a head looks carries the day, apart from what it moves. It does not: no head's pattern flips a pair, and head 28, whose result alone moves the answer in head_patching.json, leaves the mean logit diff at -2.40 against a median of -2.40 over the heads. The pattern's last axis is the keys of the padded batch, so the two prompts of a pair must tokenize to the same length, which every pair here does (the run checks before any forward). The pattern is inside the attention's forward: it needs `attn_implementation: eager`, nnterp reads it there, and the hooks engine refuses it by name, as an NDIF deployment that runs sdpa does. A GPU run flips no pair either, its logit diffs within about 1e-5 of the CPU's.",
  "model": {
   "key": "meta-llama/Llama-3.2-1B",
   "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
@@ -936,15 +936,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -977,15 +999,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1018,15 +1062,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1059,15 +1125,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1100,15 +1188,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1141,15 +1251,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1182,15 +1314,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1223,15 +1377,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1264,15 +1440,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1305,15 +1503,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1346,15 +1566,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1387,15 +1629,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1428,15 +1692,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1469,15 +1755,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1510,15 +1818,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1551,15 +1881,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1592,15 +1944,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1633,15 +2007,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1674,15 +2070,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1715,15 +2133,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1756,15 +2196,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1797,15 +2259,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1838,15 +2322,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1879,15 +2385,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1920,15 +2448,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -1961,15 +2511,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2002,15 +2574,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2043,15 +2637,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2084,15 +2700,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2125,15 +2763,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2166,15 +2826,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2207,15 +2889,37 @@
      }
     },
     "reads": {
-     "logits": {
+     "hit": {
       "site": {
        "component": "lm_head_output"
       },
       "pos": -1,
+      "ops": [
+       {
+        "op": "match",
+        "expected": "days.cf_answer"
+       }
+      ],
       "dims": [
        "rows",
-       "pos",
-       "vocab_size"
+       "pos"
+      ]
+     },
+     "diff": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "logit_diff",
+        "a": "days.cf_answer",
+        "b": "days.base_answer"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
       ]
      }
     },
@@ -2225,461 +2929,11 @@
     "dataset": "days"
    }
   ],
-  "hit": [
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 0
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 1
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 2
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 3
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 4
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 5
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 6
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 7
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 8
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 9
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 10
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 11
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 12
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 13
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 14
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 15
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 16
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 17
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 18
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 19
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 20
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 21
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 22
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 23
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 24
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 25
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 26
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 27
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 28
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 29
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 30
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   },
-   {
-    "kind": "op",
-    "op": "match",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 31
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "days.cf_answer"
-   }
-  ],
   "iia": [
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 0
     },
@@ -2689,7 +2943,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 1
     },
@@ -2699,7 +2953,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 2
     },
@@ -2709,7 +2963,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 3
     },
@@ -2719,7 +2973,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 4
     },
@@ -2729,7 +2983,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 5
     },
@@ -2739,7 +2993,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 6
     },
@@ -2749,7 +3003,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 7
     },
@@ -2759,7 +3013,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 8
     },
@@ -2769,7 +3023,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 9
     },
@@ -2779,7 +3033,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 10
     },
@@ -2789,7 +3043,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 11
     },
@@ -2799,7 +3053,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 12
     },
@@ -2809,7 +3063,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 13
     },
@@ -2819,7 +3073,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 14
     },
@@ -2829,7 +3083,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 15
     },
@@ -2839,7 +3093,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 16
     },
@@ -2849,7 +3103,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 17
     },
@@ -2859,7 +3113,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 18
     },
@@ -2869,7 +3123,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 19
     },
@@ -2879,7 +3133,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 20
     },
@@ -2889,7 +3143,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 21
     },
@@ -2899,7 +3153,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 22
     },
@@ -2909,7 +3163,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 23
     },
@@ -2919,7 +3173,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 24
     },
@@ -2929,7 +3183,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 25
     },
@@ -2939,7 +3193,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 26
     },
@@ -2949,7 +3203,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 27
     },
@@ -2959,7 +3213,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 28
     },
@@ -2969,7 +3223,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 29
     },
@@ -2979,7 +3233,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 30
     },
@@ -2989,501 +3243,19 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "hit",
+    "of": "patched.hit",
     "at": {
      "num_heads": 31
     },
     "dataset": "days",
     "dims": []
-   }
-  ],
-  "diff": [
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 0
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 1
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 2
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 3
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 4
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 5
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 6
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 7
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 8
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 9
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 10
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 11
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 12
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 13
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 14
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 15
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 16
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 17
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 18
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 19
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 20
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 21
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 22
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 23
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 24
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 25
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 26
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 27
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 28
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 29
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 30
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
-   },
-   {
-    "kind": "op",
-    "op": "logit_diff",
-    "of": "patched.logits",
-    "at": {
-     "num_heads": 31
-    },
-    "dataset": "days",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "days.cf_answer",
-    "b": "days.base_answer"
    }
   ],
   "logit_diff": [
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 0
     },
@@ -3493,7 +3265,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 1
     },
@@ -3503,7 +3275,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 2
     },
@@ -3513,7 +3285,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 3
     },
@@ -3523,7 +3295,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 4
     },
@@ -3533,7 +3305,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 5
     },
@@ -3543,7 +3315,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 6
     },
@@ -3553,7 +3325,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 7
     },
@@ -3563,7 +3335,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 8
     },
@@ -3573,7 +3345,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 9
     },
@@ -3583,7 +3355,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 10
     },
@@ -3593,7 +3365,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 11
     },
@@ -3603,7 +3375,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 12
     },
@@ -3613,7 +3385,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 13
     },
@@ -3623,7 +3395,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 14
     },
@@ -3633,7 +3405,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 15
     },
@@ -3643,7 +3415,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 16
     },
@@ -3653,7 +3425,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 17
     },
@@ -3663,7 +3435,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 18
     },
@@ -3673,7 +3445,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 19
     },
@@ -3683,7 +3455,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 20
     },
@@ -3693,7 +3465,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 21
     },
@@ -3703,7 +3475,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 22
     },
@@ -3713,7 +3485,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 23
     },
@@ -3723,7 +3495,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 24
     },
@@ -3733,7 +3505,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 25
     },
@@ -3743,7 +3515,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 26
     },
@@ -3753,7 +3525,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 27
     },
@@ -3763,7 +3535,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 28
     },
@@ -3773,7 +3545,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 29
     },
@@ -3783,7 +3555,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 30
     },
@@ -3793,7 +3565,7 @@
    {
     "kind": "op",
     "op": "mean",
-    "of": "diff",
+    "of": "patched.diff",
     "at": {
      "num_heads": 31
     },

@@ -1,5 +1,5 @@
 {
-  "description": "Head-by-head patching on Llama-3.2-1B: one attention head's result at a time, at the last position, read from the counterfactual prompt and swapped into the base prompt, for each of the 32 heads of layers 10, 11 and 12, where layer_sweep.json sees the day leave its own token: 96 points, the `layers` and `num_heads` sweeps crossed. The site is `attention_premix`, the output projection's input with every head's result side by side, so `select` takes one head on `num_heads`; a write lands at one layer, so `layers` is a sweep, not picks. `iia` is the fraction of the 42 pairs where the patched top token is the counterfactual answer, and `logit_diff` the mean of the counterfactual answer's logit less the base answer's. Most heads leave it near the median, about -2.4, where nothing has moved; layer 12's head 28 alone lifts it to just above zero and flips half the pairs. Both engines reach the projection's input at the module boundary and agree to the bit.",
+  "description": "Head-by-head patching on Llama-3.2-1B: one attention head's result at a time, at the last position, read from the counterfactual prompt and swapped into the base prompt, for each of the 32 heads of layers 10, 11 and 12, where layer_sweep.json sees the day leave its own token: 96 points, the `layers` and `num_heads` sweeps crossed. The site is `attention_premix`, the output projection's input with every head's result side by side, so `select` takes one head on `num_heads`; a write lands at one layer, so `layers` is a sweep, not picks. The head is scored as it is read, so a point keeps two numbers per pair rather than its logits: `iia` is the fraction of the 42 pairs where the patched top token is the counterfactual answer, and `logit_diff` the mean of the counterfactual answer's logit less the base answer's. Most heads leave it near the median, about -2.4, where nothing has moved; layer 12's head 28 alone lifts it to just above zero and flips half the pairs. Both engines reach the projection's input at the module boundary and agree to the bit; a GPU run finds the same head and flips the same pairs as a CPU run, its logit diffs within about 1e-5 of the CPU's.",
   "model": {
     "key": "meta-llama/Llama-3.2-1B",
     "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
@@ -27,12 +27,17 @@
       "kind": "forward",
       "input": "days.input",
       "writes": {"patch": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}},
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "reads": {
+        "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]},
+        "diff": {
+          "site": "head",
+          "pos": -1,
+          "ops": [{"op": "logit_diff", "a": "days.cf_answer", "b": "days.base_answer"}]
+        }
+      }
     },
-    "hit": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "days.cf_answer"},
-    "iia": {"kind": "op", "op": "mean", "of": "hit"},
-    "diff": {"kind": "op", "op": "logit_diff", "of": "patched.logits", "a": "days.cf_answer", "b": "days.base_answer"},
-    "logit_diff": {"kind": "op", "op": "mean", "of": "diff"}
+    "iia": {"kind": "op", "op": "mean", "of": "patched.hit"},
+    "logit_diff": {"kind": "op", "op": "mean", "of": "patched.diff"}
   },
   "saves": ["iia", "logit_diff"]
 }

@@ -1,5 +1,5 @@
 {
-  "description": "The weekday task's baseline on Llama-3.2-1B, before anything is patched: one forward over the 42 prompts of data/weekdays_full (\"If today is Sunday, tomorrow is\", each weekday with each of the six others as its counterfactual), the head read at the last position, and two scores of what it says. `correct` is 1 where the most likely next token is the base answer (\" Monday\"), and `accuracy` is its mean; `p` is the answer's probability per prompt and `p_answer` its mean. The model answers every prompt, with a little under half its probability on the answer: the task is in the model, so the interchanges beside this document have something to move. Both engines read the head at the module boundary and agree to the bit; a GPU run is the CPU's to float32 rounding.",
+  "description": "The weekday task's baseline on Llama-3.2-1B, before anything is patched: one forward over the 42 prompts of data/weekdays_full (\"If today is Sunday, tomorrow is\", each weekday with each of the six others as its counterfactual), the head read at the last position and scored as it is read, so no row of logits outlives its batch. `answer.correct` is 1 where the most likely next token is the base answer (\" Monday\"), and `accuracy` is its mean; `answer.p` is the answer's probability per prompt and `p_answer` its mean. The model answers every prompt, with a little under half its probability on the answer: the task is in the model, so the interchanges beside this document have something to move. Both engines read the head at the module boundary and agree to the bit; a GPU run is the CPU's to float32 rounding.",
   "model": {
     "key": "meta-llama/Llama-3.2-1B",
     "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
@@ -8,11 +8,16 @@
   "data": {"days": {"path": "weekdays_full/data"}},
   "sites": {"head": {"component": "lm_head_output"}},
   "steps": {
-    "answer": {"kind": "forward", "input": "days.input", "reads": {"logits": {"site": "head", "pos": -1}}},
-    "correct": {"kind": "op", "op": "match", "of": "answer.logits", "expected": "days.base_answer"},
-    "accuracy": {"kind": "op", "op": "mean", "of": "correct"},
-    "p": {"kind": "op", "op": "token_prob", "of": "answer.logits", "token": "days.base_answer"},
-    "p_answer": {"kind": "op", "op": "mean", "of": "p"}
+    "answer": {
+      "kind": "forward",
+      "input": "days.input",
+      "reads": {
+        "correct": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.base_answer"}]},
+        "p": {"site": "head", "pos": -1, "ops": [{"op": "token_prob", "token": "days.base_answer"}]}
+      }
+    },
+    "accuracy": {"kind": "op", "op": "mean", "of": "answer.correct"},
+    "p_answer": {"kind": "op", "op": "mean", "of": "answer.p"}
   },
-  "saves": ["accuracy", "p_answer", "p"]
+  "saves": ["accuracy", "p_answer", "answer.p"]
 }

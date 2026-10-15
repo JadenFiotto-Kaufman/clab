@@ -1,5 +1,5 @@
 {
-  "description": "Attention-pattern patching at layer 12 of Llama-3.2-1B: one head at a time, its pattern at the last query position (`attention_probabilities`) is swapped in from the counterfactual prompt and its values are left alone, 32 points, one per head. It asks whether where a head looks carries the day, apart from what it moves. It does not: no head's pattern flips a pair, and head 28, whose result alone moves the answer in head_patching.json, leaves the mean logit diff at -2.40 against a median of -2.40 over the heads. The pattern's last axis is the keys of the padded batch, so the two prompts of a pair must tokenize to the same length, which every pair here does (the run checks before any forward). The pattern is inside the attention's forward: it needs `attn_implementation: eager`, nnterp reads it there, and the hooks engine refuses it by name, as an NDIF deployment that runs sdpa does.",
+  "description": "Attention-pattern patching at layer 12 of Llama-3.2-1B: one head at a time, its pattern at the last query position (`attention_probabilities`) is swapped in from the counterfactual prompt and its values are left alone, 32 points, one per head, the head scored as it is read. It asks whether where a head looks carries the day, apart from what it moves. It does not: no head's pattern flips a pair, and head 28, whose result alone moves the answer in head_patching.json, leaves the mean logit diff at -2.40 against a median of -2.40 over the heads. The pattern's last axis is the keys of the padded batch, so the two prompts of a pair must tokenize to the same length, which every pair here does (the run checks before any forward). The pattern is inside the attention's forward: it needs `attn_implementation: eager`, nnterp reads it there, and the hooks engine refuses it by name, as an NDIF deployment that runs sdpa does. A GPU run flips no pair either, its logit diffs within about 1e-5 of the CPU's.",
   "model": {
     "key": "meta-llama/Llama-3.2-1B",
     "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
@@ -30,12 +30,17 @@
       "writes": {
         "look_there": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.their_pattern"}]}
       },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "reads": {
+        "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]},
+        "diff": {
+          "site": "head",
+          "pos": -1,
+          "ops": [{"op": "logit_diff", "a": "days.cf_answer", "b": "days.base_answer"}]
+        }
+      }
     },
-    "hit": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "days.cf_answer"},
-    "iia": {"kind": "op", "op": "mean", "of": "hit"},
-    "diff": {"kind": "op", "op": "logit_diff", "of": "patched.logits", "a": "days.cf_answer", "b": "days.base_answer"},
-    "logit_diff": {"kind": "op", "op": "mean", "of": "diff"}
+    "iia": {"kind": "op", "op": "mean", "of": "patched.hit"},
+    "logit_diff": {"kind": "op", "op": "mean", "of": "patched.diff"}
   },
   "saves": ["iia", "logit_diff"]
 }

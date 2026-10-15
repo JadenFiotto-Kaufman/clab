@@ -680,16 +680,16 @@ class Plan(Record):
 
 
 def corpus_root(plan: Plan) -> str:
-    """Where data paths and bundles resolve: for the document `Plan(path)` read, the parent of the nearest
-    directory above it named `documents` (so `documents/real/x.json` shares `data/` with `documents/x.json`),
-    else the parent of its own directory; the working directory for a plan built from fields or loaded from a
-    run (whose manifest records its document relative to the corpus root)."""
+    """Where data paths and bundles resolve: for the document `Plan(path)` read, the nearest directory above it
+    that holds a `data/` folder (so `documents/real/x.json` shares `data/` with `documents/x.json`), else the
+    parent of its own directory; the working directory for a plan built from fields or loaded from a run (whose
+    manifest records its document relative to the corpus root)."""
     if not (plan.document and os.path.isabs(plan.document)):
         return os.getcwd()
     here = os.path.dirname(plan.document)
-    while os.path.basename(here) != "documents" and os.path.dirname(here) != here:
+    while not os.path.isdir(os.path.join(here, "data")) and os.path.dirname(here) != here:
         here = os.path.dirname(here)
-    return os.path.dirname(here if os.path.basename(here) == "documents" else os.path.dirname(plan.document))
+    return here if os.path.isdir(os.path.join(here, "data")) else os.path.dirname(os.path.dirname(plan.document))
 
 
 def name(plan: Plan) -> str:

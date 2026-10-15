@@ -328,6 +328,18 @@ def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
                                 "document": "pca_harvest"}
 
 
+def test_a_bundle_is_the_same_bytes_every_time_it_is_written(filled, tmp_path):
+    """safetensors orders a header as it likes; clab writes it with sorted keys."""
+    files = []
+    for out in ("a", "b", "c"):
+        filled["pca_harvest", "hooks"].dump(str(tmp_path / out))
+        files.append((tmp_path / out / "basis.safetensors").read_bytes())
+    assert files[0] == files[1] == files[2]
+    n = int.from_bytes(files[0][:8], "little")
+    header = json.loads(files[0][8:8 + n])
+    assert list(header) == sorted(header) and list(header["__metadata__"]) == sorted(header["__metadata__"])
+
+
 def test_the_cli_runs_remote_local(tmp_path, filled):
     out = tmp_path / "steer"
     assert main(["run", document("steer_renormalize"), "--engine", "ndif", "-o", "remote=local", "--batch-size",

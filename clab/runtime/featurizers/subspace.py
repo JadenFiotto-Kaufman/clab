@@ -26,7 +26,9 @@ class Subspace(Kind):
         assert k is not None
         generator = torch.Generator().manual_seed(seed or 0)
         threads = torch.get_num_threads()
-        torch.set_num_threads(1)             # a parallel QR's bits follow the thread count; one thread is any host's
+        # A parallel QR's bits follow the thread count; on one thread they are the same on every host whose BLAS
+        # runs the same kernels (the same build on the same instruction set), however many threads it has.
+        torch.set_num_threads(1)
         try:
             q, r = torch.linalg.qr(torch.randn(width, width, generator=generator, dtype=torch.float64))
         finally:

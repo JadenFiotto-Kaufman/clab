@@ -1,5 +1,10 @@
 {
  "batch_size": 16,
+ "made_with": {
+  "gpu": "NVIDIA RTX A6000",
+  "torch": "2.13.0+cu126",
+  "transformers": "5.17.0"
+ },
  "values": {
   "fit.held_out.iia": {
    "1": [
