@@ -21,12 +21,13 @@ and a write's op argument may be `{"live": <read name>}`: the value of a read th
 (`got[<read name>]`), which `ops.write(value, component, writes, got)` resolves. Preflight has checked, by
 `rank`, that the read's site comes first; an engine that runs the plan without `clab.runtime.steps` must resolve such
 an argument the same way. An
-engine holds its model and its configuration, nothing else: `spec` is the model block it loaded, `name`
-the name it registered under, `device` and `options` how it runs.
+engine holds its model and its configuration, nothing else: `model` is the model (whatever it runs, with
+`.parameters()`), `spec` the model block it loaded, `name` the name it registered under, `device` and
+`options` how it runs.
 """
 
 import inspect
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Iterator, Protocol
 
 from torch import Tensor
 
@@ -34,9 +35,16 @@ from .. import registry
 from ..plan import Model, Plan
 
 
+class Parameterized(Protocol):
+    """A model as the run reads it: its parameters, whose dtypes and devices `plan.run` records."""
+
+    def parameters(self) -> Iterator[Tensor]: ...
+
+
 class Engine(Protocol):
     name: str
     spec: Model
+    model: Parameterized
     device: str | None
     options: dict[str, Any]
 

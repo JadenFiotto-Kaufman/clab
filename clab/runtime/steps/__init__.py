@@ -9,13 +9,14 @@ under ndif); under the hooks engine, in plain Python. The cross-step state is a 
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
 
+import functools
 import importlib.metadata
 import json
 import os
 import platform
 import subprocess
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -25,6 +26,9 @@ from ...plan.model import Plan, Run, coordinate, labelled, points
 from ...registry import registers
 from .preflight import instance, preflight
 from .state import lookup, put
+
+if TYPE_CHECKING:
+    from ...engines import Parameterized
 
 KINDS: dict = {}
 kind = registers(KINDS)
@@ -78,7 +82,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     plan.run.dtype, plan.run.devices = placed(engine.model)
 
 
-def placed(model) -> tuple[list[str], list[str]]:
+def placed(model: "Parameterized") -> tuple[list[str], list[str]]:
     """The distinct dtypes and devices of `model`'s parameters, each in the order first met. `run` reads them
     inside the session after the steps, so they are the server's under the ndif engine, and those of a model
     that loads its weights at its first forward once it has."""
@@ -122,9 +126,11 @@ def finished(value):
     return value
 
 
+@functools.cache
 def versions() -> dict[str, str]:
     """Every distribution installed here by name, sorted, clab's with its commit (`version`), and `python`. `run`
-    calls it inside the session, so under the ndif engine they are the server's; `begin` calls it on the client."""
+    calls it inside the session, so under the ndif engine they are the server's; `begin` calls it on the client.
+    Read once per process: what is installed does not change while it runs."""
     found = {d.metadata["Name"]: d.version for d in importlib.metadata.distributions()}
     found["clab"] = version()
     return {**dict(sorted(found.items(), key=lambda item: item[0].lower())), "python": platform.python_version()}
