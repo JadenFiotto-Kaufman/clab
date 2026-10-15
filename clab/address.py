@@ -8,8 +8,8 @@ its `layers`. A site's `select` narrows any axis of its `dims` but the rows and 
 
 A selection of a component (what a read binds, and what a write's ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers: "all"`, and ragged positions give `entries` (one per
-token) in place of `rows` and `pos`. How an engine reaches a component is that
+first under `layers` that are a slice or a list of picks, and ragged positions
+give `entries` (one per token) in place of `rows` and `pos`. How an engine reaches a component is that
 engine's business; the name says only what the value is.
 """
 
@@ -88,10 +88,15 @@ def pos_axis(component: str) -> int:
 def dims(component: str, layers: object, ragged: bool) -> list[str]:
     """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`.
 
-    `layers: "all"` puts a `layers` axis first. A ragged selection holds one
-    entry per token, so `entries` stands for `rows` and `pos` together.
+    `layers` that `stacks` puts a `layers` axis first. A ragged selection holds
+    one entry per token, so `entries` stands for `rows` and `pos` together.
     """
     rest = [a for i, a in enumerate(COMPONENTS[component]["dims"]) if a != "batch" and i != pos_axis(component)]
-    lead = ["layers"] if layers == "all" else []
+    lead = ["layers"] if stacks(layers) else []
     return lead + (["entries"] if ragged else ["rows", "pos"]) + rest
 
+
+def stacks(layers: object) -> bool:
+    """Whether a site's `layers` make one value with a `layers` axis: a slice or a list of picks, which name
+    several layers (or may), not an int, which names one."""
+    return layers is not None and not isinstance(layers, int)

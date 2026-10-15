@@ -1,5 +1,5 @@
 {
- "description": "The logit lens at every layer, in one forward: `layers: \"all\"` reads the residual stream at the answer position at each layer of the model and projects each through the final norm and head, so `lens.logits` is one value with the layer axis first — (layers, rows, 1, vocab). A metric of it scores each layer, and its table has a row per layer and example, each saying its layer. logit_lens.json is the same lens as one point per layer; the numbers are the same.",
+ "description": "The logit lens at every layer, in one forward: `layers: \":\"` reads the residual stream at the answer position at each layer of the model and projects each through the final norm and head, so `lens.logits` is one value with the layer axis first — (layers, rows, 1, vocab). A metric of it scores each layer, and its table has a row per layer and example, each saying its layer. logit_lens.json is the same lens as one point per layer; the numbers are the same.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -19,7 +19,7 @@
     "logits": {
      "site": {
       "component": "layer_output",
-      "layers": "all"
+      "layers": ":"
      },
      "pos": -1,
      "ops": [

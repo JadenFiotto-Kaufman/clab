@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from clab.runtime import ops
+from clab.runtime.ops import edits, metrics, reductions, transforms
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
@@ -14,10 +15,10 @@ IDS = torch.tensor([1, 4, 6])
 DIMS = ["rows", "pos", "hidden_size"]
 
 
-def test_every_op_registered_itself_under_its_own_name():
-    assert set(ops.OPS) == {"swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
-                            "featurizer", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
-                            "cross_entropy", "kl", "js", "top_k", "argmax", "decode"}
+def test_every_op_is_listed_once_in_order_under_its_own_name():
+    assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
+                             "featurizer", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
+                             "cross_entropy", "kl", "js", "top_k", "argmax", "decode", "noise", "clamp", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -25,11 +26,11 @@ def test_every_op_registered_itself_under_its_own_name():
 def test_each_op_declares_its_group_and_bundle():
     groups = {name: ops.DECLARED[name]["group"] for name in ops.OPS}
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
-                                                               "normalize", "project_out"}
+                                                               "normalize", "project_out", "noise", "clamp"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "featurizer", "top_k", "argmax", "decode"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
-                                                                 "cross_entropy", "kl", "js"}
+                                                                 "cross_entropy", "kl", "js", "cosine"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
 
 
@@ -45,68 +46,68 @@ def test_an_ops_arguments_bind_to_its_signature():
 
 def test_swap_broadcasts_a_vector_or_a_number_exactly():
     v = torch.randn(5)
-    assert torch.equal(ops.swap(X, v), v.expand(3, 2, 5))
-    assert torch.equal(ops.swap(X, 0.0), torch.zeros_like(X))
-    assert torch.equal(ops.swap(X, X.flip(0)), X.flip(0))
+    assert torch.equal(edits.swap(X, v), v.expand(3, 2, 5))
+    assert torch.equal(edits.swap(X, 0.0), torch.zeros_like(X))
+    assert torch.equal(edits.swap(X, X.flip(0)), X.flip(0))
 
 
 def test_add_sub_scale():
     v = torch.randn(5)
-    assert torch.equal(ops.add(X, v, scale=4.0), X + 4.0 * v)
-    assert torch.equal(ops.sub(X, v), X - v)
-    assert torch.equal(ops.scale(X, 0.5), X * 0.5)
+    assert torch.equal(edits.add(X, v, scale=4.0), X + 4.0 * v)
+    assert torch.equal(edits.sub(X, v), X - v)
+    assert torch.equal(edits.scale(X, 0.5), X * 0.5)
 
 
 def test_renormalize_restores_the_original_norm():
-    out = ops.renormalize(X * 3 + 1, original=X)
+    out = edits.renormalize(X * 3 + 1, original=X)
     torch.testing.assert_close(out.norm(dim=-1), X.norm(dim=-1))
 
 
 def test_normalize_and_project_out():
-    torch.testing.assert_close(ops.normalize(X).norm(dim=-1), torch.ones(3, 2))
+    torch.testing.assert_close(edits.normalize(X).norm(dim=-1), torch.ones(3, 2))
     d = torch.randn(5)
-    out = ops.project_out(X, d)
+    out = edits.project_out(X, d)
     torch.testing.assert_close(out @ d, torch.zeros(3, 2), atol=1e-6, rtol=0)
 
 
 def test_mean_over_the_example_axes_by_default():
-    assert torch.equal(ops.mean(X, dims=["rows", "pos", "hidden_size"]), X.mean(dim=[0, 1]))
-    assert torch.equal(ops.mean(X, dims=["rows", "pos", "hidden_size"], over=["pos"]), X.mean(dim=1))
+    assert torch.equal(reductions.mean(X, dims=["rows", "pos", "hidden_size"]), X.mean(dim=[0, 1]))
+    assert torch.equal(reductions.mean(X, dims=["rows", "pos", "hidden_size"], over=["pos"]), X.mean(dim=1))
 
 
 def test_metrics_on_logits():
     d = ["rows", "pos", "vocab_size"]
-    assert torch.equal(ops.match(LOGITS, LOGITS.argmax(-1)[:, 0], d), torch.ones(3, 1))
-    assert torch.equal(ops.match(LOGITS, (LOGITS.argmax(-1)[:, 0] + 1) % 7, d), torch.zeros(3, 1))
+    assert torch.equal(metrics.match(LOGITS, LOGITS.argmax(-1)[:, 0], d), torch.ones(3, 1))
+    assert torch.equal(metrics.match(LOGITS, (LOGITS.argmax(-1)[:, 0] + 1) % 7, d), torch.zeros(3, 1))
     picked = LOGITS[torch.arange(3), 0, IDS][:, None]
-    assert torch.equal(ops.token_logit(LOGITS, IDS, d), picked)
-    assert torch.equal(ops.logit_diff(LOGITS, IDS, IDS, d), torch.zeros(3, 1))
-    torch.testing.assert_close(ops.token_prob(LOGITS, IDS, d), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
-    torch.testing.assert_close(ops.cross_entropy(LOGITS, IDS, d),
+    assert torch.equal(metrics.token_logit(LOGITS, IDS, d), picked)
+    assert torch.equal(metrics.logit_diff(LOGITS, IDS, IDS, d), torch.zeros(3, 1))
+    torch.testing.assert_close(metrics.token_prob(LOGITS, IDS, d), LOGITS.softmax(-1)[torch.arange(3), 0, IDS][:, None])
+    torch.testing.assert_close(metrics.cross_entropy(LOGITS, IDS, d),
                                torch.nn.functional.cross_entropy(LOGITS[:, 0], IDS, reduction="none")[:, None])
 
 
 def test_metrics_on_ragged_entries_take_each_entrys_own_token():
     entries = LOGITS[:, 0]                                # entries, vocab: one entry per row here
-    assert torch.equal(ops.token_logit(entries, IDS, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
-    assert torch.equal(ops.match(entries, entries.argmax(-1), ["entries", "vocab_size"]), torch.ones(3))
+    assert torch.equal(metrics.token_logit(entries, IDS, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
+    assert torch.equal(metrics.match(entries, entries.argmax(-1), ["entries", "vocab_size"]), torch.ones(3))
 
 
 def test_metrics_broadcast_over_a_leading_layer_axis():
     stacked = torch.stack([LOGITS, LOGITS * 2])          # layers, rows, pos, vocab
-    out = ops.token_logit(stacked, IDS, ["layers", "rows", "pos", "vocab_size"])
+    out = metrics.token_logit(stacked, IDS, ["layers", "rows", "pos", "vocab_size"])
     assert out.shape == (2, 3, 1)
-    assert torch.equal(out[1], 2 * ops.token_logit(LOGITS, IDS, ["rows", "pos", "vocab_size"]))
+    assert torch.equal(out[1], 2 * metrics.token_logit(LOGITS, IDS, ["rows", "pos", "vocab_size"]))
 
 
 def test_kl_and_js():
     other = torch.randn(3, 1, 7)
     p, q = LOGITS.log_softmax(-1), other.log_softmax(-1)
-    torch.testing.assert_close(ops.kl(LOGITS, other),
+    torch.testing.assert_close(metrics.kl(LOGITS, other),
                                torch.nn.functional.kl_div(q, p, log_target=True, reduction="none").sum(-1))
-    assert torch.equal(ops.kl(LOGITS, LOGITS), torch.zeros(3, 1))
-    js = ops.js(LOGITS, other)
-    torch.testing.assert_close(js, ops.js(other, LOGITS))
+    assert torch.equal(metrics.kl(LOGITS, LOGITS), torch.zeros(3, 1))
+    js = metrics.js(LOGITS, other)
+    torch.testing.assert_close(js, metrics.js(other, LOGITS))
     assert bool((js >= 0).all() and (js <= math.log(2)).all())
 
 
@@ -175,22 +176,22 @@ def test_a_pattern_is_selected_along_its_query_axis():
 def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
     torch.manual_seed(1)
     x = torch.randn(40, 5) * torch.tensor([5.0, 3.0, 1.0, 0.5, 0.1]) + 2.0
-    got = ops.pca(x, k=3, dims=["entries", "hidden_size"])
+    got = reductions.pca(x, k=3, dims=["entries", "hidden_size"])
     basis, mean = got["basis"], got["mean"]
     assert basis.shape == (5, 3) and mean.shape == (5,)
     torch.testing.assert_close(basis.T @ basis, torch.eye(3), atol=1e-5, rtol=0)
     torch.testing.assert_close(mean, x.mean(0))
     variance = ((x - mean) @ basis).var(0)
     assert bool((variance[:-1] >= variance[1:]).all())
-    assert torch.equal(ops.pca(x, k=3, dims=["entries", "hidden_size"])["basis"], basis)     # deterministic signs
+    assert torch.equal(reductions.pca(x, k=3, dims=["entries", "hidden_size"])["basis"], basis)     # deterministic signs
     with pytest.raises(ValueError, match="pca of 3 vectors has no rank-3 basis"):
-        ops.pca(x[:3], k=3, dims=["entries", "hidden_size"])
+        reductions.pca(x[:3], k=3, dims=["entries", "hidden_size"])
 
 
 def test_top_k_and_argmax():
-    got = ops.top_k(LOGITS, k=2)
+    got = transforms.top_k(LOGITS, k=2)
     assert got["ids"].shape == got["probs"].shape == (3, 1, 2)
-    assert torch.equal(got["ids"][..., 0], ops.argmax(LOGITS))
+    assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS))
     torch.testing.assert_close(got["probs"][..., 0], LOGITS.softmax(-1).max(-1).values)
 
 
@@ -211,9 +212,9 @@ class Engine:
 
 def test_decode_stops_at_each_rows_first_eos():
     ids = torch.tensor([[5, 6, 0, 7], [8, 9, 9, 9]])
-    assert ops.decode(ids, engine=Engine(), eos=[0]) == ["<5><6>", "<8><9><9><9>"]
-    assert ops.decode(ids, engine=Engine(), eos=[0], tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
-    assert ops.decode(ids, engine=Engine(), eos=[6, 9]) == ["<5>", "<8>"]
+    assert transforms.decode(ids, engine=Engine(), eos=[0]) == ["<5><6>", "<8><9><9><9>"]
+    assert transforms.decode(ids, engine=Engine(), eos=[0], tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
+    assert transforms.decode(ids, engine=Engine(), eos=[6, 9]) == ["<5>", "<8>"]
 
 
 def test_a_missing_row_is_missing_all_the_way_down():
@@ -222,17 +223,61 @@ def test_a_missing_row_is_missing_all_the_way_down():
     d = ["rows", "pos", "vocab_size"]
     logits = LOGITS.clone()
     logits[1] = float("nan")
-    hit = ops.match(logits, logits.nan_to_num().argmax(-1)[:, 0], d)
+    hit = metrics.match(logits, logits.nan_to_num().argmax(-1)[:, 0], d)
     assert hit[[0, 2]].eq(1).all() and hit[1].isnan().all()
-    assert ops.token_prob(logits, IDS, d)[1].isnan().all() and ops.logit_diff(logits, IDS, IDS, d)[1].isnan().all()
-    assert ops.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
-    top = ops.top_k(logits, 2)
+    assert metrics.token_prob(logits, IDS, d)[1].isnan().all() and metrics.logit_diff(logits, IDS, IDS, d)[1].isnan().all()
+    assert transforms.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
+    top = transforms.top_k(logits, 2)
     assert top["ids"][1].eq(-1).all() and top["probs"][1].isnan().all() and top["ids"][0].ge(0).all()
-    assert torch.equal(ops.mean(hit, dims=["rows", "pos"]), torch.tensor(1.0))
+    assert torch.equal(reductions.mean(hit, dims=["rows", "pos"]), torch.tensor(1.0))
     x = X.clone()
     x[1] = float("nan")
-    torch.testing.assert_close(ops.mean(x, dims=DIMS), X[[0, 2]].mean((0, 1)))
-    assert torch.equal(ops.mean(X, dims=DIMS), X.mean((0, 1)))                    # no missing row: the plain mean
+    torch.testing.assert_close(reductions.mean(x, dims=DIMS), X[[0, 2]].mean((0, 1)))
+    assert torch.equal(reductions.mean(X, dims=DIMS), X.mean((0, 1)))                    # no missing row: the plain mean
     big = torch.randn(8, 2, 5)
     hole = torch.cat([big, torch.full((1, 2, 5), float("nan"))])
-    assert all(torch.equal(a, b) for a, b in zip(ops.pca(hole, 2, DIMS).values(), ops.pca(big, 2, DIMS).values()))
+    assert all(torch.equal(a, b) for a, b in zip(reductions.pca(hole, 2, DIMS).values(), reductions.pca(big, 2, DIMS).values()))
+
+
+def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
+    """The draw at a row's position is a CPU generator's seeded by (seed, row, position): the same whichever
+    rows share the value, the same for a ragged value's entry there, never the same at two rows or two
+    positions, cast to the value's dtype."""
+    rows, places = torch.tensor([4, 5, 6]), torch.tensor([[7, 8], [7, 8], [2, 9]])
+    drawn = torch.stack([torch.stack([torch.randn(5, generator=edits.seeded(3, int(rows[i]), int(places[i, j])))
+                                      for j in range(2)]) for i in range(3)])
+    got = edits.noise(X, 0.25, DIMS, seed=3, rows=rows, positions=places)
+    assert torch.equal(got, X + 0.25 * drawn)
+    assert torch.equal(edits.noise(X[1:], 0.25, DIMS, seed=3, rows=rows[1:], positions=places[1:]), got[1:])
+    assert len({tuple(d.tolist()) for d in drawn.reshape(6, 5)}) == 6
+    assert not torch.equal(edits.noise(X, 0.25, DIMS, seed=4, rows=rows, positions=places), got)
+    half = X.to(torch.bfloat16)
+    assert torch.equal(edits.noise(half, 0.25, DIMS, seed=3, rows=rows, positions=places),
+                       half + 0.25 * drawn.to(torch.bfloat16))
+    entries = edits.noise(X[:, 0], 0.5, ["entries", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
+    assert torch.equal(entries, X[:, 0] + 0.5 * drawn[:, 0])
+    assert torch.equal(edits.noise(X, 1.0, DIMS), X + torch.randn(X.shape, generator=edits.seeded(0)))  # no rows
+
+
+def test_clamp_takes_either_bound_and_needs_one():
+    assert torch.equal(edits.clamp(X, min_=-0.5), X.clamp(min=-0.5))
+    assert torch.equal(edits.clamp(X, max_=0.5), X.clamp(max=0.5))
+    assert torch.equal(edits.clamp(X, -0.1, 0.2), X.clamp(-0.1, 0.2))
+    ops.check("clamp", {"max": 1})
+    with pytest.raises(ValueError, match="'clamp' needs 'min' or 'max', or both"):
+        ops.check("clamp", {})
+    with pytest.raises(ValueError, match="min: 'low' is not float or null"):
+        ops.check("clamp", {"min": "low"})
+    with pytest.raises(ValueError, match="'clamp' min 1.0 is greater than its max 0.5"):
+        ops.check("clamp", {"min": 1.0, "max": 0.5})
+    ops.check("clamp", {"min": {"sweep": [0.0, 1.0]}, "max": 0.5})          # a sweep is checked per point
+
+
+def test_cosine_is_over_the_hidden_axis_one_number_per_row_and_position():
+    other = torch.randn(3, 2, 5)
+    expected = (X * other).sum(-1) / (X.norm(dim=-1) * other.norm(dim=-1))
+    torch.testing.assert_close(metrics.cosine(X, other), expected)
+    torch.testing.assert_close(metrics.cosine(X, 2 * X), torch.ones(3, 2))
+    assert ops.out_dims("cosine", ["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "rows", "pos"]
+    with pytest.raises(ValueError, match="'cosine' needs a value with a 'hidden_size' axis"):
+        ops.out_dims("cosine", ["rows", "pos", "vocab_size"], {})

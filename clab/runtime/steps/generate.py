@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 
 from ... import address
-from ...plan.model import Plan
+from ...plan.model import Plan, horizon
 from .. import positions
 from . import kind
 from .batches import batches, bind, decoding, edit, joined, layers, read, site, stacked, with_ops
@@ -42,29 +42,30 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     later = {k: r for k, r in step.reads.items() if k not in first}
     beyond = {k: w for k, w in step.writes.items() if not positions.prefill(positions.parse(w.pos))}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in {**later, **beyond}}
+    most = horizon(step)
     for chunk, batch, pads in batches(engine, step, found, batch_size):
-        n = chunk.stop - chunk.start
+        prompts = [len(e["ids"]) for e in encoded[chunk]]
         sites, writes, reads = bind(engine, plan, name, step, first, state, found, chunk, pads, set(beyond))
         for key, record in beyond.items():
             pos = positions.parse(record.pos)
-            holds, calls, _ = positions.reach(pos)
+            holds, calls, _ = positions.reach(pos, most)
             edits = [edit(engine, plan, record, o, state, step.at, chunk) for o in record.ops]
             if holds:
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, where, pads, head(step, record)), "name": f"{key}#0",
-                               "layer": record.site.layers, "ops": edits})
+                               "layer": layers(engine, record)[0], "ops": edits})
             online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
                                  "eos": sorted(eos)}} if pos["scope"] else {}
-            writes.append({**decoding(record, n, pads), "name": key, "layer": record.site.layers, "ops": edits,
-                           "calls": None if online else calls, **online})
+            writes.append({**decoding(record, prompts, pads), "name": key, "layer": layers(engine, record)[0],
+                           "ops": edits, "calls": None if online else calls, **online})
         for key, record in later.items():
-            holds, calls, _ = positions.reach(positions.parse(record.pos))
+            holds, calls, _ = positions.reach(positions.parse(record.pos), most)
             for layer in layers(engine, record):
                 if holds:
                     whole = [list(range(len(e["ids"]))) for e in encoded[chunk]]
                     reads.append({**site(record, whole, pads, head(step, record)), "name": f"{key}@{layer}#0",
                                   "layer": layer})
-                reads.append({**decoding(record, n, pads), "name": f"{key}@{layer}", "layer": layer,
+                reads.append({**decoding(record, prompts, pads), "name": f"{key}@{layer}", "layer": layer,
                               "calls": calls})
         ids, got = generated(engine, name, batch, writes, reads, dict(step.model_extra or {}))
         for record in reads:
@@ -85,13 +86,13 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                           if positions.landing(pos, texts(pos, row), x[:k], eos, engine.tokenizer)] or positions.MISSING
                          for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             else:
-                where = [place(pos, row, e, x, bool(x) and x[-1] in eos, engine.tokenizer, head(step, record))
+                where = [place(pos, row, e, x, engine.tokenizer, head(step, record))
                          for row, e, x in zip(rows[chunk], encoded[chunk], said)]
             resolved[f"{name}.{key}"] += where
             if key in later:
                 out[key] = stacked(record, [at_calls(engine, plan, record, got.get(f"{key}@{layer}#0"),
                                                      got[f"{key}@{layer}"], where, encoded[chunk], pads, chunk,
-                                                     state, step.at, head(step, record))
+                                                     state, step.at, head(step, record), most)
                                             for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
@@ -118,16 +119,17 @@ def generated(engine, name: str, batch: dict, writes: list[dict], reads: list[di
 
 
 def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tensor], where: list, encoded: list[dict],
-             pads: list[int], rows: slice, state: dict, at: dict, head_only: bool) -> Any:
+             pads: list[int], rows: slice, state: dict, at: dict, head_only: bool, most: int | None) -> Any:
     """One layer of a read beyond the prefill in one batch, arranged by the positions each row resolved to
     (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
     `head_only`), a generated input's from
     its decode call (`values`, one `[rows, 1, ...]` per call the record asked for that the batch made); then
     its ops. A rectangular read is `[rows, width, ...]`, NaN on a row it does not reach; a ragged one
-    `{values, row, tok}`, `tok` the position, with no entries for such a row."""
+    `{values, row, tok}`, `tok` the position, with no entries for such a row. `most` is the step's
+    `max_new_tokens`, which bounds the calls it asked for."""
     pos = positions.parse(record.pos)
-    _, asked, _ = positions.reach(pos)
+    _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes, select = engine.sizes(), record.site.select or {}
     rest = [len(select[a]) if a in select else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
@@ -145,10 +147,12 @@ def at_calls(engine, plan: Plan, record, whole: Tensor | None, values: list[Tens
         blank = torch.full((width, *rest), float("nan"), dtype=dtype)
         value = torch.stack([blank if isinstance(got, str) else torch.stack([at_position(i, p) for p in got])
                              for i, got in enumerate(where)])
+        places = torch.tensor([[-1] * width if isinstance(got, str) else got for got in where])
     else:
         kept = [(i, p) for i, got in enumerate(where) if not isinstance(got, str) for p in got]
         value = {"values": torch.stack([at_position(i, p) for i, p in kept]) if kept else
                  torch.zeros((0, *rest), dtype=dtype),
                  "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
                  "tok": torch.tensor([p for _, p in kept], dtype=torch.long)}
-    return with_ops(engine, plan, record, value, state, at, rows)
+        places = None
+    return with_ops(engine, plan, record, value, state, at, rows, places)

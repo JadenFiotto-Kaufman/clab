@@ -13,8 +13,8 @@ from typing import Any
 
 from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
-from .model import (Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, parameters, points,
-                    space, uses)
+from .model import (Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of, parameters,
+                    points, space, uses)
 
 
 def compile(plan: Plan) -> Plan:
@@ -65,11 +65,14 @@ def compile(plan: Plan) -> Plan:
 
 
 def bundled_sites(plan: Plan) -> None:
-    """A bundle's header names the site it was made at; every site its featurizer is used at is that one."""
+    """A bundle's header names the site it was made at, its layer counted from the first; every site its
+    featurizer is used at is that one. A layer counted from the last is the model's to resolve, and preflight
+    checks it."""
     for name, records in uses(plan).items():
         for where, site, at, _ in records:
             f = agreeing(plan.featurizers[name], at)
-            for key, value in (("component", site.component), ("layer", str(site.layers))):
+            layer = [] if isinstance(site.layers, int) and site.layers < 0 else [("layer", str(site.layers))]
+            for key, value in [("component", site.component), *layer]:
                 if f.header is not None and f.header.get(key) != value:
                     fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
                          f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
@@ -256,19 +259,20 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
         site = plan.sites[spec.site]
     else:
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
-    if write and site.layers == "all":
-        fail(f"{path}.site", "a write names its layer; layers 'all' is a read's (or sweep the layers)")
+    if write and address.stacks(site.layers):
+        fail(f"{path}.site", f"a write names its layer, an int; layers {site.layers!r} stack several, which is a "
+             "read's (or sweep the layers)")
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
-    if frame not in (0, "all") and step.kind != "generate":
-        fail(f"{path}.pos.frame", "a forward makes one call, the prefill; frame is 0, or 'all' (the whole "
-             "timeline, which in a forward is that call)")
+    if step.kind != "generate" and positions.select(frame, 1) != [0]:
+        fail(f"{path}.pos.frame", f"frame {frame!r}: a forward makes one call, the prefill; its frame picks that "
+             "call (0, or ':', the whole timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
-    if write and frame != 0:
-        decided(f"{path}.pos", pos)
+    if write and frame != 0 and step.kind == "generate":
+        decided(f"{path}.pos", pos, horizon(step))
     if "column" in scope:
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
@@ -293,11 +297,13 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
                      "own step is served in a forward, not yet inside a generate")
         found = references(cx, plan, at, o.op, arguments(o))
         aligned(at, (dataset, repr(step.input)), found)
+        if not write:
+            paired(at, o.op, dims, found)
         if write:
             chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
             operands(at, found, selection, within, ragged, live, chosen)
             for key, info in found.items():
-                if info["name"] in live and live[info["name"]]["site"].get("layers") == "all":
+                if info["name"] in live and address.stacks(live[info["name"]]["site"].get("layers")):
                     fail(f"{at}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
                          "forward is one layer's read")
         # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
@@ -339,7 +345,9 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     of = value_ref(cx, spec.of, f"{path}.of")
     kind = called(cx, plan, path, spec.op, arguments(spec))
-    dataset = aligned(path, (of["data"], repr(spec.of)), references(cx, plan, path, spec.op, arguments(spec)))
+    found = references(cx, plan, path, spec.op, arguments(spec))
+    dataset = aligned(path, (of["data"], repr(spec.of)), found)
+    paired(path, spec.op, of["dims"], found)
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
@@ -371,6 +379,18 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
         (a, x), (b, y) = list(datasets.items())[:2]
         fail(path, f"{x} has a row per example of {a!r} and {y} of {b!r}; an op takes one dataset's rows")
     return next(iter(datasets), None)
+
+
+def paired(path: str, name: str, dims: list[str], found: dict) -> None:
+    """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, or is one
+    vector of its features, the same for every example; a ragged one's entries line up with nothing."""
+    if ops.DECLARED[name]["group"] != "metrics":
+        return
+    one = [a for a in dims if a not in address.EXAMPLE_AXES]
+    for key, info in found.items():
+        if info["kind"] == "value" and (info["dims"] not in (dims, one) or "entries" in info["dims"]):
+            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
+                 f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
 
 
 def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool, live: dict,
@@ -510,32 +530,36 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     return name
 
 
-def decided(path: str, pos: dict) -> None:
-    """A write beyond the prefill lands at each call it selects as that call runs, so what it selects must be
-    known by then. Without a scope its calls must be known before the run (`positions.reach`). With a text
-    scope it is found online, call by call, in the inputs fed so far, and lands at the call fed the first
-    occurrence's last token: so its frame is decode calls only (a call, a span from 1 or 'generated'), and its
-    index -1, since the occurrence's earlier tokens were fed before the text was there to find; and which
-    occurrences it means count from the first."""
+def decided(path: str, pos: dict, most: int | None) -> None:
+    """A generation's write beyond the prefill lands at each call it selects as that call runs, so what it
+    selects must be known by then. Without a scope its calls must be known before the run, up to the step's
+    `max_new_tokens` (`most`) when it gives one (`positions.reach`). With a text scope it is found online,
+    call by call, in the inputs fed so far, and lands at the call fed the first occurrence's last token: so
+    its frame is decode calls only, and its index -1, since the occurrence's earlier tokens were fed before
+    the text was there to find; and which occurrences it means count from the first."""
     frame, index = pos["frame"], pos["index"]
     if pos["scope"] is not None:
-        if positions.reach({**pos, "index": "all"})[0]:
+        if positions.reach({**pos, "index": ":"})[0]:
             fail(f"{path}.frame", f"frame {frame!r}: a scoped write beyond the prefill is found call by call in the "
-                 "generated inputs, so its frame is decode calls known before the run: a call, a span from 1 or "
-                 "'generated'")
+                 "generated inputs, so its frame names decode calls only, not counted from the row's last call "
+                 "(a call, picks, or a slice from 1 such as '1:')")
         if index != -1:
             fail(f"{path}.index", f"index {index!r}: a scoped write lands at the call fed its text's last token, the "
                  "first call that can know the text is there; earlier tokens were already fed, so its index is -1")
         which = pos["scope"].get("occurrence", 0)
-        if which != "all" and min(which if isinstance(which, list) else [which]) < 0:
+        if positions.from_end(which):
             fail(f"{path}.scope.occurrence", f"occurrence {which!r} counts from the last occurrence, which is known "
                  "only when the row ends; a write lands as its call runs, so it counts from the first")
         return
-    if not positions.reach(pos)[2]:
-        fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
-             "lands as its call runs, so it names a call, a span of calls or 'generated' with an index counted "
-             "from their start (or -1 of a single call), or the prefill with them and index 'all'; or it takes "
-             "a text scope")
+    if positions.reach(pos, most)[2]:
+        return
+    if most is None and positions.reach(pos, positions.enough(pos))[2]:
+        fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
+             "listed before the run, so the step gives max_new_tokens, which bounds them")
+    fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
+         "lands as its call runs, so its frame is not counted from the row's last call, and its index "
+         "names the same calls on a row that stops early as on one that runs on: ':' over the prompt, and not "
+         "counted from the end over several decode calls; or it takes a text scope")
 
 
 def text_ref(cx: Compiling, value, path: str, dataset: str) -> None:

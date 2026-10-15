@@ -8,7 +8,7 @@ from safetensors.torch import save_file
 from torch import Tensor
 
 from ..plan.model import Plan, arguments, coordinate, dims_of, kind_of, labelled, name as named, points, uses
-from ..runtime import featurizers, ops
+from ..runtime import featurizers, ops, positions
 from .table import materialized, provenance
 
 
@@ -80,5 +80,7 @@ def header(plan: Plan, name: str, value: Any) -> dict[str, str] | None:
         return None
     classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
         if "classes" in fields else None
+    if isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
+        site = site.model_copy(update={"layers": positions.select(site.layers, plan.run.num_layers)[0]})
     return featurizers.bundles.header(kind, fields, plan.model, classes, site, featurizers.KINDS[kind].width(value),
                                       named(plan))

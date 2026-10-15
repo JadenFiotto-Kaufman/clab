@@ -42,7 +42,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, without gradients except where a fit trains; then each saved
     value into `plan.results` (a trained featurizer as its bundle's tensors)."""
     assert plan.run is not None
-    plan.run.versions = versions()
+    plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
     state = made(plan, found["widths"])
     with torch.no_grad():

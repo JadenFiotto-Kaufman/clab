@@ -232,7 +232,7 @@ def test_a_trained_dictionary_loads_and_encodes_as_the_trained_one_did(engines, 
     filled.dump(os.path.join(root, "documents", "artifacts"))
     with open(os.path.join(root, "documents", "sae_train_ablation.json")) as f:
         doc = json.load(f)
-    doc["steps"]["base"]["reads"]["latents"]["pos"] = {"index": "all"}
+    doc["steps"]["base"]["reads"]["latents"]["pos"] = {"index": ":"}
     doc["saves"] = ["base.latents"]
     plan = Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["base.latents"],
@@ -476,10 +476,10 @@ def test_a_swept_fits_bundle_is_refused_naming_its_points(engines, tmp_path):
 
 
 def test_a_root_value_without_rows_is_the_bodys_to_use():
-    """A root mean over a `layers: "all"` read is `[layers, hidden_size]`: no row per example, so a body may use it."""
+    """A root mean over a `layers: ":"` read is `[layers, hidden_size]`: no row per example, so a body may use it."""
     def change(d):
         d["steps"] = {"lens": {"kind": "forward", "input": "train.input",
-                               "reads": {"h": {"site": {"component": "layer_output", "layers": "all"}, "pos": -1}}},
+                               "reads": {"h": {"site": {"component": "layer_output", "layers": ":"}, "pos": -1}}},
                       "avg": {"kind": "op", "op": "mean", "of": "lens.h", "over": ["rows", "pos"]}, **d["steps"]}
         d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg"}
     plan = edited("das", change).compile()

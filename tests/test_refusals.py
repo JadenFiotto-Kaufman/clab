@@ -5,7 +5,7 @@ import re
 import pytest
 
 from clab.plan import PlanError
-from conftest import edited, plan_of
+from conftest import BATCH_SIZE, edited, plan_of, same
 
 # -- the plan and compile ---------------------------------------------------------------------------------
 
@@ -71,8 +71,8 @@ def test_renormalize_runs_only_inside_a_write(where):
 def test_a_forward_makes_one_call():
     def change(d):
         d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 1, "index": -1}
-    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos\.frame: a forward makes one call, the "
-                                        r"prefill; frame is 0"):
+    with pytest.raises(PlanError, match=r"steps\.patched\.reads\.logits\.pos\.frame: frame 1: a forward makes one "
+                                        r"call, the prefill; its frame picks that call"):
         edited("patching", change).compile()
 
 
@@ -124,7 +124,7 @@ def refused(engines, plan, kind: str = "hooks"):
      r"blanked.blank: row 0: the row has no 'system' message"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"].update(occurrence=2),
      r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input; it has no occurrence 2"),
-    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [9, -1]},
+    ("patching", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "9:-1"},
                                                                            ops=[{"op": "swap", "with": 0.0}]),
      r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
     ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],
@@ -190,3 +190,20 @@ def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch
     assert plan.model.dtype == "float32" and plan.model.model_extra == {"attn_implementation": "eager"}
     with pytest.raises(PlanError, match=r"model\.dtype: Input should be 'float32', 'float16' or 'bfloat16'"):
         edited("patching", lambda d: d["model"].update(dtype="fp32"))
+
+
+def test_a_forwards_frame_is_any_selector_that_picks_its_one_call(engines):
+    """`[0]`, `"0:1"` and `-1` pick a forward's one call as `0` does, and the record stays rectangular; `":"`,
+    `"0:"` and `"::"` pick it too, but name calls to the row's last, so the record is ragged (one entry per
+    token, whose operand is one vector). Each writes what its `frame: 0` twin does, to the bit."""
+    engine = engines("hooks", plan_of("patching").model)
+
+    def run(frame, operand):
+        def change(d):
+            d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": frame, "index": -1},
+                                                            ops=[{"op": "swap", "with": operand}])
+        return engine.execute(edited("patching", change).compile(), batch_size=BATCH_SIZE).results
+    for frames, operand in (([[0], "0:1", -1], "counterfactual.v_cf"), ([":", "0:", "::"], 0.0)):
+        base = run(0, operand)
+        for frame in frames:
+            assert same(run(frame, operand), base), frame

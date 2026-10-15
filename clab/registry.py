@@ -68,7 +68,7 @@ def thing(annotation: Any) -> Any:
 
 
 def spell(annotation: Any, names: dict | None = None) -> str:
-    """A type as a reader of the format says it: `int or 'all' or null`. `names` spells some types by name."""
+    """A type as a reader of the format says it: `float or null`. `names` spells some types by name."""
     names = names or {}
     origin, args = get_origin(annotation), get_args(annotation)
     try:

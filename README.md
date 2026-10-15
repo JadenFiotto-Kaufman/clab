@@ -129,14 +129,16 @@ size, versions, timing, and how each input tokenized). `clab.describe()` prints 
 
 ## Extending clab
 
-Every extensible thing is a plain function or class registered by a decorator under its name, and its
-signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
+Every extensible thing is a plain function or class under its name, registered by a decorator (ops: declared
+by one, and listed in order at the end of `ops/__init__.py`), and its signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
 named in every error.
 
-- **Ops** (`clab/runtime/ops/`): `@op(group, needs=..., removes=..., adds=..., bundle=None)` registers the function
-  and declares its group (`metrics`, `reductions`, `edits`, `transforms`), the axes the input must carry, the
-  axes it removes (a tuple, or the name of the argument that lists them) and appends, and, when its value is
-  a bundle a featurizer loads, that featurizer's kind. A parameter annotated `Value`, `Tokens` or
+- **Ops** (`clab/runtime/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
+  check=None)` declares the function's group (`metrics`, `reductions`, `edits`, `transforms`), the axes the
+  input must carry, the axes it removes (a tuple, or the name of the argument that lists them) and appends,
+  when its value is a bundle a featurizer loads, that featurizer's kind, and a rule its arguments keep beyond
+  their types; the ordered list at the end of `ops/__init__.py` registers it, and that order is the tables'.
+  A parameter annotated `Value`, `Tokens` or
   `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
 - **Featurizer kinds** (`clab/runtime/featurizers/`, one module each) are classes on the `Kind` protocol,

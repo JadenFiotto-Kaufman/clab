@@ -28,11 +28,19 @@
     "alignment_missing",
     "alignment_missing"
    ],
-   "answer.at_stop": [
-    "alignment_missing",
-    "alignment_missing",
-    "alignment_missing",
-    "alignment_missing"
+   "answer.at_last": [
+    [
+     15
+    ],
+    [
+     13
+    ],
+    [
+     13
+    ],
+    [
+     13
+    ]
    ]
   },
   "said": {

@@ -68,13 +68,13 @@ def test_remote_local_is_bit_equal_to_local(engines, filled, name):
 
 
 def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
-    """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_stop` is
-    missing on every row, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
+    """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_last` is each
+    row's sixth call, 5, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
     word's last token where it is an input: row 0 said `▁substr` as token 1 (position 12, call 2), row 1
     `▁energ` as token 2 (position 11, call 3)."""
     plan = filled["generated_answer", "nnterp"]
     assert plan.run.positions["answer.at_said"] == [[12], [11], "alignment_missing", "alignment_missing"]
-    assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
+    assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
     p = plan.results["p_answer"]
     assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 11] and p["values"].shape == (2,)
     said = plan.run.tokens["answer"]
@@ -89,8 +89,8 @@ def test_call_k_holds_token_k_minus_1_and_its_logits_chose_token_k(engines):
     def change(d):
         reads = d["steps"]["patched"]["reads"]
         reads["logits"]["pos"] = {"frame": 0, "index": -1}
-        reads["later"] = {"site": "head", "pos": {"frame": [1, 3], "index": [0, 2]}}
-        reads["inputs"] = {"site": {"component": "token_embeddings"}, "pos": {"frame": [1, 3], "index": [0, 2]}}
+        reads["later"] = {"site": "head", "pos": {"frame": "1:3", "index": "0:2"}}
+        reads["inputs"] = {"site": {"component": "token_embeddings"}, "pos": {"frame": "1:3", "index": "0:2"}}
         reads["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
         d["steps"]["forward"] = {"kind": "forward", "input": "pairs.input", "writes": d["steps"]["patched"]["writes"],
                                  "reads": {"logits": {"site": "head", "pos": -1},
@@ -144,8 +144,8 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
     assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
-def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
-    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: `eos` is
+def test_the_last_call_is_the_one_that_chose_eos_and_decode_stops_before_it(engines):
+    """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: frame -1 is
     call 2, the one that chose it, whose one position is token 1, and decode leaves the EOS out."""
     def change(d):
         answer = d["steps"]["answer"]
@@ -157,7 +157,7 @@ def test_eos_is_where_each_row_stopped_and_decode_stops_before_it(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[p + 1] for p in PROMPT]
+        assert values.run.positions["answer.at_last"] == [[p + 1] for p in PROMPT]
         assert values.results["answer"][:, 2].tolist() == [1] * 4
         assert values.results["text"] == ["Handler substr"] * 4
         assert values.results["pieces"] == [["Handler", "▁substr"]] * 4
@@ -196,10 +196,10 @@ def prompt_of(ids: list[int]) -> dict:
 
 def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, prompt: int = 2):
     """`pos` (defaults filled) resolved in a row of a `prompt`-token prompt that generated `said`, EOS 1."""
-    pos = {"frame": 0, "scope": None, "index": "all", **pos}
+    pos = {"frame": 0, "scope": None, "index": ":", **pos}
     row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
     found = positions.occurrences(pos["scope"], row, said, tokenizer, [text] if text else [])
-    return positions.resolve(pos, prompt, list(range(1, prompt)), said, bool(said) and said[-1] == 1, found)
+    return positions.resolve(pos, prompt, list(range(1, prompt)), said, found)
 
 
 def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
@@ -210,7 +210,7 @@ def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
     text, spans = positions.char_spans(tokenizer, ids)
     assert text == "say 🍐 now"
     assert [text[a:b] for a, b in spans] == ["say", " ", "", "", "", "🍐", " now"]
-    pear = {"frame": "generated", "scope": {"text": "🍐"}}
+    pear = {"frame": "1:", "scope": {"text": "🍐"}}
     assert resolved(pear, ids, tokenizer, "🍐") == [4, 5, 6, 7]          # tokens 2..5, after a 2-token prompt
     assert resolved({**pear, "index": -1}, ids, tokenizer, "🍐") == [7]
 
@@ -225,19 +225,19 @@ def test_each_stage_narrows_the_one_before():
     assert resolved({"frame": 0, "index": -1}, [], tokenizer) == [1]                     # BOS is never a position
     assert resolved({"frame": 1}, words, tokenizer) == [2]                               # call 1 holds token 0
     assert resolved({"frame": -1}, words, tokenizer) == [n]                              # the row's last call
-    assert resolved({"frame": "generated"}, [*words, 1], tokenizer) == list(range(2, 2 + n))
-    assert resolved({"frame": "all"}, [*words, 1], tokenizer) == list(range(1, 2 + n))
-    assert resolved({"frame": [1, 3], "index": 1}, [*words, 1], tokenizer) == [3]
-    assert resolved({"frame": "eos"}, [*words, 1, 0], tokenizer) == [1 + n]              # the call that chose EOS
-    assert resolved({"frame": "eos"}, words, tokenizer) == "alignment_missing"           # it never stopped
+    assert resolved({"frame": "1:"}, [*words, 1], tokenizer) == list(range(2, 2 + n))
+    assert resolved({"frame": ":"}, [*words, 1], tokenizer) == list(range(1, 2 + n))
+    assert resolved({"frame": "1:3", "index": 1}, [*words, 1], tokenizer) == [3]
+    assert resolved({"frame": -1}, [*words, 1, 0], tokenizer) == [1 + n]                 # the call that chose EOS
+    assert resolved({"frame": -1}, [*words, 7], tokenizer) == [1 + n]                    # or ran out at its last
     assert resolved({"frame": n + 1, "index": -1}, words, tokenizer) == "alignment_missing"
-    beta = {"frame": "generated", "scope": {"text": "beta"}, "index": -1}
+    beta = {"frame": "1:", "scope": {"text": "beta"}, "index": -1}
     assert resolved(beta, [*words, 1], tokenizer, "beta") == [1 + n]
     assert resolved(beta, [*words, 1], tokenizer, "gamma") == "alignment_missing"
     twice = [*words, *words, 1]                                                          # beta at positions 3 and 5
     assert resolved(beta, twice, tokenizer, "beta") == [3]
     assert resolved({**beta, "scope": {"text": "beta", "occurrence": -1}}, twice, tokenizer, "beta") == [5]
-    every = {"frame": "generated", "scope": {"text": "beta", "occurrence": "all"}}
+    every = {"frame": "1:", "scope": {"text": "beta", "occurrence": ":"}}
     assert resolved(every, twice, tokenizer, "beta") == [3, 5]
     assert resolved({**every, "index": -1}, twice, tokenizer, "beta") == [5]
     assert resolved({**beta, "scope": {"text": "beta", "occurrence": 2}}, twice, tokenizer, "beta") == \
@@ -249,19 +249,16 @@ def test_each_stage_narrows_the_one_before():
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "eos"}),
-     r"steps\.patched\.writes\.patch\.pos: frame 'eos' with index 'all' names calls that depend on how far each "
-     r"row gets"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
      r"steps\.patched\.writes\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
     (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
-     r"steps\.patched\.writes\.patch\.pos\.index: index 'all': a scoped write lands at the call fed its text's"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "generated", "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos: frame 'generated' with index -1 names calls that depend on how far"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": [1, 4], "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos: frame \[1, 4\] with index -1 names calls that depend on how far"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "all", "index": 0}),
-     r"steps\.patched\.writes\.patch\.pos: frame 'all' with index 0 names calls that depend on how far"),
+     r"steps\.patched\.writes\.patch\.pos\.index: index ':': a scoped write lands at the call fed its text's"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "1:", "index": -1}),
+     r"steps\.patched\.writes\.patch\.pos: frame '1:' with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "1:4", "index": -1}),
+     r"steps\.patched\.writes\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": ":", "index": 0}),
+     r"steps\.patched\.writes\.patch\.pos: frame ':' with index 0 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["reads"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
      r"steps\.patched\.reads\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
@@ -315,7 +312,7 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_stop"] == [[p] for p in PROMPT]
+        assert values.run.positions["answer.at_last"] == [[p] for p in PROMPT]
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
@@ -371,7 +368,7 @@ def steered(engines, kind: str, batch_size: int, held: bool, change=None, **kwar
         answer["reads"].update(
             at1={"site": "head", "pos": {"frame": 1, "index": -1}},
             at2={"site": "head", "pos": {"frame": 2, "index": -1}},
-            resid0={"site": {"component": "layer_output", "layers": 1}, "pos": {"frame": [0, 2], "index": -2}},
+            resid0={"site": {"component": "layer_output", "layers": 1}, "pos": {"frame": "0:2", "index": -2}},
             resid={"site": {"component": "layer_output", "layers": 1}, "pos": -1})
         d["steps"].update(iia={"kind": "op", "op": "match", "of": "answer.at2", "expected": "prompts.cf_answer"},
                           acc={"kind": "op", "op": "mean", "of": "iia"},
@@ -411,7 +408,7 @@ def test_rows_that_stop_at_different_calls(engines):
                                     [4598, 25148, 18190, 1, 1, 1], [28728, 5117, 1325, 13194, 21367, 28630]]
     assert v["text"] == ["Handler", "Handler substr energcalc tossorter", "Handler substr energ",
                          "FridayreichсиhovervelopeAlpha"]
-    assert positions["answer.at_stop"] == [[11], "alignment_missing", [11], "alignment_missing"]
+    assert positions["answer.at_last"] == [[11], [13], [11], [13]]     # stopped at calls 1 and 3, or ran to 5
     assert positions["answer.at1"] == [[p] for p in PROMPT]
     assert positions["answer.at2"] == ["alignment_missing", [10], [10], [10]]
     assert not v["answer.at1"].isnan().any() and v["answer.at2"][0].isnan().all()
@@ -433,7 +430,7 @@ def test_min_new_tokens_holds_eos_off(engines):
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, 2, held=True)
         assert 1 not in plan.results["answer"].flatten().tolist()
-        assert plan.run.positions["answer.at_stop"] == ["alignment_missing"] * 4
+        assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
         assert plan.run.positions["answer.at2"] == [[p + 1] for p in PROMPT]
 
 
@@ -487,7 +484,7 @@ def test_a_decode_call_writes_operand_is_checked_before_any_forward(engines):
     """A decode call holds one position, so an operand read three tokens wide cannot be written there: refused
     by name before the generation, not as a size error inside it."""
     def change(d):
-        d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = {"index": [-4, -1]}
+        d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = {"index": "-4:-1"}
         d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": 2, "index": -1}
     plan = edited("generate_probe", change).compile()
     engine = engines("hooks", plan.model)
@@ -508,25 +505,25 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     the prompt's first, while the generated calls alone hold one."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     words = tokenizer(" alpha beta", add_special_tokens=False)["input_ids"]
-    every = {"frame": "all", "scope": {"text": "beta"}}
+    every = {"frame": ":", "scope": {"text": "beta"}}
     assert resolved(every, [*words, 1], tokenizer, "beta") == [3]
     row, said = {"ids": [1, 5], "offsets": [(0, 0), (0, 4)], "text": "beta", "turns": []}, [*words, 1]
 
     def found(pos):
-        pos = {"frame": 0, "scope": None, "index": "all", **pos}
+        pos = {"frame": 0, "scope": None, "index": ":", **pos}
         hits = positions.occurrences(pos["scope"], row, said, tokenizer, ["beta"])
-        return positions.resolve(pos, 2, [1], said, True, hits)
+        return positions.resolve(pos, 2, [1], said, hits)
     assert found(every) == [1]
     assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
-    assert found({**every, "scope": {"text": "beta", "occurrence": "all"}}) == [1, 3]
-    assert found({**every, "frame": "generated"}) == [3]
+    assert found({**every, "scope": {"text": "beta", "occurrence": ":"}}) == [1, 3]
+    assert found({**every, "frame": "1:"}) == [3]
 
 
 def test_a_span_of_calls_with_every_position_is_ragged(engines):
-    """`{"frame": [1, 4]}` reads calls 1 to 3 of each row: the Thursday row stopped after call 1, so it has
+    """`{"frame": "1:4"}` reads calls 1 to 3 of each row: the Thursday row stopped after call 1, so it has
     one entry and the others three."""
     plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
-        d["steps"]["answer"]["reads"].update(span={"site": "head", "pos": {"frame": [1, 4]}}),
+        d["steps"]["answer"]["reads"].update(span={"site": "head", "pos": {"frame": "1:4"}}),
         d["saves"].append("answer.span")))
     assert plan.run.positions["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
     value = plan.results["answer.span"]
@@ -535,9 +532,59 @@ def test_a_span_of_calls_with_every_position_is_ragged(engines):
     assert torch.equal(value["values"][[0, 1]], plan.results["answer.at1"][:2, 0])     # call 1 of rows 0 and 1
 
 
+def test_picked_calls_and_picked_tokens_keep_the_order_written(engines):
+    """`{"frame": [3, 1], "index": [1, 0]}` holds call 3's input then call 1's, and picks the second then the
+    first: positions 9 then 11 (a 9-token prompt), rectangular, call 1 then call 3; and a slice with a step
+    over the generated calls, `{"frame": "1:6:2"}`, is calls 1, 3 and 5."""
+    plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
+        d["steps"]["answer"]["reads"].update(picked={"site": "head", "pos": {"frame": [3, 1], "index": [1, 0]}},
+                                             stepped={"site": "head", "pos": {"frame": "1:6:2", "index": [0, 1]}}),
+        d["saves"].extend(["answer.picked", "answer.stepped"])))
+    assert plan.run.positions["answer.picked"][1:] == [[9, 11]] * 3
+    assert plan.run.positions["answer.stepped"][1:] == [[9, 11]] * 3
+    value = plan.results["answer.picked"]
+    assert value.shape == (4, 2, 32000) and value[0].isnan().all()      # the row that stopped after call 1
+    assert torch.equal(value[1:], plan.results["answer.stepped"][1:])
+    assert torch.equal(value[1:2, 0], plan.results["answer.at1"][1:2, 0])
+
+
+@pytest.mark.parametrize("pos, calls", [
+    ({"frame": "2:"}, [2, 3, 4, 5]), ({"frame": "3:"}, [3, 4, 5]), ({"frame": "1::2"}, [1, 3, 5]),
+    ({"frame": "1:", "index": "2:"}, [3, 4, 5]), ({"frame": "1:", "index": [0, 2]}, [1, 3])])
+def test_a_write_to_the_rows_last_call_lands_at_each_call_up_to_max_new_tokens(engines, pos, calls):
+    """A frame not counted from the end names call `k` on every row that makes it; up to `max_new_tokens`
+    (6: calls 0 to 5) its calls are listed before the run, and the write is the one at those calls, to the bit,
+    on both engines."""
+    def at(where):
+        def change(d):
+            written(d)
+            d["steps"]["swapped"]["writes"]["w"]["pos"] = where
+        return edited("generated_answer", change).compile()
+    runs = {}
+    for kind in ("nnterp", "hooks"):
+        open_ended = engines(kind, at(pos).model).execute(at(pos), batch_size=BATCH_SIZE)
+        listed = engines(kind, at({"frame": calls}).model).execute(at({"frame": calls}), batch_size=BATCH_SIZE)
+        assert torch.equal(open_ended.results["swapped"], listed.results["swapped"]), kind
+        assert open_ended.run.positions["swapped.w"] == listed.run.positions["swapped.w"], kind
+        assert not torch.equal(open_ended.results["swapped"], open_ended.results["clean"]), kind
+        runs[kind] = open_ended.results
+    assert same(runs["nnterp"], runs["hooks"])
+
+
+def test_a_write_to_the_rows_last_call_without_max_new_tokens_is_refused():
+    def change(d):
+        written(d)
+        d["steps"]["swapped"].pop("max_new_tokens")
+        d["steps"]["swapped"]["writes"]["w"]["pos"] = {"frame": "2:"}
+    with pytest.raises(PlanError, match=r"steps\.swapped\.writes\.w\.pos: frame '2:' with index ':' names calls up "
+                                        r"to the row's last; a write lands at calls listed before the run, so the "
+                                        r"step gives max_new_tokens"):
+        edited("generated_answer", change).compile()
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engines, kind):
-    """`{"frame": [2, 3], "index": -1}` (one call) and `{"frame": [1, 4], "index": 1}` (the second of calls 1
+    """`{"frame": "2:3", "index": -1}` (one call) and `{"frame": "1:4", "index": 1}` (the second of calls 1
     to 3) both name call 2, so they write what `{"frame": 2, "index": -1}` does."""
     def at(pos):
         def change(d):
@@ -546,7 +593,7 @@ def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engi
         return engines(kind, plan_of("generated_answer").model).execute(
             edited("generated_answer", change).compile(), batch_size=BATCH_SIZE)
     base = at({"frame": 2, "index": -1})
-    for pos in ({"frame": [2, 3], "index": -1}, {"frame": [1, 4], "index": 1}):
+    for pos in ({"frame": "2:3", "index": -1}, {"frame": "1:4", "index": 1}):
         other = at(pos)
         assert torch.equal(other.results["swapped"], base.results["swapped"]), pos
         assert other.run.positions["swapped.w"] == base.run.positions["swapped.w"], pos
@@ -564,7 +611,7 @@ def scoped_write(text: str, held: bool):
     """`written`, its swap replaced by a scale by 0 at the call fed `text`'s last token, found online."""
     def change(d):
         written(d, held=held)
-        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": {"frame": "generated", "scope": {"text": text},
+        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": {"frame": "1:", "scope": {"text": text},
                                                                  "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}
     return change
 
@@ -600,7 +647,7 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
         return edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         for occurrence, call in ((0, 1), (1, 3)):
-            plan = at({"frame": "generated", "scope": {"text": "er", "occurrence": occurrence}, "index": -1})
+            plan = at({"frame": "1:", "scope": {"text": "er", "occurrence": occurrence}, "index": -1})
             scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
             fixed = engines(kind, plan.model).execute(at({"frame": call, "index": -1}), batch_size=BATCH_SIZE)
             assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), (kind, occurrence)
@@ -634,7 +681,7 @@ def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engin
 
 
 def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
-    """`occurrence: [0, 2]` of `er` lands at call 1 (`Handler`) and, where the row still says it, at the call
+    """`occurrence: "0:2"` of `er` lands at call 1 (`Handler`) and, where the row still says it, at the call
     fed its next one: call 3 on rows 0, 1 and 3 (`▁energ`, `▁energ`, `▁sier`), as a write at each of calls 1
     and 3 does there; row 2, which the write at call 1 sends elsewhere, has no second; both engines to the bit."""
     def at(where):
@@ -643,7 +690,7 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
             w = d["steps"]["swapped"]["writes"].pop("w")
             d["steps"]["swapped"]["writes"] = {k: {**w, "pos": p} for k, p in where.items()}
         return edited("generated_answer", change).compile()
-    span = {"w": {"frame": "generated", "scope": {"text": "er", "occurrence": [0, 2]}, "index": -1}}
+    span = {"w": {"frame": "1:", "scope": {"text": "er", "occurrence": "0:2"}, "index": -1}}
     calls = {"w1": {"frame": 1, "index": -1}, "w3": {"frame": 3, "index": -1}}
     results = {}
     for kind in ("nnterp", "hooks"):
@@ -657,9 +704,9 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
 
 
 @pytest.mark.parametrize("pos, message", [
-    ({"frame": "all", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'all': a scoped write beyond the"),
-    ({"frame": "eos", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame 'eos': a scoped write beyond the"),
-    ({"frame": "generated", "scope": {"text": "is"}}, r"\.index: index 'all': a scoped write lands at the call fed"),
+    ({"frame": ":", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame ':': a scoped write beyond the"),
+    ({"frame": -1, "scope": {"text": "is"}, "index": -1}, r"\.frame: frame -1: a scoped write beyond the"),
+    ({"frame": "1:", "scope": {"text": "is"}}, r"\.index: index ':': a scoped write lands at the call fed"),
 ])
 def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):
     with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
@@ -675,16 +722,16 @@ def doubled(d, scope: dict, index):
          "base_answer": " Friday"}]}}
     d["steps"] = {"look": {"kind": "forward", "input": "pairs.input",
                            "reads": {"there": {"site": "target", "pos": {"scope": scope, "index": index}},
-                                     "every": {"site": "target", "pos": {"index": "all"}}}}}
+                                     "every": {"site": "target", "pos": {"index": ":"}}}}}
     d["saves"] = ["look.there", "look.every"]
 
 
 @pytest.mark.parametrize("occurrence, index, picks", [
-    (0, -1, [0]), (1, -1, [1]), (-1, -1, [1]), ("all", "all", [0, 1]), ([0, 2], "all", [0, 1])])
+    (0, -1, [0]), (1, -1, [1]), (-1, -1, [1]), (":", ":", [0, 1]), ("0:2", ":", [0, 1]), ([1, 0], ":", [0, 1])])
 def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurrence, index, picks):
     """Each row says `Friday` twice: `occurrence` picks which, the same selector `frame` and `index` use; an
-    int keeps the read rectangular, `"all"` or a span makes it ragged. Positions and values on both engines,
-    to the bit, are those of the read of every position there."""
+    int keeps the read rectangular, a slice or picks make it ragged (the picked occurrences' tokens, in
+    order). Positions and values on both engines, to the bit, are those of the read of every position there."""
     scope = {"text": "Friday", "occurrence": occurrence}
     plan = edited("patching", lambda d: doubled(d, scope, index)).compile()
     runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
@@ -702,12 +749,12 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
 
 
 def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
-    """`er` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `"all"` both."""
+    """`er` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `":"` both."""
     def change(d):
         d["steps"]["answer"]["reads"] = {
-            "second": {"site": "head", "pos": {"frame": "generated", "scope": {"text": "er", "occurrence": 1},
+            "second": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": 1},
                                                "index": -1}},
-            "both": {"site": "head", "pos": {"frame": "generated", "scope": {"text": "er", "occurrence": "all"}}}}
+            "both": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": ":"}}}}
         d["steps"] = {"answer": d["steps"]["answer"]}
         d["saves"] = ["answer.second", "answer.both"]
     plan = edited("generated_answer", change).compile()
@@ -736,11 +783,11 @@ def test_strip_locates_the_text_without_its_surrounding_space(engines, strip, fo
 
 @pytest.mark.parametrize("scope, message", [
     ({"text": "er", "occurrence": -1}, r"\.scope\.occurrence: occurrence -1 counts from the last occurrence, which"),
-    ({"text": "er", "occurrence": [0, -1]}, r"\.scope\.occurrence: occurrence \[0, -1\] counts from the last"),
+    ({"text": "er", "occurrence": "0:-1"}, r"\.scope\.occurrence: occurrence '0:-1' counts from the last"),
 ])
 def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
     def change(d):
-        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": "generated", "scope": scope, "index": -1}
+        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": "1:", "scope": scope, "index": -1}
     with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
         edited("generate_probe", change).compile()
 
@@ -759,12 +806,12 @@ def test_a_turn_is_a_role_and_takes_no_strip(scope, message):
 
 def test_a_roles_messages_are_its_occurrences(engines):
     """A user, assistant, user chat: `turn: user` occurrence 0 is the first user message's tokens, 1 and -1
-    the second's, `"all"` both, and `turn: assistant` the reply's; each is the tokens the template rendered
+    the second's, `":"` both, and `turn: assistant` the reply's; each is the tokens the template rendered
     the message's content as, on both engines to the bit."""
     chat = [{"role": "user", "content": "Name a weekday."}, {"role": "assistant", "content": "Thursday."},
             {"role": "user", "content": "If today is Thursday, tomorrow is"}]
     reads = {"first": {"turn": "user"}, "second": {"turn": "user", "occurrence": 1},
-             "last": {"turn": "user", "occurrence": -1}, "both": {"turn": "user", "occurrence": "all"},
+             "last": {"turn": "user", "occurrence": -1}, "both": {"turn": "user", "occurrence": ":"},
              "reply": {"turn": "assistant"}}
 
     def change(d):
@@ -795,28 +842,28 @@ def listed(d, rows: list[dict], reads: dict):
 
 def test_a_list_of_texts_takes_its_occurrences_in_order(engines):
     """`["Larry", "Bob"]` over rows that name Bob first and Larry first: occurrence 0 is whichever comes first
-    in the row, 1 the other, `"all"` both, on both engines to the bit."""
+    in the row, 1 the other, `":"` both, on both engines to the bit."""
     rows = [{"input": "Bob met Larry, then"}, {"input": "Larry met Bob, then"}]
     both = ["Larry", "Bob"]
     reads = {"first": {"scope": {"text": both}}, "second": {"scope": {"text": both, "occurrence": 1}},
-             "all": {"scope": {"text": both, "occurrence": "all"}},
+             "both": {"scope": {"text": both, "occurrence": ":"}},
              "bob": {"scope": {"text": "Bob"}}, "larry": {"scope": {"text": "Larry"}}}
     plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
     runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
     where = runs["nnterp"].run.positions
     bob, larry = where["look.bob"], where["look.larry"]
     assert where["look.first"] == [bob[0], larry[1]] and where["look.second"] == [larry[0], bob[1]]
-    assert where["look.all"] == [sorted(b + l) for b, l in zip(bob, larry)]
+    assert where["look.both"] == [sorted(b + l) for b, l in zip(bob, larry)]
     assert same(runs["nnterp"].results, runs["hooks"].results)
     assert runs["nnterp"].run.positions == runs["hooks"].run.positions
 
 
 def test_overlapping_texts_take_the_union_of_their_tokens(engines):
-    """`is` occurs inside `this` and on its own: `"all"` of `["this", "is"]` holds each token once."""
-    reads = {"all": {"scope": {"text": ["this", "is"], "occurrence": "all"}}, "every": {"index": "all"}}
+    """`is` occurs inside `this` and on its own: `":"` of `["this", "is"]` holds each token once."""
+    reads = {"union": {"scope": {"text": ["this", "is"], "occurrence": ":"}}, "every": {"index": ":"}}
     plan = edited("patching", lambda d: listed(d, [{"input": "this is it, then"}], reads)).compile()
     filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
-    (got,), tokens = filled.run.positions["look.all"], filled.run.tokens["pairs.input"][0]
+    (got,), tokens = filled.run.positions["look.union"], filled.run.tokens["pairs.input"][0]
     assert got == sorted(set(got)) and [tokens[i] for i in got] == ["▁this", "▁is"]
 
 
@@ -832,7 +879,7 @@ def test_occurrences_are_ordered_by_where_they_end():
     spans = positions.located(scope, ["a b c", "b"], words)
     assert [words[a:b] for a, b in spans] == ["b", "a b c"]
     def lands_at(k):
-        pos = {"frame": "generated", "scope": {**scope, "occurrence": k}, "index": -1}
+        pos = {"frame": "1:", "scope": {**scope, "occurrence": k}, "index": -1}
         return [j for j in range(len(ids)) if positions.landing(pos, ["a b c", "b"], ids[:j + 1], set(), tokenizer)]
     first, second = lands_at(0), lands_at(1)
     assert len(first) == len(second) == 1 and first[0] < second[0]     # `b` is known before `a b c` is
@@ -850,7 +897,7 @@ def test_a_scoped_write_counts_its_occurrences_within_its_frame():
     at3 = {"frame": 3, "scope": {"text": "Bob", "occurrence": 0}, "index": -1}
     assert calls(at3) == [3]
     assert resolved(at3, ids, tokenizer, "Bob") == [2 + 2]                # call 3's input, after a 2-token prompt
-    assert calls({**at3, "frame": "generated", "scope": {"text": "Bob", "occurrence": [0, 2]}}) == [1, 3]
+    assert calls({**at3, "frame": "1:", "scope": {"text": "Bob", "occurrence": "0:2"}}) == [1, 3]
 
 
 def test_a_list_of_columns_takes_the_first_of_either(engines):
@@ -870,7 +917,7 @@ def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
     rows that say it and `▁Friday` (token 0, fed to call 1) on the Sunday row; the Thursday row stops before
     either and is missing. A read finds them there and a write lands there, on both engines."""
     texts = ["energ", "Friday"]
-    pos = {"frame": "generated", "scope": {"text": texts}, "index": -1}
+    pos = {"frame": "1:", "scope": {"text": texts}, "index": -1}
 
     def change(d):
         written(d, held=False)

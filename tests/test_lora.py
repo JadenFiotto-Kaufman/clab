@@ -93,17 +93,17 @@ def test_the_adapter_is_on_in_every_step_that_names_it(engines, tmp_path):
         with open(os.path.join(root, "documents", "lora_apply.json")) as f:
             doc = json.load(f)
         doc["interventions"]["adapted"]["writes"]["adapt"]["pos"]["frame"] = frame
-        doc["steps"]["answer"]["reads"] = {"later": {"site": "head", "pos": {"frame": [1, 4], "index": [0, 3]}}}
+        doc["steps"]["answer"]["reads"] = {"later": {"site": "head", "pos": {"frame": "1:4", "index": "0:3"}}}
         doc["saves"] += ["adapted.logits", "clean.logits", "answer.later"]
         return Plan(**doc, document=os.path.join(root, "documents", "lora_apply.json")).compile()
-    on, prefill_only = (engine.execute(compiled(frame), batch_size=BATCH_SIZE).results for frame in ("all", 0))
+    on, prefill_only = (engine.execute(compiled(frame), batch_size=BATCH_SIZE).results for frame in (":", 0))
     assert not torch.equal(on["adapted.logits"], on["clean.logits"])
     assert not torch.equal(on["adapted_ld"], on["clean_ld"])
     assert len(on["said"]) == 2 and all(isinstance(text, str) for text in on["said"])
     assert on["answer.later"].shape == (2, 3, 32000)
     for k in range(3):
         assert not torch.equal(on["answer.later"][:, k], prefill_only["answer.later"][:, k]), k
-    assert same(engines("hooks", lora_train().model).execute(compiled("all"), batch_size=BATCH_SIZE).results, on)
+    assert same(engines("hooks", lora_train().model).execute(compiled(":"), batch_size=BATCH_SIZE).results, on)
 
 
 # -- an adapter across sites: o_proj, read at attention_premix and applied at attention_output ----------------
@@ -137,7 +137,7 @@ def adapted(name: str, featurizer: str, pos) -> dict:
                       "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
 
 
-@pytest.mark.parametrize("pos", [-1, {"index": "all"}])
+@pytest.mark.parametrize("pos", [-1, {"index": ":"}])
 def test_a_cross_site_adapter_adds_its_update_to_the_live_value_on_both_engines(engines, tmp_path, pos):
     root = corpus_copy(tmp_path)
     clean = {"kind": "forward", "input": "train.input",

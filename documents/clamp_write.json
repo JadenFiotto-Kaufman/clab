@@ -1,0 +1,43 @@
+{
+  "description": "Clamping as a write: every element of layer 1's residual stream at every prompt token ({'index': ':'}) clamped to [-0.01, 0.01] (this checkpoint's residual stream is small: its median magnitude there is about 0.009), read back at the last token after the write, and the answer scored against the un-intervened model. `clamp` takes `min`, `max` or both; the read of the clamped value lets the bound be checked.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"prompts": {"path": "weekdays/train"}},
+  "sites": {
+    "target": {"component": "layer_output", "layers": 1},
+    "head": {"component": "lm_head_output"}
+  },
+  "steps": {
+    "clean": {
+      "kind": "forward",
+      "input": "prompts.input",
+      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+    },
+    "clean_ld": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "clean.logits",
+      "a": "prompts.cf_answer",
+      "b": "prompts.base_answer"
+    },
+    "clamped": {
+      "kind": "forward",
+      "input": "prompts.input",
+      "writes": {
+        "clamp": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "clamp", "min": -0.01, "max": 0.01}]}
+      },
+      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+    },
+    "clamped_ld": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "clamped.logits",
+      "a": "prompts.cf_answer",
+      "b": "prompts.base_answer"
+    }
+  },
+  "saves": ["clean_ld", "clamped_ld", "clean.resid", "clamped.resid"]
+}

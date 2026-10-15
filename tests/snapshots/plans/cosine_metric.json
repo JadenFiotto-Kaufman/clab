@@ -1,0 +1,119 @@
+{
+ "description": "How far an interchange moves the residual stream, layer by layer: layer 1's output at the last token swapped for the counterfactual's, then the residual stream read at layers 0, 2 and 4 ({'layers': [0, 2, 4]}, a pick list: one value with a layers axis labelled 0, 2, 4) at the prompt's last two tokens ({'index': '-2:'}), in the clean and the patched forward, and their cosine similarity over hidden_size, one number per layer, row and position. Layer 0 is before the write and the second-to-last token is before it in the sequence, so there the two values are the same to the bit and their cosine is 1 to within rounding; the last token at layers 2 and 4 is where the patch shows.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-gpt2",
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
+ },
+ "data": {
+  "pairs": {
+   "path": "counting/train",
+   "sha256": "a6dddab9ac905ac91c29a904980cf2005c547c02e1b2611988915ee992a8e9b9",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "input": "pairs.counterfactual_inputs[0]",
+   "reads": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 1
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "pairs"
+  },
+  "clean": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "reads": {
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": [
+       0,
+       2,
+       4
+      ]
+     },
+     "pos": {
+      "index": "-2:"
+     },
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "pairs"
+  },
+  "patched": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "writes": {
+    "patch": {
+     "site": {
+      "component": "layer_output",
+      "layers": 1
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "swap",
+       "with": "counterfactual.v_cf"
+      }
+     ]
+    }
+   },
+   "reads": {
+    "resid": {
+     "site": {
+      "component": "layer_output",
+      "layers": [
+       0,
+       2,
+       4
+      ]
+     },
+     "pos": {
+      "index": "-2:"
+     },
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "hidden_size"
+     ]
+    }
+   },
+   "dataset": "pairs"
+  },
+  "similarity": {
+   "kind": "op",
+   "op": "cosine",
+   "of": "patched.resid",
+   "dataset": "pairs",
+   "dims": [
+    "layers",
+    "rows",
+    "pos"
+   ],
+   "with": "clean.resid"
+  }
+ },
+ "saves": [
+  "similarity"
+ ],
+ "document": "documents/cosine_metric.json",
+ "compiled": true
+}
