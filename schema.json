@@ -460,7 +460,7 @@
   },
   "Interventions": {
    "additionalProperties": false,
-   "description": "A bundle of `writes` and `reads` (each by name), pulled into a step by `\"interventions\": \"<name>\"` or a\nlist of names. Its names resolve where a step pulls it in.",
+   "description": "A bundle of `writes` and `reads` (each by name), pulled into a step by `\"interventions\": \"<name>\"` or a\nlist of names. Its names resolve where a step pulls it in. A write's operand may name one of the bundle's\nown reads by its bare name (`\"with\": \"premix\"`, a cross-site adapter's input): it means that read of\nwhichever step pulls the bundle in. `<a step>.<one of the bundle's reads>` is refused, since pulled into\nanother step it would still mean that step's read. A write's operand from its own step's reads is served\nin a forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap).",
    "properties": {
     "writes": {
      "additionalProperties": {
@@ -514,7 +514,7 @@
   },
   "Op": {
    "title": "Op",
-   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them.",
+   "description": "An op inside a read or a write: `{\"op\": <name>, ...its arguments}` (see Ops). `featurizer` makes any op\nrun on the value's coordinates in that featurizer's space, the change written back; `select`\n(`{\"features\": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer\nthe op calls.",
    "oneOf": [
     {
      "type": "object",
@@ -989,7 +989,7 @@
      "type": "object",
      "properties": {
       "op": {
-       "const": "encode"
+       "const": "featurizer"
       },
       "featurizer": {
        "anyOf": [
@@ -1027,10 +1027,31 @@
        ],
        "default": null,
        "title": "Select"
+      },
+      "mode": {
+       "enum": [
+        "encode",
+        "apply"
+       ]
+      },
+      "with": {
+       "anyOf": [
+        {
+         "type": [
+          "number",
+          "string"
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
       }
      },
      "required": [
-      "op"
+      "op",
+      "featurizer",
+      "mode"
      ],
      "additionalProperties": false
     },
@@ -2114,7 +2135,7 @@
        "type": "string"
       },
       "op": {
-       "const": "encode"
+       "const": "featurizer"
       },
       "of": {
        "title": "Of",
@@ -2129,13 +2150,33 @@
          "$ref": "#/$defs/Sweep"
         }
        ]
+      },
+      "mode": {
+       "enum": [
+        "encode",
+        "apply"
+       ]
+      },
+      "with": {
+       "anyOf": [
+        {
+         "type": [
+          "number",
+          "string"
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
       }
      },
      "required": [
       "kind",
       "op",
       "of",
-      "featurizer"
+      "featurizer",
+      "mode"
      ],
      "additionalProperties": false
     },
@@ -2679,7 +2720,7 @@
   },
   "Pos": {
    "additionalProperties": false,
-   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos   := int                                   # shorthand: {\"frame\": 0, \"index\": int}\n       | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: index}\nframe := int | [start, stop] | \"generated\" | \"all\" | \"eos\"         # default 0\nscope := {\"column\" | \"text\": one or a list, \"occurrence\"?: selector, \"strip\"?: bool}\n       | {\"turn\": \"<role>\", \"occurrence\"?: selector}\nindex := int | [start, stop] | \"all\"                               # default \"all\"\nselector := int | [start, stop] | \"all\"                            # occurrence's; default 0\n```\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call; a span is half-open; `\"generated\"` is every decode call, `\"all\"` the\nprefill and every decode call, `\"eos\"` the call where the row stopped (the one that chose its EOS). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where\nthey end, then where they start: where an occurrence becomes known and where index -1 lands, so a write\nfound online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`\n(default 0, the first of any) picks which of those occurrences among the tokens the\nscope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order\n(their union where occurrences of different texts overlap), and `strip` strips each text of surrounding\nwhitespace first. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in\ncall 0 only: its messages are its occurrences, in order (`{\"turn\": \"user\", \"occurrence\": 1}` is the second\nuser message, `\"all\"` every one of them); a role the row has no message of is refused by name.\n\n**index** (default `\"all\"`): an int counts the scope's tokens (negative from the end), a span is\nhalf-open. It counts over the tokens of every call the frame selected, in order: `{\"frame\": [0, 3],\n\"index\": -1}` is one position, the last token of call 2, the same as `{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or\na span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`\nscope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per\ntoken, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not\nhave, or a rectangular index that does not fit, is refused by name before any forward: the data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in\na rectangular read and absent from a ragged one.",
+   "description": "`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,\n`index` picks positions within that.\n\n```\npos   := int                                   # shorthand: {\"frame\": 0, \"index\": int}\n       | {\"frame\"?: frame, \"scope\"?: scope, \"index\"?: index}\nframe := int | [start, stop] | \"generated\" | \"all\" | \"eos\"         # default 0\nscope := {\"column\" | \"text\": one or a list, \"occurrence\"?: selector, \"strip\"?: bool}\n       | {\"turn\": \"<role>\", \"occurrence\"?: selector}\nindex := int | [start, stop] | \"all\"                               # default \"all\"\nselector := int | [start, stop] | \"all\"                            # occurrence's; default 0\n```\n\n**frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k\ncounts from the row's last call; a span is half-open; `\"generated\"` is every decode call, `\"all\"` the\nprefill and every decode call (in a `forward`, its one call: so a named intervention written at `\"all\"`\nis on in every call of whichever step names it), `\"eos\"` the call where the row stopped (the one that\nchose its EOS). A\nposition is where an input token sits, in a forward and in a generation alike: the prefill holds every\nprompt token, its last position the distribution over generated token 0; under the cache decode call k\nholds one position, generated token k-1 (its input), and its logits are the distribution over token k. A\nrow's calls end with the one that chose its last token, so the token it stopped on is never an input. The\nprompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a\ngeneration's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there\ncall 0 holds that one position.\n\n**scope** (default: every token the frame selected): `column` and `text` locate text in the selected\ncalls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing\nprefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where\nthey end, then where they start: where an occurrence becomes known and where index -1 lands, so a write\nfound online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`\n(default 0, the first of any) picks which of those occurrences among the tokens the\nscope is, with the selector `frame` and `index` use; the scope is the tokens of the picked ones, in order\n(their union where occurrences of different texts overlap), and `strip` strips each text of surrounding\nwhitespace first. The prompt and the generated\ntokens are searched apart, so a text straddling the boundary is not found; and a row's last generated\ntoken is never an input to any call, so a word ending on it is `alignment_missing` (with\n`max_new_tokens: 1` a scope in the generated tokens never matches). `turn` is a role of the chat, in\ncall 0 only: its messages are its occurrences, in order (`{\"turn\": \"user\", \"occurrence\": 1}` is the second\nuser message, `\"all\"` every one of them); a role the row has no message of is refused by name.\n\n**index** (default `\"all\"`): an int counts the scope's tokens (negative from the end), a span is\nhalf-open. It counts over the tokens of every call the frame selected, in order: `{\"frame\": [0, 3],\n\"index\": -1}` is one position, the last token of call 2, the same as `{\"frame\": 2, \"index\": -1}`.\n\nA record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame is one call or\na span of calls, its index is an int or a span whose ends count from the same side, and a `column`/`text`\nscope, if it has one, is one occurrence (an int) in the prefill; otherwise it is ragged, one entry per\ntoken, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence a row does not\nhave, or a rectangular index that does not fit, is refused by name before any forward: the data decided.\nAnywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in\na rectangular read and absent from a ragged one.",
    "properties": {
     "frame": {
      "default": 0,

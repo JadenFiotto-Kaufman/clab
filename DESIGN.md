@@ -1,6 +1,7 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10 and §11 (through "Ratified after M3"), which win wherever they and this document disagree.** `FORMAT.md` and
+**Amended by PLAN.md §10 and §11 (through "Ratified after M4", whose last two entries are M5: one
+`featurizer` op with per-kind modes, and LoRA as a featurizer kind), which win wherever they and this document disagree.** `FORMAT.md` and
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 

@@ -1,0 +1,107 @@
+{
+ "description": "Train a low-rank adapter on the tiny CPU Llama to say each training prompt's counterfactual answer: a rank-4 LoRA at layer 0's output (`alpha` 8, so its update is scaled by 2), applied at every position of the prompt as a write (`apply` keeps the site's layout, so the whole sequence is written), and the cross entropy of the head's logits at the last position against `train.cf_answer`. `B` starts at zero, so before the first step the adapted model is the model exactly. After training, the body runs on the held-out split (`fit.held_out.ce`) and on the training split (`fit.train.ce`); `fit.history.ce` is the training ce after each epoch. The adapter is saved as a bundle, `fit.lora` (lora_apply.json loads it). The model is random, so this demonstrates the mechanics and nothing about what an adapter learns.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "train": {
+   "path": "weekdays/data",
+   "split": "train",
+   "sha256": "77df26c6d38599f44538771836e186ade614dbb3b39879eca30031eb271b67a7",
+   "n_rows": 2
+  },
+  "test": {
+   "path": "weekdays/data",
+   "split": "test",
+   "sha256": "0ba4fcc8fb6b3cdce5ef2c459d9e9d0e16e55480910f26a4342e11b59dfe9d46",
+   "n_rows": 2
+  }
+ },
+ "featurizers": {
+  "lora": {
+   "kind": "lora",
+   "rank": 4,
+   "alpha": 8
+  }
+ },
+ "steps": {
+  "fit": {
+   "kind": "fit",
+   "train": [
+    "lora"
+   ],
+   "objective": {
+    "ce": 1.0
+   },
+   "epochs": 20,
+   "batch_size": 2,
+   "seed": 0,
+   "optimizer": {
+    "name": "adam",
+    "lr": 0.01
+   },
+   "steps": {
+    "adapted": {
+     "kind": "forward",
+     "input": "train.input",
+     "writes": {
+      "adapt": {
+       "site": {
+        "component": "layer_output",
+        "layers": 0
+       },
+       "pos": {},
+       "ops": [
+        {
+         "op": "featurizer",
+         "featurizer": "fit.lora",
+         "mode": "apply"
+        }
+       ]
+      }
+     },
+     "reads": {
+      "logits": {
+       "site": {
+        "component": "lm_head_output"
+       },
+       "pos": -1,
+       "dims": [
+        "rows",
+        "pos",
+        "vocab_size"
+       ]
+      }
+     },
+     "dataset": "train"
+    },
+    "ce": {
+     "kind": "op",
+     "op": "cross_entropy",
+     "of": "adapted.logits",
+     "dataset": "train",
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "target": "train.cf_answer"
+    }
+   },
+   "eval": {
+    "held_out": {
+     "train": "test"
+    },
+    "train": {}
+   }
+  }
+ },
+ "saves": [
+  "fit.lora",
+  "fit.train.ce",
+  "fit.held_out.ce",
+  "fit.history.ce"
+ ],
+ "document": "documents/lora_train.json",
+ "compiled": true
+}

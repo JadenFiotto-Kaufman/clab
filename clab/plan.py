@@ -10,6 +10,7 @@ The plan's methods are views and serialization, never execution: it pickles, pri
 thing wherever it lands, which is what lets it travel into a remote session and back.
 """
 
+import inspect
 import json
 import os
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
@@ -216,7 +217,9 @@ class Pos(Record):
 
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
     counts from the row's last call; a span is half-open; `"generated"` is every decode call, `"all"` the
-    prefill and every decode call, `"eos"` the call where the row stopped (the one that chose its EOS). A
+    prefill and every decode call (in a `forward`, its one call: so a named intervention written at `"all"`
+    is on in every call of whichever step names it), `"eos"` the call where the row stopped (the one that
+    chose its EOS). A
     position is where an input token sits, in a forward and in a generation alike: the prefill holds every
     prompt token, its last position the distribution over generated token 0; under the cache decode call k
     holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
@@ -267,7 +270,8 @@ class Pos(Record):
 class Op(Record):
     """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
     run on the value's coordinates in that featurizer's space, the change written back; `select`
-    (`{"features": [indices]}`) narrows it to some of them."""
+    (`{"features": [indices]}`) narrows it to some of them. On the `featurizer` op it names the featurizer
+    the op calls."""
     model_config = ConfigDict(extra="allow")
     op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
     featurizer: str | None = None
@@ -288,7 +292,7 @@ class Op(Record):
 
 def arguments(op: "Op | OpStep") -> dict:
     """An op record's arguments by document spelling: its own fields, and `featurizer` when the op takes one
-    (`encode`) rather than running in that featurizer's space."""
+    (the `featurizer` op) rather than running in that featurizer's space."""
     given = dict(op.model_extra or {})
     if isinstance(op, Op) and op.op in ops.OPS and "featurizer" in ops.parameters(op.op):
         given["featurizer"] = op.featurizer
@@ -298,6 +302,19 @@ def arguments(op: "Op | OpStep") -> dict:
 def space(op: "Op") -> str | None:
     """The featurizer whose space an op in a read or write runs in, if any."""
     return None if op.op in ops.OPS and "featurizer" in ops.parameters(op.op) else op.featurizer
+
+
+def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Parameter]:
+    """Op `name`'s parameters by document spelling, with those of the function its `options` choose for the
+    kind of the featurizer `args` names."""
+    ref = ops.featurizer_of(name, args)
+    return ops.parameters(name, args, kind_of(plan, ref) if isinstance(ref, str) else None)
+
+
+def encodes(op: Any) -> bool:
+    """Whether an op record calls a featurizer in mode `encode`. (`mode` is the featurizer op's argument and
+    `encode` its kinds' mode, so this asks that op by name.)"""
+    return op.op == "featurizer" and arguments(op).get("mode") == "encode"
 
 
 class Access(Record):
@@ -312,7 +329,11 @@ class Access(Record):
 
 class Interventions(Record):
     """A bundle of `writes` and `reads` (each by name), pulled into a step by `"interventions": "<name>"` or a
-    list of names. Its names resolve where a step pulls it in."""
+    list of names. Its names resolve where a step pulls it in. A write's operand may name one of the bundle's
+    own reads by its bare name (`"with": "premix"`, a cross-site adapter's input): it means that read of
+    whichever step pulls the bundle in. `<a step>.<one of the bundle's reads>` is refused, since pulled into
+    another step it would still mean that step's read. A write's operand from its own step's reads is served
+    in a forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap)."""
     writes: dict[str, Access] = {}
     reads: dict[str, Access] = {}
 
@@ -717,7 +738,7 @@ def probe_of(plan: Plan, name: str) -> str:
         return probe_of(plan, step.of)
     if step.kind == "fit":
         return probe_of(body_view(plan, thing), member.partition(".")[2])
-    return next(o.featurizer for o in reversed(step.reads[member].ops) if o.op == "encode" and o.featurizer)
+    return next(o.featurizer for o in reversed(step.reads[member].ops) if encodes(o) and o.featurizer)
 
 
 def kind_of(plan: Plan, ref: str) -> str:
@@ -726,7 +747,7 @@ def kind_of(plan: Plan, ref: str) -> str:
 
 
 def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, "Op"]]]:
-    """Every op that runs in a declared featurizer's space or encodes with it, by featurizer: the record's
+    """Every op that runs in a declared featurizer's space or calls it, by featurizer: the record's
     dotted name, its site, its step's point and the op."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):

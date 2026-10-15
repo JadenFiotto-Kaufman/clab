@@ -1,9 +1,9 @@
-"""The six documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
+"""The documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
 per engine at one batch size, the engines agreeing to the bit; and the numbers that pin what a fit, a bundle
 and an op in a featurizer's space mean.
 
-`das`, `pca_harvest` and `sae_train` run first, into the corpus copy's `documents/artifacts`, because
-`das_apply`, `pca_control` and `sae_train_ablation` load what they write.
+`das`, `pca_harvest`, `sae_train` and `lora_train` run first, into the corpus copy's `documents/artifacts`,
+because `das_apply`, `pca_control`, `sae_train_ablation` and `lora_apply` load what they write.
 """
 
 import json
@@ -31,8 +31,8 @@ def corpus_copy(root) -> str:
 
 @pytest.fixture(scope="module")
 def ran(tmp_path_factory) -> dict:
-    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train` and `pca_harvest`
-    (on nnterp) into `documents/artifacts` first."""
+    """Each fit document run from the CLI on each engine and loaded back, `das`, `sae_train`, `lora_train` and
+    `pca_harvest` (on nnterp) into `documents/artifacts` first."""
     root = corpus_copy(tmp_path_factory.mktemp("fits"))
     out = {}
 
@@ -50,6 +50,7 @@ def ran(tmp_path_factory) -> dict:
     artifacts = os.path.join(root, "documents", "artifacts")
     out["das", "nnterp"] = run("das", "nnterp", artifacts)
     out["sae_train", "nnterp"] = run("sae_train", "nnterp", artifacts)
+    out["lora_train", "nnterp"] = run("lora_train", "nnterp", artifacts)
     run("pca_harvest", "nnterp", artifacts)
     for name in FIT:
         for kind in ("nnterp", "hooks"):
@@ -301,7 +302,7 @@ def probe(change=None) -> Plan:
             "steps": {
                 "read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
                     "site": {"component": "layer_output", "layers": 1}, "pos": -1,
-                    "ops": [{"op": "encode", "featurizer": "fit.probe"}]}}},
+                    "ops": [{"op": "featurizer", "featurizer": "fit.probe", "mode": "encode"}]}}},
                 "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores", "target": "days.label"},
                 "hit": {"kind": "op", "op": "match", "of": "read.scores", "expected": "days.label"}}}},
         "saves": ["fit.history.ce", "fit.train.hit", "fit.train.read.scores", "fit.probe"]}
@@ -422,7 +423,8 @@ def test_a_write_through_a_probe_is_refused():
         d["steps"]["fit"]["steps"]["read"]["writes"] = {"w": {"site": {"component": "layer_output", "layers": 0},
                                                              "pos": -1, "ops": [{"op": "scale", "factor": 0.0,
                                                                                  "featurizer": "fit.probe"}]}}
-    with pytest.raises(PlanError, match=r"'fit\.probe' is a probe, whose space has no way back into the value"):
+    with pytest.raises(PlanError, match=r"'fit\.probe' is a 'linear' featurizer, which has no coordinates to edit and write back "
+                                        r"into the value; call it with the featurizer op \(modes: encode\)"):
         probe(change)
 
 
@@ -525,7 +527,7 @@ def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, t
     data = probe().model_dump(mode="json", exclude_defaults=True)["data"]
     data["days"] = {"rows": data["days"]["rows"]}
     read = {"read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
-        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "encode", "featurizer": "probe"}]}}}}
+        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "featurizer", "featurizer": "probe", "mode": "encode"}]}}}}
     spec = {"kind": "linear", "classes": "days.label", "file_path": "documents/artifacts/fit.probe.safetensors"}
     plan = applied(root, "probe", spec, read, data)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.train.read.scores"])

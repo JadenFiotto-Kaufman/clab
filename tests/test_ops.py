@@ -16,7 +16,7 @@ DIMS = ["rows", "pos", "hidden_size"]
 
 def test_every_op_registered_itself_under_its_own_name():
     assert set(ops.OPS) == {"swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
-                            "encode", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
+                            "featurizer", "mean", "pca", "match", "logit_diff", "token_prob", "token_logit",
                             "cross_entropy", "kl", "js", "top_k", "argmax", "decode"}
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
@@ -27,7 +27,7 @@ def test_each_op_declares_its_group_and_bundle():
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
                                                                "normalize", "project_out"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "pca"}
-    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "top_k", "argmax", "decode"}
+    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "featurizer", "top_k", "argmax", "decode"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
                                                                  "cross_entropy", "kl", "js"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}

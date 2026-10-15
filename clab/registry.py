@@ -6,6 +6,13 @@ import types
 from typing import Annotated, Any, Callable, Literal, Union, get_args, get_origin
 
 from pydantic import TypeAdapter, ValidationError
+from torch import Tensor
+
+# How a document fills a parameter that names a thing the run binds: a named value or a number, a dataset
+# column resolved through a vocabulary, a featurizer's name.
+Value = Annotated[Tensor, "Value"]
+Tokens = Annotated[Tensor, "Tokens"]
+Featurizer = Annotated[dict, "Featurizer"]
 
 
 def registers(table: dict) -> Callable:
@@ -18,14 +25,16 @@ def registers(table: dict) -> Callable:
 
 def spelled(fn: Callable, supplied: tuple) -> dict[str, inspect.Parameter]:
     """A function's parameters by document spelling (a trailing underscore dropped: `with_` is `"with"`),
-    without the ones the run supplies."""
-    return {p.name.rstrip("_"): p for p in inspect.signature(fn).parameters.values() if p.name not in supplied}
+    without the ones the run supplies and a `**` catch-all."""
+    return {p.name.rstrip("_"): p for p in inspect.signature(fn).parameters.values()
+            if p.name not in supplied and p.kind is not p.VAR_KEYWORD}
 
 
 def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:
     """`args` (document spelling) bound to `fn`'s signature: every key a parameter, every required one given,
     and every literal of its annotated type. An `Annotated` parameter names a thing (a value, a column, a
-    featurizer), which compile resolves; a `{"sweep": ...}` stands for a value and is checked per point."""
+    featurizer), which compile resolves; a `{"sweep": ...}` stands for a value and is checked per point. A
+    function with a `**` catch-all takes any other key, which it passes on to be checked where it lands."""
     params = spelled(fn, supplied)
     try:
         inspect.signature(fn).bind(**{p: None for p in supplied if p in inspect.signature(fn).parameters},
@@ -37,13 +46,22 @@ def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:
         missing = [k for k, p in params.items() if p.default is p.empty and k not in args]
         raise ValueError(f"{what} needs {missing[0]!r}") from None
     for key, value in args.items():
+        if key not in params:
+            continue
         annotation = params[key].annotation
-        if get_origin(annotation) is Annotated or annotation is Any or isinstance(value, dict) and "sweep" in value:
+        named = get_origin(thing(annotation)) is Annotated
+        if named or annotation is Any or isinstance(value, dict) and "sweep" in value:
             continue
         try:
             TypeAdapter(annotation).validate_python(value, strict=True)
         except ValidationError:
             raise ValueError(f"{key}: {value!r} is not {spell(annotation)}") from None
+
+
+def thing(annotation: Any) -> Any:
+    """The thing an optional parameter names when given (`Value` of `Value | None`); any other annotation as it is."""
+    named = [a for a in get_args(annotation) if get_origin(a) is Annotated]
+    return named[0] if get_origin(annotation) in (Union, types.UnionType) and named else annotation
 
 
 def spell(annotation: Any, names: dict | None = None) -> str:

@@ -69,6 +69,7 @@ COMPONENTS: dict[str, dict] = {
                "dims": ["batch", "seq", "vocab_size"], "stream": False},
 }
 
+
 # The axes that index examples and positions rather than features.
 EXAMPLE_AXES = ("layers", "rows", "entries", "pos")
 

@@ -44,8 +44,9 @@
      "pos": -1,
      "ops": [
       {
-       "op": "encode",
-       "featurizer": "rot"
+       "op": "featurizer",
+       "featurizer": "rot",
+       "mode": "encode"
       }
      ],
      "dims": [

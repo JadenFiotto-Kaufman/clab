@@ -28,7 +28,7 @@ def compiled_form(plan: Plan) -> dict:
 
 
 def test_the_corpus_is_the_31_documents_and_the_examples_since():
-    assert len(NAMES) == 31 + 2 and {"sae_train", "sae_train_ablation"} <= set(NAMES)
+    assert len(NAMES) == 31 + 4 and {"sae_train", "sae_train_ablation", "lora_train", "lora_apply"} <= set(NAMES)
 
 
 @pytest.mark.parametrize("name", NAMES)

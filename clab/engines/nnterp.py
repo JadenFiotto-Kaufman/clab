@@ -54,6 +54,10 @@ class NnterpEngine:
         support = self.model.support()
         return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
 
+    def rank(self, component: str, layer: int | None) -> tuple:
+        """Where the component falls in this checkpoint's forward: nnterp's measured order."""
+        return self.model.rank(nnterp_name(component), layer)
+
     def sizes(self) -> dict[str, int]:
         return {k: getattr(self.model, k) for k in SIZES}
 
@@ -70,7 +74,7 @@ class NnterpEngine:
                 host = envoy(model, component, layer)
                 value = getattr(host, component)
                 if here:
-                    value = ops.write(value, component, here)
+                    value = ops.write(value, component, here, got)
                     setattr(host, component, value)
                 for record in there:
                     got[record["name"]] = ops.select(value, component, record)
@@ -113,7 +117,7 @@ class NnterpEngine:
                             host = envoy(model, component, layer)
                             value = getattr(host, component)
                             if here:
-                                value = ops.write(value, component, here)
+                                value = ops.write(value, component, here, got)
                                 setattr(host, component, value)
                             for record in there:
                                 keep(got, record, ops.select(value, component, record))

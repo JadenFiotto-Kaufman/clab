@@ -17,7 +17,7 @@ import io
 import json
 import os
 import sys
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -68,6 +68,8 @@ def summary(thing) -> str:
 
 def axes(name: str) -> str:
     a = ops.DECLARED[name]
+    if a["layout"] is not None:
+        return summary(a["layout"])
 
     def listed(verb: str) -> str:
         if not isinstance(a[verb], tuple):
@@ -80,10 +82,25 @@ def axes(name: str) -> str:
 
 
 def arguments(name: str) -> list[str]:
+    """An op's arguments as a document writes them; `...` where its mode's own follow (the featurizer op)."""
     out = []
     for key, p in ops.parameters(name).items():
         text = f"{key}: {spell_type(p.annotation)}"
         out.append(text if p.default is p.empty else f"{text} = {p.default!r}")
+    takes_more = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(ops.OPS[name]).parameters.values())
+    return out + ["..."] * takes_more
+
+
+def modes(kind: str) -> list[str]:
+    """Each mode a featurizer kind has, with what it produces and the mode's own arguments."""
+    out = []
+    for m in featurizers.modes(kind):
+        fn = featurizers.mode(kind, m)
+        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
+               for k, p in featurizers.registry.spelled(fn, ("f", "h")).items()]
+        produces = featurizers.MODES[m]["produces"].format(axis=featurizers.DECLARED[kind]["axis"])
+        out.append(f"`{m}`" + (f"({', '.join(own)})" if own else "") + f" gives {produces}"
+                   + (f": {summary(fn)}" if doc(fn) else ""))
     return out
 
 
@@ -117,10 +134,20 @@ def per_op(base: dict) -> dict:
     branches = []
     for name in ops.OPS:
         params = {k: p for k, p in ops.parameters(name).items() if k not in base["properties"]}
-        args = {k: {"anyOf": [kinds.get(p.annotation) or TypeAdapter(p.annotation).json_schema(), sweep]}
+        # The featurizer op's further arguments are every mode's of every kind, which compile binds to the one
+        # its featurizer's kind has; only that op's options can be listed ahead of a document, so by name.
+        if name == "featurizer":
+            params.update({k: p for table in featurizers.MODES.values() for fn in table["table"].values()
+                           for k, p in featurizers.registry.spelled(fn, ("f", "h")).items()})
+        # An optional thing (`Value | None`) is written as the thing, or left out.
+        named = {k: next((a for a in get_args(p.annotation) if a in kinds), p.annotation) for k, p in params.items()}
+        args = {k: {"anyOf": [kinds.get(named[k]) or TypeAdapter(p.annotation).json_schema(), sweep]}
                 for k, p in params.items()}
+        if name == "featurizer":
+            args["mode"] = {"enum": list(featurizers.MODES)}
         branches.append({"type": "object", "properties": {**base["properties"], "op": {"const": name}, **args},
-                         "required": base.get("required", []) + [k for k, p in params.items() if p.default is p.empty],
+                         "required": base.get("required", []) + [k for k, p in ops.parameters(name).items()
+                                                                 if p.default is p.empty],
                          "additionalProperties": False})
     return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
 
@@ -156,7 +183,8 @@ def describe(what: str | None = None) -> str:
         for name, fn in featurizers.KINDS.items():
             params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {p.default!r}")
                       for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
-            lines += [f"  {name}({', '.join(params)})", f"      {summary(fn)}"]
+            lines += [f"  {name}({', '.join(params)})", f"      {summary(fn)}",
+                      f"      modes: {'; '.join(m.replace('`', '') for m in modes(name))}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
         sections.append("pos:\n" + doc(plan.Pos))
@@ -210,7 +238,9 @@ def markdown() -> str:
     for name, fn in featurizers.KINDS.items():
         params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {p.default!r}`")
                   for k, p in featurizers.registry.spelled(fn, featurizers.SUPPLIED).items()]
-        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n"]
+        listed = "; ".join(modes(name))
+        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(fn) + "\n\n" + "Modes: " + listed
+                  + ("" if listed.endswith(".") else ".") + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",

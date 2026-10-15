@@ -54,8 +54,9 @@
        "pos": -1,
        "ops": [
         {
-         "op": "encode",
-         "featurizer": "fit.rot"
+         "op": "featurizer",
+         "featurizer": "fit.rot",
+         "mode": "encode"
         }
        ],
        "dims": [

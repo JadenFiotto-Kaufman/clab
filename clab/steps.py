@@ -10,6 +10,7 @@ frame and never leaves the run: each value under its name, by the coordinates of
 """
 
 import importlib.metadata
+import math
 import platform
 import time
 from typing import Any, cast
@@ -18,8 +19,8 @@ import torch
 from torch import Tensor
 
 from . import address, data, featurizers, ops, positions
-from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, kind_of, labelled,
-                   points, probe_of, space, uses, walk)
+from .plan import (Plan, Run, agreeing, arguments, body_view, coordinate, declared, dims_of, encodes, kind_of,
+                   labelled, parameters, points, probe_of, space, uses, walk)
 from .registry import registers
 
 KINDS: dict = {}
@@ -157,6 +158,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 plan.run.tokens[f"{swap.get(dataset, dataset)}.{rest}"] = \
                     [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
             encoded = found["inputs"][step.input]["rows"]
+            later = []                      # a write's operands, checked once the step's reads have their shapes
             for side in ("writes", "reads"):
                 for key, record in getattr(step, side).items():
                     where, site = f"{name}.{key}", record.site
@@ -174,18 +176,19 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                             check_tokens(engine, plan, where, o.op, arguments(o))
                         else:
                             check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
-                        if o.op == "encode" and kind_of(plan, o.featurizer or "") == "linear":
+                        if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
                             probe = o.featurizer
                     pos, select = positions.parse(record.pos), {a: len(v) for a, v in (site.select or {}).items()}
-                    if positions.prefill(pos):
+                    if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                         resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
                         put(found["positions"], where, step.at, resolved)
                         shape = (len(resolved[0]), select)
                     else:               # resolved in the run, from what each row generates; one position a call
                         shape = (positions.width(pos) or 1, select)
                     put(shapes, where, step.at, shape)
-                    for o in record.ops if side == "writes" else []:
-                        check_operands(plan, where, o, shape, step, site.component, found["inputs"], shapes)
+                    later += [(where, o, shape, site) for o in record.ops] if side == "writes" else []
+            for where, o, shape, site in later:
+                check_operands(engine, plan, where, o, shape, step, site, found, shapes)
     return found
 
 
@@ -227,7 +230,7 @@ def instance(plan: Plan, spec, width: int, seed: int | None) -> dict:
     fields = spec.model_extra or {}
     labels = featurizers.labels({n: d.rows or [] for n, d in plan.data.items()}, fields["classes"]) \
         if "classes" in fields else None
-    return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels)
+    return featurizers.make(spec.kind, fields, width, spec.bundle, seed, labels, spec.header)
 
 
 def made(plan: Plan, widths: dict) -> dict:
@@ -331,7 +334,7 @@ def refuse(engine, plan: Plan) -> None:
 
 
 def check_tokens(engine, plan: Plan, where: str, name: str, args: dict) -> None:
-    for key, p in ops.parameters(name).items():
+    for key, p in parameters(plan, name, args).items():
         if p.annotation == ops.Tokens and key in args:
             try:
                 tokens(engine, plan, args[key], args.get("token_form", "spaced"), None)
@@ -343,7 +346,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
     """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
     dataset it reads (named as the run reads it: under eval, the substituted one)."""
     vocabulary = classes[declared(plan, probe)]
-    for key, p in ops.parameters(name).items():
+    for key, p in parameters(plan, name, args).items():
         if p.annotation == ops.Tokens and key in args:
             dataset, _, column = args[key].partition(".")
             for i, row in enumerate(plan.data[dataset].rows or []):
@@ -353,20 +356,43 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                                      f"{vocabulary}")
 
 
-def check_operands(plan: Plan, where: str, o, shape: tuple, step, component: str, inputs: dict, shapes: dict) -> None:
-    """A write's operands that another record selected: the same width and narrowing, and, on a `key` axis,
-    inputs that line up token for token."""
-    for key, p in ops.parameters(o.op).items():
-        value = arguments(o).get(key)
+def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: dict, shapes: dict) -> None:
+    """A write's operands that another record selected: the same width and narrowing; on a `key` axis, inputs
+    that line up token for token. One from a read of the write's own forward is read at a site this engine
+    reaches first. An argument of the function an op's `options` choose (a lora's `with`) is as wide per
+    position, its axes after the positions flattened, as the value the op acts on, and, from the same forward,
+    read at the write's own positions."""
+    args, sizes = arguments(o), engine.sizes()
+    chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
+    for key, p in parameters(plan, o.op, args).items():
+        value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
         theirs = lookup(shapes, value, step.at)
-        if theirs != shape:
+        read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
+        same = value.partition(".")[0] == where.partition(".")[0]
+        if same and engine.rank(read.component, read.layers) >= engine.rank(site.component, site.layers):
+            raise ValueError(f"{where}: operand {value!r} is read at {read.component} layer {read.layers}, which the "
+                             f"{engine.name} engine's forward does not reach before this write's {site.component} "
+                             f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")
+        if key in chosen:
+            per, own = (math.prod(len((s.select or {}).get(a, [])) or sizes[a]
+                                  for a in address.dims(s.component, None, False)[2:]) for s in (read, site))
+            if per != own:
+                raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
+                                 f"positions flattened; this write's value is {own}")
+            ours, at = (lookup(found["positions"], n, step.at) for n in (where, value)) if same else ([], [])
+            for row, (a, b) in enumerate(zip(at, ours)):
+                if a != b:
+                    raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
+                                     f"write lands at {b}; {key!r} from the write's own forward is read where it "
+                                     "lands")
+        if theirs[0] != shape[0] or (theirs[1] != shape[1] and key not in chosen):
             raise ValueError(f"{where}: operand {value!r} is {theirs[0]} token(s) wide, narrowed to {theirs[1]}; "
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
         producer = points(plan.steps[value.partition(".")[0]])[0].input
-        if "key" in address.COMPONENTS[component]["dims"] and producer != step.input:
-            for row, (a, b) in enumerate(zip(inputs[producer]["rows"], inputs[step.input]["rows"])):
+        if "key" in address.COMPONENTS[site.component]["dims"] and producer != step.input:
+            for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][step.input]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {step.input} has {len(b['ids'])} there, so their "
@@ -652,12 +678,13 @@ def selection(record, pads: list[int]) -> dict:
             for axis, v in (record.site.select or {}).items()}
 
 
-def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice) -> dict:
+def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live: dict | None = None) -> dict:
     """A write's op bound to one batch, as `ops.write` runs it: in a featurizer's space, with its instance and
-    the features its `select` keeps."""
+    the features its `select` keeps; an operand that names a read of the same forward (`live`: by name, the
+    engine's name for it) is bound to that name, for the forward to fill."""
     dims = address.dims(record.site.component, None, False)
     within = space(o)
-    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows),
+    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live),
             "featurizer": lookup(state, within, at) if within is not None else None,
             "features": features(o), "dims": dims[:-1] + ["features"] if within is not None else dims}
 
@@ -697,8 +724,9 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
     writes_here = {k: w for k, w in step.writes.items() if k not in beyond}
     sites = {key: site(record, lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
              for key, record in {**writes_here, **reads}.items()}
+    live = {f"{name}.{key}": f"{key}@{record.site.layers}" for key, record in reads.items()}
     writes = [{**sites[key], "name": key, "layer": record.site.layers,
-               "ops": [edit(engine, plan, record, o, state, step.at, rows) for o in record.ops]}
+               "ops": [edit(engine, plan, record, o, state, step.at, rows, live) for o in record.ops]}
               for key, record in writes_here.items()]
     return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
                            for key, record in reads.items() for layer in layers(engine, record)]
@@ -786,22 +814,24 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
                       features=features(o))
         if f is None:
-            dims = ops.out_dims(o.op, dims, arguments(o))
-        if o.op == "encode":
-            probe = args["featurizer"]
-            dims[-1] = featurizers.DECLARED[probe["kind"]]["axis"]
-            vocabulary = probe.get("classes")
+            dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
+        if encodes(o):
+            vocabulary = ops.featurizer_of(o.op, args).get("classes")
     return value
 
 
 def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
-          of: Any = None, vocabulary: list | None = None) -> dict:
-    """An op's arguments bound to tensors: names looked up (a featurizer to its instance), columns resolved
-    against the value's own vocabulary (the tokenizer's, or a probe's class list), sliced to `rows`. On a
-    ragged value `of`, an argument with a row per example is taken at each entry's row."""
-    params, out = ops.parameters(name), {}
+          of: Any = None, vocabulary: list | None = None, live: dict | None = None) -> dict:
+    """An op's arguments bound to tensors: names looked up (a featurizer to its instance; a read of the same
+    forward, in `live`, to `{"live": <the engine's name for it>}`), columns resolved against the value's own
+    vocabulary (the tokenizer's, or a probe's class list), sliced to `rows`. On a ragged value `of`, an
+    argument with a row per example is taken at each entry's row."""
+    params, out = parameters(plan, name, args), {}
     for key, value in args.items():
         annotation, per_row = params[key].annotation, False
+        if annotation == ops.Value and isinstance(value, str) and value in (live or {}):
+            out[key] = {"live": (live or {})[value]}
+            continue
         if annotation == ops.Value and isinstance(value, str):
             given, value = value, lookup(state, value, at)
             per_row = dims_of(plan, given)[:1] == ["rows"]
@@ -823,7 +853,8 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
     the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them."""
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, featurizer, features)
-        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args) \
+        kind = ops.kind(name, args)
+        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args, kind) \
             else got
 
     def fn(x: Any) -> Any:

@@ -15,7 +15,7 @@
     "counterfactual": {
       "kind": "forward",
       "input": "test.counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "rot"}]}}
+      "reads": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "rot", "mode": "encode"}]}}
     },
     "patched": {
       "kind": "forward",
