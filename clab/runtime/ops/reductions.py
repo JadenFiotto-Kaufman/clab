@@ -51,6 +51,8 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     none is."""
     over = over if over is not None else [a for a in dims if a in EXAMPLE_AXES]
     axes = [dims.index(a) for a in over]
+    if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
+        return torch.full_like(of.sum(dim=axes), float("nan"))
     gone = of.isnan().all(dim=axes) if axes else of.isnan()
     return of.nan_to_num(nan=float("inf")).amin(dim=axes).masked_fill(gone, float("nan"))
 

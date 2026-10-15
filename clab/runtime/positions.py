@@ -10,6 +10,8 @@ chose its last token, so that token is never an input.
 import re
 import sys
 
+from . import data
+
 MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
@@ -164,6 +166,8 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     other than every decode call names calls only the run will know. A scope's index counts its text's
     tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
+    if pos["scope"] and pos["scope"].get("before") and select(frame, 2) != [0]:
+        return True, None, False        # the position before a token may be any call's, the prefill's included
     if from_end(frame):
         return True, None, False
     holds = 0 in select(frame, 1)
@@ -273,12 +277,14 @@ def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
     """The positions a record names in one row, given its prompt's length, the positions its prefill holds
     (`prompted`), what it generated up to its first EOS (`said`), and where its scope's text occurs
     (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided. A
-    scope that is `before` is found among the tokens the calls' positions predict, and the record is those
-    positions."""
+    scope that is `before` picks its tokens as any scope does, the row's last generated token among them when
+    the frame names its last call, and the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
-        tokens = held(framed(pos["frame"], max(len(said), 1)), prompted, prompt)
-        tokens = [t + 1 for t in tokens] if before else tokens      # under `before`, the tokens they predict
+        calls = framed(pos["frame"], max(len(said), 1))
+        tokens = held(calls, prompted, prompt)
+        if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
+            tokens.append(prompt + len(said) - 1)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
         got = [t - 1 for t in got] if before else got
     except Unaligned as e:
@@ -312,20 +318,15 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
 
 
 def located(texts: list[tuple], words: str) -> list[tuple[int, int]]:
-    """Every character span in `words` where one of `texts` occurs, each `(text, strip, lower)`: compared
-    stripped of surrounding whitespace under `strip` and lowercased under `lower` (`words` too, a character
-    at a time, so the spans are `words`' own); in order of end, then start: where an occurrence becomes
-    known, so a write found online, a read and the run record count them alike."""
+    """Every character span in `words` where one of `texts` occurs, each `(text, strip, lower)` compared as its
+    flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own); in order of end, then
+    start: where an occurrence becomes known, so a write found online, a read and the run record count them
+    alike."""
     spans = []
     for text, strip, lower in texts:
-        text = lowered(text.strip() if strip else text) if lower else text.strip() if strip else text
-        spans += [m.span() for m in re.finditer(re.escape(text), lowered(words) if lower else words)] if text else []
+        text = data.compared(text, strip, lower)
+        spans += [m.span() for m in re.finditer(re.escape(text), data.compared(words, False, lower))] if text else []
     return sorted(spans, key=lambda span: (span[1], span[0]))
-
-
-def lowered(text: str) -> str:
-    """`text` lowercased a character at a time, each kept as it is where lowering would change its length."""
-    return "".join(c.lower() if len(c.lower()) == 1 else c for c in text)
 
 
 def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:

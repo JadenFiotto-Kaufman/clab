@@ -15,8 +15,8 @@ from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
 from pydantic import ValidationError
 
-from .model import (Column, Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of, parameters,
-                    points, space, uses)
+from .model import (Column, Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of,
+                    parameters, points, space, uses)
 
 
 def compile(plan: Plan) -> Plan:
@@ -285,11 +285,11 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
              "call (0, or ':', the whole timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
-    if write and frame != 0 and step.kind == "generate":
-        decided(f"{path}.pos", pos, horizon(step))
     if write and scope.get("before") and not positions.prefill(pos):
         fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
+    if write and frame != 0 and step.kind == "generate":
+        decided(f"{path}.pos", pos, horizon(step))
     if "column" in scope:
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
@@ -312,7 +312,7 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{at}.{key}", f"{value!r} is a read of this generation; a write's operand from a read of its "
                      "own step is served in a forward, not yet inside a generate")
-        found = references(cx, plan, at, o.op, arguments(o))
+        found = references(cx, plan, at, o.op, arguments(o), "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
         if not write:
             paired(at, o.op, dims, found)
@@ -364,7 +364,7 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     if spec.op == "contains" and not of.get("text"):
         fail(f"{path}.of", f"contains reads text, a decode's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
-    found = references(cx, plan, path, spec.op, arguments(spec))
+    found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
     paired(path, spec.op, of["dims"], found)
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
@@ -373,16 +373,20 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
-def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> dict[str, dict]:
+def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, classes: bool = False) -> dict[str, dict]:
     """Op `name`'s arguments that name a value or a column, each resolved to `{"dims", "data", "kind", "name"}`
-    (a column is laid out `["rows"]`); a featurizer argument is checked to exist."""
+    (a column is laid out `["rows"]`): a column read as text, or scored against the vocabulary, holds text on
+    every row; one scored against a probe's `classes` holds its labels, whatever they are. A featurizer
+    argument is checked to exist."""
     found = {}
     for key, p in parameters(plan, name, args).items():
         value, at = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
             found[key] = {**value_ref(cx, value, at), "name": value}
         elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
-            dataset, ref = text_ref(cx, value, at, None), data.column_of(value)
+            ref = data.column_of(value)
+            dataset = column_ref(cx, ref[0] if ref else value, at, None) if classes and p.annotation == ops.Tokens \
+                else text_ref(cx, value, at, None)
             found[key] = {"dims": ["rows"], "data": dataset, "kind": "column", "name": ref[0] if ref else value}
         elif p.annotation == ops.Featurizer and value is not None:
             featurizer_ref(cx, value, at)

@@ -500,6 +500,14 @@ def held_out(label: str):
     return change
 
 
+def test_a_probes_labels_need_not_be_text():
+    def ints(d):
+        for row in d["data"]["days"]["rows"]:
+            row["label"] = int(row["label"] == "weekend")
+    plan = probe(ints)
+    assert plan.compiled
+
+
 def test_a_probe_class_column_is_compared_exactly(engines):
     plan = probe(lambda d: d["steps"]["fit"]["steps"]["ce"].update(target={"column": "days.label", "lower": True}))
     with pytest.raises(ValueError, match=r"ce: target names a class of probe 'probe', which is compared exactly; "

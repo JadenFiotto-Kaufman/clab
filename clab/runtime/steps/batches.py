@@ -46,14 +46,15 @@ def selection(record, picks: dict, pads: list[int]) -> dict:
             for axis, v in picks.items()}
 
 
-def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live: dict | None = None) -> dict:
+def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live: dict | None = None,
+         answers: dict | None = None) -> dict:
     """A write's op bound to one batch, as `ops.write` runs it: in a featurizer's space, with its instance and
     the features its `select` keeps; an operand that names a read of the same forward (`live`: by name, the
     engine's name for it) is bound to that name, for the forward to fill."""
     dims = address.dims(record.site.component, None, False)
     within = space(o)
     f = lookup(state, within, at) if within is not None else None
-    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live),
+    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers),
             "rows": torch.arange(rows.start, rows.stop), "featurizer": f,
             "features": features(o, f), "dims": dims[:-1] + ["features"] if within is not None else dims}
 
@@ -84,7 +85,7 @@ def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: d
              for key, record in {**writes_here, **reads}.items()}
     live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in reads.items()}
     writes = [{**sites[key], "name": key, "layer": layers(engine, record)[0],
-               "ops": [edit(engine, plan, record, o, state, step.at, rows, live) for o in record.ops]}
+               "ops": [edit(engine, plan, record, o, state, step.at, rows, live, found["answers"]) for o in record.ops]}
               for key, record in writes_here.items()]
     return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
                            for key, record in reads.items() for layer in layers(engine, record)]
@@ -116,17 +117,18 @@ def joined(state: dict, name: str, step, parts: list[dict]) -> None:
 
 
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
-         at: dict) -> Any:
-    """One layer of a prefill read in one batch: its entries when it is ragged, then its ops."""
+         at: dict, answers: dict) -> Any:
+    """One layer of a prefill read in one batch: its entries when it is ragged, then its ops (`answers` as
+    preflight resolved them)."""
     if positions.width(positions.parse(record.pos)) is None:
         keep = site["keep"]
         value = {"values": value[keep.to(value.device)],
                  "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep], "tok": site["tok"][keep]}
-    return with_ops(engine, plan, record, value, state, at, rows, site["tok"])
+    return with_ops(engine, plan, record, value, state, at, rows, site["tok"], answers)
 
 
 def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice,
-             places: Tensor | None) -> Any:
+             places: Tensor | None, answers: dict) -> Any:
     """A read's value with its ops applied in listed order: one in a featurizer's space on the value's
     coordinates there, the change written back. Past a probe's `encode` a column names its classes. An op is
     given each row's dataset row and each position's token position (`places`, `[rows, width]`; a ragged
@@ -136,7 +138,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     for o in record.ops:
         within = space(o)
         f = lookup(state, within, at) if within is not None else None
-        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims)
+        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
         value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
                       features=features(o, f), rows=torch.arange(rows.start, rows.stop), places=places)
         if f is None:

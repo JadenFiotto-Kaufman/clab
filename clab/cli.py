@@ -29,7 +29,7 @@ from .runtime import featurizers, ops
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
-           "A column read as text": plan.Column,
+           "A column read as text": plan.Column, "A literal in a list `input`": plan.TextPart,
            "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
            "`interventions.<name>`": plan.Interventions}
 STEPS = {name: model for name, model in plan.KINDS.items()}
@@ -38,7 +38,7 @@ FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
          plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
-         plan.Entry: "step"}
+         plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal"}
 
 
 def as_json(value: Any) -> str:

@@ -42,26 +42,19 @@ def input_name(input, swap: dict | None = None) -> str:
     """An input as the run record names it: the column, or a list's parts joined by ` + ` (a literal as JSON),
     each column's dataset as `swap` renames it."""
     parts = [input] if isinstance(input, str) else input
-    return " + ".join(renamed(p, swap or {}) if isinstance(p, str) else json.dumps(p.text, ensure_ascii=False)
-                      for p in parts)
+    swap = swap or {}
+    return " + ".join(f"{swap.get(p.partition('.')[0], p.partition('.')[0])}.{p.partition('.')[2]}"
+                      if isinstance(p, str) else json.dumps(p.text, ensure_ascii=False) for p in parts)
 
 
 def column_of(ref) -> tuple[str, bool, bool] | None:
-    """A column reference as `(<dataset>.<column>, strip, lower)`: the string, or `{"column", "strip"?,
-    "lower"?}` as written or as a `Column`; None for anything else."""
+    """A column reference as a document writes it, `(<dataset>.<column>, strip, lower)`: the string, or
+    `{"column", "strip"?, "lower"?}`; None for anything else."""
     if isinstance(ref, str):
         return ref, False, False
-    ref = ref if isinstance(ref, dict) else getattr(ref, "__dict__", {})
-    if "column" not in ref:
+    if not isinstance(ref, dict) or "column" not in ref:
         return None
     return ref["column"], bool(ref.get("strip")), bool(ref.get("lower"))
-
-
-def renamed(name: str, swap: dict) -> str:
-    """An input's name with each column's dataset as `swap` renames it."""
-    parts = name.split(" + ")
-    return " + ".join(p if p.startswith('"') or p.partition(".")[0] not in swap
-                      else f"{swap[p.partition('.')[0]]}.{p.partition('.')[2]}" for p in parts)
 
 
 def field(row: dict, input) -> str | list[dict]:
@@ -119,48 +112,64 @@ def pad(tokenizer, ids: list[list[int]], width: int) -> dict:
 def answers(tokenizer, values: list, column: str, strip: bool = False, lower: bool = False) -> list[list[list[int]]]:
     """Each row's answer as, per token, the ids it may be. A row's value is a string or a set of them (a list),
     each tokenized exactly as written without special tokens (`" Friday"` and `"Friday"` are different tokens
-    on most tokenizers; the column says which); a set's members are one width, and its token i is any of
-    theirs. Under `strip` or `lower` a token stands for its class: every id whose text compares the same
-    (`spellings`). Each position's ids are in first-met order, each once."""
+    on most tokenizers; the column says which), and under `strip` without its whitespace-only tokens at either
+    end; a set's members are one width, and its token i is any of theirs. Under `strip` or `lower` a token
+    stands for its class (`spellings`). Each position's ids are in first-met order, each once."""
     out = []
     for row, value in enumerate(values):
         members = value if isinstance(value, list) else [value]
-        tokenized = [tokenizer(m, add_special_tokens=False)["input_ids"] for m in members]
+        tokenized = [trimmed(tokenizer, tokenizer(m, add_special_tokens=False)["input_ids"], strip) for m in members]
         if len({len(t) for t in tokenized}) > 1 or not tokenized[0]:
             raise ValueError(f"{column} row {row}: " + (f"{value!r} is no tokens" if not tokenized[0] else
                              "its members are " + ", ".join(f"{m!r} {len(t)}" for m, t in zip(members, tokenized))
                              + " tokens; a set's members are one width, the positions its read aligns"))
-        classes = spellings(tokenizer, strip, lower) if strip or lower else None
-        out.append([list(dict.fromkeys(i for t in tokenized for i in (
-            classes[text_of(tokenizer, t[k], strip, lower)] if classes is not None else [t[k]])))
-            for k in range(len(tokenized[0]))])
+        out.append([list(dict.fromkeys(i for t in tokenized for i in spelled(tokenizer, t[k], strip, lower)))
+                    for k in range(len(tokenized[0]))])
     return out
+
+
+def trimmed(tokenizer, ids: list[int], strip: bool) -> list[int]:
+    """`ids` without the whitespace-only tokens at either end under `strip` (`"  New York "`: `ĠNew ĠYork`)."""
+    texts = vocabulary(tokenizer)
+    while strip and ids and not texts[ids[0]].strip():
+        ids = ids[1:]
+    while strip and ids and not texts[ids[-1]].strip():
+        ids = ids[:-1]
+    return ids
+
+
+def spelled(tokenizer, token: int, strip: bool, lower: bool) -> list[int]:
+    """The ids a token stands for: under `strip` or `lower`, its class, every id whose text compares the same
+    (`compared`); else the token alone. A token that is part of a character (its text is U+FFFD) is its own."""
+    text = vocabulary(tokenizer)[token]
+    if not (strip or lower) or "\ufffd" in text:
+        return [token]
+    return spellings(tokenizer, strip, lower)[compared(text, strip, lower)]
+
+
+@functools.cache
+def vocabulary(tokenizer) -> list[str]:
+    """Each id's text: what it decodes to after another token (`a`'s first), so a leading space (` Positive`,
+    `▁Positive`) is its own. Made once per tokenizer."""
+    anchor = tokenizer("a", add_special_tokens=False)["input_ids"][0]
+    lead = len(tokenizer.decode([anchor]))
+    return [text[lead:] for text in tokenizer.batch_decode([[anchor, i] for i in range(len(tokenizer))])]
 
 
 @functools.cache
 def spellings(tokenizer, strip: bool, lower: bool) -> dict[str, list[int]]:
-    """Every id of the tokenizer's vocabulary by its text as `strip` and `lower` compare it (`text_of`): the
+    """Every id of the vocabulary but a part of a character by its text as `strip` and `lower` compare it: the
     classes an answer's tokens stand for. Made once per tokenizer and flags."""
-    anchor = anchored(tokenizer)
     found: dict[str, list[int]] = {}
-    for i, text in enumerate(tokenizer.batch_decode([[anchor, i] for i in range(len(tokenizer))])):
-        found.setdefault(compared(text[len(tokenizer.decode([anchor])):], strip, lower), []).append(i)
+    for i, text in enumerate(vocabulary(tokenizer)):
+        if "\ufffd" not in text:
+            found.setdefault(compared(text, strip, lower), []).append(i)
     return found
 
 
-def text_of(tokenizer, token: int, strip: bool, lower: bool) -> str:
-    """A token's text as `strip` and `lower` compare it: what it decodes to after another token, so a leading
-    space (` Positive`, `▁Positive`) is its own."""
-    anchor = anchored(tokenizer)
-    return compared(tokenizer.decode([anchor, token])[len(tokenizer.decode([anchor])):], strip, lower)
-
-
-def anchored(tokenizer) -> int:
-    """The token a token is decoded after, so that its text is the text it adds: `a`'s first."""
-    return tokenizer("a", add_special_tokens=False)["input_ids"][0]
-
-
 def compared(text: str, strip: bool, lower: bool) -> str:
-    """`text` stripped of surrounding whitespace under `strip`, lowercased under `lower`."""
+    """`text` as the flags compare it, wherever text is compared (a scope's search, an answer's class,
+    `contains`): stripped of surrounding whitespace under `strip`, lowercased under `lower` a character at a
+    time, each kept as it is where lowering would change its length, so a span of the result is the text's."""
     text = text.strip() if strip else text
-    return text.lower() if lower else text
+    return "".join(c.lower() if len(c.lower()) == 1 else c for c in text) if lower else text

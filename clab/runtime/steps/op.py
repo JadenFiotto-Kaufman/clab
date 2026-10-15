@@ -22,7 +22,7 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else \
         torch.arange(len(plan.data[step.dataset].rows or [])) if "entries" in dims and step.dataset else None
     value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
-                                             vocabulary, dims=dims),
+                                             vocabulary, dims=dims, answers=found["answers"]),
                   dims, stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

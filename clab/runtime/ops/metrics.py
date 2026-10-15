@@ -7,6 +7,7 @@ import torch
 from torch import Tensor
 
 from ...registry import Text, Tokens, Value
+from ..data import compared
 from . import VOCABULARY, op
 
 
@@ -100,7 +101,6 @@ def cosine(of: Tensor, with_: Value) -> Tensor:
 def contains(of: list, text: Text, dims: list[str]) -> Tensor:
     """1 where a row's text (a `decode`d generation) contains `text`, the row's answer (any member of a set),
     compared as its reference says, else 0. Every row generated something, so none is missing."""
-    hits = [any((answer.strip() if strip else answer) in (said.lower() if lower else said)
-                for answer in ([a.lower() for a in answers] if lower else answers))
+    hits = [any(compared(answer, strip, lower) in compared(said, False, lower) for answer in answers)
             for said, (answers, strip, lower) in zip(of, text)]
     return torch.tensor(hits, dtype=torch.float32)

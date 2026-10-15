@@ -11,7 +11,8 @@ from clab.runtime import data
 from clab.runtime.steps.state import answered
 from conftest import BATCH_SIZE, plan_of
 
-TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM", "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
+TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
 GPT2 = plan_of("gpt2_reach").model.model_dump()
 DAYS = [{"input": "If today is Monday, tomorrow is", "answer": " Tuesday", "short": " Friday", "lowered": "monday",
          "chat": [{"role": "user", "content": "Hi"}]},
@@ -53,8 +54,9 @@ def test_before_reads_the_positions_that_predict_the_scope_and_each_scores_its_t
     assert tokens[0][-3:] == ["▁T", "ues", "day"] and tokens[1][-1] == "▁Friday"
     nll, logits = filled.results["nll"], filled.results["forced.logits"]
     tokenizer = engines(kind, filled.model).tokenizer
-    for r in range(2):
-        ids = [i[0] for i in data.answers(tokenizer, [DAYS[r]["answer"]], "a")[0]]
+    for r in range(2):                  # the joined input's own next ids, which the answer scores
+        joined = tokenizer.convert_tokens_to_ids(tokens[r])
+        ids = [joined[p + 1] for p in before[r]]
         expected = -logits["values"][logits["row"] == r].log_softmax(-1)[torch.arange(len(ids)), ids]
         assert torch.equal(nll["values"][nll["row"] == r], expected)
 
@@ -95,7 +97,8 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
     filled = run(engines, plan, kind)
     tokenizer = engines(kind, plan.model).tokenizer
     spelled = data.spellings(tokenizer, True, True)["yes"]
-    assert sorted(tokenizer.convert_ids_to_tokens(spelled)) == sorted(["▁Yes", "▁yes", "▁YES", "Yes", "yes", "YES"])
+    assert sorted(tokenizer.convert_ids_to_tokens(spelled)) == \
+        sorted(["▁Yes", "▁yes", "▁YES", "Yes", "yes", "YES"])
     probs = filled.results["clean.logits"][0, 0].softmax(-1)
     torch.testing.assert_close(filled.results["p"][0, 0], probs[spelled].sum())
     members = [tokenizer(" Yes", add_special_tokens=False)["input_ids"][0],
@@ -162,9 +165,10 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name."""
     of = {"values": torch.zeros(2, 5), "row": torch.tensor([0, 0]), "tok": torch.tensor([3, 4])}
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["entries", "vocab_size"], None)
+        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["entries", "vocab_size"], None, True)
     missing = {"values": torch.zeros(0, 5), "row": torch.tensor([], dtype=torch.long), "tok": torch.tensor([])}
-    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["entries", "vocab_size"], None).shape == (0, 1)
+    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["entries", "vocab_size"], None,
+                    True).shape == (0, 1)
 
 
 @pytest.mark.parametrize("scope, message", [
@@ -176,8 +180,8 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
 ])
 def test_a_scopes_flags_are_a_texts_or_on_a_columns_reference(scope, message):
     with pytest.raises(PlanError, match=message):
-        doc({"read": {"kind": "forward", "input": "days.input", "reads": {"x": {"site": HEAD, "pos": {"scope": scope}}}}},
-            ["read.x"])
+        doc({"read": {"kind": "forward", "input": "days.input",
+                      "reads": {"x": {"site": HEAD, "pos": {"scope": scope}}}}}, ["read.x"])
 
 
 def test_a_write_beyond_the_prefill_takes_no_before():
@@ -214,3 +218,82 @@ def test_contains_reads_a_decodes_text():
                                         r"'gen' is not one"):
         doc({"gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 2},
              "said": {"kind": "op", "op": "contains", "of": "gen", "text": "days.answer"}}, ["said"])
+
+
+def test_a_before_scope_in_a_generation_is_the_calls_that_chose_its_tokens(engines):
+    """`frame: "1:"` picks the generated tokens, the last included: a word only the prompt says is missing, and
+    one the generation says is read at the position before each of its tokens, its first chosen by the prefill
+    (this checkpoint says `Handler substr ...` on every row)."""
+    def read(text):
+        return {"site": {"component": "layer_output", "layers": 0},
+                "pos": {"frame": "1:", "scope": {"text": text, "before": True}}}
+    plan = Plan(model=TINY, data={"days": {"rows": [{"input": r["input"]} for r in DAYS]}}, steps={
+        "gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 6, "min_new_tokens": 6,
+                "do_sample": False, "reads": {"prompt": read("today"), "first": read("Handler"),
+                                              "said": read("substr")}}},
+        saves=["gen.said"]).compile()
+    filled = run(engines, plan)
+    prompts = [len(t) for t in record(filled).tokens["days.input"]]
+    assert record(filled).positions["gen.prompt"] == ["alignment_missing"] * 2
+    assert record(filled).positions["gen.first"] == [[n - 1] for n in prompts]       # the prefill's last
+    assert record(filled).positions["gen.said"] == [[n] for n in prompts]             # the call fed `Handler`
+
+
+def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
+    """`"day"` alone is ▁day; appended to `Sun` it is part of ▁Sunday, the token the position before predicts."""
+    rows = [{"prefix": "If today is Saturday, tomorrow is Sun", "bare": "day"}]
+    plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
+        "forced": {"kind": "forward", "input": ["days.prefix", "days.bare"], "reads": {"logits": {
+            "site": HEAD, "pos": {"scope": {"column": "days.bare", "occurrence": -1, "before": True}}}}},
+        "p": {"kind": "op", "op": "token_prob", "of": "forced.logits", "token": "days.bare"}}, saves=["p"]).compile()
+    refused_before_any_forward(engines, plan, r"^p: days\.bare row 0: position 8 predicts '▁Sunday' in the input, "
+                                              r"which is not token 0 of 'day' as it tokenizes alone \(\['▁day'\]\); "
+                                              r"the answer is scored as it tokenizes, so the input says it the same "
+                                              r"way$")
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_strip_and_lower_at_the_point_of_use(engines, kind):
+    """The proposal's example E: `"  New York "` finds `New York` in the input under lower and strip, and is
+    scored as ▁New ▁York (its whitespace-only end tokens dropped), each against its class."""
+    rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York "}]
+    city = {"column": "days.city", "strip": True, "lower": True}
+    plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
+        "read": {"kind": "forward", "input": "days.input", "reads": {"logits": {
+            "site": HEAD, "pos": {"scope": {"column": city, "before": True}}}}},
+        "hit": {"kind": "op", "op": "match", "of": "read.logits", "expected": city},
+        "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": city}},
+        saves=["hit", "p", "read.logits"]).compile()
+    filled = run(engines, plan, kind)
+    assert record(filled).positions["read.logits"] == [[8, 9]]
+    tokenizer = engines(kind, plan.model).tokenizer
+    classes = [data.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
+    probs = filled.results["read.logits"]["values"].softmax(-1)
+    torch.testing.assert_close(filled.results["p"]["values"], torch.stack([probs[i, c].sum() for i, c in
+                                                                           enumerate(classes)]))
+
+
+def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
+    """One row of several tokens makes the whole column line up, a one-token row included; a column all of one
+    token scores every position of its row."""
+    def plan(rows):
+        return doc({"read": {"kind": "forward", "input": "days.input",
+                             "reads": {"logits": {"site": HEAD, "pos": {"index": "-3:"}}}},
+                    "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": "days.answer"}}, ["p"], rows)
+    refused_before_any_forward(engines, plan(DAYS), r"^p: days\.answer row 1: ' Friday' is 1 token; the read has 3 "
+                                                    r"positions on that row")
+    one = run(engines, plan([{**r, "answer": " Friday"} for r in DAYS])).results["p"]
+    assert one.shape == (2, 3)
+
+
+def test_the_minimum_over_every_entry_of_a_value_with_none_is_missing():
+    from clab.runtime.steps.batches import apply
+    empty = {"values": torch.zeros(0), "row": torch.tensor([], dtype=torch.long), "tok": torch.tensor([])}
+    assert apply(None, "min", empty, {"over": ["rows", "pos"]}, ["entries"]).isnan().all()
+
+
+def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
+    tokenizer = engines("nnterp", plan_of("gpt2_reach").model).tokenizer
+    parts = [i for i, text in enumerate(data.vocabulary(tokenizer)) if "�" in text]
+    assert len(parts) > 1
+    assert all(data.spelled(tokenizer, i, True, True) == [i] for i in parts)

@@ -115,7 +115,9 @@ def narrowed(plan: Plan, found: dict, index: list[int], names: list[str]) -> tup
     return plan.model_copy(update={"data": data}), {
         "inputs": {k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found["inputs"].items()},
         "positions": {w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found["positions"].items()},
-        "said": {}, "selects": found["selects"], "widths": found["widths"]}
+        "said": {}, "selects": found["selects"], "widths": found["widths"],
+        "answers": {k: {**a, "values": [a["values"][i] for i in index], "sets": [a["sets"][i] for i in index]}
+                    if a["column"].partition(".")[0] in names else a for k, a in found["answers"].items()}}
 
 
 def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:

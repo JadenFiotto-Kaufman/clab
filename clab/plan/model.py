@@ -17,7 +17,7 @@ import types
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
 from pydantic import (BaseModel, BeforeValidator, ConfigDict, Discriminator, Field, Tag, ValidationError,
-                      WithJsonSchema, field_serializer, field_validator, model_validator)
+                      WithJsonSchema, field_serializer, field_validator, model_serializer, model_validator)
 from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import core_schema
 from torch import Tensor
@@ -184,16 +184,24 @@ class Column(Record):
     `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
     whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
     rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
-    the input for the text so compared, its positions the original's. Against logits each of an answer's
-    tokens stands for its class: every token of the vocabulary whose text, so compared, is the same
-    (` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.
-    A row's value may be a list of strings: a set, any of which is the answer."""
+    the input for the text so compared, its positions the original's. An answer scored against logits is
+    tokenized as written, under `strip` without its whitespace-only tokens at either end (`"  New York "` is
+    `▁New ▁York`), and each of its tokens stands for its class: every token of the vocabulary whose text (what
+    it adds after another token, so a leading space is its own), so compared, is the same (` Yes`, ` yes`,
+    `yes` and `YES` under both flags); without a flag, or for a token that is part of a character, the class
+    is the token alone. A row's value may be a list of strings: a set, any of which is the answer."""
     column: str
     strip: bool = False
     lower: bool = False
 
+    @model_serializer(mode="wrap")
+    def _spelled(self, handler):
+        """The string alone when no flag is set, as a document writes it."""
+        return handler(self) if self.strip or self.lower else self.column
+
 
 ColumnRef = Union[str, Column]
+FLAGS = ("strip", "lower")      # how a text compares: a `text` scope's own, a column's on its reference
 
 
 class Scope(Record):
@@ -205,7 +213,10 @@ class Scope(Record):
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
-    model_config = ConfigDict(json_schema_extra={"oneOf": [{"required": [k]} for k in ("column", "text", "turn")]})
+    # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
+    model_config = ConfigDict(json_schema_extra={"oneOf": [
+        {"required": [k], **({} if k == "text" else {"not": {"anyOf": [{"required": [f]} for f in FLAGS]}})}
+        for k in ("column", "text", "turn")]})
     column: ColumnRef | list[ColumnRef] | None = None
     text: str | list[str] | None = None
     turn: str | None = None
@@ -214,6 +225,14 @@ class Scope(Record):
     lower: bool = False
     before: bool = False
 
+    @field_validator("column")
+    @classmethod
+    def _columns(cls, given):
+        """Each column a `Column`, a string the one without flags."""
+        def made(ref):
+            return Column(column=ref) if isinstance(ref, str) else ref
+        return [made(c) for c in given] if isinstance(given, list) else None if given is None else made(given)
+
     @model_validator(mode="after")
     def _one(self):
         if [self.column, self.text, self.turn].count(None) != 2:
@@ -221,7 +240,7 @@ class Scope(Record):
                              "{'turn': '<role>'}")
         if [] in (self.column, self.text):
             raise ValueError("a scope's list of columns or texts names at least one")
-        for flag in ("strip", "lower"):
+        for flag in FLAGS:
             if self.turn is not None and flag in self.model_fields_set:
                 raise ValueError(f"a turn's messages are located as the chat template rendered them; it takes no "
                                  f"{flag}")

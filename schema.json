@@ -68,7 +68,7 @@
   },
   "Column": {
    "additionalProperties": false,
-   "description": "A column read as text, where a scope searches for it or a metric scores it: `\"<dataset>.<column>\"`, or\n`{\"column\": \"<dataset>.<column>\", \"strip\"?: bool, \"lower\"?: bool}` (an indexed input's variables are named\nwhole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never\nrewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches\nthe input for the text so compared, its positions the original's. Against logits each of an answer's\ntokens stands for its class: every token of the vocabulary whose text, so compared, is the same\n(` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.\nA row's value may be a list of strings: a set, any of which is the answer.",
+   "description": "A column read as text, where a scope searches for it or a metric scores it: `\"<dataset>.<column>\"`, or\n`{\"column\": \"<dataset>.<column>\", \"strip\"?: bool, \"lower\"?: bool}` (an indexed input's variables are named\nwhole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never\nrewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches\nthe input for the text so compared, its positions the original's. An answer scored against logits is\ntokenized as written, under `strip` without its whitespace-only tokens at either end (`\"  New York \"` is\n`▁New ▁York`), and each of its tokens stands for its class: every token of the vocabulary whose text (what\nit adds after another token, so a leading space is its own), so compared, is the same (` Yes`, ` yes`,\n`yes` and `YES` under both flags); without a flag, or for a token that is part of a character, the class\nis the token alone. A row's value may be a list of strings: a set, any of which is the answer.",
    "properties": {
     "column": {
      "title": "Column",
@@ -3942,6 +3942,20 @@
    "description": "`{\"column\": <column>}`: the row's own text of that column (a `Column`: the string or the object), each\nmember of a set; `{\"text\": \"<literal>\"}`: that text; or `{\"turn\": \"<role>\"}`: that role's messages of a\nchat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one\nlisted (a string is the one-element list), their occurrences together, ordered by where each ends. Every\nscope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first), and `before`,\nwhether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes\n`strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered\nthem).",
    "oneOf": [
     {
+     "not": {
+      "anyOf": [
+       {
+        "required": [
+         "strip"
+        ]
+       },
+       {
+        "required": [
+         "lower"
+        ]
+       }
+      ]
+     },
      "required": [
       "column"
      ]
@@ -3952,6 +3966,20 @@
      ]
     },
     {
+     "not": {
+      "anyOf": [
+       {
+        "required": [
+         "strip"
+        ]
+       },
+       {
+        "required": [
+         "lower"
+        ]
+       }
+      ]
+     },
      "required": [
       "turn"
      ]

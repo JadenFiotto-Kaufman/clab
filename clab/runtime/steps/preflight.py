@@ -9,7 +9,7 @@ from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_
                            points, probe_of, uses, walk)
 from .. import data, featurizers, ops, positions
 from ..ops.metrics import ONE_ID
-from .state import lookup, put, tokens, unaligned
+from .state import lookup, put, refkey, tokens, unaligned
 
 
 def preflight(engine, plan: Plan) -> dict:
@@ -63,7 +63,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found: dict = {"inputs": {}, "positions": {}, "said": {}, "selects": {}}
+    found: dict = {"inputs": {}, "positions": {}, "said": {}, "selects": {}, "answers": {}}
     shapes: dict = {}
     for name, entry in steps.items():
         for step in points(entry):
@@ -73,8 +73,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 if "classes" in dims_of(plan, step.of):
                     check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
                 else:
-                    check_tokens(engine, plan, name, step.op, arguments(step), dims_of(plan, step.of),
-                                 placed(plan, found, step.of, step.at))
+                    check_tokens(engine, plan, found, name, step.op, arguments(step), dims_of(plan, step.of),
+                                 *placed(plan, found, step.of, step.at))
                 if step.op == "pca" and step.of in found["positions"]:
                     n = sum(map(len, lookup(found["positions"], step.of, step.at)))
                     if n <= arguments(step)["k"]:
@@ -120,7 +120,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     probe = None                        # past a probe's encode, a column names its classes
                     for o in record.ops:
                         if probe is None:
-                            check_tokens(engine, plan, where, o.op, arguments(o), None, resolved)
+                            forced = [e["ids"] for e in encoded] if (pos["scope"] or {}).get("before") else None
+                            check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved, forced)
                         else:
                             check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
                         if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
@@ -256,12 +257,11 @@ def indices(where: str, write: bool, record, step, rows: list[dict], encoded: li
     return found
 
 
-def prompted(encoded: dict, tokenizer, head_only: bool, before: bool = False) -> list[int]:
-    """The positions a row's prefill holds: its prompt tokens that are not special (every one where the
-    position predicts the next, `before`: BOS predicts the first word), or its last token alone (`head_only`)
-    where the prefill computes only that."""
+def prompted(encoded: dict, tokenizer, head_only: bool) -> list[int]:
+    """The positions a row's prefill holds: its prompt tokens that are not special, or its last token alone
+    (`head_only`) where the prefill computes only that."""
     ids, special = encoded["ids"], set(tokenizer.all_special_ids)
-    return [len(ids) - 1] if head_only else [i for i, t in enumerate(ids) if before or t not in special]
+    return [len(ids) - 1] if head_only else [i for i, t in enumerate(ids) if t not in special]
 
 
 def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
@@ -269,8 +269,11 @@ def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
     """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: the positions
     its prefill holds and where the scope's text occurs."""
     found = positions.occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
-    before = bool((pos["scope"] or {}).get("before"))
-    return positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only, before), said, found)
+    got = positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, found)
+    if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
+            any(p < len(encoded["ids"]) - 1 for p in got):
+        return positions.MISSING            # before a prompt token, where this prefill computes no head
+    return got
 
 
 def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
@@ -310,34 +313,61 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def check_tokens(engine, plan: Plan, where: str, name: str, args: dict, dims: list[str] | None,
-                 placed: list | None) -> None:
-    """Every column op `name` scores against logits resolves on every row (`state.tokens`); a class or a set of
-    several ids is refused where the op reads one id's logit; and an answer of several tokens lines up with
-    the read: the value has a pos axis (when its axes `dims` are known), and where the read's positions are
-    known before the run (`placed`, per row), the row has one per token."""
+def check_tokens(engine, plan: Plan, found: dict, where: str, name: str, args: dict, dims: list[str] | None,
+                 placed: list | None, forced: list | None = None) -> None:
+    """Every column op `name` scores against logits, resolved once into `found["answers"]` (`answer`): a class or
+    a set of several ids is refused where the op reads one id's logit. A column with an answer of several
+    tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
+    `dims` are known) and, where the read's positions are known before the run (`placed`, per row), each row
+    has as many. Where the read is a scope that is `before` on the step's own input (`forced`: each row's
+    input ids), the input's next token at each position is among the ids the answer's token there may be."""
     for key, p in parameters(plan, name, args).items():
         if p.annotation != ops.Tokens or key not in args:
             continue
-        try:
-            values, sets, column = tokens(engine, plan, args[key], None)
-        except ValueError as e:
-            raise ValueError(f"{where}: {e}") from None
+        got = answer(engine, plan, found, args[key], where)
+        values, sets, column, aligned = got["values"], got["sets"], got["column"], got["aligned"]
         for r, (value, row) in enumerate(zip(values, sets)):
             if name in ONE_ID and any(len(ids) > 1 for ids in row):
                 raise ValueError(f"{where}: {column} row {r}: {value!r} stands for {max(map(len, row))} ids (a set, "
                                  f"or a class under strip or lower), which have no one logit for {name}; "
                                  "token_prob scores them together")
-            if len(row) > 1 and dims is not None and not {"pos", "entries"} & set(dims):
-                raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} tokens, a position each, and "
-                                 f"the value has no pos axis ({dims})")
-            if len(row) > 1 and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
+            if aligned and dims is not None and not {"pos", "entries"} & set(dims):
+                raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
+                                 f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
+            if aligned and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
                 raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}")
+        if forced is None or placed is None:
+            continue
+        for r, at in enumerate(placed):
+            for i, p in enumerate(at if isinstance(at, list) else []):
+                ids, next_ = sets[r][i if aligned else 0], forced[r][p + 1]
+                if next_ not in ids:
+                    shown = engine.tokenizer.convert_ids_to_tokens([next_])[0]
+                    raise ValueError(f"{where}: {column} row {r}: position {p} predicts {shown!r} in the input, which "
+                                     f"is not token {i if aligned else 0} of {values[r]!r} as it tokenizes alone "
+                                     f"({engine.tokenizer.convert_ids_to_tokens(ids[:3])}); the answer is scored as "
+                                     "it tokenizes, so the input says it the same way")
 
 
-def placed(plan: Plan, found: dict, name: str, at: dict) -> list | None:
+def answer(engine, plan: Plan, found: dict, ref, where: str) -> dict:
+    """A column reference's answers, resolved once per findings (`state.tokens`): each row's `values`, per
+    token the ids it may be (`sets`), the `column`, and whether its rows line up with the read (`aligned`:
+    some row is several tokens; else every row is one, which scores every position of its row)."""
+    key = refkey(ref)
+    if key not in found["answers"]:
+        try:
+            values, sets, column = tokens(engine, plan, ref, None)
+        except ValueError as e:
+            raise ValueError(f"{where}: {e}") from None
+        found["answers"][key] = {"values": values, "sets": sets, "column": column,
+                                 "aligned": any(len(row) > 1 for row in sets)}
+    return found["answers"][key]
+
+
+def placed(plan: Plan, found: dict, name: str, at: dict) -> tuple[list | None, list | None]:
     """The positions per row of the read value `name`'s positions are (following `of` through op steps), where
-    they are known before the run; None where they are not."""
+    they are known before the run, else None; and each row's input ids where that read is a scope that is
+    `before` (whose next tokens an answer scores), else None."""
     while True:
         thing, _, member = name.partition(".")
         step = points(plan.steps[thing])[0]
@@ -345,9 +375,13 @@ def placed(plan: Plan, found: dict, name: str, at: dict) -> list | None:
             break
         name = step.of
     try:
-        return lookup(found["positions"], name, at)
+        where = lookup(found["positions"], name, at)
     except KeyError:
-        return None
+        return None, None
+    record = step.reads[member] if step.kind in ("forward", "generate") and member in step.reads else None
+    scope = (positions.parse(record.pos)["scope"] or {}) if record is not None else {}
+    return where, [e["ids"] for e in found["inputs"][data.input_name(step.input)]["rows"]] \
+        if scope.get("before") else None
 
 
 def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict, swap: dict) -> None:

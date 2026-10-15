@@ -7,7 +7,7 @@ from typing import Any
 from torch import Tensor
 
 from .. import address
-from ..plan.model import Plan, arguments, body_view, coordinate, corpus_root, dims_of, labelled, points
+from ..plan.model import Plan, arguments, body_view, coordinate, corpus_root, dims_of, labelled, points, walk
 from ..runtime import data, positions
 
 JOIN = ("at", "row", "layer", "pos", "key")
@@ -115,9 +115,9 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     swap = points(plan.steps[fit])[0].eval[label]
     assert plan.run is not None
     tokens = dict(plan.run.tokens)
-    for a, b in swap.items():
-        tokens.update({data.renamed(k, {b: a}): v for k, v in plan.run.tokens.items()
-                       if b in [p.partition(".")[0] for p in k.split(" + ")]})
+    for _, step in walk(points(plan.steps[fit])[0].steps):
+        if step.kind in ("forward", "generate") and data.input_name(step.input, swap) in plan.run.tokens:
+            tokens[data.input_name(step.input)] = plan.run.tokens[data.input_name(step.input, swap)]
     run = plan.run.model_copy(update={"tokens": tokens, "positions": {
         k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
     return body_view(plan, fit, swap=swap).model_copy(update={

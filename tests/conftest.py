@@ -91,7 +91,7 @@ def same(a, b) -> bool:
     """Bit-equal, all the way down, a missing value (NaN) where the other's is."""
     if isinstance(a, torch.Tensor):
         return isinstance(b, torch.Tensor) and a.dtype == b.dtype and torch.equal(a.isnan(), b.isnan()) and \
-            torch.equal(a.nan_to_num(0.0), b.nan_to_num(0.0))
+            torch.equal(a[~a.isnan()], b[~b.isnan()])
     if isinstance(a, dict):
         return isinstance(b, dict) and a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):

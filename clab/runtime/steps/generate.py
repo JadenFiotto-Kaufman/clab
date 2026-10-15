@@ -50,7 +50,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         for key, record in beyond.items():
             pos = positions.parse(record.pos)
             holds, calls, _ = positions.reach(pos, most)
-            edits = [edit(engine, plan, record, o, state, step.at, chunk) for o in record.ops]
+            edits = [edit(engine, plan, record, o, state, step.at, chunk, answers=found["answers"]) for o in record.ops]
             if holds:
                 where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
                 writes.append({**site(record, picks[key], where, pads, head(step, record)), "name": f"{key}#0",
@@ -78,7 +78,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                     raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
                                        f"{len(made)} decode calls it made; a read out of forward order shifts calls")
         out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
-                                          state, step.at) for layer in layers(engine, record)])
+                                          state, step.at, found["answers"]) for layer in layers(engine, record)])
                for key, record in first.items()}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in {**later, **beyond}.items():
@@ -94,7 +94,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if key in later:
                 out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(f"{key}@{layer}#0"),
                                                      got[f"{key}@{layer}"], where, encoded[chunk], pads, chunk,
-                                                     state, step.at, head(step, record), most)
+                                                     state, step.at, head(step, record), most, found["answers"])
                                             for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
@@ -122,7 +122,7 @@ def generated(engine, name: str, batch: dict, writes: list[dict], reads: list[di
 
 def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
              encoded: list[dict], pads: list[int], rows: slice, state: dict, at: dict, head_only: bool,
-             most: int | None) -> Any:
+             most: int | None, answers: dict) -> Any:
     """One layer of a read beyond the prefill in one batch, arranged by the positions each row resolved to
     (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
@@ -159,4 +159,4 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
                  "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
                  "tok": torch.tensor([p for _, p in kept], dtype=torch.long)}
         places = None
-    return with_ops(engine, plan, record, value, state, at, rows, places)
+    return with_ops(engine, plan, record, value, state, at, rows, places, answers)

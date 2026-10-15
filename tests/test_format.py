@@ -37,6 +37,8 @@ def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
                    lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "all"}),
                    lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [1, 1]}),
                    lambda d: d["sites"]["target"].update(layers="1:2:3:4"),
+                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(
+                       pos={"scope": {"column": "pairs.base_answer", "lower": True}}),
                    lambda d: d.update(compiled=True),
                    lambda d: d["steps"]["iia"].update(dims=["rows"])):
         bad = copy.deepcopy(doc)

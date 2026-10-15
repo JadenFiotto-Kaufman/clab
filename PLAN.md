@@ -820,7 +820,7 @@ clab; its lead is operating on real models).
   d = 4096) with a Woodbury step.
 - Featurizers only attach at `hidden_size` sites; a coordinate selector on
   `file_path` for swept bundles; a cross-site adapter inside a generate.
-- `input_ids` as a component; a column of token ids; `rmsprop`; a per-update
+- `input_ids` as a component; `token_form: "id"`; `rmsprop`; a per-update
   loss trace (`fit.history.objective`).
 - ndif/nnsight, not clab: no way to deploy with eager attention and
   `attn_implementation` absent from the model key (the attention-interior

@@ -59,10 +59,18 @@ A column read as text, where a scope searches for it or a metric scores it: `"<d
 `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
 whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
 rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
-the input for the text so compared, its positions the original's. Against logits each of an answer's
-tokens stands for its class: every token of the vocabulary whose text, so compared, is the same
-(` Positive`, ` positive` and `positive` under both flags); without a flag the class is the token alone.
-A row's value may be a list of strings: a set, any of which is the answer.
+the input for the text so compared, its positions the original's. An answer scored against logits is
+tokenized as written, under `strip` without its whitespace-only tokens at either end (`"  New York "` is
+`▁New ▁York`), and each of its tokens stands for its class: every token of the vocabulary whose text (what
+it adds after another token, so a leading space is its own), so compared, is the same (` Yes`, ` yes`,
+`yes` and `YES` under both flags); without a flag, or for a token that is part of a character, the class
+is the token alone. A row's value may be a list of strings: a set, any of which is the answer.
+
+### A literal in a list `input`
+
+- `text: str`
+
+`{"text": "<literal>"}`: literal text in a list `input`.
 
 ### A write or a read
 
@@ -184,7 +192,7 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`.
 
 ### `forward`
 
-- `input: str or list of str or TextPart`
+- `input: str or list of str or literal`
 - `writes: object of write or read = {}`
 - `reads: object of write or read = {}`
 - `interventions: str or list of str or null = null`
@@ -208,7 +216,7 @@ differ in the last bits. Results reproduce to the bit at a fixed batch size.
 
 ### `generate`
 
-- `input: str or list of str or TextPart`
+- `input: str or list of str or literal`
 - `writes: object of write or read = {}`
 - `reads: object of write or read = {}`
 - `interventions: str or list of str or null = null`
@@ -351,19 +359,20 @@ name a read of the same forward at a site the forward reaches before the write's
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
-tokens: a one-token answer scores every position of its row; a longer one scores token i at the row's
-position i, so the read carries k positions on that row (a scope with `before` reads the positions that
-predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers differ in
-length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and read do not
-line up is refused by name, before any forward where the read's positions are the prompt's. Under the
-reference's `strip` or `lower` each of the answer's tokens stands for its class: every token of the vocabulary
-whose text, stripped and lowercased as the flags say, is the token's own (its text is what it adds after
-another token, so a leading space is its own). A row's answer may be a set, a list of strings any of which is
-the answer, its members one width: at each position the ids any member's token (or class) may be, each once.
-`match` hits where the most likely token is any of a position's ids, `token_prob` is their summed
-probability, `cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several
-ids have not, so a class or a set of more than one is refused there. A missing row (a scope the row does not
-say) stays missing: NaN, or no entries.
+tokens. A column whose every row is one token scores it at every position of its row (a logit lens over
+positions). A column with an answer of several tokens lines every row up, one-token rows included: token i
+scores the row's position i, so the read carries k positions on that row (a scope with `before` reads the
+positions that predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers
+differ in length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and
+read do not line up is refused by name, before any forward where the read's positions are the prompt's; and
+where the read is a `before` scope on the step's own input (teacher forcing), so is a row whose input's next
+token at a position is not one the answer's token there may be. A token stands for its class under the
+reference's flags (`Column`). A row's answer may be a set, a list of strings any of which is the answer, its
+members one width: at each position the ids any member's token (or class) may be, each once. `match` hits
+where the most likely token is any of a position's ids, `token_prob` is their summed probability,
+`cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several ids have
+not, so a class or a set of more than one is refused there. A missing row (a scope the row does not say)
+stays missing: NaN, or no entries.
 
 ### Metrics
 
