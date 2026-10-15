@@ -2,6 +2,7 @@
 
 import json
 import os
+from typing import Any
 
 import pytest
 import torch
@@ -204,8 +205,8 @@ def test_hooks_refuses_what_lives_inside_a_forward(engines, name, component):
 
 
 def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(monkeypatch):
-    """`load` checks the options against the engine's constructor before calling it: an unknown key is named
-    with the ones the engine takes, and so is a value of another type."""
+    """`load` checks the options against the engine's signatures before calling it: an unknown key is named
+    with the ones the engine loads and runs with, and a value of another type is refused."""
     from clab.engines import load, options
 
     model = plan_of("patching").model
@@ -213,10 +214,13 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
         monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     with pytest.raises(ValueError, match="unknown engine 'vllm'; valid: nnterp, hooks, ndif"):
         load("vllm", model)
-    assert list(options("nnterp")) == ["device_map"] and list(options("ndif")) == ["remote"]
-    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its arguments: device_map"):
+    assert {side: list(o) for side, o in options("nnterp").items()} == {"loads": ["device_map"], "runs": []}
+    assert {side: list(o) for side, o in options("ndif").items()} == {"loads": ["remote"], "runs": []}
+    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; it loads with: device_map; it runs "
+                                         "with: nothing"):
         load("nnterp", model, remote="local")
-    with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; its arguments: remote"):
+    with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; it loads with: remote; it runs "
+                                         "with: nothing"):
         load("ndif", model, device_map="auto")
     with pytest.raises(ValueError, match="remote: 'yes' is not one of True, 'local'"):
         load("ndif", model, remote="yes")
@@ -232,10 +236,10 @@ def test_an_option_the_engine_cannot_honor_is_refused_by_name():
         clab.run(edited("patching", lambda d: d["model"].update(device_map="auto")), engine="hooks")
 
 
-def test_a_loaded_engine_takes_no_options(engines):
+def test_a_loaded_engine_takes_no_load_options(engines):
     plan = plan_of("patching")
     with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu with {'device_map': None}; device and "
-                                         "options are given when an engine loads"):
+                                         "the options it loads with are given when an engine loads"):
         clab.run(plan, engine=engines("hooks", plan.model), device_map="auto")
     with pytest.raises(ValueError, match="the loaded hooks engine runs on cpu"):
         clab.run(plan, engine=engines("hooks", plan.model), device="cuda")
@@ -274,6 +278,57 @@ def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
     assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
         ("ndif", "cpu", {"remote": "local"}, "float32", ["cpu"])
     assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'remote'; its arguments: device_map" in capsys.readouterr().err
+    assert "clab: the nnterp engine takes no 'remote'; it loads with: device_map; it runs with: nothing" in \
+        capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "remote", "--out", str(out)]) == 1
     assert "clab: -o 'remote': an option is KEY=VALUE" in capsys.readouterr().err
+
+
+def test_an_option_goes_where_the_engine_declares_it(monkeypatch, tmp_path, capsys):
+    """One pool of options, routed by name: one the engine loads with to its constructor, one it runs with to
+    `execute`, one it declares for neither refused naming both lists; an engine declaring one for both is refused
+    when it registers. A loaded engine takes run options only. The run record keeps both, after defaults."""
+    from clab.engines import ENGINES, engine, load, options
+    from clab.engines.hooks import HooksEngine
+
+    class Scratch(HooksEngine):
+        def __init__(self, model, *, device: str = "cpu", width: int = 1):
+            super().__init__(model, device=device)
+            self.options = {**self.options, "width": width}
+
+        def execute(self, plan, *, batch_size: int = 8, tag: str = "none", **rest):
+            return super().execute(plan, batch_size=batch_size, tag=tag, **rest)
+
+    class Clash(Scratch):
+        def execute(self, plan, *, batch_size: int = 8, width: int = 2, **rest):
+            return super().execute(plan, batch_size=batch_size, **rest)
+
+    monkeypatch.setitem(ENGINES, "scratch", Scratch)
+    engine("scratch")(Scratch)
+    with pytest.raises(ValueError, match="engine 'clash': width is both a load and a run option"):
+        engine("clash")(Clash)
+    assert "clash" not in ENGINES
+    assert {side: list(o) for side, o in options("scratch").items()} == {"loads": ["width"], "runs": ["tag"]}
+
+    filled = clab.run(document("patching"), engine="scratch", out=str(tmp_path / "a"), batch_size=BATCH_SIZE,
+                      width=3, tag="x")
+    assert filled.run is not None and filled.run.options == {"device_map": None, "width": 3, "tag": "x"}
+    assert Plan.load(str(tmp_path / "a")).run.options == {"device_map": None, "width": 3, "tag": "x"}  # type: ignore
+    loaded: Any = load("scratch", plan_of("patching").model)
+    again = clab.run(document("patching"), engine=loaded, out=str(tmp_path / "b"), batch_size=BATCH_SIZE)
+    assert again.run is not None and again.run.options == {"device_map": None, "width": 1, "tag": "none"}
+    assert main(["run", document("patching"), "--engine", "scratch", "-o", "tag=z", "-o", "width=2",
+                 "--batch-size", str(BATCH_SIZE), "--out", str(tmp_path / "c")]) == 0
+    assert '(batch size 2, device cpu, device_map null, width 2, tag "z")' in capsys.readouterr().out
+
+    with pytest.raises(ValueError, match="the scratch engine takes no 'nope'; it loads with: width; it runs with: tag"):
+        clab.run(document("patching"), engine="scratch", nope=1)
+    with pytest.raises(ValueError, match="tag: 3 is not str"):
+        clab.run(document("patching"), engine="scratch", tag=3)
+    with pytest.raises(ValueError, match="tag: a run option of the scratch engine; it goes to execute, not load"):
+        load("scratch", plan_of("patching").model, tag="x")
+    with pytest.raises(ValueError, match="the loaded scratch engine runs on cpu .*; device and the options it loads "
+                                         "with are given when an engine loads"):
+        clab.run(document("patching"), engine=loaded, width=2)
+    with pytest.raises(ValueError, match="the scratch engine runs with no 'nope'; it runs with: tag"):
+        loaded.execute(plan_of("patching"), nope=1)

@@ -116,7 +116,8 @@ back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token,
 ```
 
 `clab.run(plan_or_path, engine=..., out=None, batch_size=8, device="cpu", **options)` is the four steps of a
-run (`options` are the engine's own: `clab describe engines` lists them), which
+run (`options` are the engine's own, each routed by name to what it loads or runs with: `clab describe
+engines` lists them), which
 are also there to take one at a time:
 
 ```python
@@ -154,8 +155,10 @@ named in every error.
   is its method of that name; the `featurizer` op reads the layout each mode produces from `MODES`.
 - **Step kinds** (`clab/runtime/steps/`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
-  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (which
-  `clab describe engines` lists); `execute(plan, batch_size=)` is its one entry point.
+  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
+  loads with); `execute(plan, batch_size=, ...)` is its one entry point, and its keyword parameters are what it
+  runs with. One pool of options (`-o`, or `clab.run`'s keywords) goes to each by name; `clab describe engines`
+  lists both.
 
 ## The output
 

@@ -20,6 +20,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
+from ... import registry
 from ...plan.model import Plan, Run, coordinate, labelled, points
 from ...registry import registers
 from .preflight import instance, preflight
@@ -29,15 +30,22 @@ KINDS: dict = {}
 kind = registers(KINDS)
 
 
-def begin(engine, plan: Plan, batch_size: int) -> float:
+def begin(engine, plan: Plan, batch_size: int, options: dict) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
-    the device, every engine option and the client's clab; returns the start time."""
+    the device, the options it loaded with and those it runs with (`options`, each declared by its `execute`'s
+    signature) after their defaults, and the client's clab; returns the start time."""
+    runs = registry.spelled(type(engine).execute, ("self", "plan", "batch_size"))
+    for key in options:
+        if key not in runs:
+            raise ValueError(f"the {engine.name} engine runs with no {key!r}; it runs with: "
+                             f"{', '.join(runs) or 'nothing'}")
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     if plan.model != engine.spec:
         raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
                          f"{plan.model.key}@{plan.model.revision}")
-    plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=dict(engine.options),
+    given = {**engine.options, **{k: options.get(k, p.default) for k, p in runs.items()}}
+    plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=given,
                    client={"clab": version()}, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 

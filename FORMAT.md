@@ -532,16 +532,18 @@ The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`.
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block. The run options that say how and where it runs are
-`device` (where it places the model and the inputs; `cpu` by default) and the options its constructor's
-keyword parameters declare, each with its default: `options(name)` reads them, and `load` refuses an unknown
-key, naming the ones the engine takes, before anything loads; an option the engine cannot honor it refuses by
-name. It keeps `device` (None where it does not place the model: an NDIF server does) and every option after
-defaults (`options`), which `execute` records in `plan.run`.
+`device` (where it places the model and the inputs; `cpu` by default), `batch_size`, and the options an
+engine declares, each with its default: those it loads with are its constructor's keyword parameters, those it
+runs with its `execute`'s, and no option is both (`engine` refuses one that is). `options(name)` reads them;
+`route` sends each option given to the one that declares it and refuses one neither does, naming both lists,
+before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` (None where it
+does not place the model: an NDIF server does) and the options it loaded with (`options`), which `execute`
+records in `plan.run` beside the ones it runs with, after their defaults.
 
 ### `nnterp`
 
-- `device: str = "cpu"`
-- `device_map: str or null = null`
+- Loads with: `device: str = "cpu"`, `device_map: str or null = null`
+- Runs with: `batch_size: int = 8`
 
 The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session. The batch's
 inputs go to the run's `device` (with a `device_map`, transformers moves them on from there).
@@ -551,8 +553,8 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 
 ### `hooks`
 
-- `device: str = "cpu"`
-- `device_map: str or null = null`
+- Loads with: `device: str = "cpu"`, `device_map: str or null = null`
+- Runs with: `batch_size: int = 8`
 
 The second engine: a plain HuggingFace model driven by forward hooks, in this process.
 
@@ -567,8 +569,8 @@ on from there).
 
 ### `ndif`
 
-- `device: str = "cpu"`
-- `remote: one of true, "local" = true`
+- Loads with: `device: str = "cpu"`, `remote: one of true, "local" = true`
+- Runs with: `batch_size: int = 8`
 
 The nnterp engine on an NDIF server: the same engine, with a weightless model and a remote session.
 

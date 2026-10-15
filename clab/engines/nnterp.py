@@ -34,10 +34,11 @@ class NnterpEngine:
             model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype),
             **placed("nnterp", device, device_map), **extra))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+    def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
-        the results and the run record are the one thing that comes home, into the client's own plan."""
-        started = steps.begin(self, plan, batch_size)
+        the results and the run record are the one thing that comes home, into the client's own plan. It runs
+        with no options of its own; `options` are a subclass's, which `steps.begin` records."""
+        started = steps.begin(self, plan, batch_size, options)
         with self.model.session(remote=self.remote):
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})

@@ -170,13 +170,17 @@ def per_op(base: dict) -> dict:
     return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
 
 
-def run_options(name: str) -> list[str]:
-    """Engine `name`'s run options: `device`, then its own, each `key: type = default`."""
+def run_options(name: str) -> dict[str, list[str]]:
+    """Engine `name`'s run options, each `key: type = default`: those it loads with (`device`, then its own)
+    and those it runs with (`batch_size`, then its own)."""
     from .engines import ENGINES, options
 
-    device = inspect.signature(ENGINES[name].__init__).parameters["device"]
-    return [f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}"
-            for k, p in {"device": device, **options(name)}.items()]
+    cls: Any = ENGINES[name]
+    declared = options(name)
+    common = {"loads": {"device": inspect.signature(cls.__init__).parameters["device"]},
+              "runs": {"batch_size": inspect.signature(cls.execute).parameters["batch_size"]}}
+    return {side: [f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}"
+                   for k, p in {**common[side], **declared[side]}.items()] for side in ("loads", "runs")}
 
 
 def describe(what: str | None = None) -> str:
@@ -217,10 +221,11 @@ def describe(what: str | None = None) -> str:
         sections.append("pos:\n" + doc(plan.Pos))
     if what in (None, "engines"):
         from . import engines
-        lines = ["engines (`clab run --engine NAME --device D -o KEY=VALUE`):"]
+        lines = ["engines (`clab run --engine NAME --device D --batch-size N -o KEY=VALUE`):"]
         for name, cls in engines.ENGINES.items():
-            lines += [f"  {name}({', '.join(run_options(name))})",
-                      "      " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split())]
+            given = run_options(name)
+            lines += [f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()),
+                      f"      loads with: {', '.join(given['loads'])}", f"      runs with: {', '.join(given['runs'])}"]
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
@@ -278,8 +283,9 @@ def markdown() -> str:
     from . import engines
     parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]
     for name, cls in engines.ENGINES.items():
-        parts += [f"### `{name}`\n", "\n".join(f"- `{o}`" for o in run_options(name)) + "\n\n"
-                  + doc(inspect.getmodule(cls)) + "\n"]
+        given = run_options(name)
+        parts += [f"### `{name}`\n", f"- Loads with: {', '.join(f'`{o}`' for o in given['loads'])}\n"
+                  f"- Runs with: {', '.join(f'`{o}`' for o in given['runs'])}\n\n" + doc(inspect.getmodule(cls)) + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(output.table) + "\n",
