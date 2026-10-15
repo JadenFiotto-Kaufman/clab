@@ -5,7 +5,7 @@ from typing import Any
 import torch
 from torch import Tensor
 
-from ...plan import address
+from ... import address
 from ...plan.model import Plan
 from .. import positions
 from . import kind

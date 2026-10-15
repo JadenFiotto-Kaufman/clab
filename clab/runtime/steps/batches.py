@@ -6,7 +6,7 @@ from typing import Any, cast
 import torch
 from torch import Tensor
 
-from ...plan import address
+from ... import address
 from ...plan.model import Plan, arguments, encodes, space
 from .. import data, featurizers, ops, positions
 from .preflight import head

@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from torch import Tensor
 
-from ...plan.registry import Featurizer
+from ...registry import Featurizer
 from .. import featurizers
 from . import op
 

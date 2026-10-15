@@ -18,7 +18,7 @@ import torch
 from torch import Tensor
 
 from ...plan.model import Plan, Run, coordinate, labelled, points
-from ...plan.registry import registers
+from ...registry import registers
 from .. import featurizers
 from .preflight import instance, preflight
 from .state import lookup, put

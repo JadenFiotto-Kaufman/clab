@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from ...plan.address import EXAMPLE_AXES
+from ...address import EXAMPLE_AXES
 from . import op
 
 

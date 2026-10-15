@@ -36,7 +36,7 @@ from typing import Any, Callable
 import torch
 from torch import Tensor
 
-from ...plan import registry
+from ... import registry
 
 SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"
@@ -205,7 +205,7 @@ def width(kind: str, tensors: dict[str, Tensor]) -> int:
 
 # The kinds register in this order, and `describe` and FORMAT.md list them in it.
 from .subspace import subspace  # noqa: E402,F401
-from .gate import gate, mask  # noqa: E402,F401
+from .gate import gate  # noqa: E402,F401
 from .pca import pca  # noqa: E402,F401
 from .sae import sae  # noqa: E402,F401
 from .linear import linear  # noqa: E402,F401

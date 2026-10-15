@@ -4,7 +4,7 @@ cannot run refused by name."""
 import math
 from typing import Any
 
-from ...plan import address
+from ... import address
 from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, encodes, kind_of, parameters,
                            points, probe_of, uses, walk)
 from .. import data, featurizers, ops, positions

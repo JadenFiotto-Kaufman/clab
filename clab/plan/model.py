@@ -21,8 +21,8 @@ from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import core_schema
 from torch import Tensor
 
+from .. import address
 from ..runtime import data, featurizers, ops
-from . import address
 
 
 class PlanError(ValueError):

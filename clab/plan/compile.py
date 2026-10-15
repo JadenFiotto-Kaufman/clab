@@ -11,8 +11,8 @@ import itertools
 from dataclasses import dataclass, replace
 from typing import Any
 
+from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
-from . import address, registry
 from .model import (Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, kind_of, parameters, points,
                     space, uses)
 

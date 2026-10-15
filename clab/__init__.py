@@ -6,9 +6,8 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 
 import os
 
-# The plan first: its models list the ops, and the ops import the plan's registry.
-from .plan.model import Plan, name
 from .cli import describe
+from .plan.model import Plan, name
 
 __all__ = ["Plan", "run", "describe"]
 

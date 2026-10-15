@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from ...plan.registry import Value
+from ...registry import Value
 from . import APPLY, kind, of
 
 

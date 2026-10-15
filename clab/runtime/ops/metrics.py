@@ -7,7 +7,7 @@ from typing import Any, Literal
 import torch
 from torch import Tensor
 
-from ...plan.registry import Tokens, Value
+from ...registry import Tokens, Value
 from . import VOCABULARY, op
 
 

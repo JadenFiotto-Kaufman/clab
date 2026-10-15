@@ -21,11 +21,10 @@ from typing import Any, get_args
 
 from pydantic import BaseModel, TypeAdapter
 
-from . import output
-from .plan import address
+from . import address, output
 from .plan import compile as compiler
 from .plan import model as plan
-from .plan.registry import spell as spell_type
+from .registry import spell as spell_type
 from .runtime import featurizers, ops
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos")

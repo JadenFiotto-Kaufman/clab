@@ -6,7 +6,7 @@ from typing import Any, Callable, cast
 
 import torch
 
-from ..plan.address import COMPONENTS
+from ..address import COMPONENTS
 from ..runtime import positions
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",

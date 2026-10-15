@@ -18,6 +18,7 @@ from clab import Plan
 from clab.cli import main
 from clab.plan.model import PlanError, dims_of
 from clab.runtime import featurizers
+from clab.runtime.featurizers.gate import mask
 from conftest import BATCH_SIZE, DOCUMENTS, FIT, ROOT, bundle_header, close, edited, plain, same, snapshot, stand_in
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -117,7 +118,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
     over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
     order the rows are shuffled in, and that changes the trajectory."""
-    from clab.runtime.steps import fit as steps
+    from clab.runtime.steps.fit import OPTIMIZERS
 
     def change(d, seed=0):
         d["steps"]["fit"].update(batch_size=1, seed=seed)
@@ -128,7 +129,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
         def step(self, *args, **kwargs):            # type: ignore[override]
             counted.append(1)
             return super().step(*args, **kwargs)
-    monkeypatch.setitem(steps.OPTIMIZERS, "adamw", Counting)
+    monkeypatch.setitem(OPTIMIZERS, "adamw", Counting)
     plan = with_history(change)
     engine = engines("hooks", plan.model)
     values = engine.execute(plan, batch_size=BATCH_SIZE).results
@@ -353,9 +354,9 @@ def test_a_gate_is_soft_while_trained_hard_when_scored_and_anneals_linearly():
     f = featurizers.make("gate", {"temperature": {"start": 1.0, "end": 0.05}}, 4, None, None, None)
     f["theta"] = torch.tensor([2.0, -1.0, 0.5, -0.1])
     f["training"] = True
-    torch.testing.assert_close(featurizers.mask(f), torch.sigmoid(f["theta"]))
+    torch.testing.assert_close(mask(f), torch.sigmoid(f["theta"]))
     f["training"] = False
-    assert featurizers.mask(f).tolist() == [1.0, 0.0, 1.0, 0.0]
+    assert mask(f).tolist() == [1.0, 0.0, 1.0, 0.0]
     temps = []
     for epoch in range(20):
         featurizers.anneal(f, epoch, 20)
