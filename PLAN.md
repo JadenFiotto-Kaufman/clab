@@ -830,3 +830,40 @@ clab; its lead is operating on real models).
   which stops Ray scheduling without a threshold override.
 - Two tests to carry over: featurizer math on a non-CPU device; under
   autocast.
+
+## 14. After the trials (ratified 2026-10-22)
+
+Twelve cold Opus trials ran real methods through clab on Qwen3-8B and
+Gemma-2-2B (`~/wd/clab-trials/`: `SYNTHESIS.md`, `FINDINGS.md`, twelve
+reports). Every pinned number reproduced; the risk is silent
+mis-specification. Decisions, in build order:
+
+- **PR 13: one `interventions` list per step; featurizers as ops**
+  (`proposals/interventions.md` is the spelling). `reads`/`writes` merge
+  into `interventions`, whose value is a name, a dict of entries, or a list
+  of either; in-place ops (the edits group) are what writes back; every
+  entry binds its name; a value leaves the model only when saved or
+  consumed; order written is execution order. The `featurizer`/`select`
+  arguments and the `featurizer` op go; `encode` (with `select`), `decode`
+  (the delta rule, bracketing the most recent `encode` of that featurizer
+  in the entry) and `apply` replace them; chains nest. 54 documents
+  migrate; no numeric changes.
+- **PR 14: bugs and silent behaviours** from `FINDINGS.md` (B1–B13; S3,
+  S5, S8, S10–S12, S13, S20 become refusals or checks; the ten messages
+  that did not say what to do).
+- **PR 15: positions.** Every input token is a position, specials and BOS
+  included; one convention in documents, results, `clab table` and
+  messages. Migration of `pos: 0` users.
+- **PR 16: writes across layers and sweep labels.** A write's `layers` may
+  be a slice or pick list (one write per layer, operand aligned by layer
+  label); a sweep may carry `label`, same label zips, different labels
+  cross.
+- **PR 17: small items.** Reductions and metrics compute in float32;
+  `renormalize` gains `norm: "sum"`; `strip` trims only the ends of a whole
+  answer; datasets gain `template` (chat kwargs pass-through), `take`,
+  `shuffle` (seed 0, recorded), `columns` (rename), no `repeat`; `select`
+  on `encode` (done in 13), `over` on `argmax`/`top_k`, a value operand for
+  `scale`'s factor and `noise`'s scale; `hf` datasets implemented.
+- Not now: a clab skill or agent docs (`SKILL-NOTES.md` is the raw
+  material); a sequence metric beyond what `before` + `sum` give;
+  featurizer composition beyond nesting.
