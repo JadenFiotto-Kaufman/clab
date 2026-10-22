@@ -9,9 +9,9 @@ in their order, and the axis stays in the layout, so that a site has one layout 
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
 int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
-`"0:3"`); unselected, the axis is as wide as the input's longest row, and a shorter row's keys past its own
-are NaN in a read and left as they are by a write (never its padding's). `stream` marks the residual-stream
-values `readout` may project.
+`"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
+shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
+`stream` marks the residual-stream values `readout` may project.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
