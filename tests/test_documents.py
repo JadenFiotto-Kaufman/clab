@@ -109,8 +109,8 @@ def test_renormalize_restores_the_norm_steering_changed(filled):
     for kind in ("nnterp", "hooks"):
         values = filled["steer_renormalize", kind].results
         before = values["base.resid"].norm(dim=-1)
-        torch.testing.assert_close(values["steered_renormed.resid"].norm(dim=-1), before)
-        assert not torch.allclose(values["steered.resid"].norm(dim=-1), before)
+        torch.testing.assert_close(values["steered_renormed.restore"].norm(dim=-1), before)
+        assert not torch.allclose(values["steered.steer"].norm(dim=-1), before)
 
 
 def test_every_layer_is_the_layer_sweep_stacked(filled):

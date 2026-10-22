@@ -70,11 +70,10 @@ def test_an_op_the_kind_does_not_serve_is_refused_by_name():
 
 
 def bracket(f, features=None, between=()) -> list[dict]:
-    """An encode of `f`, the bound ops `between`, and the decode that closes it, as `batches.edit` binds them."""
-    coordinates = ["rows", "pos", f.axis]
-    return [{"op": "encode", "args": {"featurizer": f}, "dims": DIMS, "inner": len(between),
-             **({} if features is None else {"features": features})},
-            *({**o, "dims": coordinates} for o in between), {"op": "decode", "args": {"featurizer": f}, "dims": coordinates}]
+    """An encode of `f` holding the bound ops `between`, which its decode closes over, as `batches.edit` binds
+    them."""
+    return [{"op": "encode", "args": {"featurizer": f}, "dims": DIMS, "inner": [
+        {**o, "dims": ["rows", "pos", f.axis]} for o in between], **({} if features is None else {"features": features})}]
 
 
 @pytest.mark.parametrize("kind", ["subspace", "gate", "pca", "sae", "jumprelu", "topk"])
@@ -168,7 +167,8 @@ def test_an_argument_the_kinds_apply_does_not_take_is_refused_at_compile():
 def test_describe_shows_the_ops_and_each_kinds_ops():
     text = describe()
     assert "encode(featurizer: Featurizer, select: {features: selector} = null)  [the last axis becomes" in text
-    assert "decode(tokens: bool = false, featurizer: Featurizer = null)" in text
+    assert "decode(featurizer: Featurizer)  [the layout its `encode` had]" in text
+    assert "detokenize(tokens: bool = false)  [needs new; removes new]" in text
     assert "apply(featurizer: Featurizer, ...)  [keeps the layout]" in text
     assert "ops: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "ops: apply(with: Value or null = null) gives its version of the value" in text

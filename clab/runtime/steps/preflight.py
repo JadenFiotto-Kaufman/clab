@@ -409,10 +409,11 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
 
 def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: dict, shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
-    that line up token for token. One from an entry of the write's own forward is read at a site this engine
-    reaches first. An argument of the function an op's `options` choose (a lora's `with`) is as wide per
-    position, its axes after the positions flattened, as the value the op acts on, and, from the same forward,
-    read at the write's own positions."""
+    that line up token for token. One from an entry of the write's own forward is an earlier entry at the
+    write's own site, or one at a site this engine reaches first (by site, not rank: the hooks engine ranks
+    every component at one module boundary the same). An argument of the function an op's `options` choose (a
+    lora's `with`) is as wide per position, its axes after the positions flattened, as the value the op acts on,
+    and, from the same forward, read at the write's own positions."""
     args, sizes = arguments(o), engine.sizes()
     chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
     for key, p in parameters(plan, o.op, args).items():
@@ -422,11 +423,12 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
         theirs = lookup(shapes, value, step.at)
         read = entries(points(plan.steps[value.partition(".")[0]])[0])[value.partition(".")[2]].site
         same = value.partition(".")[0] == where.partition(".")[0]
-        if same and engine.rank(read.component, made_at(read, sizes["num_layers"])[0]) >= \
-                engine.rank(site.component, made_at(site, sizes["num_layers"])[0]):
+        theirs_at, ours_at = ((s.component, made_at(s, sizes["num_layers"])[0]) for s in (read, site))
+        if same and theirs_at != ours_at and engine.rank(*theirs_at) >= engine.rank(*ours_at):
             raise ValueError(f"{where}: operand {value!r} is read at {read.component} layer {read.layers}, which the "
-                             f"{engine.name} engine's forward does not reach before this write's {site.component} "
-                             f"layer {site.layers}; an operand from the write's own forward is read at an earlier site")
+                             f"{engine.name} engine's forward reaches no earlier than this write's {site.component} "
+                             f"layer {site.layers}; an operand from the write's own forward is an earlier entry at "
+                             "this site, or at a site the forward reaches first")
         if key in chosen:
             per, own = (math.prod(kept.get(a) or sizes[a] for a in address.dims(s.component, None, False)[2:])
                         for s, kept in ((read, theirs[1]), (site, shape[1])))

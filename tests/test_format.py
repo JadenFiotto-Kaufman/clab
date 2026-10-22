@@ -55,7 +55,7 @@ def test_describe_lists_every_registry():
     text = describe()
     for word in ("records:", "step kinds:", "metrics:", "reductions:", "edits:", "transforms:", "components:",
                  "featurizer kinds:",
-                 "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode("):
+                 "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode(", "detokenize("):
         assert word in text, word
 
 

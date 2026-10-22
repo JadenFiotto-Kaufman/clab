@@ -11,7 +11,7 @@ int `layers` drops its axis. `key` is as long as each row, so a selector there p
 counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream` marks the residual-stream values `readout` may
 project.
 
-A selection of a component (what a read binds, and what a write's ops see) is
+A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
 first under `layers` that are a slice or a list of picks, and ragged positions
 give `entries` (one per token) in place of `rows` and `pos`. How an engine reaches a component is that

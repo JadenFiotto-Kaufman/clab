@@ -38,7 +38,7 @@ FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
          plan.Intervention: "entry", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
          plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal",
-         plan.Items: "a bundle's name, an object of entry, or a list of them", plan.Entries: "object of entry"}
+         get_args(plan.Interventions)[0]: "a bundle's name, an object of entry, or a list of them"}
 
 
 def as_json(value: Any) -> str:

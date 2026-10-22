@@ -1,6 +1,6 @@
 """Transforms: ops that turn each example's value into another of a different layout. The model's own readout,
-`encode`, which turns a value into a featurizer's coordinates (and `decode`, which turns them back, or generated
-ids into text), and the ones over logits (`top_k`, `argmax`)."""
+`encode`, which turns a value into a featurizer's coordinates, the ones over logits (`top_k`, `argmax`), and
+`detokenize`, which turns generated ids into text."""
 
 from typing import Annotated, Any
 
@@ -54,25 +54,10 @@ def encode(of: Tensor, featurizer: Featurizer, select: Kept | None = None) -> Te
     return z.index_select(-1, torch.tensor(positions.select(select["features"], z.shape[-1]), device=z.device))
 
 
-def decoded(dims: list[str], args: dict, kind: str | None) -> list[str]:
-    """needs new; removes new (of a featurizer's coordinates: the layout its `encode` had)"""
-    if "new" not in dims:
-        raise ValueError(f"'decode' needs a value with a 'new' axis; this one is {dims}")
-    return [a for a in dims if a != "new"]
-
-
-def one_reading(args: dict) -> None:
-    """`decode` of a featurizer's coordinates takes nothing more."""
-    if args.get("featurizer") is not None and "tokens" in args:
-        raise ValueError("'decode' of a featurizer's coordinates takes no 'tokens'; 'tokens' is a generation's")
-
-
-@op("transforms", layout=decoded, check=one_reading)
-def decode(of: Tensor, engine: Any, eos: list[int], tokens: bool = False, featurizer: Featurizer | None = None) -> Any:
+@op("transforms", needs=("new",), removes=("new",))
+def detokenize(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) -> list:
     """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
-    with `tokens`, as its token strings. With `featurizer`, inside an entry, it closes the most recent `encode`
-    of that featurizer: the value from before it, the change of its coordinates written back (an edit)."""
-    assert featurizer is None, "an entry's write runs the bracket a decode closes (ops.edited)"
+    with `tokens`, as its token strings."""
     tokenizer, stops = engine.tokenizer, set(eos)
     out = []
     for ids in of.tolist():

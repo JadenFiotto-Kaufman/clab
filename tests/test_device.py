@@ -14,6 +14,7 @@ from clab.engines import load
 from clab.runtime import featurizers, ops
 from clab.runtime.ops import metrics
 from conftest import BATCH_SIZE, plan_of
+from test_ops import taken
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
 
@@ -32,9 +33,8 @@ def writes() -> list[dict]:
         {"positions": torch.tensor([[1, 2], [3, 3], [4, 5]]), "keep": torch.tensor([[1, 1], [1, 0], [1, 1]]).bool(),
          "select": {}, "ops": [{"op": "swap", "args": {"with": OTHER}, "dims": DIMS}]},
         {"positions": torch.tensor([[0], [0], [0]]), "select": {}, "ops": [
-            {"op": "encode", "args": {"featurizer": gate}, "inner": 1, "features": torch.tensor([1, 6]), "dims": DIMS},
-            {"op": "add", "args": {"with": torch.ones(2), "scale": 2.0}, "dims": ["rows", "pos", "features"]},
-            {"op": "decode", "args": {"featurizer": gate}, "dims": ["rows", "pos", "features"]}]},
+            {"op": "encode", "args": {"featurizer": gate}, "features": torch.tensor([1, 6]), "dims": DIMS, "inner": [
+                {"op": "add", "args": {"with": torch.ones(2), "scale": 2.0}, "dims": ["rows", "pos", "features"]}]}]},
         {"positions": torch.tensor([[5], [5], [5]]), "select": {2: torch.tensor([0, 7])},
          "ops": [{"op": "scale", "args": {"factor": 3.0}, "dims": DIMS}]},
         {"positions": torch.tensor([[2], [2], [2]]), "select": {2: torch.tensor([[1, 2], [3, 4], [5, 6]])},
@@ -53,8 +53,8 @@ def test_a_write_built_on_the_cpu_lands_on_the_values_device():
 
 def test_a_read_built_on_the_cpu_selects_on_the_values_device():
     rec = {"positions": torch.tensor([[1, 2], [3, 4], [0, 5]]), "select": {2: torch.tensor([[1, 2], [3, 4], [5, 6]])}}
-    got = ops.select(VALUE.cuda(), "layer_output", rec)
-    assert got.device.type == "cuda" and torch.equal(got.cpu(), ops.select(VALUE, "layer_output", rec))
+    got = taken(VALUE.cuda(), "layer_output", rec)
+    assert got.device.type == "cuda" and torch.equal(got.cpu(), taken(VALUE, "layer_output", rec))
 
 
 def test_metrics_and_edits_take_cpu_ids_and_operands():

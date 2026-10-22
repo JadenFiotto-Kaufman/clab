@@ -190,7 +190,7 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     """A step's `interventions` compile to one dict of entries in execution order: the bundles where their names
     stand, then the step's own."""
     steered = step(plan_of("steer_renormalize"), "steered_renormed")
-    assert list(steered.interventions) == ["steer", "restore", "logits", "resid"]
+    assert list(steered.interventions) == ["steer", "restore", "logits"]
     entry = steered.interventions["steer"]
     assert entry.site.component == "layer_output" and entry.site.layers == 0
 

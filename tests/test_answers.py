@@ -213,8 +213,8 @@ def test_a_list_input_joins_its_parts_as_they_are(engines):
         "If today is Thursday, tomorrow is and then Friday"
 
 
-def test_contains_reads_a_decodes_text():
-    with pytest.raises(PlanError, match=r"said\.of: contains reads text, a decode's value \(without tokens\); "
+def test_contains_reads_a_detokenized_text():
+    with pytest.raises(PlanError, match=r"said\.of: contains reads text, a detokenize's value \(without tokens\); "
                                         r"'gen' is not one"):
         doc({"gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 2},
              "said": {"kind": "op", "op": "contains", "of": "gen", "text": "days.answer"}}, ["said"])

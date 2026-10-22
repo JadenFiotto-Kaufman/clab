@@ -54,6 +54,11 @@
         "entries",
         "features"
        ],
+       "space": [
+        {
+         "featurizer": "fit.dictionary"
+        }
+       ],
        "gathered": true
       }
      },

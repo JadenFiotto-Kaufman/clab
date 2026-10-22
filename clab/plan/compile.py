@@ -15,8 +15,9 @@ from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
 from pydantic import ValidationError
 
-from .model import (Column, Intervention, Op, Plan, Site, agreeing, arguments, corpus_root, declared, fail,
-                    find_sweeps, gathers, horizon, kind_of, parameters, points, uses, walk, writes)
+from .model import (Column, Intervention, Op, Plan, Site, Unbracketed, agreeing, arguments, bracketed, corpus_root,
+                    edits, fail, find_sweeps, gathers, horizon, kind_of, parameters, points, uses, visited, walk,
+                    writes)
 
 
 def compile(plan: Plan) -> Plan:
@@ -222,13 +223,14 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     live: dict[str, tuple[dict, Intervention]] = {}
     for p, k, e in given:
         records[k] = entry(cx, p, e, plan, spec, dataset, live, own)
-        named = {"dims": records[k]["dims"], "data": dataset, "kind": "value"}
+        named = {"dims": records[k]["dims"], "data": dataset, "kind": "value", "space": records[k].get("space", [])}
         # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":
             cx.names[f"{name}.{k}"] = named
             live[f"{name}.{k}"] = (records[k], e)
-    cx.names.update({f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value"} for k, r in records.items()})
+    cx.names.update({f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value", "space": r.get("space", [])}
+                     for k, r in records.items()})
     if spec.kind == "generate":
         cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), "interventions": records,
@@ -249,9 +251,9 @@ def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Interv
             continue
         if item not in plan.interventions:
             fail(at, f"no intervention bundle {item!r}; declared: {', '.join(plan.interventions) or 'none'}")
-        bundle = plan.interventions[item]
-        out += [(f"interventions.{item}.{k}", k, scoped(plan, f"interventions.{item}.{k}", e, item, name))
-                for k, e in bundle.items()]
+        pullers = {n.rpartition(".")[2] for n, s in walk(plan.steps) if item in bundles_of(s)}
+        out += [(f"interventions.{item}.{k}", k, scoped(plan, f"interventions.{item}.{k}", e, item, name, pullers))
+                for k, e in plan.interventions[item].items()]
     return out
 
 
@@ -261,13 +263,12 @@ def bundles_of(step) -> list[str]:
     return [i for i in (value if isinstance(value, list) else [value]) if isinstance(i, str)]
 
 
-def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str) -> Intervention:
+def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pullers: set) -> Intervention:
     """A bundle's entry, its operands that name one of the bundle's own entries by its bare name (`"premix"`)
     naming that entry of the step it is pulled into (`"<step>.premix"`). An operand that names `<a step that
     pulls the bundle in>.<one of its entries>` is refused: pulled into another step it would still mean that
-    step's entry, not the one this step makes."""
+    step's entry, not the one this step makes. `pullers` are the steps that pull the bundle in."""
     own = plan.interventions[bundle]
-    pullers = {n.rpartition(".")[2] for n, s in walk(plan.steps) if bundle in bundles_of(s)}
     rewritten = []
     for i, o in enumerate(spec.ops):
         args = arguments(o)
@@ -329,15 +330,28 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
     ragged = positions.width(pos) is None
     dims = address.dims(site.component, site.layers, ragged)
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
-    opened: list[tuple[Any, list[str], int]] = []           # each encode not yet closed: featurizer, dims before, op
+    try:
+        tree = bracketed(spec.ops)
+    except Unbracketed as e:
+        fail(f"{path}.ops[{e.at}]", str(e))
+    around = {node["at"]: list(outer) for node, outer in visited(tree)}
+    closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
+    before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
     changed = None                                          # the op that changed the layout, which no edit follows
     for i, o in enumerate(spec.ops):
         at, args = f"{path}.ops[{i}]", arguments(o)
+        outer = around[closes[i]["at"]] if i in closes else around[i]
         if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
-        if ops.writes(o.op, args) and changed is not None:
+        if edits(o) and changed is not None:
             fail(at, f"{o.op!r} is an edit, which writes back, and it follows {changed!r}, which turned the value "
-                 f"into {dims}: there is no live value to write; an edit comes before it")
+                 f"into {dims}: there is no live value to write; an edit comes before it, or put the transform in "
+                 "a later entry at this site")
+        ref = args.get("featurizer")
+        mine = next((n for n in outer if arguments(n["op"])["featurizer"] == ref), None) if i not in closes else None
+        if mine is not None:
+            fail(at, f"{o.op!r} of {ref!r} at ops[{i}] is inside the encode of {ref!r} (ops[{mine['at']}]), so it "
+                 f"would act on {ref!r}'s own coordinates; put it before that encode or after the decode that closes it")
         kind = called(cx, plan, at, o.op, args)
         for key, value in args.items():
             if isinstance(value, str) and value in own and value not in live:
@@ -350,28 +364,38 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         paired(at, o.op, dims, found)
         if i <= last:
             chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
-            operands(at, found, dims, ragged, live, chosen)
-        ref = args.get("featurizer")
-        if o.op == "encode":
-            opened.append((ref, dims, i))
+            operands(at, found, dims, space_of([n["op"] for n in outer]), ragged, live, chosen)
+        if i in closes:
+            dims = before[closes[i]["at"]]
+        elif o.op == "encode":
+            before[i] = dims
             dims = layout(at, o.op, args, dims, "entry", kind)
-        elif o.op == "decode" and ref is not None:
-            if not opened:
-                fail(at, f"decode of {ref!r} closes no encode: none is open in this entry here")
-            if opened[-1][0] != ref:
-                fail(at, f"decode of {ref!r}, and the open encode is of {opened[-1][0]!r} (ops[{opened[-1][2]}]); a "
-                     "decode closes the most recent encode not yet closed, which is of the same featurizer")
-            dims = opened.pop()[1]
         else:
             out = layout(at, o.op, args, dims, "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
-        if i == last and opened:
-            ref, _, j = opened[-1]
-            fail(at, f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; close it with "
-                 f"{{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
+    unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
+    if any(n["at"] < last for n in unclosed):
+        j = max(n["at"] for n in unclosed if n["at"] < last)
+        ref = arguments(spec.ops[j])["featurizer"]
+        fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
+             f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
-    return {**record, "dims": dims}
+    return {**record, "dims": dims, **({"space": space_of([n["op"] for n in unclosed])} if unclosed else {})}
+
+
+def space_of(encodes: list[Op]) -> list[dict]:
+    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer and the
+    `select` it keeps; none for the site's own layout."""
+    return [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in encodes]
+
+
+def said(space: list[dict]) -> str:
+    """A value's coordinates as a message names them."""
+    if not space:
+        return "the site's own layout"
+    return "the coordinates of " + " then ".join(repr(s["featurizer"]) + (f" (select {s['select']})" if "select" in s
+                                                                       else "") for s in space)
 
 
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
@@ -403,19 +427,21 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
-    if spec.op == "decode" and arguments(spec).get("featurizer") is not None:
-        fail(f"{path}.featurizer", "decode of a featurizer's coordinates closes an encode inside the same entry; "
-             "as a step it decodes a generation's ids")
+    if spec.op == "decode":
+        fail(path, "decode closes an encode of its own entry, so it runs inside the entry that encodes, after the "
+             "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
+             "generation's ids into text)")
     of = value_ref(cx, spec.of, f"{path}.of")
     if spec.op == "contains" and not of.get("text"):
-        fail(f"{path}.of", f"contains reads text, a decode's value (without tokens); {spec.of!r} is not one")
+        fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
     found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
     paired(path, spec.op, of["dims"], found)
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
-                      "text": spec.op == "decode" and not arguments(spec).get("tokens")}
+                      "text": spec.op == "detokenize" and not arguments(spec).get("tokens"),
+                      "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else []}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
@@ -464,9 +490,10 @@ def paired(path: str, name: str, dims: list[str], found: dict) -> None:
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
 
 
-def operands(path: str, found: dict, own: list[str], ragged: bool, live: dict, chosen: set) -> None:
-    """Inside a write an operand stands for the value it meets, laid out `own` (after an `encode`, its
-    coordinates): that layout, or one vector of its features; only the vector when the selection is ragged,
+def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, chosen: set) -> None:
+    """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space` (the
+    encodes open around the op): in the same coordinates, encoded by the same featurizers with the same
+    `select`, and that layout or one vector of its features; only the vector when the selection is ragged,
     unless the operand is an earlier entry of the same forward, which is gathered as the selection is. Such an
     entry is taken off the model as the forward reaches it, so its value is what its edits left (no op after its
     last edit), at one layer. An argument of the function an op's `options` choose (`chosen`: a lora's `with`)
@@ -491,6 +518,9 @@ def operands(path: str, found: dict, own: list[str], ragged: bool, live: dict, c
                      f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is an entry of "
                                                            "its own forward"))
             continue
+        if info.get("space", []) != space:
+            fail(f"{path}.{key}", f"{info['name']!r} is in {said(info.get('space', []))}; this "
+                 f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
         if info["dims"] not in allowed:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's value is {own} here, "
@@ -551,6 +581,12 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                 kind_of(plan, thing)].scalars):
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
+        if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
+            for n, s in body.items():
+                for k, e in s.get("interventions", {}).items():
+                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
+                           for o in gathers(Intervention(**e))):
+                        cx.used.add(f"{n}.{k}")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
@@ -599,21 +635,16 @@ def value_ref(cx: Compiling, value, path: str) -> dict:
 
 def gathered(steps: dict, used: set) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`): one `used` names (a value something
-    references, or a save), and in a fit's body one a `<fit>.<eval>.<step>.<entry>` member names, or that
-    encodes a featurizer the fit trains (whose scalars are over what its encodes saw). Any other entry only
-    writes, and an entry that neither writes nor is gathered does nothing."""
+    references, a save, or the entries a fit's objective scalar is over), and in a fit's body one a
+    `<fit>.<eval>.<step>.<entry>` member names. Any other entry only writes, and an entry that neither writes
+    nor is gathered does nothing."""
     for name, entry in steps.items():
         for point in entry if isinstance(entry, list) else [entry]:
             if point["kind"] == "fit":
-                trained = {*point["train"], *(f"{name}.{f}" for f in point["train"])}
                 inner = {member.partition(".")[2] for member in (u.removeprefix(f"{name}.") for u in used
                                                                 if u.startswith(f"{name}."))
                          if member.partition(".")[0] in point.get("eval", {})}
                 gathered(point["steps"], used | inner)
-                for body in point["steps"].values():
-                    for e in body.get("interventions", {}).values():
-                        e["gathered"] |= any(o.op == "encode" and arguments(o).get("featurizer") in trained
-                                             for o in gathers(Intervention(**e)))
             for k, e in point.get("interventions", {}).items():
                 e["gathered"] = f"{name}.{k}" in used
 

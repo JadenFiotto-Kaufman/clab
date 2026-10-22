@@ -45,10 +45,6 @@ class Record(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _known(cls, given: Any) -> Any:
-        if isinstance(given, dict) and "interventions" in cls.model_fields and cls is not Plan:
-            for key in SIDES:
-                if key in given:
-                    raise ValueError(f"{key!r}: {SIDED}")
         if isinstance(given, dict) and cls.model_config.get("extra") == "forbid":
             for key in given:
                 if key not in cls.model_fields:
@@ -395,7 +391,8 @@ class Intervention(Record):
     root.interventions := {<bundle>: {<name>: entry, ...}}
     ```
 
-    An entry whose ops include an edit (the edits group, `apply`, a `decode`) writes back: its value after its
+    An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
+    `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
     last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
     one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
     write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -407,8 +404,9 @@ class Intervention(Record):
     where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
     compose there in order, each on what the one before it left. A name binds once per step: two entries of one
     name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
-    at a site the forward reaches before this one's: it is that entry's value in this batch, at its positions,
-    and so an entry whose ops all write (none after its last edit). A bundle at the root is a dict of entries
+    at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
+    positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
+    meets (`space`). A bundle at the root is a dict of entries
     pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
     one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
     and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -418,23 +416,14 @@ class Intervention(Record):
     pos: Swept[int | Pos] = Pos()
     ops: list[Op] = []
     dims: list[str] | None = derived(None, "the layout of the value the entry binds")
+    space: list[dict] = derived([], "the coordinates that value is in: the encodes its ops leave open, outermost "
+                                    "first, each its `featurizer` and `select`; none for the site's own layout")
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
                                     "or a later entry or step uses it")
 
 
-def no_sides(given: Any) -> Any:
-    """A dict of entries, refusing a bundle still spelled `{"reads": ..., "writes": ...}`."""
-    if isinstance(given, dict):
-        for key in SIDES:
-            if isinstance(given.get(key), dict) and "site" not in given[key]:
-                raise ValueError(f"{key!r}: {SIDED}")
-    return given
-
-
-Entries = Annotated[dict[str, Intervention], BeforeValidator(no_sides)]
-Item = Annotated[Union[str, Entries], ByShape()]
-Items = Union[str, Entries, list[Item]]
-Interventions = Annotated[Items, ByShape()]
+Entries = dict[str, Intervention]
+Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries], ByShape()]]], ByShape()]
 
 
 def entries(step) -> dict[str, Any]:
@@ -445,28 +434,64 @@ def entries(step) -> dict[str, Any]:
     return found
 
 
+def edits(o: Op) -> bool:
+    """Whether an op is an edit, which inside an entry writes back."""
+    return ops.DECLARED[o.op]["group"] == "edits"
+
+
 def writes(entry: Intervention) -> bool:
     """Whether an entry writes back: it holds an edit."""
-    return any(ops.writes(o.op, arguments(o)) for o in entry.ops)
-
-
-def brackets(listed: list[Op]) -> dict[int, int]:
-    """Each `encode` a `decode` closes, by index, with how many ops lie between them: a `decode` closes the most
-    recent `encode` not yet closed (compile refuses one of another featurizer)."""
-    opened, out = [], {}
-    for i, o in enumerate(listed):
-        if o.op == "encode":
-            opened.append(i)
-        elif o.op == "decode" and arguments(o).get("featurizer") is not None:
-            j = opened.pop()
-            out[j] = i - j - 1
-    return out
+    return any(edits(o) for o in entry.ops)
 
 
 def gathers(entry: Intervention) -> list[Op]:
     """The ops of an entry that run on its value once it is taken off the model: those after its last edit."""
-    last = max((i for i, o in enumerate(entry.ops) if ops.writes(o.op, arguments(o))), default=-1)
+    last = max((i for i, o in enumerate(entry.ops) if edits(o)), default=-1)
     return entry.ops[last + 1:]
+
+
+class Unbracketed(ValueError):
+    """A `decode` its entry has no encode open for, at index `at` among the entry's ops."""
+
+    def __init__(self, at: int, message: str):
+        super().__init__(message)
+        self.at = at
+
+
+def bracketed(listed: list[Op]) -> list[dict]:
+    """An entry's ops as their brackets nest, the one place a bracket is read: each op `{"at": <its index>,
+    "op": <the op>}` in turn, and an `encode` also with the ops after it as `inner`, nested the same way, up to
+    the `decode` that closes it (`closed`, that decode's index; the decode is not a node of its own) or, when
+    none does, to the end. A `decode` closes the most recent `encode` not yet closed; one with none open, or of
+    another featurizer than the open one, is refused (`Unbracketed`)."""
+    top: list[dict] = []
+    opened: list[dict] = []
+    for i, o in enumerate(listed):
+        ref = arguments(o).get("featurizer")
+        if o.op == "decode":
+            if not opened:
+                raise Unbracketed(i, f"decode of {ref!r} closes no encode: none is open in this entry here; put the "
+                                     f"encode of {ref!r} before it, the edits of its coordinates between them")
+            theirs = arguments(opened[-1]["op"])["featurizer"]
+            if theirs != ref:
+                raise Unbracketed(i, f"decode of {ref!r}, and the open encode is of {theirs!r} "
+                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most recent encode not yet closed")
+            opened.pop()["closed"] = i
+            continue
+        node = {"at": i, "op": o}
+        (opened[-1]["inner"] if opened else top).append(node)
+        if o.op == "encode":
+            node.update(inner=[], closed=None)
+            opened.append(node)
+    return top
+
+
+def visited(nodes: list[dict], around: tuple = ()):
+    """`bracketed` nodes in the order their ops run, each `(node, around)`, `around` the encode nodes open
+    around it, outermost first."""
+    for node in nodes:
+        yield node, around
+        yield from visited(node.get("inner", []), around + (node,))
 
 
 class TextPart(Record):
@@ -497,6 +522,14 @@ class Forward(Record):
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _one_value(cls, given: Any) -> Any:
+        for key in SIDES if isinstance(given, dict) else ():
+            if key in given:
+                raise ValueError(f"{key!r}: {SIDED}")
+        return given
+
     @field_validator("input")
     @classmethod
     def _input(cls, given):
@@ -525,7 +558,7 @@ class Generate(Forward):
     counted from a row's last call. A row's calls are what the engine actually generated, up to the
     one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
     engine's generation stops on (its generation config's). The step's own value is the
-    new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
+    new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows or the value
     (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
     runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
     runs, naming the step.
@@ -732,6 +765,10 @@ class Plan(Record):
         if isinstance(given, dict):
             if find_sweeps(given) and given.get("compiled"):
                 raise ValueError("a compiled plan holds no sweep; its sweeps are expanded into points")
+            for bundle, listed in given.get("interventions", {}).items():
+                for key in SIDES if isinstance(listed, dict) else ():
+                    if key in listed:
+                        raise ValueError(f"interventions.{bundle}.{key}: an entry named {key!r}: {SIDED}")
             for name in given.get("steps", {}):
                 if "." in name:
                     raise ValueError(f"steps.{name}: a name has no dots; a dot separates a thing from its member")
@@ -919,17 +956,11 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
         for key, entry in entries(step).items():
-            around: list[Op] = []
-            for o in entry.ops:
-                ref = arguments(o).get("featurizer")
-                if o.op == "decode" and ref is not None:
-                    around.pop()
-                    continue
+            for node, around in visited(bracketed(entry.ops)):
+                ref = arguments(node["op"]).get("featurizer")
                 if ref is not None:
-                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at, o,
-                                                                      list(around)))
-                if o.op == "encode":
-                    around.append(o)
+                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at,
+                                                                      node["op"], [a["op"] for a in around]))
     return found
 
 

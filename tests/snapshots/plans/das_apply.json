@@ -55,6 +55,11 @@
       "pos",
       "features"
      ],
+     "space": [
+      {
+       "featurizer": "rot"
+      }
+     ],
      "gathered": true
     }
    },

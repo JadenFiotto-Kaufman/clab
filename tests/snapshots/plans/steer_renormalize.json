@@ -1,5 +1,5 @@
 {
- "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked; `steered_renormed.restore`, the renormalized write itself, is the same value as its `resid` read.",
+ "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked: `base.resid`, and the writes' own values, `steered.steer` (the steered activation) and `steered_renormed.restore` (the renormalized one).",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -82,7 +82,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     },
     "logits": {
      "site": {
@@ -93,19 +94,6 @@
       "rows",
       "pos",
       "vocab_size"
-     ],
-     "gathered": true
-    },
-    "resid": {
-     "site": {
-      "component": "layer_output",
-      "layers": 0
-     },
-     "pos": -1,
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ],
      "gathered": true
     }
@@ -150,7 +138,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     },
     "logits": {
      "site": {
@@ -161,19 +150,6 @@
       "rows",
       "pos",
       "vocab_size"
-     ],
-     "gathered": true
-    },
-    "resid": {
-     "site": {
-      "component": "layer_output",
-      "layers": 0
-     },
-     "pos": -1,
-     "dims": [
-      "rows",
-      "pos",
-      "hidden_size"
      ],
      "gathered": true
     }
@@ -220,8 +196,8 @@
   "renormed_ld",
   "steered_ld",
   "base.resid",
-  "steered_renormed.resid",
-  "steered.resid"
+  "steered_renormed.restore",
+  "steered.steer"
  ],
  "document": "documents/steer_renormalize.json",
  "compiled": true

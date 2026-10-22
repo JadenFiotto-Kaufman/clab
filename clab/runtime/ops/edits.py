@@ -48,9 +48,24 @@ def apply(of: Tensor, featurizer: Featurizer, **options: Any) -> Tensor:
     return featurizer.call("apply", of, options)
 
 
+def uncoded(dims: list[str], args: dict, kind: str | None) -> list[str]:
+    """the layout its `encode` had"""
+    raise ValueError("'decode' closes an encode of its entry, whose layout it returns to; nothing else lays it out")
+
+
+@op("edits", layout=uncoded)
+def decode(of: Tensor, featurizer: Featurizer) -> Tensor:
+    """Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before
+    that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them
+    that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as
+    one, the ops between on the coordinates (`ops.edited`)."""
+    raise ValueError("'decode' runs as the close of its encode, with the ops between (ops.edited), never alone")
+
+
 @op("edits")
 def renormalize(of: Tensor, original: Value) -> Tensor:
-    """Each vector rescaled to the norm of `original`'s; inside a write, the value before the site's writes."""
+    """Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's
+    writes (inside an `encode`, its coordinates)."""
     return of * (original.to(of.device).norm(dim=-1, keepdim=True) / of.norm(dim=-1, keepdim=True))
 
 

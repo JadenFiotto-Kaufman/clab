@@ -223,8 +223,8 @@ def test_an_intervention_naming_a_steps_read_as_its_own_is_refused(tmp_path):
      r"featurizers\.lora: a 'lora' featurizer drawn without a bundle needs 'alpha'; or load one with 'file_path'"),
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["interventions"]["adapt"].update(ops=[
         {"op": "decode", "featurizer": "fit.lora"}]),
-     r"ops\[0\]\.featurizer: 'fit\.lora' is a 'lora' featurizer, which has no decode: it serves apply; it has no "
-     r"way back into the value"),
+     r"ops\[0\]: decode of 'fit\.lora' closes no encode: none is open in this entry here; put the encode of "
+     r"'fit\.lora' before it"),
     (lambda d: d["steps"]["fit"]["steps"]["adapted"]["interventions"]["adapt"]["ops"][0].update({"with": 0.5}),
      r"adapt\.ops\[0\]\.with: 0\.5 is not a name; 'with' names a value read at the positions the op acts on"),
 ])
@@ -249,10 +249,6 @@ def at_layer_1(step: dict) -> None:
     step["interventions"]["premix"]["site"] = {"component": "attention_output", "layers": 1}
 
 
-def at_the_write(step: dict) -> None:
-    step["interventions"]["premix"]["site"] = {"component": "attention_output", "layers": 0}
-
-
 def one_head(step: dict) -> None:
     step["interventions"]["premix"]["site"]["select"] = {"num_heads": [0]}
 
@@ -264,9 +260,8 @@ def at_the_first_token(step: dict) -> None:
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("change, message", [
     (at_layer_1, r"patched\.adapt: operand 'patched\.premix' is read at attention_output layer 1, which the \w+ "
-                 r"engine's forward does not reach before this write's attention_output layer 0"),
-    (at_the_write, r"patched\.adapt: operand 'patched\.premix' is read at attention_output layer 0, which the \w+ "
-                   r"engine's forward does not reach before this write's attention_output layer 0"),
+                 r"engine's forward reaches no earlier than this write's attention_output layer 0; an operand from the "
+                 r"write's own forward is an earlier entry at this site, or at a site the forward reaches first"),
     (one_head, r"patched\.adapt: operand 'patched\.premix' is 4 wide per position, its axes after the positions "
                r"flattened; this write's value is 16"),
     (at_the_first_token, r"patched\.adapt: operand 'patched\.premix' is read at positions \[1\] of row 0 and this "
@@ -274,9 +269,9 @@ def at_the_first_token(step: dict) -> None:
 ])
 def test_a_same_forward_with_that_cannot_mean_anything_is_refused_before_any_forward(engines, tmp_path, kind,
                                                                                      change, message):
-    """Read after the write (at a later layer, or at the written site itself), of another width per
-    position, or at other positions than the write lands on: each refused by name before the first forward,
-    the order by the engine's own measured forward order."""
+    """Read after the write (at a later layer), of another width per position, or at other positions than the
+    write lands on: each refused by name before the first forward, the order by the engine's own measured
+    forward order. (An earlier entry at the write's own site is an operand: `test_ops`' same-site test.)"""
     root = corpus_copy(tmp_path)
     step = adapted("patched", "oproj", -1)
     change(step)

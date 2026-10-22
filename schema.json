@@ -399,7 +399,7 @@
   },
   "Generate": {
    "additionalProperties": true,
-   "description": "Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;\nevery other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,\n...), and may sweep. Its entries name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it\nselects is known by then: its frame not counted from the row's last call, and with an\nindex that names the same calls on a row that stops early as on one that runs on (not one counted from\nthe end over several calls, nor any but `\":\"` over the prompt); a frame to the row's last call other than\nevery decode call (`\"2:\"`, `\"1::2\"`) lands at the calls up to the step's `max_new_tokens`, which it then\ngives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the\nfirst. A scoped write is found\nonline, decoding the inputs fed so far at each call: it lands at the call fed the last token of each\noccurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there\nto find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame\ncounted from a row's last call. A row's calls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
+   "description": "Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;\nevery other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,\n...), and may sweep. Its entries name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it\nselects is known by then: its frame not counted from the row's last call, and with an\nindex that names the same calls on a row that stops early as on one that runs on (not one counted from\nthe end over several calls, nor any but `\":\"` over the prompt); a frame to the row's last call other than\nevery decode call (`\"2:\"`, `\"1::2\"`) lands at the calls up to the step's `max_new_tokens`, which it then\ngives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the\nfirst. A scoped write is found\nonline, decoding the inputs fed so far at each call: it lands at the call fed the last token of each\noccurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there\nto find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame\ncounted from a row's last call. A row's calls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
    "not": {
     "anyOf": [
      {
@@ -482,7 +482,7 @@
   },
   "Intervention": {
    "additionalProperties": false,
-   "description": "An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the\npositions `pos` names there (default every prompt token, `{\"frame\": 0, \"index\": \":\"}`), and the `ops` it\nruns on that selection, in the order written.\n\n```\nstep.interventions := item | [item, ...]\nitem               := \"<bundle name>\" | {<name>: entry, ...}\nentry              := {\"site\": site, \"pos\"?: pos, \"ops\"?: [op, ...]}\nroot.interventions := {<bundle>: {<name>: entry, ...}}\n```\n\nAn entry whose ops include an edit (the edits group, `apply`, a `decode`) writes back: its value after its\nlast edit replaces the live value at its selection, so later entries and the rest of the forward see it;\none with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a\nwrite's included, so what a write wrote is readable. An edit comes before any op that changes the value's\nlayout (`readout`, a metric, a reduction, an `encode` no `decode` closes): after one there is no live value\nto write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step\nnames it); an entry nothing names only writes, and costs no memory.\n\nA step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's\nwhere its name stands. Entries at different sites act as the forward reaches their sites; two at one site\ncompose there in order, each on what the one before it left. A name binds once per step: two entries of one\nname are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),\nat a site the forward reaches before this one's: it is that entry's value in this batch, at its positions,\nand so an entry whose ops all write (none after its last edit). A bundle at the root is a dict of entries\npulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming\none of the bundle's own entries bare (`\"with\": \"premix\"`) means that entry of whichever step pulls it in,\nand `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that\nstep's. An operand from an entry of its own step is served in a forward; inside a generate it is not yet (a\ncross-site adapter in a generation is on the roadmap).",
+   "description": "An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the\npositions `pos` names there (default every prompt token, `{\"frame\": 0, \"index\": \":\"}`), and the `ops` it\nruns on that selection, in the order written.\n\n```\nstep.interventions := item | [item, ...]\nitem               := \"<bundle name>\" | {<name>: entry, ...}\nentry              := {\"site\": site, \"pos\"?: pos, \"ops\"?: [op, ...]}\nroot.interventions := {<bundle>: {<name>: entry, ...}}\n```\n\nAn entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,\n`normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its\nlast edit replaces the live value at its selection, so later entries and the rest of the forward see it;\none with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a\nwrite's included, so what a write wrote is readable. An edit comes before any op that changes the value's\nlayout (`readout`, a metric, a reduction, an `encode` no `decode` closes): after one there is no live value\nto write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step\nnames it); an entry nothing names only writes, and costs no memory.\n\nA step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's\nwhere its name stands. Entries at different sites act as the forward reaches their sites; two at one site\ncompose there in order, each on what the one before it left. A name binds once per step: two entries of one\nname are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),\nat this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its\npositions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand\nmeets (`space`). A bundle at the root is a dict of entries\npulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming\none of the bundle's own entries bare (`\"with\": \"premix\"`) means that entry of whichever step pulls it in,\nand `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that\nstep's. An operand from an entry of its own step is served in a forward; inside a generate it is not yet (a\ncross-site adapter in a generation is on the roadmap).",
    "properties": {
     "site": {
      "oneOf": [
@@ -728,6 +728,144 @@
      "type": "object",
      "properties": {
       "op": {
+       "const": "decode"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op",
+      "featurizer"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
+       "const": "apply"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "with": {
+       "anyOf": [
+        {
+         "type": [
+          "number",
+          "string"
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op",
+      "featurizer"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
+       "const": "noise"
+      },
+      "scale": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "seed": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op",
+      "scale"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
+       "const": "clamp"
+      },
+      "min": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "max": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "op"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "op": {
        "const": "readout"
       }
      },
@@ -757,74 +895,6 @@
         {
          "additionalProperties": true,
          "type": "object"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "op",
-      "featurizer"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "op": {
-       "const": "decode"
-      },
-      "tokens": {
-       "anyOf": [
-        {
-         "type": "boolean"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "featurizer": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "op"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "op": {
-       "const": "apply"
-      },
-      "featurizer": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "with": {
-       "anyOf": [
-        {
-         "type": [
-          "number",
-          "string"
-         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1246,69 +1316,12 @@
      "type": "object",
      "properties": {
       "op": {
-       "const": "noise"
+       "const": "detokenize"
       },
-      "scale": {
+      "tokens": {
        "anyOf": [
         {
-         "type": "number"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "seed": {
-       "anyOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "op",
-      "scale"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "op": {
-       "const": "clamp"
-      },
-      "min": {
-       "anyOf": [
-        {
-         "anyOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ]
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "max": {
-       "anyOf": [
-        {
-         "anyOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ]
+         "type": "boolean"
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -1600,6 +1613,188 @@
        "type": "string"
       },
       "op": {
+       "const": "decode"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of",
+      "featurizer"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
+       "const": "apply"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "featurizer": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "with": {
+       "anyOf": [
+        {
+         "type": [
+          "number",
+          "string"
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of",
+      "featurizer"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
+       "const": "noise"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "scale": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "seed": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of",
+      "scale"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
+       "const": "clamp"
+      },
+      "of": {
+       "title": "Of",
+       "type": "string"
+      },
+      "min": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      },
+      "max": {
+       "anyOf": [
+        {
+         "anyOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        {
+         "$ref": "#/$defs/Sweep"
+        }
+       ]
+      }
+     },
+     "required": [
+      "kind",
+      "op",
+      "of"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "kind": {
+       "const": "op",
+       "title": "Kind",
+       "type": "string"
+      },
+      "op": {
        "const": "readout"
       },
       "of": {
@@ -1644,96 +1839,6 @@
         {
          "additionalProperties": true,
          "type": "object"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "kind",
-      "op",
-      "of",
-      "featurizer"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "kind": {
-       "const": "op",
-       "title": "Kind",
-       "type": "string"
-      },
-      "op": {
-       "const": "decode"
-      },
-      "of": {
-       "title": "Of",
-       "type": "string"
-      },
-      "tokens": {
-       "anyOf": [
-        {
-         "type": "boolean"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "featurizer": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "kind",
-      "op",
-      "of"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "kind": {
-       "const": "op",
-       "title": "Kind",
-       "type": "string"
-      },
-      "op": {
-       "const": "apply"
-      },
-      "of": {
-       "title": "Of",
-       "type": "string"
-      },
-      "featurizer": {
-       "anyOf": [
-        {
-         "type": "string"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "with": {
-       "anyOf": [
-        {
-         "type": [
-          "number",
-          "string"
-         ]
         },
         {
          "$ref": "#/$defs/Sweep"
@@ -2316,84 +2421,16 @@
        "type": "string"
       },
       "op": {
-       "const": "noise"
+       "const": "detokenize"
       },
       "of": {
        "title": "Of",
        "type": "string"
       },
-      "scale": {
+      "tokens": {
        "anyOf": [
         {
-         "type": "number"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "seed": {
-       "anyOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      }
-     },
-     "required": [
-      "kind",
-      "op",
-      "of",
-      "scale"
-     ],
-     "additionalProperties": false
-    },
-    {
-     "type": "object",
-     "properties": {
-      "kind": {
-       "const": "op",
-       "title": "Kind",
-       "type": "string"
-      },
-      "op": {
-       "const": "clamp"
-      },
-      "of": {
-       "title": "Of",
-       "type": "string"
-      },
-      "min": {
-       "anyOf": [
-        {
-         "anyOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ]
-        },
-        {
-         "$ref": "#/$defs/Sweep"
-        }
-       ]
-      },
-      "max": {
-       "anyOf": [
-        {
-         "anyOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ]
+         "type": "boolean"
         },
         {
          "$ref": "#/$defs/Sweep"

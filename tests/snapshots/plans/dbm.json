@@ -67,6 +67,11 @@
          "pos",
          "features"
         ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
+        ],
         "gathered": true
        }
       },
@@ -205,6 +210,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ],
         "gathered": true
        }
@@ -345,6 +355,11 @@
          "pos",
          "features"
         ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
+        ],
         "gathered": true
        }
       },
@@ -483,6 +498,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ],
         "gathered": true
        }

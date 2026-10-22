@@ -2,7 +2,7 @@
 the bit and `remote="local"` too; and the numbers that pin what a position means across calls: the prefill's
 last position is the forward's, decode call k holds generated token k-1 and its logits chose token k, a
 scoped read resolves per row from what the row said (which occurrence, missing, where it stopped), a call the run
-never made is missing, a write at a decode call changes the tokens from that call on, and `decode` stops at
+never made is missing, a write at a decode call changes the tokens from that call on, and `detokenize` stops at
 EOS.
 
 The tiny Llama says the same six tokens after every weekday prompt ("Handler substr energcalc tossorter"),
@@ -112,7 +112,7 @@ def test_call_k_holds_token_k_minus_1_and_its_logits_chose_token_k(engines):
 
 def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engines):
     def change(d):
-        d["steps"]["text"] = {"kind": "op", "op": "decode", "of": "answer"}
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
         d["saves"] = ["p_answer", "text"]
     plan = run(engines, edited("generated_answer", change).compile())
     text = plan.results["text"]
@@ -144,15 +144,15 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
     assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
-def test_the_last_call_is_the_one_that_chose_eos_and_decode_stops_before_it(engines):
+def test_the_last_call_is_the_one_that_chose_eos_and_detokenize_stops_before_it(engines):
     """With `forced_eos_token_id` (forwarded to `generate` as it is) every row's third token is EOS: frame -1 is
-    call 2, the one that chose it, whose one position is token 1, and decode leaves the EOS out."""
+    call 2, the one that chose it, whose one position is token 1, and detokenize leaves the EOS out."""
     def change(d):
         answer = d["steps"]["answer"]
         answer.update(max_new_tokens=3, forced_eos_token_id=1)
         del answer["min_new_tokens"]
-        d["steps"]["text"] = {"kind": "op", "op": "decode", "of": "answer"}
-        d["steps"]["pieces"] = {"kind": "op", "op": "decode", "of": "answer", "tokens": True}
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
+        d["steps"]["pieces"] = {"kind": "op", "op": "detokenize", "of": "answer", "tokens": True}
         d["saves"] = ["answer", "text", "pieces"]
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
@@ -302,12 +302,12 @@ def test_an_option_the_engine_rejects_fails_naming_the_step(engines, kind):
 
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     """`eos_token_id` is forwarded and is that step's EOS: 25148 (`▁substr`), the second token every row says,
-    so every row stops at call 1, whose one position is token 0, and decode stops before it."""
+    so every row stops at call 1, whose one position is token 0, and detokenize stops before it."""
     def change(d):
         answer = d["steps"]["answer"]
         answer["eos_token_id"] = 25148
         del answer["min_new_tokens"]
-        d["steps"]["text"] = {"kind": "op", "op": "decode", "of": "answer"}
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
         d["saves"] = ["answer", "text"]
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
@@ -373,7 +373,7 @@ def steered(engines, kind: str, batch_size: int, held: bool, change=None, **opti
         d["steps"].update(iia={"kind": "op", "op": "match", "of": "answer.at2", "expected": "prompts.cf_answer"},
                           acc={"kind": "op", "op": "mean", "of": "iia"},
                           top={"kind": "op", "op": "argmax", "of": "answer.at2"},
-                          text={"kind": "op", "op": "decode", "of": "answer"})
+                          text={"kind": "op", "op": "detokenize", "of": "answer"})
         d["saves"] = ["answer", "answer.at1", "answer.at2", "answer.resid0", "answer.resid", "iia", "acc", "top",
                       "text"]
         if change:

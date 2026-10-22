@@ -99,7 +99,7 @@ def cosine(of: Tensor, with_: Value) -> Tensor:
 
 @op("metrics", needs=(("rows",),), removes=())
 def contains(of: list, text: Text, dims: list[str]) -> Tensor:
-    """1 where a row's text (a `decode`d generation) contains `text`, the row's answer (any member of a set),
+    """1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set),
     compared as its reference says, else 0. Every row generated something, so none is missing."""
     hits = [any(compared(answer, strip, lower) in compared(said, False, lower) for answer in answers)
             for said, (answers, strip, lower) in zip(of, text)]

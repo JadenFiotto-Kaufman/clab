@@ -52,7 +52,8 @@ FORMAT = "clab/1"
 KINDS: dict[str, type["Kind"]] = {}
 
 # The ops that reach a featurizer: the method of the kind's each runs, and what it produces on a value, for a
-# kind whose coordinates are on `axis`. A kind serves an op when it defines its method (`decode`: and `encode`).
+# kind whose coordinates are on `axis`. A kind serves an op when it defines its method (one with `replace` has
+# `encode` too).
 OPS: dict[str, dict] = {
     "encode": {"method": "encode", "produces": "gives its coordinates, the last axis becoming {axis}"},
     "decode": {"method": "replace", "produces": "writes a change of its coordinates back into the value"},
@@ -107,8 +108,8 @@ class Kind:
 
     @classmethod
     def ops(cls) -> list[str]:
-        """The ops the kind serves: those whose method it defines (`decode`: with `encode`)."""
-        return [op for op, o in OPS.items() if hasattr(cls, o["method"]) and (op != "decode" or hasattr(cls, "encode"))]
+        """The ops the kind serves: those whose method it defines."""
+        return [op for op, o in OPS.items() if hasattr(cls, o["method"])]
 
     @classmethod
     def method(cls, op: str) -> Callable:

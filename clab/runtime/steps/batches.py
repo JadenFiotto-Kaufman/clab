@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 from ... import address
-from ...plan.model import Plan, arguments, brackets, entries, gathers, writes
+from ...plan.model import Plan, arguments, bracketed, entries, gathers, writes
 from .. import data, ops, positions
 from .preflight import head, made_at
 from .state import bound, lookup, put, within_row
@@ -51,23 +51,23 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
     """An entry's ops up to its last edit, bound to one batch, as `ops.visit` runs them: each with the layout of
     the value it meets (`dims`), the dataset rows of the batch, and its arguments bound, an operand that names an
     earlier entry of the same forward (`live`: by name, the engine's name for it) to that name, for the forward
-    to fill. An `encode` carries how many ops lie between it and the `decode` that closes it (`inner`) and the
-    features its `select` keeps."""
-    dims = address.dims(record.site.component, None, False)
-    closes, outer, out = brackets(record.ops), [], []
-    for i, o in enumerate(record.ops[:len(record.ops) - len(gathers(record))]):
-        args = bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
-        out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
-        if o.op == "encode":
-            f, select = args["featurizer"], arguments(o).get("select")
-            out[-1]["inner"] = closes[i]
-            if select is not None:
-                out[-1]["features"] = torch.tensor(positions.select(select["features"], f.size()))
-            outer.append(dims)
-            dims = dims[:-1] + [f.axis]
-        elif o.op == "decode" and args.get("featurizer") is not None:
-            dims = outer.pop()
-    return out
+    to fill. An `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features
+    its `select` keeps."""
+    last = len(record.ops) - len(gathers(record))
+
+    def bind(nodes: list[dict], dims: list[str]) -> list[dict]:
+        out = []
+        for node in nodes:
+            o = node["op"]
+            args = bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
+            out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
+            if o.op == "encode":
+                f, select = args["featurizer"], arguments(o).get("select")
+                if select is not None:
+                    out[-1]["features"] = torch.tensor(positions.select(select["features"], f.size()))
+                out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
+        return out
+    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component, None, False))
 
 
 def batches(engine, step, found: dict, batch_size: int):

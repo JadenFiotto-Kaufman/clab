@@ -111,7 +111,7 @@
     ]
    ]
   ],
-  "steered_renormed.resid": [
+  "steered_renormed.restore": [
    [
     [
      0.004102478735148907,
@@ -193,7 +193,7 @@
     ]
    ]
   ],
-  "steered.resid": [
+  "steered.steer": [
    [
     [
      0.0207101758569479,

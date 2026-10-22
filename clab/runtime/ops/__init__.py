@@ -27,36 +27,38 @@ every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` 
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
-1, and the accuracy is a `mean` step after it; `contains` scores a decoded generation's text); **reductions**
-remove axes, by default every one but the feature axes (`over` names them; over `pos`, one value per row);
-**edits** keep the value's layout and change its contents, and inside an entry are what writes back (with
-them `decode` when it names a featurizer); **transforms** turn each example's value into another of a
-different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from
-ids). An edit comes before any transform, metric or reduction of its entry, or, after an `encode`, before
-the `decode` that closes it.
+1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
+**reductions** remove axes, by default every one but the feature axes (`over` names them; over `pos`, one
+value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`,
+`decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are
+what writes back; **transforms** turn each example's value into another of a different layout (logits from
+a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
+transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
 them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
-the same featurizer, and the ops between them act on the coordinates, their operands laid out on them (an
-`encode`d value, or a number). `decode` writes the change of coordinates back as a delta, so `[encode x,
-decode x]` is the identity to the bit, an op that changes no coordinate changes nothing, and a sparse
-autoencoder's error term survives; a `select`ed coordinate is scattered back and the rest are left as they
-were. Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s coordinates of `a`'s,
-`b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still open, a `decode` with no
-`encode` open, and one of another featurizer than the open one, are refused by name. `apply` is the
-featurizer's own version of the value (a subspace's projection, a dictionary's reconstruction without its
-error term, an adapter's adapted value): an edit, which writes back. An entry that stops after `encode` reads
-coordinates.
+the same featurizer, and the ops between them act on the coordinates. An operand there is in the same
+coordinates (a value read through the same encodes, with the same `select`s, or a number), and one in other
+coordinates is refused by name, whatever its width. `decode` writes the change of coordinates back as a
+delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no coordinate changes
+nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is scattered back and the
+rest gain a change of exactly zero (encoding the result again gives them back to float rounding, about
+1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s
+coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still
+open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
+`apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
+of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
+adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
 (a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
 `vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
 else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward at a site the forward
-reaches before this one's (`patched.premix` in `patched`): it is that entry's value in this batch, at its
-positions.
+`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
+at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
+batch, at its positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -87,7 +89,7 @@ from ...address import EXAMPLE_AXES, pos_axis
 from ...registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
 from .. import featurizers
 
-# `engine`: the engine running the document. `original`: inside a write, the
+# `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
 # `eos`: the ids the generation `of` came from stops on. `rows`: the dataset row
 # of each of `of`'s rows or entries; `positions`: the token position of each of
@@ -140,12 +142,6 @@ def options(name: str, args: dict | None, kind: str | None) -> Callable | None:
 def featurizer_of(name: str, args: dict) -> Any:
     """Op `name`'s `Featurizer` argument in `args`, if it takes one: a name in a document, an instance in a run."""
     return next((args.get(k) for k, p in parameters(name).items() if p.annotation == Featurizer), None)
-
-
-def writes(name: str, args: dict) -> bool:
-    """Whether op `name` with `args` is an edit, which inside an entry writes back: an op of the edits group, or
-    a `decode` that closes an `encode`."""
-    return DECLARED[name]["group"] == "edits" or name == "decode" and args.get("featurizer") is not None
 
 
 def kind(name: str, args: dict) -> str | None:
@@ -203,11 +199,6 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
                 raise ValueError(f"{name!r} cannot remove {axis!r}; the value is {dims}")
         removes = removes if removes is not None else EXAMPLE_AXES
     return [a for a in dims if a not in removes] + list(axes["adds"])
-
-
-def select(value: Tensor, component: str, record: dict) -> Tensor:
-    """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)` (`taken`)."""
-    return taken(value.movedim(pos_axis(component), 1), record)
 
 
 def taken(x: Tensor, record: dict) -> Tensor:
@@ -282,24 +273,19 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
 
 
 def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict | None, where: dict) -> Tensor:
-    """`new` after a write's bound ops, each on the current value in turn. An `encode` that a `decode` closes
-    (`inner`: how many ops lie between them) runs those ops on the value's coordinates, on the features its
-    `select` keeps, and writes the change back (`Kind.within`); `original` goes in with them, encoded the same
-    way."""
-    i = 0
-    while i < len(bound):
-        o = bound[i]
+    """`new` after a write's bound ops, each on the current value in turn. An `encode` runs the ops its `decode`
+    closes over (`inner`) on the value's coordinates, on the features its `select` keeps, and writes the change
+    back (`Kind.within`); `original` goes in with them, encoded the same way."""
+    for o in bound:
         args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
-        if o["op"] == "encode":
-            f: Any = args["featurizer"]
-            features, inner = o.get("features"), bound[i + 1:i + 1 + o["inner"]]
-            start = f.encode(original)
-            start = start if features is None else start.index_select(-1, features.to(start.device))
-            new = f.within(new, lambda z, start=start, inner=inner: edited(z, start, inner, got, where), features)
-            i += o["inner"] + 2
+        if o["op"] != "encode":
+            new = call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
             continue
-        new = call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
-        i += 1
+        f: Any = args["featurizer"]
+        features = o.get("features")
+        start = f.encode(original)
+        start = start if features is None else start.index_select(-1, features.to(start.device))
+        new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, where), features)
     return new
 
 
@@ -317,8 +303,8 @@ from . import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
-    transforms.readout, transforms.encode, transforms.decode, edits.apply, reductions.mean, reductions.sum,
-    reductions.min, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
-    metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
-    edits.noise, edits.clamp, metrics.cosine])
+    edits.decode, edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, reductions.mean,
+    reductions.sum, reductions.min, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob,
+    metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k,
+    transforms.argmax, transforms.detokenize, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"

@@ -65,6 +65,11 @@
        "pos",
        "features"
       ],
+      "space": [
+       {
+        "featurizer": "rot"
+       }
+      ],
       "gathered": true
      }
     },
@@ -94,6 +99,11 @@
        "pos",
        "features"
       ],
+      "space": [
+       {
+        "featurizer": "rot"
+       }
+      ],
       "gathered": true
      }
     },
@@ -122,6 +132,11 @@
        "rows",
        "pos",
        "features"
+      ],
+      "space": [
+       {
+        "featurizer": "rot"
+       }
       ],
       "gathered": true
      }

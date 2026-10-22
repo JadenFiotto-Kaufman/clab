@@ -89,7 +89,8 @@ entry              := {"site": site, "pos"?: pos, "ops"?: [op, ...]}
 root.interventions := {<bundle>: {<name>: entry, ...}}
 ```
 
-An entry whose ops include an edit (the edits group, `apply`, a `decode`) writes back: its value after its
+An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
+`normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
 last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
 one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
 write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -101,8 +102,9 @@ A step's entries run in the order written: the items of a list in turn, a dict's
 where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
 compose there in order, each on what the one before it left. A name binds once per step: two entries of one
 name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
-at a site the forward reaches before this one's: it is that entry's value in this batch, at its positions,
-and so an entry whose ops all write (none after its last edit). A bundle at the root is a dict of entries
+at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
+positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
+meets (`space`). A bundle at the root is a dict of entries
 pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
 one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
 and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -244,7 +246,7 @@ to find), and a row with fewer occurrences than it picks is `alignment_missing`.
 counted from a row's last call. A row's calls are what the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
-new token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value
+new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows or the value
 (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
 runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
 runs, naming the step.
@@ -323,7 +325,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
-- `Intervention`: `dims` (the layout of the value the entry binds), `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it)
+- `Intervention`: `dims` (the layout of the value the entry binds), `space` (the coordinates that value is in: the encodes its ops leave open, outermost first, each its `featurizer` and `select`; none for the site's own layout), `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it)
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
@@ -346,36 +348,38 @@ every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` 
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
-1, and the accuracy is a `mean` step after it; `contains` scores a decoded generation's text); **reductions**
-remove axes, by default every one but the feature axes (`over` names them; over `pos`, one value per row);
-**edits** keep the value's layout and change its contents, and inside an entry are what writes back (with
-them `decode` when it names a featurizer); **transforms** turn each example's value into another of a
-different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from
-ids). An edit comes before any transform, metric or reduction of its entry, or, after an `encode`, before
-the `decode` that closes it.
+1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
+**reductions** remove axes, by default every one but the feature axes (`over` names them; over `pos`, one
+value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`,
+`decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are
+what writes back; **transforms** turn each example's value into another of a different layout (logits from
+a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
+transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
 them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
-the same featurizer, and the ops between them act on the coordinates, their operands laid out on them (an
-`encode`d value, or a number). `decode` writes the change of coordinates back as a delta, so `[encode x,
-decode x]` is the identity to the bit, an op that changes no coordinate changes nothing, and a sparse
-autoencoder's error term survives; a `select`ed coordinate is scattered back and the rest are left as they
-were. Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s coordinates of `a`'s,
-`b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still open, a `decode` with no
-`encode` open, and one of another featurizer than the open one, are refused by name. `apply` is the
-featurizer's own version of the value (a subspace's projection, a dictionary's reconstruction without its
-error term, an adapter's adapted value): an edit, which writes back. An entry that stops after `encode` reads
-coordinates.
+the same featurizer, and the ops between them act on the coordinates. An operand there is in the same
+coordinates (a value read through the same encodes, with the same `select`s, or a number), and one in other
+coordinates is refused by name, whatever its width. `decode` writes the change of coordinates back as a
+delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no coordinate changes
+nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is scattered back and the
+rest gain a change of exactly zero (encoding the result again gives them back to float rounding, about
+1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s
+coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still
+open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
+`apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
+of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
+adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
 (a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
 `vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
 else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward at a site the forward
-reaches before this one's (`patched.premix` in `patched`): it is that entry's value in this batch, at its
-positions.
+`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
+at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
+batch, at its positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -403,7 +407,7 @@ stays missing: NaN, or no entries.
 | `token_prob` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token` (of a class or a set, its members' summed). |
 | `token_logit` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
 | `cross_entropy` | `target: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The negative log-probability of `target` (of a class or a set, of its members' summed probability), in nats. |
-| `contains` | `text: Text` | needs rows | 1 where a row's text (a `decode`d generation) contains `text`, the row's answer (any member of a set), compared as its reference says, else 0. Every row generated something, so none is missing. |
+| `contains` | `text: Text` | needs rows | 1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set), compared as its reference says, else 0. Every row generated something, so none is missing. |
 | `kl` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | KL(of ‖ against) between the two next-token distributions, in nats. |
 | `js` | `against: Value` | needs vocab_size or classes; removes its vocabulary axis | The Jensen–Shannon divergence between the two distributions, in nats (at most log 2). |
 | `cosine` | `with: Value` | needs hidden_size; removes hidden_size | The cosine similarity of each vector and `with`'s, over `hidden_size`. |
@@ -425,9 +429,10 @@ stays missing: NaN, or no entries.
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
 | `scale` | `factor: float` | keeps the layout | `of * factor`. |
-| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s; inside a write, the value before the site's writes. |
+| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`. |
+| `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`ops.edited`). |
 | `apply` | `featurizer: Featurizer`, `...` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value (with the arguments its kind's `apply` takes beside: `with`, for a lora). |
 | `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
@@ -438,9 +443,9 @@ stays missing: NaN, or no entries.
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
-| `decode` | `tokens: bool = false`, `featurizer: Featurizer = null` | needs new; removes new (of a featurizer's coordinates: the layout its `encode` had) | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. With `featurizer`, inside an entry, it closes the most recent `encode` of that featurizer: the value from before it, the change of its coordinates written back (an edit). |
 | `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
 | `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
+| `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
 ## Components
 
@@ -457,7 +462,7 @@ int `layers` drops its axis. `key` is as long as each row, so a selector there p
 counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream` marks the residual-stream values `readout` may
 project.
 
-A selection of a component (what a read binds, and what a write's ops see) is
+A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
 first under `layers` that are a slice or a list of picks, and ragged positions
 give `entries` (one per token) in place of `rows` and `pos`. How an engine reaches a component is that

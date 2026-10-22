@@ -42,6 +42,11 @@
       "pos",
       "features"
      ],
+     "space": [
+      {
+       "featurizer": "dictionary"
+      }
+     ],
      "gathered": true
     }
    },

@@ -62,8 +62,8 @@ SWAP = {"op": "swap", "with": "counterfactual.v_cf"}
     ([ENC, SWAP], r"patch\.ops\[1\]: the entry writes back here with the encode of 'rot' \(ops\[0\]\) still open; "
                   r"close it with \{'op': 'decode', 'featurizer': 'rot'\}"),
     ([ENC, {"op": "encode", "featurizer": "other"}, SWAP, DEC, {"op": "decode", "featurizer": "other"}],
-     r"patch\.ops\[3\]: decode of 'rot', and the open encode is of 'other' \(ops\[1\]\); a decode closes the most "
-     r"recent encode not yet closed"),
+     r"patch\.ops\[3\]: decode of 'rot', and the open encode is of 'other' \(ops\[1\]\); close 'other' first: a "
+     r"decode closes the most recent encode not yet closed"),
     ([{"op": "readout"}, {"op": "scale", "factor": 2.0}],
      r"patch\.ops\[1\]: 'scale' is an edit, which writes back, and it follows 'readout', which turned the value into "
      r"\['rows', 'pos', 'vocab_size'\]: there is no live value to write"),
@@ -71,10 +71,14 @@ SWAP = {"op": "swap", "with": "counterfactual.v_cf"}
      r"patch\.ops\[2\]: 'decode' is an edit, which writes back, and it follows 'mean'"),
     ([{"op": "swap", "with": 0.0}, ENC, {"op": "scale", "factor": 2.0}, DEC], None),
     ([ENC, {"op": "swap", "with": "counterfactual.raw"}, DEC],
-     r"patch\.ops\[1\]\.with: 'counterfactual\.raw' is laid out \['rows', 'pos', 'hidden_size'\]; this write's value "
-     r"is \['rows', 'pos', 'features'\] here"),
-    ([SWAP], r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' is laid out \['rows', 'pos', 'features'\]; this write's "
-             r"value is \['rows', 'pos', 'hidden_size'\] here"),
+     r"patch\.ops\[1\]\.with: 'counterfactual\.raw' is in the site's own layout; this bracket is in the coordinates "
+     r"of 'rot', so an operand is encoded as it is"),
+    ([SWAP], r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' is in the coordinates of 'rot'; this write is in the "
+             r"site's own layout"),
+    ([ENC, {"op": "apply", "featurizer": "rot"}, DEC],
+     r"patch\.ops\[1\]: 'apply' of 'rot' at ops\[1\] is inside the encode of 'rot' \(ops\[0\]\), so it would act on "
+     r"'rot''s own coordinates; put it before that encode or after the decode that closes it"),
+    ([ENC, {"op": "encode", "featurizer": "rot"}, DEC, DEC], r"patch\.ops\[1\]: 'encode' of 'rot' at ops\[1\] is inside"),
     ([{"op": "encode", "featurizer": "probe"}, {"op": "swap", "with": 0.0}, {"op": "decode", "featurizer": "probe"}],
      r"patch\.ops\[2\]\.featurizer: 'probe' is a 'linear' featurizer, which has no decode: it serves encode; it has "
      r"no way back into the value"),
@@ -104,11 +108,26 @@ def test_a_bracket_is_refused_at_compile_by_name(ops, message):
         edited("random_subspace", both).compile()
 
 
-def test_decode_as_a_step_decodes_a_generations_ids_only():
+@pytest.mark.parametrize("k, select", [(4, None), (8, None), (4, {"features": [0, 1]})])
+def test_an_operand_in_other_coordinates_is_refused_by_name(k, select):
+    """Inside a bracket an operand is in its coordinates: read through the same featurizer with the same
+    `select`. Another subspace of the same `k` would run silently and mean nothing; one of another `k` would
+    fail only when it ran; another `select` keeps other coordinates. Each is refused at compile by name."""
+    def change(d):
+        d["featurizers"]["rot3"] = {"kind": "subspace", "k": k, "seed": 3}
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["ops"] = [
+            {"op": "encode", "featurizer": "rot" if select else "rot3", **({"select": select} if select else {})}]
+    theirs = r"'rot' \(select \{'features': \[0, 1\]\}\)" if select else r"'rot3'"
+    with pytest.raises(PlanError, match=r"patched\.interventions\.patch\.ops\[1\]\.with: 'counterfactual\.v_cf' is in the "
+                                        rf"coordinates of {theirs}; this bracket is in the coordinates of 'rot'"):
+        edited("random_subspace", change).compile()
+
+
+def test_decode_runs_only_inside_the_entry_that_encodes():
     def change(d):
         d["steps"]["text"] = {"kind": "op", "op": "decode", "of": "counterfactual.v_cf", "featurizer": "rot"}
-    with pytest.raises(PlanError, match=r"steps\.text\.featurizer: decode of a featurizer's coordinates closes an encode "
-                                        r"inside the same entry; as a step it decodes a generation's ids"):
+    with pytest.raises(PlanError, match=r"steps\.text: decode closes an encode of its own entry, so it runs inside the "
+                                        r"entry that encodes.*\(detokenize turns a generation's ids into text\)"):
         edited("random_subspace", change).compile()
 
 

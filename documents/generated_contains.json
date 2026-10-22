@@ -1,5 +1,5 @@
 {
-  "description": "Did the generation say the answer: a text question, not a logits one. Each row generates six tokens, `decode` makes them text, and `contains` is 1 where a row's text contains its `said` (the word this random checkpoint does say for two of these rows, as generated_answer.json describes), else 0; `acc` is their mean. Every row generated something, so no row is missing and `acc` is plain generation accuracy.",
+  "description": "Did the generation say the answer: a text question, not a logits one. Each row generates six tokens, `detokenize` makes them text, and `contains` is 1 where a row's text contains its `said` (the word this random checkpoint does say for two of these rows, as generated_answer.json describes), else 0; `acc` is their mean. Every row generated something, so no row is missing and `acc` is plain generation accuracy.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -9,7 +9,7 @@
   "steps": {
     "answer": {"kind": "generate", "input": "prompts.input", "max_new_tokens": 6, "min_new_tokens": 6,
                "do_sample": false},
-    "text": {"kind": "op", "op": "decode", "of": "answer"},
+    "text": {"kind": "op", "op": "detokenize", "of": "answer"},
     "said": {"kind": "op", "op": "contains", "of": "text", "text": "prompts.said"},
     "acc": {"kind": "op", "op": "mean", "of": "said"}
   },
