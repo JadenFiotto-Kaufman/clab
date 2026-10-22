@@ -11,8 +11,8 @@ import torch  # noqa: E402
 from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
-from clab.plan import Model  # noqa: E402
-from clab.runtime.featurizers import FORMAT  # noqa: E402
+from clab.featurizers import FORMAT  # noqa: E402
+from clab.format.plan import Model  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -101,7 +101,7 @@ def same(a, b) -> bool:
 
 # The modules a run's request names by reference, and the marks of something shipped by value: a class
 # rebuilt from its definition (cloudpickle) or a function from its source (nnsight).
-REFERENCED = (b"clab.plan.model", b"clab.engines.ndif", b"clab.runtime.steps")
+REFERENCED = (b"clab.format.plan", b"clab.engines.ndif", b"clab.steps")
 BY_VALUE = (b"_make_skeleton_class", b"_load_function")
 
 
@@ -111,7 +111,7 @@ def by_reference(blob: bytes) -> bool:
 
 
 def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
-    """`plan` run on the ndif engine against this design's own model of a server (DESIGN.md section 10(b)):
+    """`plan` run on the ndif engine against a stand-in for a server:
     serialize the session the client's meta shell opens, run the *deserialized* tracer with the persistent
     objects of a loaded model (the nnterp engine's, which is what a server holds), take what its outermost
     boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it and push

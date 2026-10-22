@@ -5,10 +5,7 @@ scope lands."""
 
 from typing import Any, Callable, cast
 
-import torch
-
-from ..address import COMPONENTS
-from ..runtime import positions
+from clab.format.address import COMPONENTS
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
          "vocab_size")
@@ -55,7 +52,7 @@ COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
 
 
 def inputs(batch: dict, keys: tuple, device: str) -> dict:
-    """The batch's `keys` on `device`: where the model's first parameter is (`steps.home`), which is where a
+    """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
     computed device map puts the model's input."""
     return {k: batch[k].to(device) for k in keys}
 
@@ -82,37 +79,6 @@ def stops(config, tokenizer) -> list[int]:
     found = getattr(config, "eos_token_id", None)
     found = tokenizer.eos_token_id if found is None else found
     return [found] if isinstance(found, int) else list(found)
-
-
-def now(records: list, call: int) -> list:
-    """What a generation does at a site on forward call `call` (0 is the prefill), in order: a record with no
-    `calls` acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
-    def wanted(record: dict) -> bool:
-        if "calls" not in record:
-            return call == 0
-        return call > 0 and (record["calls"] is None or call in record["calls"])
-    return [r for r in records if wanted(r)]
-
-
-def landed(records: list[dict], seen: list, tokenizer) -> list[dict]:
-    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
-    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
-    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
-    is left out. A read is as it was."""
-    out = []
-    for w in records:
-        if "ops" not in w:
-            out.append(w)
-            continue
-        online, w = w.get("online"), {**w, "call": len(seen)}
-        if online is None:
-            out.append(w)
-            continue
-        rows = [positions.landing(online["pos"], texts, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
-                for r, texts in enumerate(online["texts"])]
-        if any(rows):
-            out.append({**w, "keep": torch.tensor(rows)[:, None]})
-    return out
 
 
 def by_site(records: list[dict]) -> dict[tuple, list]:

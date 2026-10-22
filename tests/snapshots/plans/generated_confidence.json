@@ -28,7 +28,8 @@
       }
      },
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "vocab_size"
      ],
      "gathered": true
@@ -45,7 +46,8 @@
    "of": "answer.logits",
    "dataset": "prompts",
    "dims": [
-    "entries"
+    "rows",
+    "pos"
    ],
    "token": "prompts.said"
   },
@@ -55,7 +57,8 @@
    "of": "answer.logits",
    "dataset": "prompts",
    "dims": [
-    "entries"
+    "rows",
+    "pos"
    ],
    "target": "prompts.said"
   },

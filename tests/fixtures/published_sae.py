@@ -8,8 +8,7 @@ their headers' keys sorted: the same bytes on every run."""
 
 import torch
 
-from clab.output.dump import write
-
+from clab.output import write
 
 if __name__ == "__main__":
     g = torch.Generator().manual_seed(1)

@@ -2,20 +2,20 @@
  "batch_size": 2,
  "values": {
   "results": {
-   "p_answer": {
-    "values": [
-     2.9666021873708814e-05,
+   "p_answer": [
+    [
+     2.9666021873708814e-05
+    ],
+    [
      3.15390425384976e-05
     ],
-    "row": [
-     0,
-     1
+    [
+     NaN
     ],
-    "tok": [
-     12,
-     12
+    [
+     NaN
     ]
-   }
+   ]
   },
   "positions": {
    "answer.at_said": [

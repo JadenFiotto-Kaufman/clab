@@ -7,17 +7,18 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import BATCH_SIZE, bundle_header, edited, same
 from safetensors import safe_open
 from safetensors.torch import save_file
-
-from clab import Plan
-from clab.cli import describe
-from clab.plan.model import PlanError, dims_of, points
-from clab.runtime import featurizers, ops
-from clab.runtime.featurizers.gate import Gate
-from conftest import BATCH_SIZE, bundle_header, edited, same
 from test_featurizers import every_kind
 from test_fit import TINY, corpus_copy
+
+from clab import Plan, featurizers, ops
+from clab.docs import describe
+from clab.featurizers.gate import Gate
+from clab.format.plan import PlanError, dims_of
+from clab.format.sweeps import points
+from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)
 H = torch.randn(3, 2, 16, generator=G)
@@ -84,14 +85,14 @@ def test_encode_then_decode_is_the_identity_to_the_bit_on_every_kind(kind):
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
     for features in (None, torch.tensor([1, 2])):
         for between in ((), [{"op": "scale", "args": {"factor": 1.0}}]):
-            out, wrote = ops.visit(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
+            out, wrote = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
             assert wrote and torch.equal(out, H), (kind, features, between)
 
 
 def test_a_decode_scatters_back_only_the_coordinates_its_encode_kept():
     f = made("subspace")
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
-    out, _ = ops.visit(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
+    out, _ = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
         {"op": "swap", "args": {"with": 0.0}}])}], {})
     z, kept = f.encode(H), f.encode(out)
     torch.testing.assert_close(kept[..., 2], torch.zeros(3, 2), atol=1e-6, rtol=0)
@@ -158,10 +159,13 @@ def test_apply_writes_the_featurizers_version_back_on_both_engines(engines):
     assert torch.equal(got[0]["base.after"], got[0]["base.recon"])
 
 
-def test_an_argument_the_kinds_apply_does_not_take_is_refused_at_compile():
-    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]: featurizer 'dictionary': an sae's "
-                                        r"`apply` takes no 'scale'; its arguments: none"):
+def test_an_argument_apply_does_not_take_is_refused_at_compile():
+    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]: 'apply' takes no 'scale'; its "
+                                        r"arguments: featurizer, with"):
         reconstructed({"scale": 2.0})
+    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]\.with: a sae's apply takes no "
+                                        r"'with', an adapter's input read at another site \(a lora's\)"):
+        reconstructed({"with": "base.plain"})
 
 
 def test_describe_shows_the_ops_and_each_kinds_ops():
@@ -169,7 +173,7 @@ def test_describe_shows_the_ops_and_each_kinds_ops():
     assert "encode(featurizer: Featurizer, select: {features: selector} = null)  [the last axis becomes" in text
     assert "decode(featurizer: Featurizer)  [the layout its `encode` had]" in text
     assert "detokenize(tokens: bool = false)  [needs new; removes new]" in text
-    assert "apply(featurizer: Featurizer, ...)  [keeps the layout]" in text
+    assert "apply(featurizer: Featurizer, with: Value = null)  [keeps the layout]" in text
     assert "ops: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "ops: apply(with: Value or null = null) gives its version of the value" in text
 

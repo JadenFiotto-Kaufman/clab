@@ -141,9 +141,8 @@ back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token,
 ```
 
 `clab.run(plan_or_path, engine=..., out=None, batch_size=8, device="cpu", **options)` is the four steps of a
-run (`options` are the engine's own, each routed by name to what it loads or runs with: `clab describe
-engines` lists them), which
-are also there to take one at a time:
+run (`options` are the engine's own: `clab describe engines` lists them), which are also there to take one at
+a time:
 
 ```python
 from clab.engines import load
@@ -160,13 +159,29 @@ plan as a JSON document, in its current state), `table`; `plan.run` says how it 
 device and every engine option; the versions, dtype and devices where the model was; timing; how each input
 tokenized). `clab.describe()` prints the format's tables.
 
+## The package
+
+Seven packages, read as a chain from what a document says to what comes out; each imports only from the
+ones before it, and each module owns one concept end to end (its checks at compile, its resolution in the run,
+its labels in the output), so a change to a feature stays in its module:
+
+| package | holds |
+| --- | --- |
+| `format/` | what a document may say: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`), and the records, `Plan` and compile's symbol table (`plan`) |
+| `ops/`, `featurizers/` | the op vocabulary, one plain function per op; the featurizer kinds, their bundles (`bundles`) and their uses in a plan (`uses`) |
+| `compile/` | what it means: the compile driver, and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands) |
+| `steps/` | the run inside the session: the driver with the forward and op kinds, `preflight` (everything that needs the model before a forward), `batches` (an entry bound to a batch, and `visit`, which engines call), `generate`, `fit` |
+| `engines/` | the protocol and the three engines, each holding a model and nothing else |
+| `output/` | a run's directory and back, and `table` |
+| `cli.py`, `docs.py` | the command line; `describe` and FORMAT.md |
+
 ## Extending clab
 
 Every extensible thing is a plain function or class under its name, registered by a decorator (ops: declared
 by one, and listed in order at the end of `ops/__init__.py`), and its signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
 named in every error.
 
-- **Ops** (`clab/runtime/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
+- **Ops** (`clab/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
   check=None)` declares the function's group (`metrics`, `reductions`, `edits`, `transforms`), the axes the
   input must carry, the axes it removes (a tuple, or the name of the argument that lists them) and appends,
   when its value is a bundle a featurizer loads, that featurizer's kind, and a rule its arguments keep beyond
@@ -174,17 +189,16 @@ named in every error.
   A parameter annotated `Value`, `Tokens` or
   `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
-- **Featurizer kinds** (`clab/runtime/featurizers/`, one module each) are classes on the `Kind` protocol,
+- **Featurizer kinds** (`clab/featurizers/`, one module each) are classes on the `Kind` protocol,
   registered under their lowercase name: class attributes declare what their bundle holds and what a fit
   trains, the constructor's signature is the document's fields, and the ops it serves are its methods
   `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
-- **Step kinds** (`clab/runtime/steps/`, `@kind`) and
+- **Step kinds** (`clab/steps/`, one function each in `KINDS`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
-  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
-  loads with); `execute(plan, batch_size=, ...)` is its one entry point, and its keyword parameters are what it
-  runs with. One pool of options (`-o`, or `clab.run`'s keywords) goes to each by name; `clab describe engines`
-  lists both, each option with what its docstring says it takes (on nnterp and hooks `device` is one torch
-  device, `cpu` or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
+  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
+  `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists
+  each option with what its docstring says it takes (on nnterp and hooks `device` is one torch device, `cpu`
+  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
 
 ## The output
 
@@ -205,7 +219,7 @@ every entry resolved to, which is how `table` labels `pos_token`.
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
 `pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an
 appended EOS included. A
-document's `pos`, `run.positions`, a ragged value's `tok`, `table`'s `pos` and `key`, an attention pattern's
+document's `pos`, `run.positions`, `table`'s `pos` and `key`, an attention pattern's
 `key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
 the same way.
 
@@ -215,7 +229,7 @@ the same way.
 arguments and axis behaviour (grouped as metrics, reductions and edits), every component, featurizer kinds,
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that, every input token a position), names and scoping, sweeps and the output. It is generated from the code (`clab describe
---markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
+--markdown`); a test fails when it is stale.
 `documents/` holds the corpus: the 31 original documents and the example documents added since (44 in all),
 and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
 

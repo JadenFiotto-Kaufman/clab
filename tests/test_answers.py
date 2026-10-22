@@ -4,12 +4,12 @@ say, a set is any of its members, a scope that is `before` is the positions that
 
 import pytest
 import torch
-
-from clab import Plan
-from clab.plan.model import PlanError
-from clab.runtime import data
-from clab.runtime.steps.state import answered
 from conftest import BATCH_SIZE, plan_of
+
+from clab import Plan, ops
+from clab.compile import answers
+from clab.compile.answers import answered
+from clab.format.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -57,8 +57,8 @@ def test_before_reads_the_positions_that_predict_the_scope_and_each_scores_its_t
     for r in range(2):                  # the joined input's own next ids, which the answer scores
         joined = tokenizer.convert_tokens_to_ids(tokens[r])
         ids = [joined[p + 1] for p in before[r]]
-        expected = -logits["values"][logits["row"] == r].log_softmax(-1)[torch.arange(len(ids)), ids]
-        assert torch.equal(nll["values"][nll["row"] == r], expected)
+        expected = -logits[r, :len(ids)].log_softmax(-1)[torch.arange(len(ids)), ids]
+        assert torch.equal(nll[r, :len(ids)], expected) and nll[r, len(ids):].isnan().all()
 
 
 def test_a_scope_token_at_position_0_has_no_position_before_it(engines):
@@ -96,7 +96,7 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
         saves=["clean.logits", "p", "any", "nll", "hit"]).compile()
     filled = run(engines, plan, kind)
     tokenizer = engines(kind, plan.model).tokenizer
-    spelled = data.spellings(tokenizer, True, True)["yes"]
+    spelled = answers.spellings(tokenizer, True, True)["yes"]
     assert sorted(tokenizer.convert_ids_to_tokens(spelled)) == \
         sorted(["▁Yes", "▁yes", "▁YES", "Yes", "yes", "YES"])
     probs = filled.results["clean.logits"][0, 0].softmax(-1)
@@ -161,14 +161,14 @@ def test_a_sets_members_are_one_width(engines):
 
 
 def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refused():
-    """Beyond the prefill positions are found in the run; there a row with entries, but not one per token of
-    its answer, is refused by name."""
-    of = {"values": torch.zeros(2, 5), "row": torch.tensor([0, 0]), "tok": torch.tensor([3, 4])}
+    """Beyond the prefill positions are found in the run; there a row with positions, but not one per token of
+    its answer, is refused by name, and a row with none is missing."""
+    of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["entries", "vocab_size"], None, True)
-    missing = {"values": torch.zeros(0, 5), "row": torch.tensor([], dtype=torch.long), "tok": torch.tensor([])}
-    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["entries", "vocab_size"], None,
-                    True).shape == (0, 1)
+        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["rows", "pos", "vocab_size"], None, True)
+    missing = torch.full((1, 3, 5), float("nan"))
+    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["rows", "pos", "vocab_size"], None,
+                    True).shape == (1, 3, 1)
 
 
 @pytest.mark.parametrize("scope, message", [
@@ -268,10 +268,10 @@ def test_strip_and_lower_at_the_point_of_use(engines, kind):
     filled = run(engines, plan, kind)
     assert record(filled).positions["read.logits"] == [[8, 9]]
     tokenizer = engines(kind, plan.model).tokenizer
-    classes = [data.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
-    probs = filled.results["read.logits"]["values"].softmax(-1)
-    torch.testing.assert_close(filled.results["p"]["values"], torch.stack([probs[i, c].sum() for i, c in
-                                                                           enumerate(classes)]))
+    classes = [answers.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
+    probs = filled.results["read.logits"][0].softmax(-1)
+    torch.testing.assert_close(filled.results["p"][0], torch.stack([probs[i, c].sum() for i, c in
+                                                                    enumerate(classes)]))
 
 
 def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
@@ -287,14 +287,13 @@ def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
     assert one.shape == (2, 3)
 
 
-def test_the_minimum_over_every_entry_of_a_value_with_none_is_missing():
-    from clab.runtime.steps.batches import apply
-    empty = {"values": torch.zeros(0), "row": torch.tensor([], dtype=torch.long), "tok": torch.tensor([])}
-    assert apply(None, "min", empty, {"over": ["rows", "pos"]}, ["entries"]).isnan().all()
+def test_the_minimum_over_every_position_of_a_value_with_none_is_missing():
+    empty = torch.zeros(2, 0)
+    assert ops.call("min", empty, {"over": ["rows", "pos"]}, dims=["rows", "pos"]).isnan().all()
 
 
 def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
     tokenizer = engines("nnterp", plan_of("gpt2_reach").model).tokenizer
-    parts = [i for i, text in enumerate(data.vocabulary(tokenizer)) if "�" in text]
+    parts = [i for i, text in enumerate(answers.vocabulary(tokenizer)) if "�" in text]
     assert len(parts) > 1
-    assert all(data.spelled(tokenizer, i, True, True) == [i] for i in parts)
+    assert all(answers.spelled(tokenizer, i, True, True) == [i] for i in parts)

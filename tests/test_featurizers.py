@@ -7,15 +7,15 @@ import os
 
 import pytest
 import torch
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime import featurizers
-from clab.runtime.featurizers.gate import Gate
-from clab.runtime.featurizers.sae import Sae
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
+from clab import Plan, featurizers
+from clab.featurizers.gate import Gate
+from clab.featurizers.sae import Sae
+from clab.format.plan import PlanError
+from clab.format.sweeps import points
 
 G = torch.Generator().manual_seed(5)
 H = torch.randn(3, 2, 16, generator=G)

@@ -18,11 +18,13 @@ import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 
-from ..address import COMPONENTS
-from ..plan import Model, Plan
-from ..runtime import ops, steps
-from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, landed, nnterp_name, now, stops
+from clab import steps
+from clab.engines import engine
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.format.address import COMPONENTS
+from clab.format.plan import Model, Plan
+from clab.steps import batches
+from clab.steps.generate import landed, now
 
 
 @engine("nnterp")
@@ -41,11 +43,10 @@ class NnterpEngine:
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
+    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
-        the results and the run record are the one thing that comes home, into the client's own plan. It runs
-        with no options of its own; `options` are a subclass's, which `steps.begin` records."""
-        started = steps.begin(self, plan, batch_size, options)
+        the results and the run record are the one thing that comes home, into the client's own plan."""
+        started = steps.begin(self, plan, batch_size)
         with self.model.session(remote=self.remote):
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})
@@ -80,10 +81,10 @@ class NnterpEngine:
         sites = by_site(records)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self))):
+        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
             for component, layer in order:
                 host = envoy(model, component, layer)
-                value, wrote = ops.visit(getattr(host, component), component, sites[(component, layer)], got)
+                value, wrote = batches.visit(getattr(host, component), component, sites[(component, layer)], got)
                 if wrote:
                     setattr(host, component, value)
         return got
@@ -96,7 +97,7 @@ class NnterpEngine:
         call's `input_ids`, read first). It is bounded by the steps the reads ask for, or open when a read asks
         for every step;
         either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
-        read out of forward order shows up instead as a missing step, which `steps.generate` refuses), so the
+        read out of forward order shows up instead as a missing step, which `generate.generate` refuses), so the
         ids are read in an invoke of their own, which the loop's end does not cut short."""
         model = self.model
         sites = by_site(records)
@@ -111,7 +112,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), steps.home(self))):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.home(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)
@@ -121,7 +122,7 @@ class NnterpEngine:
                             if not here:
                                 continue
                             host = envoy(model, component, layer)
-                            value, wrote = ops.visit(getattr(host, component), component, here, got)
+                            value, wrote = batches.visit(getattr(host, component), component, here, got)
                             if wrote:
                                 setattr(host, component, value)
                 with tracer.invoke():

@@ -7,11 +7,13 @@ import pickle
 from typing import Any
 
 import pytest
+from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime import positions
-from conftest import NAMES, REAL, document, edited, plan_of, snapshot
+from clab.compile import positions
+from clab.format import selectors
+from clab.format.plan import PlanError
+from clab.format.sweeps import points
 
 
 def step(plan: Plan, name: str) -> Any:
@@ -195,15 +197,6 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     assert entry.site.component == "layer_output" and entry.site.layers == 0
 
 
-def test_a_hub_dataset_is_declared_but_not_loaded_yet():
-    def hub(d):
-        d["data"]["pairs"] = {"hf": "org/name", "revision": "abc", "split": "train", "take": 4}
-    with pytest.raises(PlanError, match="data.pairs.hf: hub datasets land later"):
-        edited("patching", hub).compile()
-    with pytest.raises(PlanError, match="data.pairs: a hub dataset is pinned"):
-        edited("patching", lambda d: d["data"].update(pairs={"hf": "org/name"}))
-
-
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["iia"].update(op="matches"), r"steps\.iia: unknown op 'matches'; valid: swap, add"),
     (lambda d: d["sites"]["target"].update(component="block_output"),
@@ -233,7 +226,7 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
      r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
-     r"data\.pairs: 'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows$"),
+     r"data\.pairs: 'split' keeps rows of a file; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
@@ -259,7 +252,7 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
                                                    r"or a step's member: counterfactual\.v_cf, iia, logit_diff, "
                                                    r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
-    (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' is a dataset; hub datasets and dataset saves land later$"),
+    (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' names no step's value; a save is a step or a step's member"),
     (lambda d: d["sites"]["target"].update(layers=":"),
      r"steps\.patched\.interventions\.patch\.site: an entry that writes names its layer"),
 ])
@@ -274,12 +267,12 @@ def test_a_compile_error_names_the_path(change, message):
 def test_a_selector_picks_as_python_slices_and_lists_do():
     n = list(range(6))
     for text in (":", "2:5", "-3:", ":4", "::2", "-4:-1", "1::-2", "5:1:-1", "9:", "-9:2"):
-        assert positions.select(text, 6) == n[slice(*[int(x) if x else None for x in (text.split(":") + [""])[:3]])]
-    assert positions.select(-1, 6) == [5] and positions.select(6, 6) == [] and positions.select(-7, 6) == []
-    assert positions.select([1, 3, -1], 6) == [1, 3, 5] and positions.select([4, 0], 6) == [4, 0]
-    assert positions.select([1, 7], 6) == [1]                   # a pick that is not there; a static width refuses it
+        assert selectors.select(text, 6) == n[slice(*[int(x) if x else None for x in (text.split(":") + [""])[:3]])]
+    assert selectors.select(-1, 6) == [5] and selectors.select(6, 6) == [] and selectors.select(-7, 6) == []
+    assert selectors.select([1, 3, -1], 6) == [1, 3, 5] and selectors.select([4, 0], 6) == [4, 0]
+    assert selectors.select([1, 7], 6) == [1]                   # a pick that is not there; a static width refuses it
     with pytest.raises(ValueError, match=r"picks \[0, -2\] count one of these 2 twice"):
-        positions.select([0, -2], 2)
+        selectors.select([0, -2], 2)
 
 
 def test_a_selectors_static_width_needs_its_ends_on_one_side():
@@ -288,9 +281,9 @@ def test_a_selectors_static_width_needs_its_ends_on_one_side():
               "::-1": None}
     for selector, width in widths.items():
         selector = [1, 3, 7] if selector == "[1, 3, 7]" else selector
-        assert positions.fixed(selector) == width, selector
+        assert selectors.fixed(selector) == width, selector
         if width is not None:
-            assert all(len(positions.select(selector, n)) == width for n in (8, 9, 12)), selector
+            assert all(len(selectors.select(selector, n)) == width for n in (8, 9, 12)), selector
 
 
 @pytest.mark.parametrize("pos, reach", [
@@ -335,5 +328,5 @@ def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
 
 def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():
     """`"-2:3"` picks something of three things and nothing of five: it has no static width, and is a selector."""
-    assert positions.fixed("-2:3") is None and positions.select("-2:3", 3) == [1, 2]
+    assert selectors.fixed("-2:3") is None and selectors.select("-2:3", 3) == [1, 2]
     edited("generate_probe", lambda d: d["sites"]["target"].update(layers="-2:3"))

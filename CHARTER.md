@@ -2,8 +2,7 @@
 
 You are building, from scratch, a small library that runs interpretability
 experiments on transformer language models from declarative JSON documents.
-You have: this charter, `PLAN.md` (the owner's ratified plan: decisions,
-the reading of the corpus, the expected architecture and the milestones), the
+You have: this charter, `ROADMAP.md` (what is agreed but not built), the
 documents, their datasets, an environment, a cheat-sheet for the model-access
 library you will build on, and the owner's instructions. Nothing else exists. Precedence: the owner's instructions win
 over this charter wherever they disagree; the charter wins over your own
@@ -23,9 +22,9 @@ results to disk in a form a person can read and a script can consume.
 corpus.** The goal is a JSON format expressive enough to specify the vast
 majority of interpretability experiments without becoming verbose — leave off
 any flexibility that would cost real complexity. Formalize and generalize the
-format however you judge best. The corpus is migrated once, in M1, to the
-format's canonical spelling (PLAN.md §10 records it); from then on it is
-fixed and every document runs unchanged. The format has exactly one spelling
+format however you judge best. The corpus was migrated once to the format's
+canonical spelling; from then on it is fixed and every document runs
+unchanged. The format has exactly one spelling
 for each thing — no aliases, no legacy forms. Where a document's meaning is ambiguous, you decide what
 it means, implement that consistently, and write your reading down; your
 implementation is the semantics. Study the corpus carefully before designing
@@ -148,9 +147,9 @@ place. How you draw that line is yours.
   PR's description; something like "one intervention document end to end" is
   the right size for the first.
 - Commit messages are one plain declarative sentence.
-- Design and code are done by agents briefed from this charter and
-  `PLAN.md`. An agent proposes format changes in its PR description with
-  before/after JSON; none lands without the owner's ratification.
+- Design and code are done by agents briefed from this charter. An agent
+  proposes format changes in its PR description with before/after JSON; none
+  lands without the owner's ratification.
 - `pyproject.toml` is scaffolded (editable nnsight/nnterp checkouts and one
   version override — leave those alone; add your own dependencies as needed).
   Tests run offline: the checkpoints the documents pin are already cached

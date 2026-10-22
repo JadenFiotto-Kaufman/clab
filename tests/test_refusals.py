@@ -4,9 +4,9 @@ import re
 from typing import Callable
 
 import pytest
-
-from clab.plan import PlanError
 from conftest import BATCH_SIZE, edited, plan_of, same
+
+from clab.format.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
 
@@ -364,3 +364,18 @@ def test_a_forwards_frame_is_any_selector_that_picks_its_one_call(engines):
         base = run(0, operand)
         for frame in frames:
             assert same(run(frame, operand), base), frame
+
+
+def test_a_write_with_a_static_width_refuses_an_operand_without_one():
+    """entity_mean_ablation's harvest holds three positions on the Thursday row and one on the others; swapped
+    into a window of three it would write NaN where a row has fewer, so it is refused, as into a window read
+    the same way on another forward; the mean over it is one vector and lands anywhere."""
+    def change(pos, d):
+        d["steps"]["ablated"]["interventions"]["ablate"]["pos"] = pos
+        d["steps"]["ablated"]["interventions"]["ablate"]["ops"] = [{"op": "swap", "with": "harvest.acts"}]
+    with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of positions "
+                                        r"on each row, which pair with no static width's; read it at a static index"):
+        edited("entity_mean_ablation", lambda d: change({"index": "-3:"}, d)).compile()
+    with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of positions "
+                                        r"on each row, which another forward's positions need not pair with"):
+        edited("entity_mean_ablation", lambda d: change({"scope": {"column": "prompts.entity"}, "index": ":"}, d)).compile()

@@ -8,13 +8,14 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import BATCH_SIZE, TRIP, bundle_header, edited, same, stand_in
 from safetensors.torch import save_file
+from test_fit import TINY, corpus_copy
 
 from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime.featurizers.lora import Lora
-from conftest import BATCH_SIZE, TRIP, bundle_header, edited, same, stand_in
-from test_fit import TINY, corpus_copy
+from clab.featurizers.lora import Lora
+from clab.format.plan import PlanError
+from clab.format.sweeps import points
 
 G = torch.Generator().manual_seed(5)
 
@@ -151,7 +152,7 @@ def test_a_cross_site_adapter_adds_its_update_to_the_live_value_on_both_engines(
     values = got[0]
     bundle = points(plan.featurizers["oproj"])[0].bundle
     assert bundle is not None
-    unwrap = (lambda v: v["values"]) if isinstance(pos, dict) else (lambda v: v)
+    unwrap = (lambda v: v.nan_to_num(0.0)) if isinstance(pos, dict) else (lambda v: v)     # NaN past a row's own
     premix = unwrap(values["patched.premix"])
     expected = unwrap(values["clean.out"]) + 2.0 * ((premix.flatten(-2) @ bundle["A"]) @ bundle["B"])
     torch.testing.assert_close(unwrap(values["patched.out"]), expected, atol=1e-6, rtol=0)
@@ -299,9 +300,9 @@ def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
 
 
 def test_a_live_operand_the_engine_had_not_read_is_named():
-    from clab.runtime import ops
+    from clab.steps import batches
     with pytest.raises(ValueError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
-        ops.live({}, {"live": "premix@0"})
+        batches.live({}, {"live": "premix@0"})
 
 
 # -- loading: a document may state the kind's declaration fields, and each it states is checked ---------------

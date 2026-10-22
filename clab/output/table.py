@@ -6,10 +6,10 @@ from typing import Any
 
 from torch import Tensor
 
-from .. import address
-from ..plan.model import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, entries, labelled, points,
-                          walk)
-from ..runtime import data, positions
+from clab.compile import positions
+from clab.format import address, data, selectors
+from clab.format.plan import Plan, arguments, body_view, corpus_root, dims_of, entries, points, walk
+from clab.format.sweeps import by_point, coordinate, labelled
 
 JOIN = ("at", "row", "layer", "pos", "key")
 
@@ -23,9 +23,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     `pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
     with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
     numbered the same way, the row's own keys only), the dataset columns the step used
-    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
-    value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
-    `alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices."""
+    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
+    beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
+    past its own are left out. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -76,7 +76,6 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
         value = plan.results[name][coordinate(plan, p.at)] if isinstance(entry, list) else plan.results[name]
         at = {"at": {label: plan.sweeps[label].values[i] for label, i in p.at.items()}} if p.at else {}
         place = located(plan, source, p.at) if source else None
-        own_keys(name, value, dims, place)
         for row in elements(value, dims, place):
             if "row" in row and examples:
                 example = examples[row["row"]]
@@ -87,28 +86,10 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
     return out
 
 
-def own_keys(name: str, value: Any, dims: list[str], place: dict | None) -> None:
-    """Refuses a value whose unselected `key` axis is not each row's own keys, NaN past them: one a clab wrote whose
-    key axis was the padded batch's (a shorter row's padding first), which the table would label with the wrong
-    tokens."""
-    if place is None or place["keys"] is not None or "key" not in dims:
-        return
-    values = value["values"] if isinstance(value, dict) else value
-    if not isinstance(values, Tensor):
-        return
-    each = values.movedim((dims.index("rows" if "rows" in dims else "entries"), dims.index("key")), (0, -1))
-    rows = value["row"].tolist() if isinstance(value, dict) else range(each.shape[0])
-    for i, r in enumerate(rows):
-        n = len(place["prompt"][r])
-        if not each[i, ..., n:].isnan().all():
-            raise ValueError(f"{name}: row {r} holds values past its own {n} keys: it was written by a clab whose key "
-                             "axis was the padded batch's; rerun the document")
-
-
 def dataset_of(plan: Plan, name: str) -> str | None:
     """The dataset a saved value has a row per example of, if any: its step's, or for a member of a fit's named
     eval the one its body's step read under that eval."""
-    if not {"rows", "entries"} & set(dims_of(plan, name)):
+    if "rows" not in dims_of(plan, name):
         return None
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
@@ -117,15 +98,6 @@ def dataset_of(plan: Plan, name: str) -> str | None:
     label, _, rest = member.partition(".")
     inner = step.steps[rest.partition(".")[0]].dataset
     return step.eval[label].get(inner, inner) if inner is not None else None
-
-
-def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
-    """A saved value per point: each point's coordinates (none when its step is not swept) and its value."""
-    entry = plan.steps[name.partition(".")[0]]
-    if not isinstance(entry, list):
-        return [({}, plan.results[name])]
-    return [({label: plan.sweeps[label].values[i] for label, i in p.at.items()}, plan.results[name][coordinate(plan, p.at)])
-            for p in entry]
 
 
 def evaluated(plan: Plan, fit: str, name: str) -> Plan:
@@ -147,8 +119,6 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
 
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
-    if isinstance(value, dict) and "tok" in value:
-        return ragged(value, dims, place)
     if isinstance(value, dict) and "rows" not in dims:
         raise ValueError("a bundle has no rows to table; read it from plan.results")
     first = next(iter(value.values())) if isinstance(value, dict) else value
@@ -169,28 +139,12 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
         for i, k in at.items():
             if dims[i] in ("pos", "key"):
                 row.update(token(place, at[dims.index("rows")], dims[i], k))
-        if row.get("key", 0) is None:
-            continue                                    # past the row's own keys
+        if row.get("key", 0) is None or row.get("pos", 0) is None:
+            continue                                    # past the row's own keys or positions
         pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
         row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
         out.append(row)
     return out
-
-
-def ragged(value: dict, dims: list[str], place: dict | None) -> list[dict]:
-    """A ragged value's rows: one per entry (per layer on a `layers` axis), labelled with its row and the
-    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach. A value
-    whose op made a dict of its own (`top_k`'s `ids`, `probs` and `tokens`) gives each entry's as a dict."""
-    parts = {k: v if "layers" in dims else [v] for k, v in value.items() if k not in ("row", "tok")}
-    out = []
-    for k in range(len(next(iter(parts.values())))):
-        for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist())):
-            row = {"layer": layer(place, k)} if "layers" in dims else {}
-            got = {key: part(v[k], (i,)) for key, v in parts.items()}
-            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": got.get("values", got)})
-    marks = [{"row": r, **unreached(place, r)} for r in range(len(place["positions"]))
-             if unreached(place, r)] if place else []
-    return sorted(out + marks, key=lambda row: row["row"]) if marks else out
 
 
 def layer(place: dict | None, k: int) -> int:
@@ -207,11 +161,11 @@ def unreached(place: dict | None, row: int | None) -> dict:
 def token(place: dict | None, row: int, axis: str, k: int) -> dict:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
-    None past the row's own keys."""
+    None past the row's own positions or keys."""
     if place is None:
         return {axis: k}
     if axis == "pos":
-        return label(place, row, place["positions"][row][k], axis)
+        return label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) else {axis: None}
     index = place["keys"][k] if place["keys"] is not None else k
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 
@@ -270,12 +224,12 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
     resolved, site = plan.run.positions[source], entries(producer)[member].site
-    keys = positions.keys(site.select["key"]) if "key" in (site.select or {}) else None
+    keys = selectors.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
-            "layers": positions.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
+            "layers": selectors.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
             else None}
 
 

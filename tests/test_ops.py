@@ -5,8 +5,9 @@ import math
 import pytest
 import torch
 
-from clab.runtime import ops
-from clab.runtime.ops import edits, metrics, reductions, transforms
+from clab import ops
+from clab.ops import edits, metrics, reductions, transforms
+from clab.steps import batches
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
@@ -121,16 +122,18 @@ def test_sum_and_min_skip_what_is_missing_and_a_row_with_nothing_stays_missing()
     assert m[[0, 2]].tolist() == [1.0, -1.0] and m[1].isnan()
 
 
-def test_a_ragged_value_reduces_per_row_over_pos_and_over_every_entry_over_rows_and_pos():
-    from clab.runtime.steps.batches import apply
-    value = {"values": torch.tensor([1.0, 2.0, 5.0]), "row": torch.tensor([0, 0, 2]), "tok": torch.tensor([3, 4, 1])}
-    assert ops.out_dims("sum", ["entries"], {"over": ["pos"]}) == ["rows"]
-    assert ops.out_dims("sum", ["entries"], {"over": ["rows", "pos"]}) == []
-    with pytest.raises(ValueError, match="a ragged value's rows are reduced with their positions"):
-        ops.out_dims("sum", ["entries"], {"over": ["rows"]})
-    per_row = apply(None, "sum", value, {"over": ["pos"]}, ["entries"], rows=torch.arange(3))
+def test_a_value_with_missing_positions_reduces_over_the_ones_that_are_there():
+    """A row's positions past its own are NaN: over `pos` a row with none is missing, over rows and pos the
+    mean is over every position there is."""
+    nan = float("nan")
+    value = torch.tensor([[1.0, 2.0], [nan, nan], [5.0, nan]])
+    assert ops.out_dims("sum", ["rows", "pos"], {"over": ["pos"]}) == ["rows"]
+    assert ops.out_dims("sum", ["rows", "pos"], {"over": ["rows", "pos"]}) == []
+    with pytest.raises(ValueError, match="a reduction cannot remove 'layers'"):
+        ops.out_dims("sum", ["rows", "pos"], {"over": ["layers"]})
+    per_row = ops.call("sum", value, {"over": ["pos"]}, dims=["rows", "pos"])
     assert per_row[[0, 2]].tolist() == [3.0, 5.0] and per_row[1].isnan()
-    assert apply(None, "mean", value, {"over": ["rows", "pos"]}, ["entries"]).item() == pytest.approx(8 / 3)
+    assert ops.call("mean", value, {"over": ["rows", "pos"]}, dims=["rows", "pos"]).item() == pytest.approx(8 / 3)
 
 
 def test_contains_finds_the_answer_in_each_rows_text():
@@ -140,10 +143,10 @@ def test_contains_finds_the_answer_in_each_rows_text():
     assert metrics.contains(said, [(["friday"], False, False)] * 3, ["rows"]).tolist() == [0.0, 0.0, 0.0]
 
 
-def test_metrics_on_ragged_entries_take_each_entrys_own_token():
-    entries = LOGITS[:, 0]                                # entries, vocab: one entry per row here
-    assert torch.equal(metrics.token_logit(entries, ONE, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
-    assert torch.equal(metrics.match(entries, entries.argmax(-1)[:, None], ["entries", "vocab_size"]), torch.ones(3))
+def test_metrics_on_a_value_without_positions_take_each_rows_own_token():
+    rows = LOGITS[:, 0]                                   # rows, vocab
+    assert torch.equal(metrics.token_logit(rows, ONE, ["rows", "vocab_size"]), rows[torch.arange(3), IDS])
+    assert torch.equal(metrics.match(rows, rows.argmax(-1)[:, None], ["rows", "vocab_size"]), torch.ones(3))
 
 
 def test_metrics_broadcast_over_a_leading_layer_axis():
@@ -166,7 +169,7 @@ def test_kl_and_js():
 
 def test_out_dims_follows_each_ops_declaration():
     assert ops.out_dims("match", ["rows", "pos", "vocab_size"], {}) == ["rows", "pos"]
-    assert ops.out_dims("mean", ["entries", "hidden_size"], {"over": None}) == ["hidden_size"]
+    assert ops.out_dims("mean", ["rows", "pos", "hidden_size"], {"over": None}) == ["hidden_size"]
     assert ops.out_dims("readout", ["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "rows", "pos", "vocab_size"]
     with pytest.raises(ValueError, match="needs a value with a 'vocab_size' or 'classes' axis"):
         ops.out_dims("match", ["rows", "pos", "hidden_size"], {})
@@ -175,7 +178,7 @@ def test_out_dims_follows_each_ops_declaration():
 def taken(value: torch.Tensor, component: str, rec: dict) -> torch.Tensor:
     """What a read record at a site takes of `value`."""
     got: dict = {}
-    assert not ops.visit(value, component, [{**rec, "name": "r"}], got)[1]
+    assert not batches.visit(value, component, [{**rec, "name": "r"}], got)[1]
     return got["r"]
 
 
@@ -189,19 +192,19 @@ def test_a_ragged_write_writes_only_the_positions_it_keeps():
     value = torch.randn(2, 4, 5)
     ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
               "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "dims": DIMS}]}
-    out = ops.visit(value, "layer_output", [ragged], {})[0]
+    out = batches.visit(value, "layer_output", [ragged], {})[0]
     assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
     unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
     assert torch.equal(out[unwritten], value[unwritten])
     empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
-    assert torch.equal(ops.visit(value, "layer_output", [empty], {})[0], value)
+    assert torch.equal(batches.visit(value, "layer_output", [empty], {})[0], value)
 
 
 def test_a_window_write_and_three_single_writes_are_one_tensor():
     value = torch.randn(3, 6, 5)                         # batch, seq, hidden
     other = torch.randn(3, 6, 5)
-    window = ops.visit(value, "layer_output", [record(2, 3, other[:, 2:5])], {})[0]
-    singles = ops.visit(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)], {})[0]
+    window = batches.visit(value, "layer_output", [record(2, 3, other[:, 2:5])], {})[0]
+    singles = batches.visit(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)], {})[0]
     assert torch.equal(window, singles)
     assert torch.equal(window[:, 2:5], other[:, 2:5]) and torch.equal(window[:, :2], value[:, :2])
 
@@ -210,7 +213,7 @@ def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
     steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "dims": DIMS}])
     restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}])
-    out = ops.visit(value, "layer_output", [steer, restore], {})[0]
+    out = batches.visit(value, "layer_output", [steer, restore], {})[0]
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])
     assert torch.equal(out[:, :3], value[:, :3])
@@ -220,7 +223,7 @@ def test_select_narrows_one_axis_and_write_puts_it_back():
     value = torch.randn(2, 3, 4, 2)                      # batch, seq, num_heads, head_dim (attention_premix)
     head = {"positions": torch.tensor([[2], [2]]), "select": {2: torch.tensor([1])}}
     assert torch.equal(taken(value, "attention_premix", head), value[:, 2:3, 1:2])
-    out = ops.visit(value, "attention_premix", [{**head, "ops": [
+    out = batches.visit(value, "attention_premix", [{**head, "ops": [
         {"op": "swap", "args": {"with": 0.0}, "dims": ["rows", "pos", "num_heads", "head_dim"]}]}], {})[0]
     assert torch.equal(out[:, 2, 1], torch.zeros(2, 2))
     out[:, 2, 1] = value[:, 2, 1]
@@ -236,16 +239,16 @@ def test_a_pattern_is_selected_along_its_query_axis():
 def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
     torch.manual_seed(1)
     x = torch.randn(40, 5) * torch.tensor([5.0, 3.0, 1.0, 0.5, 0.1]) + 2.0
-    got = reductions.pca(x, k=3, dims=["entries", "hidden_size"])
+    got = reductions.pca(x, k=3, dims=["rows", "hidden_size"])
     basis, mean = got["basis"], got["mean"]
     assert basis.shape == (5, 3) and mean.shape == (5,)
     torch.testing.assert_close(basis.T @ basis, torch.eye(3), atol=1e-5, rtol=0)
     torch.testing.assert_close(mean, x.mean(0))
     variance = ((x - mean) @ basis).var(0)
     assert bool((variance[:-1] >= variance[1:]).all())
-    assert torch.equal(reductions.pca(x, k=3, dims=["entries", "hidden_size"])["basis"], basis)     # deterministic signs
+    assert torch.equal(reductions.pca(x, k=3, dims=["rows", "hidden_size"])["basis"], basis)     # deterministic signs
     with pytest.raises(ValueError, match="pca of 3 vectors has no rank-3 basis"):
-        reductions.pca(x[:3], k=3, dims=["entries", "hidden_size"])
+        reductions.pca(x[:3], k=3, dims=["rows", "hidden_size"])
 
 
 def test_top_k_and_argmax():
@@ -301,8 +304,8 @@ def test_a_missing_row_is_missing_all_the_way_down():
 
 def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
     """The draw at a row's position is a CPU generator's seeded by (seed, row, position): the same whichever
-    rows share the value, the same for a ragged value's entry there, never the same at two rows or two
-    positions, cast to the value's dtype."""
+    rows share the value, the same for a value without a pos axis at its row's one position, never the same
+    at two rows or two positions, cast to the value's dtype."""
     rows, places = torch.tensor([4, 5, 6]), torch.tensor([[7, 8], [7, 8], [2, 9]])
     drawn = torch.stack([torch.stack([torch.randn(5, generator=edits.seeded(3, int(rows[i]), int(places[i, j])))
                                       for j in range(2)]) for i in range(3)])
@@ -314,8 +317,8 @@ def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
     half = X.to(torch.bfloat16)
     assert torch.equal(edits.noise(half, 0.25, DIMS, seed=3, rows=rows, positions=places),
                        half + 0.25 * drawn.to(torch.bfloat16))
-    entries = edits.noise(X[:, 0], 0.5, ["entries", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
-    assert torch.equal(entries, X[:, 0] + 0.5 * drawn[:, 0])
+    first = edits.noise(X[:, 0], 0.5, ["rows", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
+    assert torch.equal(first, X[:, 0] + 0.5 * drawn[:, 0])
     assert torch.equal(edits.noise(X, 1.0, DIMS), X + torch.randn(X.shape, generator=edits.seeded(0)))  # no rows
 
 

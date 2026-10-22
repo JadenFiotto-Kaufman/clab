@@ -54,7 +54,8 @@
         }
        ],
        "dims": [
-        "entries",
+        "rows",
+        "pos",
         "features"
        ],
        "space": [

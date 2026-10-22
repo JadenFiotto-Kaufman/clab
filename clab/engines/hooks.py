@@ -21,11 +21,13 @@ from nnterp import StandardizedTransformer
 from torch import Tensor
 from transformers import AutoModelForCausalLM
 
-from ..address import COMPONENTS
-from ..plan import Model, Plan
-from ..runtime import ops, steps
-from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, landed, nnterp_name, now, stops
+from clab import steps
+from clab.engines import engine
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.format.address import COMPONENTS
+from clab.format.plan import Model, Plan
+from clab.steps import batches
+from clab.steps.generate import landed, now
 
 
 @engine("hooks")
@@ -52,11 +54,11 @@ class HooksEngine:
             device_map=device if device in COMPUTED else None, **extra).eval())
         if device not in COMPUTED:
             self.model.to(device)
-        self.config["order"] = order(self.model, sites, steps.home(self))
+        self.config["order"] = order(self.model, sites, batches.home(self))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, **options) -> Plan:
-        """The whole plan in this process; `options` are a subclass's run options, which `steps.begin` records."""
-        started = steps.begin(self, plan, batch_size, options)
+    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+        """The whole plan in this process."""
+        started = steps.begin(self, plan, batch_size)
         steps.run(self, plan, batch_size)
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
@@ -85,7 +87,7 @@ class HooksEngine:
         handles = [hook(self.model, self.config, component, layer, here, got, None)
                    for (component, layer), here in sites.items()]
         try:
-            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self)))
+            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
         finally:
             for handle in handles:
                 handle.remove()
@@ -107,7 +109,7 @@ class HooksEngine:
         handles += [hook(self.model, self.config, component, layer, here, got, call)
                     for (component, layer), here in sites.items()]
         try:
-            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), steps.home(self)), **options)
+            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.home(self)), **options)
         finally:
             for handle in handles:
                 handle.remove()
@@ -133,7 +135,7 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, got
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
-        value, wrote = ops.visit(value, component, records, got)
+        value, wrote = batches.visit(value, component, records, got)
         return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":

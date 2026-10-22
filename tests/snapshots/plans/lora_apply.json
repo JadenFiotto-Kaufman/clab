@@ -70,7 +70,8 @@
       }
      ],
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "hidden_size"
      ]
     },
@@ -132,7 +133,8 @@
       }
      ],
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "hidden_size"
      ]
     }
