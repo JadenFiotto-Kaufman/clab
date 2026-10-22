@@ -1,5 +1,5 @@
 {
-  "description": "Train a low-rank adapter on the tiny CPU Llama to say each training prompt's counterfactual answer: a rank-4 LoRA at layer 0's output (`alpha` 8, so its update is scaled by 2), applied at every position of the prompt after BOS (`{'index': '1:'}`: position 0 is BOS) as a write (`apply` keeps the site's layout, so the whole sequence is written), and the cross entropy of the head's logits at the last position against `train.cf_answer`. `B` starts at zero, so before the first step the adapted model is the model exactly. After training, the body runs on the held-out split (`fit.held_out.ce`) and on the training split (`fit.train.ce`); `fit.history.ce` is the training ce after each epoch. The adapter is saved as a bundle, `fit.lora` (lora_apply.json loads it). The model is random, so this demonstrates the mechanics and nothing about what an adapter learns.",
+  "description": "Train a low-rank adapter on the tiny CPU Llama to say each training prompt's counterfactual answer: a rank-4 LoRA at layer 0's output (`alpha` 8, so its update is scaled by 2), applied at every position of the prompt, BOS included (`{'index': ':'}`: an adapter is a change of the weights, so it acts at every token), as a write (`apply` keeps the site's layout, so the whole sequence is written), and the cross entropy of the head's logits at the last position against `train.cf_answer`. `B` starts at zero, so before the first step the adapted model is the model exactly. After training, the body runs on the held-out split (`fit.held_out.ce`) and on the training split (`fit.train.ce`); `fit.history.ce` is the training ce after each epoch. The adapter is saved as a bundle, `fit.lora` (lora_apply.json loads it). The model is random, so this demonstrates the mechanics and nothing about what an adapter learns.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -26,7 +26,7 @@
           "kind": "forward",
           "input": "train.input",
           "interventions": {
-            "adapt": {"site": "target", "pos": {"index": "1:"}, "ops": [{"op": "apply", "featurizer": "fit.lora"}]},
+            "adapt": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "apply", "featurizer": "fit.lora"}]},
             "logits": {"site": "head", "pos": -1}
           }
         },

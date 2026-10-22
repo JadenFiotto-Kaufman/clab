@@ -128,12 +128,10 @@ def from_end(selector) -> bool:
     return few != [i for i in many if i < n]
 
 
-def onward(selector) -> int | None:
-    """Where a selector, counting from the start, begins picking every one of however many things there are, in
-    order: `":"` at 0, `"1:"` at 1; None for any other (`"-3:"`, `"2:5"`, `"::2"`, picks)."""
+def every(selector) -> bool:
+    """Whether a selector picks every one of however many things there are, in order (`":"`)."""
     n, few, many = probed(selector)
-    start = few[0] if few else n
-    return start if few == list(range(start, n)) and many == list(range(start, 2 * n)) else None
+    return few == list(range(n)) and many == list(range(2 * n))
 
 
 # -- what the run needs to know before it starts ------------------------------------------------------
@@ -161,25 +159,23 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     at most (a generation's `max_new_tokens`), when known.
 
     A frame counted from the end depends on how far each row gets. Any other frame names call `k`
-    on every row that makes it, as `k in select(frame, k + 1)` says. The index must not depend on how far the
-    row gets either. Over a frame holding the prompt, whose length differs by row, an index that picks every
-    position from one counted from the start on (`onward`: `":"`, `"1:"`) names every decode call of the frame
-    on a row whose prompt reaches that position (`started` checks the rows); any other does depend on it. Over
-    decode calls, each holding one position, the record is exact when a row that stops after `k` calls names
-    exactly the calls below `k` that a row running to the horizon names (an index counted from the end over
-    several calls does not). Without a horizon, a frame to the row's last call other than every decode call
-    names calls only the run will know. A scope's index counts its text's tokens, which any of the frame's
-    calls may hold, so a scoped record can name every call of its frame."""
+    on every row that makes it, as `k in select(frame, k + 1)` says. An index other than `":"` must not
+    depend on how far the row gets either: over a frame holding the prompt it does (the prompt's length
+    differs by row); over decode calls, each holding one position, the record is exact when a row that stops
+    after `k` calls names exactly the calls below `k` that a row running to the horizon names (an index
+    counted from the end over several calls does not). Without a horizon, a frame to the row's last call
+    other than every decode call names calls only the run will know. A scope's index counts its text's
+    tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
     if pos["scope"] and pos["scope"].get("before") and select(frame, 2) != [0]:
         return True, None, False        # the position before a token may be any call's, the prefill's included
     if from_end(frame):
         return True, None, False
     holds = 0 in select(frame, 1)
-    if holds or onward(index) == 0:
+    if holds or every(index):
         calls = decode_calls(frame, horizon)
         known = calls is not None or covers(frame)
-        return holds, calls, known and (onward(index) is not None or calls == [])
+        return holds, calls, known and (every(index) or calls == [])
     pos = {**pos, "index": index}
     if horizon is None:
         k = enough(pos)
@@ -221,14 +217,6 @@ def enough(pos: dict) -> int:
     return (2 + max(numbers, default=0)) ** 2
 
 
-def started(pos: dict, prompt: int, head_only: bool = False) -> bool:
-    """Whether a row whose prompt is `prompt` tokens reaches the position an `onward` index over a frame holding
-    the prompt starts at (`"1:"` any prompt of a token), so that it names every decode call of the frame: on a
-    shorter prompt it would start among them. Any other record is not asked."""
-    start = onward(pos["index"])
-    return pos["scope"] is not None or start is None or start <= len(prompted(prompt, head_only))
-
-
 def prefill(pos: dict) -> bool:
     """Whether the record names prefill positions only, so the data alone decides it before any forward."""
     holds, calls, _ = reach(pos)
@@ -256,13 +244,6 @@ def held(called: list[int], prompt: int, head_only: bool = False) -> list[int]:
     """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompted`), and
     each decode call's input."""
     return [p for call in called for p in (prompted(prompt, head_only) if call == 0 else [prompt + call - 1])]
-
-
-def in_prompt(pos: dict, prompt: int, head_only: bool = False) -> list[int]:
-    """The prefill positions an unscoped record whose frame holds the prompt and runs on into decode calls names:
-    its index's picks among the prefill's, which an `onward` index counts first."""
-    held = prompted(prompt, head_only)
-    return [held[i] for i in select(pos["index"], len(held))]
 
 
 def call_of(position: int, prompt: int) -> int:

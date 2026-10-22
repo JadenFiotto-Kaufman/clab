@@ -293,14 +293,6 @@ def test_a_selectors_static_width_needs_its_ends_on_one_side():
             assert all(len(positions.select(selector, n)) == width for n in (8, 9, 12)), selector
 
 
-def test_onward_is_where_a_selector_begins_picking_every_one_to_the_end():
-    starts = {":": 0, "1:": 1, "3:": 3, "-3:": None, "2:5": None, "::2": None, "1::2": None, ":-1": None, 0: None,
-              -1: None, "[0, 1]": None}
-    for selector, start in starts.items():
-        selector = [0, 1] if selector == "[0, 1]" else selector
-        assert positions.onward(selector) == start, selector
-
-
 @pytest.mark.parametrize("pos, reach", [
     ({"frame": "1:4", "index": 1}, (False, [2], True)),
     ({"frame": [3, 1], "index": ":"}, (False, [1, 3], True)),
@@ -310,10 +302,6 @@ def test_onward_is_where_a_selector_begins_picking_every_one_to_the_end():
     ({"frame": "1:", "index": -1}, (False, None, False)),
     ({"frame": "2:", "index": ":"}, (False, None, False)),
     ({"frame": ":", "index": ":"}, (True, None, True)),
-    ({"frame": ":", "index": "1:"}, (True, None, True)),           # every position from the prompt's second on
-    ({"frame": "0:3", "index": "2:"}, (True, [1, 2], True)),
-    ({"frame": ":", "index": "1::2"}, (True, None, False)),        # which decode calls depends on the prompt
-    ({"frame": ":", "index": "1:-1"}, (True, None, False)),
     ({"frame": "0:3", "index": -1}, (True, [1, 2], False)),
     ({"frame": "1:4", "index": "-2:"}, (False, [1, 2, 3], False)),
     ({"frame": 2, "index": -1}, (False, [2], True)),

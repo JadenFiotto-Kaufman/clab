@@ -14,7 +14,6 @@ from transformers import AutoTokenizer
 
 from clab import Plan
 from clab.cli import main
-from clab.plan import PlanError
 from conftest import BATCH_SIZE, plan_of, same
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -271,48 +270,63 @@ def test_a_refusal_counts_tokens_as_positions(engines):
         run(engines, plan(-1, 4))
 
 
-# -- a write over the prompt and every decode call, past BOS ---------------------------------------------------
+# A pair of rows 5 and 3 tokens long, BOS included, each with a counterfactual as long as itself.
+PAIRS = [{"input": "one two three four", "cf": "one two three one"}, {"input": "one two", "cf": "two one"}]
 
 
-def generation(pos: dict | list[dict]) -> Plan:
-    """Greedy generation of three tokens from DAYS with layer 0's output doubled at `pos` (one entry, or one
-    per item), the ids and the head at decode call 2 saved."""
-    writes = {f"w{i}": {"site": LAYER0, "pos": p, "ops": [{"op": "scale", "factor": 2.0}]}
-              for i, p in enumerate(pos if isinstance(pos, list) else [pos])}
-    return doc(TINY, DAYS, {"g": {"kind": "generate", "input": "d.input", "max_new_tokens": 3, "do_sample": False,
-                                  "interventions": {**writes, "at2": {"site": LOGITS, "pos": {"frame": 2,
-                                                                                            "index": -1}}}}},
-               ["g", "g.at2"])
+def swapped(rows: list[dict], ops: list[dict]) -> Plan:
+    """The counterfactual's pattern at the last query swapped into the input's, then `ops` on it, before the
+    logits and the pattern after are read."""
+    return doc(EAGER, rows, {"c": forward({"pat": {"site": PATTERN, "pos": -1}}, "d.cf"),
+                             "f": forward({"w": {"site": PATTERN, "pos": -1, "ops": ops},
+                                           "logits": {"site": LOGITS, "pos": -1}})}, ["f.logits", "f.w"])
 
 
-def test_a_write_over_the_prompt_and_every_decode_call_may_begin_past_bos(engines):
-    """`{"frame": ":", "index": "1:"}` counts the prompt's positions, BOS first, then each decode call's: it is
-    every position but BOS, the same writes as `{"frame": 0, "index": "1:"}` with `{"frame": "1:"}`, to the bit
-    on both engines; `":"` writes BOS too, which changes what is generated."""
-    onward, split, every = (generation(p) for p in ({"frame": ":", "index": "1:"},
-                                                     [{"frame": 0, "index": "1:"}, {"frame": "1:"}],
-                                                     {"frame": ":"}))
-    got = {kind: [run(engines, p, kind) for p in (onward, split, every)] for kind in ("nnterp", "hooks")}
-    a, b, c = got["nnterp"]
-    assert same(a.results, got["hooks"][0].results) and same(a.results, b.results)
-    assert not torch.equal(a.results["g.at2"], c.results["g.at2"])
-    prompts = [len(row) for row in a.run.tokens["d.input"]]
-    for r, n in enumerate(prompts):
-        made = len(a.run.tokens["g"][r])
-        decoded = list(range(n, n + min(made, 3) - 1))
-        assert a.run.positions["g.w0"][r] == list(range(1, n)) + decoded
-        assert a.run.positions["g.w0"][r] == b.run.positions["g.w0"][r] + b.run.positions["g.w1"][r]
-        assert c.run.positions["g.w0"][r] == list(range(n)) + decoded
+@pytest.mark.parametrize("op", [{"op": "renormalize"}, {"op": "normalize"},
+                                {"op": "project_out", "direction": "c.pat"}])
+def test_a_key_mixing_edit_after_a_swapped_pattern_edits_the_rows_own_keys(engines, op):
+    """A swapped-in pattern is NaN past a shorter row's own keys, and an edit that mixes the keys (a norm, a
+    projection) takes the keys that are there: each row's logits and pattern are those the row has alone,
+    unpadded, and the shorter row's are not NaN."""
+    batched = run(engines, swapped(PAIRS, [{"op": "swap", "with": "c.pat"}, op]))
+    lengths = [len(row) for row in batched.run.tokens["d.input"]]
+    assert lengths == [5, 3] and not batched.results["f.logits"].isnan().any()
+    for r, n in enumerate(lengths):
+        alone = run(engines, swapped([PAIRS[r]], [{"op": "swap", "with": "c.pat"}, op])).results
+        torch.testing.assert_close(batched.results["f.logits"][r], alone["f.logits"][0], atol=1e-5, rtol=0)
+        torch.testing.assert_close(batched.results["f.w"][r, ..., :n], alone["f.w"][0], atol=1e-6, rtol=0)
+        assert batched.results["f.w"][r, ..., n:].isnan().all()
 
 
-def test_a_write_over_the_prompt_and_every_decode_call_begins_within_each_prompt(engines):
-    """`"5:"` would begin among the decode calls of a row whose prompt is 4 tokens, at a call that differs by
-    row: refused by name before any forward. An index that does not run on to the end over the prompt (`"1::2"`)
-    names decode calls by the prompt's length, and is refused at compile."""
-    with pytest.raises(ValueError, match=r"^g\.w0: row 1: index '5:' begins past the 4 positions its prefill "
-                                         r"holds, so the decode calls it names would differ by row; a write over "
-                                         r"the prompt and decode calls begins within the prompt$"):
-        run(engines, generation({"frame": ":", "index": "5:"}))
-    with pytest.raises(PlanError, match=r"frame ':' with index '1::2' names calls that depend on how far each row "
-                                        r"gets"):
-        generation({"frame": ":", "index": "1::2"})
+def test_a_key_mixing_op_step_over_a_pattern_takes_each_rows_own_keys(engines):
+    """`normalize` as a step over a pattern read on rows of different lengths: each row's own keys divided by
+    their own norm, its keys past them still NaN."""
+    plan = doc(EAGER, DAYS, {"f": forward({"pat": {"site": PATTERN, "pos": -1}}),
+                             "unit": {"kind": "op", "op": "normalize", "of": "f.pat"}}, ["f.pat", "unit"])
+    filled = run(engines, plan)
+    for r, row in enumerate(filled.run.tokens["d.input"]):
+        n, pat, unit = len(row), filled.results["f.pat"][r], filled.results["unit"][r]
+        torch.testing.assert_close(unit[..., :n], pat[..., :n] / pat[..., :n].norm(dim=-1, keepdim=True))
+        assert unit[..., n:].isnan().all()
+
+
+def test_the_table_refuses_a_key_axis_written_as_the_padded_batchs(engines, tmp_path, capsys):
+    """A run an earlier clab wrote holds an unselected key axis as the padded batch's, a shorter row's padding
+    first: its keys would be labelled with the wrong tokens, so the table refuses it, from `Plan.load` and from
+    the CLI, and says to rerun; the same run as this clab writes it tables."""
+    from safetensors.torch import save_file
+    plan = doc(EAGER, DAYS, {"f": forward({"pat": {"site": PATTERN, "pos": -1}})}, ["f.pat"])
+    filled = run(engines, plan)
+    filled.dump(str(tmp_path))
+    assert len(Plan.load(str(tmp_path)).table("f.pat")) == sum(len(row) for row in filled.run.tokens["d.input"])
+    own, width = filled.results["f.pat"], filled.results["f.pat"].shape[-1]
+    padded = torch.zeros_like(own)
+    for r, row in enumerate(filled.run.tokens["d.input"]):
+        padded[r, ..., width - len(row):] = own[r, ..., :len(row)]
+    save_file({"f.pat": padded.contiguous()}, str(tmp_path / "f.pat.safetensors"))
+    message = r"f\.pat: row 1 holds values past its own 4 keys: it was written by a clab whose key axis was the " \
+        r"padded batch's; rerun the document"
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        Plan.load(str(tmp_path)).table("f.pat")
+    assert main(["table", str(tmp_path), "f.pat"]) == 1
+    assert "it was written by a clab whose key axis was the padded batch's" in capsys.readouterr().err

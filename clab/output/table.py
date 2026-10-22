@@ -76,6 +76,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
         value = plan.results[name][coordinate(plan, p.at)] if isinstance(entry, list) else plan.results[name]
         at = {"at": {label: plan.sweeps[label].values[i] for label, i in p.at.items()}} if p.at else {}
         place = located(plan, source, p.at) if source else None
+        own_keys(name, value, dims, place)
         for row in elements(value, dims, place):
             if "row" in row and examples:
                 example = examples[row["row"]]
@@ -84,6 +85,24 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
             value = {"value": row.pop("value")} if "value" in row else {}
             out.append({**at, **row, **value})                      # the value last, as in a joined table
     return out
+
+
+def own_keys(name: str, value: Any, dims: list[str], place: dict | None) -> None:
+    """Refuses a value whose unselected `key` axis is not each row's own keys, NaN past them: one a clab wrote whose
+    key axis was the padded batch's (a shorter row's padding first), which the table would label with the wrong
+    tokens."""
+    if place is None or place["keys"] is not None or "key" not in dims:
+        return
+    values = value["values"] if isinstance(value, dict) else value
+    if not isinstance(values, Tensor):
+        return
+    each = values.movedim((dims.index("rows" if "rows" in dims else "entries"), dims.index("key")), (0, -1))
+    rows = value["row"].tolist() if isinstance(value, dict) else range(each.shape[0])
+    for i, r in enumerate(rows):
+        n = len(place["prompt"][r])
+        if not each[i, ..., n:].isnan().all():
+            raise ValueError(f"{name}: row {r} holds values past its own {n} keys: it was written by a clab whose key "
+                             "axis was the padded batch's; rerun the document")
 
 
 def dataset_of(plan: Plan, name: str) -> str | None:

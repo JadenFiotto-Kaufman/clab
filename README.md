@@ -203,7 +203,8 @@ links back to what computed it. `run.tokens` holds each input's tokens per row a
 every entry resolved to, which is how `table` labels `pos_token`.
 
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
-`pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding. A
+`pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an
+appended EOS included. A
 document's `pos`, `run.positions`, a ragged value's `tok`, `table`'s `pos` and `key`, an attention pattern's
 `key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
 the same way.
@@ -227,6 +228,12 @@ uvx pyright
 
 `CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
 command its docstring gives.
+
+Offline, the suite needs these checkpoints in the local Hugging Face cache, at the revisions the documents and
+tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`), `hf-internal-testing/tiny-random-gpt2`
+(`71034c5d`) and `trl-internal-testing/tiny-Qwen3ForCausalLM` (`25bb9b89`, the chat cases); `Qwen/Qwen3-8B`'s
+tokenizer (`b968826d`) where it is cached, which one test checks the tiny Qwen3's template against and skips
+without; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B` (`4e20de36`).
 
 Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
 longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's

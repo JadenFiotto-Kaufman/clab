@@ -142,8 +142,6 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     shape = (len(resolved[0]), select)
                 else:               # resolved in the run, from what each row generates; one position a call
                     shape = (positions.width(pos) or 1, select)
-                    if write:
-                        started(where, pos, encoded, head(step, record))
                 probe = None                        # past a probe's encode, a column names its classes
                 for o in record.ops:
                     if probe is None:
@@ -330,18 +328,6 @@ def indices(where: str, write: bool, record, step, rows: list[dict], encoded: li
                              "one to write")
         found.append(list(got))
     return found
-
-
-def started(where: str, pos: dict, encoded: list[dict], head_only: bool) -> None:
-    """Refuses by name a row whose prompt does not reach the position a write's `onward` index over the prompt
-    and decode calls begins at: there it would begin among the decode calls, which a write lands at for every
-    row alike (`positions.started`)."""
-    for i, e in enumerate(encoded):
-        if not positions.started(pos, len(e["ids"]), head_only):
-            held = len(positions.prompted(len(e["ids"]), head_only))
-            raise ValueError(f"{where}: row {i}: index {pos['index']!r} begins past the {held} position"
-                             f"{'s' * (held != 1)} its prefill holds, so the decode calls it names would differ by "
-                             "row; a write over the prompt and decode calls begins within the prompt")
 
 
 def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,

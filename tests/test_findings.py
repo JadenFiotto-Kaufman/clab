@@ -674,9 +674,10 @@ def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_axis():
 
 
 def test_m10_a_generate_write_at_the_last_token_of_every_call_names_the_two_writes():
-    with pytest.raises(PlanError, match=r"g\.interventions\.w\.pos: frame ':' with index -1 is known only when the "
-                                        r"row stops; write two entries: \{'frame': 0, 'index': -1\} and "
-                                        r"\{'frame': '1:'\}$"):
+    with pytest.raises(PlanError, match=r"g\.interventions\.w\.pos: frame ':' with index -1 counts back from the "
+                                        r"row's last position, known only when the row stops, and a write lands as "
+                                        r"each call runs; for the prompt's last positions and every decode call, "
+                                        r"write two entries: \{'frame': 0, 'index': -1\} and \{'frame': '1:'\}$"):
         plan(data={"d": DAYS}, steps={"g": {"kind": "generate", "input": "d.input", "max_new_tokens": 3,
                                             "interventions": {"w": {"site": LAYER0, "pos": {"frame": ":", "index": -1},
                                                                     "ops": [{"op": "scale", "factor": 2.0}]}}}}

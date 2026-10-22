@@ -97,13 +97,13 @@ document in these places:
   positions before its tokens); a step's `input` may be a list, joined per row; `sum`, `min` and `contains`
   join the ops.
 - PR 15 (PLAN.md §14), §4 and §5: every input token is a position, BOS and a chat template's markers included,
-  so "What a scope's tokens are"'s no-scope rule (no id in `tokenizer.all_special_ids`) is gone:
-  `positions.prompted` decides a row's positions, all its tokens but padding, and a document's `pos`,
-  `run.positions`, a ragged value's `tok`, the table's `pos` and `key` and a refusal's token counts number
-  them one way. An unselected `key` axis is each row's own keys, its positions (key j its token j), as wide as
-  the input's longest row: a read is NaN past a shorter row's keys, a write leaves the padding's keys as they
-  are, and neither is the padded batch's axis any more. A write over the prompt and every decode call may
-  begin past BOS (`{"frame": ":", "index": "1:"}`, `positions.onward`), within every row's prompt.
+  so the no-scope rule of "What a scope's tokens are" changed (below): `positions.prompted` decides a row's
+  positions, all its tokens but padding, and a document's `pos`, `run.positions`, a ragged value's `tok`, the
+  table's `pos` and `key` and a refusal's token counts number them one way. The `key` axis is each row's own
+  keys, its positions (key j its token j; a `select` on it counts them), as wide as the input's longest row: a
+  read and a write's ops see NaN past a shorter row's keys, a write leaves the padding's keys as they are, and
+  the edits that mix a vector's entries take the entries that are there. The table refuses a value an earlier
+  clab wrote with the padded batch's axis.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the
@@ -482,7 +482,7 @@ Changes from PLAN §5, one reason each:
 | `load_rows(root: str, path: str) -> list[dict]` | `data/<path>.json`, filtered by `split` when the path has `#<split>`. Compile time. |
 | `field(row: dict, input: dict) -> str \| list[dict]` | The row's input text, or its chat messages. |
 | `variables(row: dict, input: dict) -> dict[str, str]` | The texts a `variable` scope may name for this input: `row[<column>_variables][index]` when the field is indexed, else the row itself (§5). |
-| `encode(tokenizer, inputs: list, width: int) -> dict` | Inside the session. Renders chats through the tokenizer's template, tokenizes each row with offsets, marks a token special when its id is in `tokenizer.all_special_ids`, left-pads by hand to `width` (the dataset input's longest row, §3). Returns `{"input_ids", "attention_mask", "position_ids", "offsets", "special", "turns", "lengths"}`; `position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)`, which both engines pass to the model. |
+| `encode(tokenizer, inputs: list, width: int) -> dict` | Inside the session. Renders chats through the tokenizer's template, tokenizes each row with offsets, left-pads by hand to `width` (the dataset input's longest row, §3). Returns `{"input_ids", "attention_mask", "position_ids", "offsets", "turns", "lengths"}`; every token but padding is a position (PR 15); `position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)`, which both engines pass to the model. |
 
 `positions.py`
 
@@ -848,7 +848,9 @@ Notes the table cannot carry:
 - `layers` is an int, `"all"` (every block, stacked layer axis first), or a
   sweep of ints. Root components take no `layers`.
 - The token axis of the pattern and scores is `query`; `key` stays whole, and
-  it is the padded batch's key axis, pads included. That is why
+  it is each row's own keys, its positions in order (key j its token j), NaN
+  past a shorter row's (PR 15; it was the padded batch's axis, pads
+  included). A swap lines key j up with key j, which is why
   `attention_pattern_patching.json` needs equal per-row lengths (§5).
 - A read of `attention_probs` with `pos: -1` is laid out
   `(rows, 1, num_heads, key)`; of `attention_query`, `(rows, 1, num_heads,
@@ -902,15 +904,11 @@ All of this runs in `positions.resolve`, inside the session, on the output of
 `data.encode` (law 4: which tokens a spec names is decided where the model is,
 through its own tokenizer).
 
-- **No scope (the prompt).** The row's tokens whose id is not in
-  `tokenizer.all_special_ids`. So `-1` is the last token of the prompt and BOS
-  is never "a token of the prompt", which is what `pca_harvest.json`'s header
-  asks (verified: 34 non-BOS tokens over the four weekday prompts). The id test
-  is used, not the tokenizer's `special_tokens_mask`, because a rendered chat is
-  tokenized with `add_special_tokens=False` and its mask is then all zeros even
-  though the text holds `<s>` and `</s>` (verified on the pinned Llama: mask sum
-  0; the id test marks `<s>`, `</s>`, `<s>`; on a plain prompt both give
-  `[1, 0, …, 0]`). Padding is never in any scope.
+- **No scope (the prompt).** Every token of the row, BOS and a chat
+  template's markers included (PR 15; before it, the tokens whose id was not in
+  `tokenizer.all_special_ids`). So `0` is BOS where the tokenizer adds one,
+  `-1` the last token, and `pca_harvest.json` reads `"1:"` to leave BOS out
+  (34 tokens over the four weekday prompts). Padding is never in any scope.
 - **`{"variable": c}`.** The text `variables(row)[c]`: the row's own column for
   the plain input; for an indexed field (`counterfactual_inputs[0]`), the
   matching entry of `<column>_variables` (`counterfactual_inputs_variables[0]
@@ -991,8 +989,7 @@ transformers 5.19 (verified; the Llama checkpoint ships `tokenizer.model` and
 `data.encode` asks for offsets only when some record in the step has a
 variable or segment scope, and a slow tokenizer there is refused by name: "this
 tokenizer (`<class>`) has no offset mapping; a variable or segment scope needs
-one". Unscoped positions need only the special-token mask, which slow
-tokenizers return too.
+one". Unscoped positions need no offsets: they are every token (PR 15).
 
 Later: the generated frame already needs `char_spans` (growing-prefix
 decoding) in M3, because generated text has no offsets. When a slow tokenizer

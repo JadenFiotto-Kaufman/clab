@@ -26,10 +26,9 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     its options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
     An entry in the prefill (`frame: 0`) is a forward's. One beyond it goes to the engine in two parts: its
-    prefill positions (for a write, those its index picks there, `positions.in_prompt`; for a read, the whole
-    prefill, since which of its positions it means can depend on what the row says), and its decode calls, each
-    at that call's one position (`calls`: the frame's own, or None for every decode call); an entry that writes
-    and is gathered goes as its write, then its read.
+    prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
+    what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
+    or None for every decode call); an entry that writes and is gathered goes as its write, then its read.
     A write with a text scope is found online: it goes to every decode call with each row's text (`online`),
     lands where `positions.landing` says, and is recorded at the calls it says so of afterwards. Every other
     entry resolves after the generation from what each row generated (`positions.resolve`); a row that
@@ -65,7 +64,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if writes(record):
                 edits = edit(engine, plan, record, state, step.at, chunk, answers=found["answers"])
                 if holds:
-                    where = [positions.in_prompt(pos, len(e["ids"]), head(step, record)) for e in encoded[chunk]]
+                    where = [positions.prompted(len(e["ids"]), head(step, record)) for e in encoded[chunk]]
                     records.append({**site(record, picks[key], where, pads, padded, head(step, record)),
                                     "name": f"{key}#0", "layer": layers(engine, record)[0], "ops": edits})
                 online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],

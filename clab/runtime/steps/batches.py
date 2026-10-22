@@ -17,16 +17,16 @@ def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
     its token indices into the padded batch (`positions`, `[rows, n]`; a ragged row repeats its last index to the
     batch's widest, `keep` marking its own, `tok` the unpadded indices), the part of the feature axes it keeps
-    (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis it does not select,
-    each row's own keys (`keys`). Where the value holds the last position alone (`last_only`: a generation's head
-    in the prefill) every index is -1."""
+    (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys
+    (`keys`). Where the value holds the last position alone (`last_only`: a generation's head in the prefill)
+    every index is -1."""
     n = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(rows, pads)]
     tok = [[i - pad for i in row] for row, pad in zip(index, pads)]
     index = [[-1] * n for _ in rows] if last_only else index
     return {"component": record.site.component, "positions": torch.tensor(index),
-            "select": selection(record, picks, pads), **keys(record, picks, pads, width),
+            "select": selection(record, picks), **keys(record, pads, width),
             "keep": torch.tensor([[j < len(row) for j in range(n)] for row in rows]), "tok": torch.tensor(tok)}
 
 
@@ -35,29 +35,27 @@ def decoding(record, picks: dict, prompts: list[int], pads: list[int]) -> dict:
     `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
     number is the input's."""
     return {"component": record.site.component, "positions": torch.full((len(prompts), 1), -1),
-            "select": selection(record, picks, pads), "tok": torch.tensor([[p - 1] for p in prompts])}
+            "select": selection(record, picks), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
-def keys(record, picks: dict, pads: list[int], width: int) -> dict:
-    """A `key` axis the record does not select as each row's own keys, its positions (`positions.prompted`), as
-    a key selector counts them: `keys` is the axis's dimension in the selection's layout, `index` (`[rows,
-    width]`) each row's keys in the padded batch, in order, then its padding's, and `own` which of those are the
-    row's. A read's keys past a row's own are NaN; a write leaves them as they are. Nothing on another record."""
+def keys(record, pads: list[int], width: int) -> dict:
+    """A `key` axis as each row's own keys, its positions (`positions.prompted`), which a key selector counts:
+    `dim` is the axis's dimension in the selection's layout, `index` (`[rows, width]`) each row's keys in the
+    padded batch, in order, then its padding's, and `own` which of those are the row's (`ops.owned`). Nothing
+    on a component with no key axis."""
     layout = address.dims(record.site.component, None, False)
-    if "key" not in layout or "key" in picks:
+    if "key" not in layout:
         return {}
     index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) for pad in pads]
     own = [[j < width - pad for j in range(width)] for pad in pads]
     return {"keys": {"dim": layout.index("key"), "index": torch.tensor(index), "own": torch.tensor(own)}}
 
 
-def selection(record, picks: dict, pads: list[int]) -> dict:
+def selection(record, picks: dict) -> dict:
     """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps
-    (`picks`, by axis). On the `key` axis an index counts the row's own tokens, so each row's is shifted by its
-    padding (`[rows, n]`), as a position is."""
+    (`picks`, by axis): on `key`, among the row's own keys, which `keys` puts first, in order."""
     layout = address.dims(record.site.component, None, False)
-    return {layout.index(axis): torch.tensor([[i + pad for i in v] for pad in pads] if axis == "key" else v)
-            for axis, v in picks.items()}
+    return {layout.index(axis): torch.tensor(v) for axis, v in picks.items()}
 
 
 def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: dict | None = None,

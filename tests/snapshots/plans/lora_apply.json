@@ -1,5 +1,5 @@
 {
- "description": "The apply half of lora_train.json: the adapter it trained and saved as `fit.lora`, loaded from its bundle (its rank and alpha read from the bundle's header, the rest checked key by key) and kept on as a named intervention. `adapted` declares it once at the root: the adapter's `apply` written at layer 0's output, at every position after BOS of every forward call (`{'frame': ':', 'index': '1:'}`: the index counts the prompt's tokens, BOS first, then each decode call's). A step that names the intervention runs the adapted model; one that does not runs the model itself, which is the comparison: `clean` and `adapted` score the held-out prompts' last-position logits as the logit of the counterfactual answer less the base answer's, and `answer` generates four tokens greedily from them with the adapter on at the prompt and at every decode call, made text by `said` (`detokenize`). Run lora_train.json with --out documents/artifacts first; this loads what it wrote. The model is random, so the numbers and the text demonstrate the mechanics and nothing else.",
+ "description": "The apply half of lora_train.json: the adapter it trained and saved as `fit.lora`, loaded from its bundle (its rank and alpha read from the bundle's header, the rest checked key by key) and kept on as a named intervention. `adapted` declares it once at the root: the adapter's `apply` written at layer 0's output, at every position of every forward call, BOS included (`frame: \":\"`: an adapter is a change of the weights, so it acts at every token). A step that names the intervention runs the adapted model; one that does not runs the model itself, which is the comparison: `clean` and `adapted` score the held-out prompts' last-position logits as the logit of the counterfactual answer less the base answer's, and `answer` generates four tokens greedily from them with the adapter on at the prompt and at every decode call, made text by `said` (`detokenize`). Run lora_train.json with --out documents/artifacts first; this loads what it wrote. The model is random, so the numbers and the text demonstrate the mechanics and nothing else.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -61,8 +61,7 @@
       "layers": 0
      },
      "pos": {
-      "frame": ":",
-      "index": "1:"
+      "frame": ":"
      },
      "ops": [
       {
@@ -124,8 +123,7 @@
       "layers": 0
      },
      "pos": {
-      "frame": ":",
-      "index": "1:"
+      "frame": ":"
      },
      "ops": [
       {

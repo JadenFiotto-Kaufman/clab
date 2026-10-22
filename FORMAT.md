@@ -133,10 +133,10 @@ An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops).
 `index` picks positions within that.
 
 **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
-a chat template's markers, everything but padding** (`pos: 0` is BOS where there is one, `-1` the last
-token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a ragged value's `tok`, the
-run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
-refusal's token counts.
+a chat template's markers, everything but padding, an appended EOS included** (`pos: 0` is BOS where there
+is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a
+ragged value's `tok`, the run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
+`key` axis, and a refusal's token counts.
 
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
@@ -171,17 +171,17 @@ call 0 holds that one position.
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
 prefixes: the tokens covering its characters, a chat template's marker among them where the text spans one
-(a BOS the tokenizer adds covers none; one a template writes covers its text, `<s>`). An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
-token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
-the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
-after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
-occur in ` Sarah`, ` Ann` not in ` Annabel`, `:` not in `):` (a write found online sees nothing past the
-token it is fed, so it takes an end there as a word's, whatever follows). A list of columns or texts locates every occurrence of each. Occurrences
-are ordered by where they end, then where they start: where an occurrence becomes known and where index -1
-lands, so a write found online, a read and the run record count them alike (`b` inside `a b c` comes before
-it). `occurrence`
-(default 0, the first of any) picks which of those occurrences among the tokens the
-scope is; the scope is the tokens of the picked ones, in order
+(a BOS the tokenizer adds covers none; one a template writes covers its text, `<s>`). An occurrence lies on
+token and word boundaries: it starts where a token starts and ends where a token ends (a token's own leading
+or trailing whitespace on either side of the boundary; one that ends in the next token's leading whitespace
+ends where that token starts, so `Paris. ` does not cover the ` Paris` after it), and where its first or
+last character is a letter or a digit, none adjoins it: ` Sara` does not occur in ` Sarah`, ` Ann` not in
+` Annabel`, `:` not in `):` (a write found online sees nothing past the token it is fed, so it takes an end
+there as a word's, whatever follows). A list of columns or texts locates every occurrence of each.
+Occurrences are ordered by where they end, then where they start: where an occurrence becomes known and
+where index -1 lands, so a write found online, a read and the run record count them alike (`b` inside `a b
+c` comes before it). `occurrence` (default 0, the first of any) picks which of those occurrences among the
+tokens the scope is; the scope is the tokens of the picked ones, in order
 (their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a
 column's reference) compare each text stripped of surrounding whitespace and lowercased, the positions
 the original's. The prompt and the generated
@@ -255,8 +255,7 @@ prefill, and the decode calls, each at its one position. A write at decode call 
 generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
 selects is known by then: its frame not counted from the row's last call, and with an
 index that names the same calls on a row that stops early as on one that runs on (not one counted from
-the end over several calls, and over the prompt one that picks every position from one counted from the
-start on, `":"` or `"1:"`, which begins within each row's prompt); a frame to the row's last call other than
+the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
 every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
 gives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the
 first. A scoped write is found
@@ -368,6 +367,9 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
 every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
+an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
+there, so a row's own keys are edited as the row has them, and its tail stays NaN.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
@@ -451,9 +453,9 @@ stays missing: NaN, or no entries.
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
 | `scale` | `factor: float` | keeps the layout | `of * factor`. |
-| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). |
-| `normalize` | — | keeps the layout | Each vector divided by its norm. |
-| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`. |
+| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`). |
+| `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
+| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`ops.edited`). |
 | `apply` | `featurizer: Featurizer`, `...` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value (with the arguments its kind's `apply` takes beside: `with`, for a lora). |
 | `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |

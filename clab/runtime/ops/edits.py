@@ -62,25 +62,31 @@ def decode(of: Tensor, featurizer: Featurizer) -> Tensor:
     raise ValueError("'decode' runs as the close of its encode, with the ops between (ops.edited), never alone")
 
 
+def present(x: Tensor) -> Tensor:
+    """`x` with its missing entries (NaN) as 0, so that a norm or a dot product over a vector takes the entries
+    that are there: an attention pattern has none past a row's own keys. A vector missing whole stays missing."""
+    return x.masked_fill(x.isnan(), 0)
+
+
 @op("edits")
 def renormalize(of: Tensor, original: Value) -> Tensor:
     """Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's
-    writes (inside an `encode`, its coordinates)."""
-    return of * (original.to(of.device).norm(dim=-1, keepdim=True) / of.norm(dim=-1, keepdim=True))
+    writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`)."""
+    return of * (present(original.to(of.device)).norm(dim=-1, keepdim=True) / present(of).norm(dim=-1, keepdim=True))
 
 
 @op("edits")
 def normalize(of: Tensor) -> Tensor:
-    """Each vector divided by its norm."""
-    return of / of.norm(dim=-1, keepdim=True)
+    """Each vector divided by its norm, of the entries that are there (`present`)."""
+    return of / present(of).norm(dim=-1, keepdim=True)
 
 
 @op("edits")
 def project_out(of: Tensor, direction: Value) -> Tensor:
-    """Each vector less its component along `direction`."""
+    """Each vector less its component along `direction`, over the entries both have (`present`)."""
     direction = torch.as_tensor(direction, device=of.device)
-    unit = direction / direction.norm(dim=-1, keepdim=True)
-    return of - (of * unit).sum(-1, keepdim=True) * unit
+    unit = direction / present(direction).norm(dim=-1, keepdim=True)
+    return of - present(of * unit).sum(-1, keepdim=True) * unit
 
 
 @op("edits")

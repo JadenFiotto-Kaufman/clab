@@ -262,7 +262,16 @@ def test_each_stage_narrows_the_one_before():
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:4", "index": -1}),
      r"steps\.patched\.interventions\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": 0}),
-     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0 names calls that depend on how far"),
+     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0: over a frame that holds the prompt a "
+     r"write's index is ':', since any other counts on through the prompt, whose length differs by row, into the "
+     r"decode calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
+     r"frame 0 and the decode calls you mean as another at their own frame \('1:' is every one\)$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": "-1:"}),
+     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index '-1:' counts back from the row's last "
+     r"position, known only when the row stops"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "0:3", "index": "1:"}),
+     r"steps\.patched\.interventions\.patch\.pos: frame '0:3' with index '1:': over a frame that holds the "
+     r"prompt a write's index is ':'"),
     (lambda d: d["steps"]["patched"]["interventions"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
      r"steps\.patched\.interventions\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
