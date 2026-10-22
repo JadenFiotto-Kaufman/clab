@@ -11,36 +11,30 @@
     "head": {"component": "lm_head_output"}
   },
   "interventions": {
-    "steer": {
-      "writes": {
-        "steer": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "direction", "scale": 4.0}]}
-      }
-    },
-    "restore": {"writes": {"restore": {"site": "target", "pos": -1, "ops": [{"op": "renormalize"}]}}}
+    "steer": {"steer": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "direction", "scale": 4.0}]}},
+    "restore": {"restore": {"site": "target", "pos": -1, "ops": [{"op": "renormalize"}]}}
   },
   "steps": {
     "harvest": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"resid": {"site": "target", "pos": -1}}
+      "interventions": {"resid": {"site": "target", "pos": -1}}
     },
     "direction": {"kind": "op", "op": "mean", "of": "harvest.resid"},
-    "base": {
-      "kind": "forward",
-      "input": "pairs.input",
-      "reads": {"resid": {"site": "target", "pos": -1}}
-    },
+    "base": {"kind": "forward", "input": "pairs.input", "interventions": {"resid": {"site": "target", "pos": -1}}},
     "steered": {
       "kind": "forward",
       "input": "pairs.input",
-      "interventions": "steer",
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": ["steer", {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}]
     },
     "steered_renormed": {
       "kind": "forward",
       "input": "pairs.input",
-      "interventions": ["steer", "restore"],
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": [
+        "steer",
+        "restore",
+        {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      ]
     },
     "renormed_ld": {
       "kind": "op",

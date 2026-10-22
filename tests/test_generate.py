@@ -87,14 +87,14 @@ def test_call_k_holds_token_k_minus_1_and_its_logits_chose_token_k(engines):
     last position alone and a forward every position, a different matmul); the head at calls 0, 1, 2 chose
     tokens 0, 1, 2; and the embedding at calls 1 and 2 is that of tokens 0 and 1, their inputs."""
     def change(d):
-        reads = d["steps"]["patched"]["reads"]
-        reads["logits"]["pos"] = {"frame": 0, "index": -1}
-        reads["later"] = {"site": "head", "pos": {"frame": "1:3", "index": "0:2"}}
-        reads["inputs"] = {"site": {"component": "token_embeddings"}, "pos": {"frame": "1:3", "index": "0:2"}}
-        reads["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
-        d["steps"]["forward"] = {"kind": "forward", "input": "pairs.input", "writes": d["steps"]["patched"]["writes"],
-                                 "reads": {"logits": {"site": "head", "pos": -1},
-                                           "resid": {"site": {"component": "final_norm_output"}, "pos": -1}}}
+        entries = d["steps"]["patched"]["interventions"]
+        entries["logits"]["pos"] = {"frame": 0, "index": -1}
+        entries["later"] = {"site": "head", "pos": {"frame": "1:3", "index": "0:2"}}
+        entries["inputs"] = {"site": {"component": "token_embeddings"}, "pos": {"frame": "1:3", "index": "0:2"}}
+        entries["resid"] = {"site": {"component": "final_norm_output"}, "pos": -1}
+        d["steps"]["forward"] = {"kind": "forward", "input": "pairs.input", "interventions": {
+            "patch": entries["patch"], "logits": {"site": "head", "pos": -1},
+            "resid": {"site": {"component": "final_norm_output"}, "pos": -1}}}
         d["saves"] = ["patched", "patched.logits", "patched.later", "patched.inputs", "patched.resid",
                       "forward.logits", "forward.resid"]
     plan = edited("generate_probe", change).compile()
@@ -134,7 +134,7 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
             with open(os.path.join(ROOT, "data", "weekdays", "said.json")) as f:
                 rows = json.load(f)
             d["data"]["prompts"] = {"rows": [{**rows[0], "said": "er"}, {**rows[1], "said": "subst"}]}
-            d["steps"]["answer"]["reads"]["at_said"]["pos"]["scope"]["occurrence"] = occurrence
+            d["steps"]["answer"]["interventions"]["at_said"]["pos"]["scope"]["occurrence"] = occurrence
             d["saves"] = ["p_answer"]
         return changed
     first = run(engines, edited("generated_answer", change(0)).compile())
@@ -169,7 +169,7 @@ def test_a_call_the_run_never_made_is_missing(engines, kind):
     """A read at call 5 of a three-token generation: the loop asks for a call the run does not make, and
     every row is `alignment_missing`, its value NaN, the run going on."""
     def change(d):
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 5, "index": -1}
+        d["steps"]["patched"]["interventions"]["logits"]["pos"] = {"frame": 5, "index": -1}
         d["saves"] = ["p_answer", "patched"]
     plan = run(engines, edited("generate_probe", change).compile(), kind)
     assert plan.run.positions["patched.logits"] == ["alignment_missing"] * 4
@@ -182,7 +182,7 @@ def test_a_forwarded_option_sweeps(engines):
     def change(d):
         d["steps"]["patched"]["max_new_tokens"] = {"sweep": [2, 3]}
         d["steps"]["patched"]["min_new_tokens"] = 0
-        d["steps"]["patched"]["reads"]["logits"]["pos"] = {"frame": 0, "index": -1}
+        d["steps"]["patched"]["interventions"]["logits"]["pos"] = {"frame": 0, "index": -1}
         d["saves"] = ["patched"]
     plan = run(engines, edited("generate_probe", change).compile())
     assert {k: v.shape for k, v in plan.results["patched"].items()} == {2: (4, 2), 3: (4, 3)}
@@ -249,21 +249,21 @@ def test_each_stage_narrows_the_one_before():
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": -1, "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
-     r"steps\.patched\.writes\.patch\.pos\.index: index ':': a scoped write lands at the call fed its text's"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "1:", "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos: frame '1:' with index -1 names calls that depend on how far"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "1:4", "index": -1}),
-     r"steps\.patched\.writes\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": ":", "index": 0}),
-     r"steps\.patched\.writes\.patch\.pos: frame ':' with index 0 names calls that depend on how far"),
-    (lambda d: d["steps"]["patched"]["reads"].update(pattern={
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": -1, "index": -1}),
+     r"steps\.patched\.interventions\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
+     r"steps\.patched\.interventions\.patch\.pos\.index: index ':': a scoped write lands at the call fed its text's"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:", "index": -1}),
+     r"steps\.patched\.interventions\.patch\.pos: frame '1:' with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:4", "index": -1}),
+     r"steps\.patched\.interventions\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": 0}),
+     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0 names calls that depend on how far"),
+    (lambda d: d["steps"]["patched"]["interventions"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
-     r"steps\.patched\.reads\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
-    (lambda d: d["steps"]["patched"]["reads"]["logits"].update(pos={"frame": 1, "scope": {"column": "pairs.said"}}),
-     r"steps\.patched\.reads\.logits\.pos\.scope\.column: dataset 'pairs' has no column 'said'"),
+     r"steps\.patched\.interventions\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
+    (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(pos={"frame": 1, "scope": {"column": "pairs.said"}}),
+     r"steps\.patched\.interventions\.logits\.pos\.scope\.column: dataset 'pairs' has no column 'said'"),
 ])
 def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     with pytest.raises(PlanError, match=message):
@@ -365,7 +365,7 @@ def steered(engines, kind: str, batch_size: int, held: bool, change=None, **opti
         answer = d["steps"]["answer"]
         if not held:
             del answer["min_new_tokens"]
-        answer["reads"].update(
+        answer["interventions"].update(
             at1={"site": "head", "pos": {"frame": 1, "index": -1}},
             at2={"site": "head", "pos": {"frame": 2, "index": -1}},
             resid0={"site": {"component": "layer_output", "layers": 1}, "pos": {"frame": "0:2", "index": -2}},
@@ -440,15 +440,15 @@ WRITE = {"site": {"component": "layer_output", "layers": 0}, "pos": {"frame": 2,
 def written(d, held: bool = True):
     """generated_answer.json as a clean generation beside two that write at decode call 2, a swap of zeros
     and an add of the prompts' mean last-token vector (scaled up), each keeping its ids."""
-    answer = {k: v for k, v in d["steps"]["answer"].items() if k != "reads"}
+    answer = {k: v for k, v in d["steps"]["answer"].items() if k != "interventions"}
     if not held:
         answer.pop("min_new_tokens", None)
     d["steps"] = {
-        "harvest": {"kind": "forward", "input": "prompts.input", "reads": {"acts": {**WRITE, "pos": -1}}},
+        "harvest": {"kind": "forward", "input": "prompts.input", "interventions": {"acts": {**WRITE, "pos": -1}}},
         "mean": {"kind": "op", "op": "mean", "of": "harvest.acts"},
         "clean": answer,
-        "swapped": {**answer, "writes": {"w": {**WRITE, "ops": [{"op": "swap", "with": 0.0}]}}},
-        "added": {**answer, "writes": {"w": {**WRITE, "ops": [{"op": "add", "with": "mean", "scale": 50.0}]}}}}
+        "swapped": {**answer, "interventions": {"w": {**WRITE, "ops": [{"op": "swap", "with": 0.0}]}}},
+        "added": {**answer, "interventions": {"w": {**WRITE, "ops": [{"op": "add", "with": "mean", "scale": 50.0}]}}}}
     d["saves"] = ["clean", "swapped", "added"]
 
 
@@ -484,8 +484,8 @@ def test_a_decode_call_writes_operand_is_checked_before_any_forward(engines):
     """A decode call holds one position, so an operand read three tokens wide cannot be written there: refused
     by name before the generation, not as a size error inside it."""
     def change(d):
-        d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = {"index": "-4:-1"}
-        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": 2, "index": -1}
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = {"index": "-4:-1"}
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"frame": 2, "index": -1}
     plan = edited("generate_probe", change).compile()
     engine = engines("hooks", plan.model)
     calls = []
@@ -523,7 +523,7 @@ def test_a_span_of_calls_with_every_position_is_ragged(engines):
     """`{"frame": "1:4"}` reads calls 1 to 3 of each row: the Thursday row stopped after call 1, so it has
     one entry and the others three."""
     plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
-        d["steps"]["answer"]["reads"].update(span={"site": "head", "pos": {"frame": "1:4"}}),
+        d["steps"]["answer"]["interventions"].update(span={"site": "head", "pos": {"frame": "1:4"}}),
         d["saves"].append("answer.span")))
     assert plan.run.positions["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
     value = plan.results["answer.span"]
@@ -537,7 +537,7 @@ def test_picked_calls_and_picked_tokens_keep_the_order_written(engines):
     first: positions 9 then 11 (a 9-token prompt), rectangular, call 1 then call 3; and a slice with a step
     over the generated calls, `{"frame": "1:6:2"}`, is calls 1, 3 and 5."""
     plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
-        d["steps"]["answer"]["reads"].update(picked={"site": "head", "pos": {"frame": [3, 1], "index": [1, 0]}},
+        d["steps"]["answer"]["interventions"].update(picked={"site": "head", "pos": {"frame": [3, 1], "index": [1, 0]}},
                                              stepped={"site": "head", "pos": {"frame": "1:6:2", "index": [0, 1]}}),
         d["saves"].extend(["answer.picked", "answer.stepped"])))
     assert plan.run.positions["answer.picked"][1:] == [[9, 11]] * 3
@@ -558,7 +558,7 @@ def test_a_write_to_the_rows_last_call_lands_at_each_call_up_to_max_new_tokens(e
     def at(where):
         def change(d):
             written(d)
-            d["steps"]["swapped"]["writes"]["w"]["pos"] = where
+            d["steps"]["swapped"]["interventions"]["w"]["pos"] = where
         return edited("generated_answer", change).compile()
     runs = {}
     for kind in ("nnterp", "hooks"):
@@ -575,8 +575,8 @@ def test_a_write_to_the_rows_last_call_without_max_new_tokens_is_refused():
     def change(d):
         written(d)
         d["steps"]["swapped"].pop("max_new_tokens")
-        d["steps"]["swapped"]["writes"]["w"]["pos"] = {"frame": "2:"}
-    with pytest.raises(PlanError, match=r"steps\.swapped\.writes\.w\.pos: frame '2:' with index ':' names calls up "
+        d["steps"]["swapped"]["interventions"]["w"]["pos"] = {"frame": "2:"}
+    with pytest.raises(PlanError, match=r"steps\.swapped\.interventions\.w\.pos: frame '2:' with index ':' names calls up "
                                         r"to the row's last; a write lands at calls listed before the run, so the "
                                         r"step gives max_new_tokens"):
         edited("generated_answer", change).compile()
@@ -589,7 +589,7 @@ def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engi
     def at(pos):
         def change(d):
             written(d)
-            d["steps"]["swapped"]["writes"]["w"]["pos"] = pos
+            d["steps"]["swapped"]["interventions"]["w"]["pos"] = pos
         return engines(kind, plan_of("generated_answer").model).execute(
             edited("generated_answer", change).compile(), batch_size=BATCH_SIZE)
     base = at({"frame": 2, "index": -1})
@@ -600,7 +600,7 @@ def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engi
 
 
 def test_a_scope_the_prefills_head_does_not_hold_says_why(engines):
-    plan = edited("generate_probe", lambda d: d["steps"]["patched"]["reads"]["logits"].update(
+    plan = edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["logits"].update(
         pos={"scope": {"text": "today"}, "index": -1})).compile()
     with pytest.raises(ValueError, match=r"^patched\.logits: row 0: text 'today' is not in its input; a "
                                          r"generation's prefill computes lm_head_output at its last position only"):
@@ -611,7 +611,7 @@ def scoped_write(text: str, held: bool):
     """`written`, its swap replaced by a scale by 0 at the call fed `text`'s last token, found online."""
     def change(d):
         written(d, held=held)
-        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": {"frame": "1:", "scope": {"text": text},
+        d["steps"]["swapped"]["interventions"]["w"] = {**WRITE, "pos": {"frame": "1:", "scope": {"text": text},
                                                                  "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}
     return change
 
@@ -643,7 +643,7 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
     def at(pos):
         def change(d):
             scoped_write("er", held=True)(d)
-            d["steps"]["swapped"]["writes"]["w"]["pos"] = pos
+            d["steps"]["swapped"]["interventions"]["w"]["pos"] = pos
         return edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         for occurrence, call in ((0, 1), (1, 3)):
@@ -665,9 +665,9 @@ def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engin
     def at(where, read=False):
         def change(d):
             scoped_write("er", held=True)(d)
-            d["steps"]["swapped"]["writes"]["w"]["pos"] = where
+            d["steps"]["swapped"]["interventions"]["w"]["pos"] = where
             if read:
-                d["steps"]["swapped"]["reads"] = {"r": {"site": "head", "pos": pos}}
+                d["steps"]["swapped"]["interventions"]["r"] = {"site": "head", "pos": pos}
         return edited("generated_answer", change).compile()
     runs = {kind: (engines(kind, at(pos).model).execute(at(pos, read=True), batch_size=BATCH_SIZE),
                    engines(kind, at(pos).model).execute(at({"frame": 3, "index": -1}), batch_size=BATCH_SIZE))
@@ -687,8 +687,8 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
     def at(where):
         def change(d):
             scoped_write("er", held=True)(d)
-            w = d["steps"]["swapped"]["writes"].pop("w")
-            d["steps"]["swapped"]["writes"] = {k: {**w, "pos": p} for k, p in where.items()}
+            w = d["steps"]["swapped"]["interventions"].pop("w")
+            d["steps"]["swapped"]["interventions"] = {k: {**w, "pos": p} for k, p in where.items()}
         return edited("generated_answer", change).compile()
     span = {"w": {"frame": "1:", "scope": {"text": "er", "occurrence": "0:2"}, "index": -1}}
     calls = {"w1": {"frame": 1, "index": -1}, "w3": {"frame": 3, "index": -1}}
@@ -709,8 +709,8 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
     ({"frame": "1:", "scope": {"text": "is"}}, r"\.index: index ':': a scoped write lands at the call fed"),
 ])
 def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):
-    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
-        edited("generate_probe", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=pos)).compile()
+    with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos)).compile()
 
 
 def doubled(d, scope: dict, index):
@@ -721,8 +721,8 @@ def doubled(d, scope: dict, index):
         {"input": "If it is Friday and it is Friday, then", "counterfactual_inputs": ["x"], "cf_answer": " Sunday",
          "base_answer": " Friday"}]}}
     d["steps"] = {"look": {"kind": "forward", "input": "pairs.input",
-                           "reads": {"there": {"site": "target", "pos": {"scope": scope, "index": index}},
-                                     "every": {"site": "target", "pos": {"index": ":"}}}}}
+                           "interventions": {"there": {"site": "target", "pos": {"scope": scope, "index": index}},
+                                             "every": {"site": "target", "pos": {"index": ":"}}}}}
     d["saves"] = ["look.there", "look.every"]
 
 
@@ -751,7 +751,7 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
 def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
     """`er` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `":"` both."""
     def change(d):
-        d["steps"]["answer"]["reads"] = {
+        d["steps"]["answer"]["interventions"] = {
             "second": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": 1},
                                                "index": -1}},
             "both": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": ":"}}}}
@@ -787,8 +787,8 @@ def test_strip_locates_the_text_without_its_surrounding_space(engines, strip, fo
 ])
 def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
     def change(d):
-        d["steps"]["patched"]["writes"]["patch"]["pos"] = {"frame": "1:", "scope": scope, "index": -1}
-    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"frame": "1:", "scope": scope, "index": -1}
+    with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
         edited("generate_probe", change).compile()
 
 
@@ -799,7 +799,7 @@ def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
 ])
 def test_a_turn_is_a_role_and_takes_no_strip(scope, message):
     def change(d):
-        d["steps"]["blanked"]["writes"]["blank"]["pos"]["scope"] = scope
+        d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"] = scope
     with pytest.raises(PlanError, match=message):
         edited("chat_turn", change)
 
@@ -817,8 +817,8 @@ def test_a_roles_messages_are_its_occurrences(engines):
     def change(d):
         d["data"] = {"chats": {"rows": [{"chat": chat, "base_answer": " Friday"}]}}
         d["steps"] = {"look": {"kind": "forward", "input": "chats.chat",
-                               "reads": {k: {"site": {"component": "layer_output", "layers": 0},
-                                             "pos": {"scope": scope}} for k, scope in reads.items()}}}
+                               "interventions": {k: {"site": {"component": "layer_output", "layers": 0},
+                                                     "pos": {"scope": scope}} for k, scope in reads.items()}}}
         d["saves"] = [f"look.{k}" for k in reads]
     plan = edited("chat_turn", change).compile()
     runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
@@ -836,7 +836,7 @@ def listed(d, rows: list[dict], reads: dict):
     d["data"] = {"pairs": {"rows": [{"counterfactual_inputs": ["x"], "cf_answer": " Sunday", "base_answer": " Friday",
                                      **row} for row in rows]}}
     d["steps"] = {"look": {"kind": "forward", "input": "pairs.input",
-                           "reads": {k: {"site": "target", "pos": pos} for k, pos in reads.items()}}}
+                           "interventions": {k: {"site": "target", "pos": pos} for k, pos in reads.items()}}}
     d["saves"] = [f"look.{k}" for k in reads]
 
 
@@ -926,8 +926,8 @@ def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
 
     def change(d):
         written(d, held=False)
-        d["steps"]["swapped"]["writes"]["w"] = {**WRITE, "pos": pos, "ops": [{"op": "scale", "factor": 0.0}]}
-        d["steps"]["clean"]["reads"] = {"found": {"site": "head", "pos": pos}}
+        d["steps"]["swapped"]["interventions"]["w"] = {**WRITE, "pos": pos, "ops": [{"op": "scale", "factor": 0.0}]}
+        d["steps"]["clean"]["interventions"] = {"found": {"site": "head", "pos": pos}}
         d["saves"] += ["clean.found"]
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, BATCH_SIZE, held=False, change=change)

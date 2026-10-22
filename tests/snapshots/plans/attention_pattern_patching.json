@@ -17,7 +17,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "their_pattern": {
       "site": {
        "component": "attention_probabilities",
@@ -32,7 +32,8 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -43,7 +44,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "their_pattern": {
       "site": {
        "component": "attention_probabilities",
@@ -58,7 +59,8 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -69,7 +71,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "their_pattern": {
       "site": {
        "component": "attention_probabilities",
@@ -84,7 +86,8 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -95,7 +98,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "their_pattern": {
       "site": {
        "component": "attention_probabilities",
@@ -110,7 +113,8 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -123,7 +127,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "look_there": {
       "site": {
        "component": "attention_probabilities",
@@ -138,10 +142,14 @@
         "op": "swap",
         "with": "counterfactual.their_pattern"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -151,7 +159,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -162,7 +171,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "look_there": {
       "site": {
        "component": "attention_probabilities",
@@ -177,10 +186,14 @@
         "op": "swap",
         "with": "counterfactual.their_pattern"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -190,7 +203,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -201,7 +215,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "look_there": {
       "site": {
        "component": "attention_probabilities",
@@ -216,10 +230,14 @@
         "op": "swap",
         "with": "counterfactual.their_pattern"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -229,7 +247,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -240,7 +259,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "look_there": {
       "site": {
        "component": "attention_probabilities",
@@ -255,10 +274,14 @@
         "op": "swap",
         "with": "counterfactual.their_pattern"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -268,7 +291,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {

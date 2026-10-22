@@ -19,19 +19,15 @@
     "counterfactual": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"their_pattern": {"site": "one_head", "pos": -1}}
+      "interventions": {"their_pattern": {"site": "one_head", "pos": -1}}
     },
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {
-        "look_there": {
-          "site": "one_head",
-          "pos": -1,
-          "ops": [{"op": "swap", "with": "counterfactual.their_pattern"}]
-        }
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "look_there": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.their_pattern"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
     "logit_diff": {

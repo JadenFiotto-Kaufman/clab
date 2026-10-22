@@ -16,7 +16,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "v_cf": {
       "site": {
        "component": "mlp_activation",
@@ -35,7 +35,8 @@
        "rows",
        "pos",
        "intermediate_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -46,7 +47,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "v_cf": {
       "site": {
        "component": "mlp_activation",
@@ -65,7 +66,8 @@
        "rows",
        "pos",
        "intermediate_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -76,7 +78,7 @@
    {
     "kind": "forward",
     "input": "pairs.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "v_cf": {
       "site": {
        "component": "mlp_activation",
@@ -95,7 +97,8 @@
        "rows",
        "pos",
        "intermediate_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -108,7 +111,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "mlp_activation",
@@ -128,10 +131,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -141,7 +147,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -152,7 +159,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "mlp_activation",
@@ -172,10 +179,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -185,7 +195,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -196,7 +207,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "mlp_activation",
@@ -216,10 +227,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "intermediate_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -229,7 +243,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {

@@ -11,17 +11,9 @@
     "head": {"component": "lm_head_output"}
   },
   "steps": {
-    "harvest": {
-      "kind": "forward",
-      "input": "prompts.input",
-      "reads": {"acts": {"site": "target", "pos": -1}}
-    },
+    "harvest": {"kind": "forward", "input": "prompts.input", "interventions": {"acts": {"site": "target", "pos": -1}}},
     "mean": {"kind": "op", "op": "mean", "of": "harvest.acts"},
-    "clean": {
-      "kind": "forward",
-      "input": "prompts.input",
-      "reads": {"logits": {"site": "head", "pos": -1}}
-    },
+    "clean": {"kind": "forward", "input": "prompts.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
     "clean_ld": {
       "kind": "op",
       "op": "logit_diff",
@@ -32,8 +24,10 @@
     "ablated": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {"ablate": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "mean"}]}},
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "ablate": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "mean"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "ablated_ld": {
       "kind": "op",

@@ -5,8 +5,8 @@ import math
 from typing import Any
 
 from ... import address
-from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, encodes, kind_of, parameters,
-                           points, probe_of, uses, walk)
+from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, entries, gathers, kind_of,
+                           parameters, points, probe_of, uses, walk, writes)
 from .. import data, featurizers, ops, positions
 from ..ops.metrics import ONE_ID
 from .state import lookup, put, refkey, tokens, unaligned
@@ -22,16 +22,17 @@ def preflight(engine, plan: Plan) -> dict:
     `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
     each substituted dataset's rows under the body's name for it.
 
-    Refuses by name (`<step>.<record>`): a component the engine does not serve; a layer or a `select` outside the
+    Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
     option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
     row's scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
     one token on some row; a write whose operand was selected at a different width or narrowing; a write to a
     component with a `key` axis (the attention pattern, the scores) whose operand was read on another input that
     does not tokenize to the same length on every row, which would misalign the keys; a `pca` over no more vectors
-    than its `k`; a featurizer used at two widths, at a width its bundle's header does not say (or, with no
-    header, whose tensors are not as wide), or with a `select` outside its features or keeping none of them; and a
-    trained featurizer used at no site.
+    than its `k`; a featurizer used at two widths (at a site, the site's; inside an `encode`, that one's
+    coordinates'), at a width its bundle's header does not say (or, with no header, whose tensors are not as
+    wide), or encoded with a `select` outside its features or keeping none of them; and a trained featurizer
+    used at no site.
     """
     assert plan.run is not None
     refuse(engine, plan)
@@ -96,38 +97,37 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 plan.run.tokens[data.input_name(step.input, swap)] = \
                     [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
             encoded = found["inputs"][source]["rows"]
-            later = []                      # a write's operands, checked once the step's reads have their shapes
-            for side in ("writes", "reads"):
-                for key, record in getattr(step, side).items():
-                    where, site = f"{name}.{key}", record.site
-                    if site.layers is not None:
-                        picked(where, site.layers, sizes["num_layers"])
-                    for axis, index in (site.select or {}).items():
-                        shortest = min(len(e["ids"]) for e in encoded)
-                        size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
-                            if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
-                        selected(where, axis, index, size, what)
-                    kept = positions.kept(site.select, sizes)
-                    put(found["selects"], where, step.at, kept)
-                    pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
-                    resolved = None
-                    if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                        resolved = indices(where, side == "writes", record, step, rows, encoded, tokenizer)
-                        put(found["positions"], where, step.at, resolved)
-                        shape = (len(resolved[0]), select)
-                    else:               # resolved in the run, from what each row generates; one position a call
-                        shape = (positions.width(pos) or 1, select)
-                    probe = None                        # past a probe's encode, a column names its classes
-                    for o in record.ops:
-                        if probe is None:
-                            forced = [e["ids"] for e in encoded] if (pos["scope"] or {}).get("before") else None
-                            check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved, forced)
-                        else:
-                            check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
-                        if encodes(o) and kind_of(plan, o.featurizer or "") == "linear":
-                            probe = o.featurizer
-                    put(shapes, where, step.at, shape)
-                    later += [(where, o, shape, site) for o in record.ops] if side == "writes" else []
+            later = []                      # a write's operands, checked once the step's entries have their shapes
+            for key, record in entries(step).items():
+                where, site, write = f"{name}.{key}", record.site, writes(record)
+                if site.layers is not None:
+                    picked(where, site.layers, sizes["num_layers"])
+                for axis, index in (site.select or {}).items():
+                    shortest = min(len(e["ids"]) for e in encoded)
+                    size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
+                        if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
+                    selected(where, axis, index, size, what)
+                kept = positions.kept(site.select, sizes)
+                put(found["selects"], where, step.at, kept)
+                pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
+                resolved = None
+                if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
+                    resolved = indices(where, write, record, step, rows, encoded, tokenizer)
+                    put(found["positions"], where, step.at, resolved)
+                    shape = (len(resolved[0]), select)
+                else:               # resolved in the run, from what each row generates; one position a call
+                    shape = (positions.width(pos) or 1, select)
+                probe = None                        # past a probe's encode, a column names its classes
+                for o in record.ops:
+                    if probe is None:
+                        forced = [e["ids"] for e in encoded] if (pos["scope"] or {}).get("before") else None
+                        check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved, forced)
+                    else:
+                        check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
+                    if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
+                        probe = arguments(o)["featurizer"]
+                put(shapes, where, step.at, shape)
+                later += [(where, o, shape, site) for o in record.ops[:len(record.ops) - len(gathers(record))]]
             for where, o, shape, site in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)
     return found
@@ -174,13 +174,18 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     trains is used somewhere."""
     sizes, out = engine.sizes(), {}
     for name, used in uses(plan).items():
-        for where, site, at, o in used:
+        for where, site, at, o, around in used:
             last = address.dims(site.component, None, False)[-1]
             kept = positions.kept(site.select, sizes)
             width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
+            for outer in around:                # the coordinates of each encode it is inside, outermost first
+                ref = declared(plan, arguments(outer)["featurizer"])
+                width = instance(plan, agreeing(plan.featurizers[ref], at), width, None).size()
+                chosen = (arguments(outer).get("select") or {}).get("features")
+                width = width if chosen is None else len(positions.select(chosen, width))
             if out.setdefault(name, width) != width:
                 raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
                                  "elsewhere; a featurizer has one width")
@@ -198,7 +203,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']} has no clab header and is "
                                  f"{featurizers.KINDS[f.kind].width(f.bundle)} wide; this document uses {name!r} at "
                                  f"{site.component}, whose width is {width}")
-            features: Any = (o.select or {}).get("features")
+            features: Any = (arguments(o).get("select") or {}).get("features")
             if features is not None:
                 n = instance(plan, f, width, None).size()
                 selected(where, "features", features, n, f"the {n} features of {name!r}")
@@ -303,7 +308,7 @@ def refuse(engine, plan: Plan) -> None:
     maps a component to None (served), why not, or why not per layer (nnterp's `support()` shape)."""
     reasons = engine.unserved()
     for name, step in walk(plan.steps):
-        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
+        for key, record in entries(step).items():
             reason, layers = reasons.get(record.site.component), record.site.layers
             if isinstance(reason, dict):
                 named = picked(f"{name}.{key}", layers, engine.sizes()["num_layers"])
@@ -378,7 +383,7 @@ def placed(plan: Plan, found: dict, name: str, at: dict) -> tuple[list | None, l
         where = lookup(found["positions"], name, at)
     except KeyError:
         return None, None
-    record = step.reads[member] if step.kind in ("forward", "generate") and member in step.reads else None
+    record = entries(step).get(member) if step.kind in ("forward", "generate") else None
     scope = (positions.parse(record.pos)["scope"] or {}) if record is not None else {}
     return where, [e["ids"] for e in found["inputs"][data.input_name(step.input)]["rows"]] \
         if scope.get("before") else None
@@ -403,8 +408,8 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
 
 
 def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: dict, shapes: dict) -> None:
-    """A write's operands that another record selected: the same width and narrowing; on a `key` axis, inputs
-    that line up token for token. One from a read of the write's own forward is read at a site this engine
+    """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
+    that line up token for token. One from an entry of the write's own forward is read at a site this engine
     reaches first. An argument of the function an op's `options` choose (a lora's `with`) is as wide per
     position, its axes after the positions flattened, as the value the op acts on, and, from the same forward,
     read at the write's own positions."""
@@ -415,7 +420,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
         theirs = lookup(shapes, value, step.at)
-        read = points(plan.steps[value.partition(".")[0]])[0].reads[value.partition(".")[2]].site
+        read = entries(points(plan.steps[value.partition(".")[0]])[0])[value.partition(".")[2]].site
         same = value.partition(".")[0] == where.partition(".")[0]
         if same and engine.rank(read.component, made_at(read, sizes["num_layers"])[0]) >= \
                 engine.rank(site.component, made_at(site, sizes["num_layers"])[0]):

@@ -7,7 +7,8 @@ from typing import Any
 from safetensors.torch import save
 from torch import Tensor
 
-from ..plan.model import Plan, arguments, coordinate, dims_of, kind_of, labelled, name as named, points, uses
+from ..plan.model import (Plan, arguments, coordinate, dims_of, entries, kind_of, labelled, name as named, points,
+                          uses)
 from ..runtime import featurizers, ops, positions
 from .table import materialized, provenance
 
@@ -85,7 +86,7 @@ def header(plan: Plan, name: str, value: Any) -> dict[str, str] | None:
     if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
         source = provenance(plan, name)[0] or ""
-        site = points(plan.steps[source.partition(".")[0]])[0].reads[source.partition(".")[2]].site
+        site = entries(points(plan.steps[source.partition(".")[0]])[0])[source.partition(".")[2]].site
     elif step.kind == "fit" and member in step.train:
         kind, fields = kind_of(plan, member), points(plan.featurizers[member])[0].model_extra or {}
         site = uses(plan)[member][0][1]

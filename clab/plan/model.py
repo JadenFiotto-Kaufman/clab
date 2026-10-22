@@ -3,7 +3,7 @@
 `Plan(path)` reads a document; `plan.compile()` returns it compiled (rows loaded, sites and named
 interventions inlined, bundles loaded, sweeps expanded into points, names resolved); an engine's
 `execute` fills `plan.results` and `plan.run`; `plan.dump(out)` writes a run's output directory and
-`Plan.load(out)` reads one back. The records (sites, reads and writes, ops, positions, steps, datasets,
+`Plan.load(out)` reads one back. The records (sites, interventions and their ops, positions, steps, datasets,
 featurizers) are the same models in both states; a *derived* field is one compile or the run fills.
 
 The plan's methods are views and serialization, never execution: it pickles, prints and means the same
@@ -45,6 +45,10 @@ class Record(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _known(cls, given: Any) -> Any:
+        if isinstance(given, dict) and "interventions" in cls.model_fields and cls is not Plan:
+            for key in SIDES:
+                if key in given:
+                    raise ValueError(f"{key!r}: {SIDED}")
         if isinstance(given, dict) and cls.model_config.get("extra") == "forbid":
             for key in given:
                 if key not in cls.model_fields:
@@ -92,6 +96,8 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, member) or isinstance(value, dict) and "sweep" not in value
     if get_origin(member) is Annotated:
         member = get_args(member)[0]
+    if get_origin(member) is dict:
+        return isinstance(value, dict) and "sweep" not in value
     if get_origin(member) in (Union, types.UnionType):
         return any(shaped(m, value) for m in get_args(member))
     if get_origin(member) is Literal:
@@ -349,38 +355,19 @@ class Pos(Record):
 
 
 class Op(Record):
-    """An op inside a read or a write: `{"op": <name>, ...its arguments}` (see Ops). `featurizer` makes any op
-    run on the value's coordinates in that featurizer's space, the change written back; `select`
-    (`{"features": <selector>}`, among the featurizer's features, as a site's) narrows it to some of them. On
-    the `featurizer` op it names the featurizer the op calls."""
+    """An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops)."""
     model_config = ConfigDict(extra="allow")
     op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
-    featurizer: str | None = None
-    select: dict[str, Swept[Selector]] | None = None
 
     @model_validator(mode="after")
     def _arguments(self):
         ops.check(self.op, arguments(self))
-        if self.select is not None and space(self) is None:
-            raise ValueError("select on an op narrows a featurizer's space; name the 'featurizer' it runs in")
-        for axis in self.select or {}:
-            if axis != "features":
-                raise ValueError(f"a featurizer's space has no axis {axis!r} to select; its axes: features")
         return self
 
 
 def arguments(op: "Op | OpStep") -> dict:
-    """An op record's arguments by document spelling: its own fields, and `featurizer` when the op takes one
-    (the `featurizer` op) rather than running in that featurizer's space."""
-    given = dict(op.model_extra or {})
-    if isinstance(op, Op) and op.op in ops.OPS and "featurizer" in ops.parameters(op.op):
-        given["featurizer"] = op.featurizer
-    return given
-
-
-def space(op: "Op") -> str | None:
-    """The featurizer whose space an op in a read or write runs in, if any."""
-    return None if op.op in ops.OPS and "featurizer" in ops.parameters(op.op) else op.featurizer
+    """An op record's arguments by document spelling."""
+    return dict(op.model_extra or {})
 
 
 def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Parameter]:
@@ -390,31 +377,95 @@ def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Paramet
     return ops.parameters(name, args, kind_of(plan, ref) if isinstance(ref, str) else None)
 
 
-def encodes(op: Any) -> bool:
-    """Whether an op record calls a featurizer in mode `encode`. (`mode` is the featurizer op's argument and
-    `encode` its kinds' mode, so this asks that op by name.)"""
-    return op.op == "featurizer" and arguments(op).get("mode") == "encode"
+# What an entry's value spelled `reads` and `writes` is now, said where a document still spells them.
+SIDES = ("reads", "writes")
+SIDED = ("a step's reads and writes are one 'interventions' value, and a bundle is one dict of entries, "
+         "{<name>: {'site', 'pos'?, 'ops'?}}: an entry whose ops include an edit writes, one without reads")
 
 
-class Access(Record):
-    """A write or a read: the `site` it lands on (a declared name, or one inline), the positions `pos` names
-    there, and the `ops` it runs on that selection. Several writes at one site compose in listed order on one
-    copy of the value; a read at a written site observes the writes."""
+class Intervention(Record):
+    """An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the
+    positions `pos` names there (default every prompt token, `{"frame": 0, "index": ":"}`), and the `ops` it
+    runs on that selection, in the order written.
+
+    ```
+    step.interventions := item | [item, ...]
+    item               := "<bundle name>" | {<name>: entry, ...}
+    entry              := {"site": site, "pos"?: pos, "ops"?: [op, ...]}
+    root.interventions := {<bundle>: {<name>: entry, ...}}
+    ```
+
+    An entry whose ops include an edit (the edits group, `apply`, a `decode`) writes back: its value after its
+    last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
+    one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
+    write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
+    layout (`readout`, a metric, a reduction, an `encode` no `decode` closes): after one there is no live value
+    to write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step
+    names it); an entry nothing names only writes, and costs no memory.
+
+    A step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's
+    where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
+    compose there in order, each on what the one before it left. A name binds once per step: two entries of one
+    name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
+    at a site the forward reaches before this one's: it is that entry's value in this batch, at its positions,
+    and so an entry whose ops all write (none after its last edit). A bundle at the root is a dict of entries
+    pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
+    one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
+    and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
+    step's. An operand from an entry of its own step is served in a forward; inside a generate it is not yet (a
+    cross-site adapter in a generation is on the roadmap)."""
     site: Annotated[str | Site, ByShape()]
-    pos: Swept[int | Pos]
+    pos: Swept[int | Pos] = Pos()
     ops: list[Op] = []
-    dims: list[str] | None = derived(None, "the layout of what a read binds")
+    dims: list[str] | None = derived(None, "the layout of the value the entry binds")
+    gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
+                                    "or a later entry or step uses it")
 
 
-class Interventions(Record):
-    """A bundle of `writes` and `reads` (each by name), pulled into a step by `"interventions": "<name>"` or a
-    list of names. Its names resolve where a step pulls it in. A write's operand may name one of the bundle's
-    own reads by its bare name (`"with": "premix"`, a cross-site adapter's input): it means that read of
-    whichever step pulls the bundle in. `<a step>.<one of the bundle's reads>` is refused, since pulled into
-    another step it would still mean that step's read. A write's operand from its own step's reads is served
-    in a forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap)."""
-    writes: dict[str, Access] = {}
-    reads: dict[str, Access] = {}
+def no_sides(given: Any) -> Any:
+    """A dict of entries, refusing a bundle still spelled `{"reads": ..., "writes": ...}`."""
+    if isinstance(given, dict):
+        for key in SIDES:
+            if isinstance(given.get(key), dict) and "site" not in given[key]:
+                raise ValueError(f"{key!r}: {SIDED}")
+    return given
+
+
+Entries = Annotated[dict[str, Intervention], BeforeValidator(no_sides)]
+Item = Annotated[Union[str, Entries], ByShape()]
+Interventions = Annotated[Union[str, Entries, list[Item]], ByShape()]
+
+
+def entries(step) -> dict[str, Any]:
+    """A compiled forward's or generation's entries (`Intervention`s, each site inlined) in execution order:
+    compile lays every `interventions` value out as one dict. None for another step."""
+    found = getattr(step, "interventions", {})
+    assert isinstance(found, dict), "a compiled step's interventions are one dict of entries"
+    return found
+
+
+def writes(entry: Intervention) -> bool:
+    """Whether an entry writes back: it holds an edit."""
+    return any(ops.writes(o.op, arguments(o)) for o in entry.ops)
+
+
+def brackets(listed: list[Op]) -> dict[int, int]:
+    """Each `encode` a `decode` closes, by index, with how many ops lie between them: a `decode` closes the most
+    recent `encode` not yet closed (compile refuses one of another featurizer)."""
+    opened, out = [], {}
+    for i, o in enumerate(listed):
+        if o.op == "encode":
+            opened.append(i)
+        elif o.op == "decode" and arguments(o).get("featurizer") is not None:
+            j = opened.pop()
+            out[j] = i - j - 1
+    return out
+
+
+def gathers(entry: Intervention) -> list[Op]:
+    """The ops of an entry that run on its value once it is taken off the model: those after its last edit."""
+    last = max((i for i, o in enumerate(entry.ops) if ops.writes(o.op, arguments(o))), default=-1)
+    return entry.ops[last + 1:]
 
 
 class TextPart(Record):
@@ -426,9 +477,9 @@ class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
     `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
     literals of one dataset, joined per row as they are, with nothing between (`["days.input",
-    "days.answer"]` appends each row's answer to its prompt: teacher forcing); `writes` land where they
-    name before anything later reads them; each read binds `<step>.<read>`; `interventions` pulls named
-    bundles of writes and reads in, in listed order, before the step's own.
+    "days.answer"]` appends each row's answer to its prompt: teacher forcing); `interventions` (a bundle's
+    name, a dict of entries, or a list of either) are what it reads and writes, each entry binding
+    `<step>.<name>`, in the order written.
 
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
     template without a generation prompt, so the rendered prompt ends with the template's close of the last
@@ -441,9 +492,7 @@ class Forward(Record):
     differ in the last bits. Results reproduce to the bit at a fixed batch size."""
     kind: Literal["forward"]
     input: str | list[str | TextPart]
-    writes: dict[str, Access] = {}
-    reads: dict[str, Access] = {}
-    interventions: str | list[str] | None = None
+    interventions: Interventions = {}
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
 
@@ -458,9 +507,9 @@ class Forward(Record):
 
 
 class Generate(Forward):
-    """Generation from every row of a dataset input. It owns `input`, `writes`, `reads` and `interventions`, as
-    a forward does; every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`,
-    `do_sample`, ...), and may sweep. Its reads and writes name forward calls by `pos`'s `frame`: the
+    """Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
+    every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,
+    ...), and may sweep. Its entries name forward calls by `pos`'s `frame`: the
     prefill, and the decode calls, each at its one position. A write at decode call k takes effect from
     generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
     selects is known by then: its frame not counted from the row's last call, and with an
@@ -546,7 +595,7 @@ class Fit(Record):
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
     name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
     is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
-    featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<read>` a body value from
+    featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value from
     the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
     of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
     list of points."""
@@ -587,7 +636,8 @@ Fit.model_rebuild()
 
 
 class Featurizer(Record):
-    """A space a read or write happens in: `{"kind": <kind>, ...its fields}` (see Featurizer kinds)."""
+    """A space an entry's ops encode into, or a function `apply` calls: `{"kind": <kind>, ...its fields}` (see
+    Featurizer kinds)."""
     model_config = ConfigDict(extra="allow")
     kind: str
     at: dict[str, int] = derived({}, AT)
@@ -649,10 +699,10 @@ class Plan(Record):
     """each dataset by name"""
     sites: dict[str, Site] = {}
     """named locations, referenced by `site`"""
-    interventions: dict[str, Interventions] = {}
-    """named bundles of writes and reads, pulled into a step by `interventions`"""
+    interventions: dict[str, Entries] = {}
+    """named bundles of entries, pulled into a step's `interventions` by name"""
     featurizers: dict[str, FeaturizerEntry] = {}
-    """named spaces a read or write happens in"""
+    """named spaces an entry encodes into, and functions it applies"""
     steps: dict[str, Entry]
     """what runs, in order"""
     saves: list[str] = []
@@ -813,7 +863,7 @@ def dims_in(steps: dict, name: str) -> list[str]:
         inner, _, rest = member.partition(".")
         return [] if inner in step.train else ["epochs"] if inner == "history" else dims_in(step.steps, rest)
     if member:
-        return step.reads[member].dims
+        return entries(step)[member].dims
     return ["rows", "new"] if step.kind == "generate" else step.dims
 
 
@@ -852,7 +902,7 @@ def probe_of(plan: Plan, name: str) -> str:
         return probe_of(plan, step.of)
     if step.kind == "fit":
         return probe_of(body_view(plan, thing), member.partition(".")[2])
-    return next(o.featurizer for o in reversed(step.reads[member].ops) if encodes(o) and o.featurizer)
+    return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")
 
 
 def kind_of(plan: Plan, ref: str) -> str:
@@ -860,16 +910,24 @@ def kind_of(plan: Plan, ref: str) -> str:
     return points(plan.featurizers[declared(plan, ref)])[0].kind
 
 
-def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, "Op"]]]:
-    """Every op that runs in a declared featurizer's space or calls it, by featurizer: the record's
-    dotted name, its site, its step's point and the op."""
+def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
+    """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
+    step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
+    applied to."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
-        for key, record in {**getattr(step, "writes", {}), **getattr(step, "reads", {})}.items():
-            for o in record.ops:
-                if o.featurizer is not None:
-                    found.setdefault(declared(plan, o.featurizer), []).append(
-                        (f"{name}.{key}", record.site, step.at, o))
+        for key, entry in entries(step).items():
+            around: list[Op] = []
+            for o in entry.ops:
+                ref = arguments(o).get("featurizer")
+                if o.op == "decode" and ref is not None:
+                    around.pop()
+                    continue
+                if ref is not None:
+                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at, o,
+                                                                      list(around)))
+                if o.op == "encode":
+                    around.append(o)
     return found
 
 

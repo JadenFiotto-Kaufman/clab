@@ -11,7 +11,7 @@
     "answer": {
       "kind": "forward",
       "input": "days.input",
-      "reads": {
+      "interventions": {
         "correct": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.base_answer"}]},
         "p": {"site": "head", "pos": -1, "ops": [{"op": "token_prob", "token": "days.base_answer"}]}
       }

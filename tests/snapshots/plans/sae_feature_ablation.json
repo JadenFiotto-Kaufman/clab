@@ -34,7 +34,7 @@
   "base": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "latents": {
      "site": {
       "component": "layer_output",
@@ -43,16 +43,16 @@
      "pos": -1,
      "ops": [
       {
-       "op": "featurizer",
-       "featurizer": "dictionary",
-       "mode": "encode"
+       "op": "encode",
+       "featurizer": "dictionary"
       }
      ],
      "dims": [
       "rows",
       "pos",
       "features"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
@@ -61,7 +61,7 @@
    {
     "kind": "forward",
     "input": "prompts.input",
-    "writes": {
+    "interventions": {
      "ablate": {
       "site": {
        "component": "layer_output",
@@ -70,17 +70,27 @@
       "pos": -1,
       "ops": [
        {
-        "op": "swap",
+        "op": "encode",
         "featurizer": "dictionary",
         "select": {
          "features": 0
-        },
+        }
+       },
+       {
+        "op": "swap",
         "with": 0.0
+       },
+       {
+        "op": "decode",
+        "featurizer": "dictionary"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -90,7 +100,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -101,7 +112,7 @@
    {
     "kind": "forward",
     "input": "prompts.input",
-    "writes": {
+    "interventions": {
      "ablate": {
       "site": {
        "component": "layer_output",
@@ -110,17 +121,27 @@
       "pos": -1,
       "ops": [
        {
-        "op": "swap",
+        "op": "encode",
         "featurizer": "dictionary",
         "select": {
          "features": 1
-        },
+        }
+       },
+       {
+        "op": "swap",
         "with": 0.0
+       },
+       {
+        "op": "decode",
+        "featurizer": "dictionary"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -130,7 +151,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -141,7 +163,7 @@
    {
     "kind": "forward",
     "input": "prompts.input",
-    "writes": {
+    "interventions": {
      "ablate": {
       "site": {
        "component": "layer_output",
@@ -150,17 +172,27 @@
       "pos": -1,
       "ops": [
        {
-        "op": "swap",
+        "op": "encode",
         "featurizer": "dictionary",
         "select": {
          "features": 2
-        },
+        }
+       },
+       {
+        "op": "swap",
         "with": 0.0
+       },
+       {
+        "op": "decode",
+        "featurizer": "dictionary"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -170,7 +202,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -181,7 +214,7 @@
    {
     "kind": "forward",
     "input": "prompts.input",
-    "writes": {
+    "interventions": {
      "ablate": {
       "site": {
        "component": "layer_output",
@@ -190,17 +223,27 @@
       "pos": -1,
       "ops": [
        {
-        "op": "swap",
+        "op": "encode",
         "featurizer": "dictionary",
         "select": {
          "features": 3
-        },
+        }
+       },
+       {
+        "op": "swap",
         "with": 0.0
+       },
+       {
+        "op": "decode",
+        "featurizer": "dictionary"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -210,7 +253,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -349,7 +393,7 @@
  "compiled": true,
  "sweeps": {
   "features": {
-   "path": "steps.zeroed.writes.ablate.ops.0.select.features",
+   "path": "steps.zeroed.interventions.ablate.ops.0.select.features",
    "values": [
     0,
     1,

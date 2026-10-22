@@ -15,17 +15,17 @@
   "harvest": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "acts": {
      "site": {
       "component": "layer_output",
       "layers": 0
      },
-     "pos": {},
      "dims": [
       "entries",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

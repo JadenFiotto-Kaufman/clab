@@ -15,7 +15,7 @@
   "counterfactual": {
    "kind": "forward",
    "input": "pairs.counterfactual_inputs[0]",
-   "reads": {
+   "interventions": {
     "v_cf": {
      "site": {
       "component": "layer_output",
@@ -28,7 +28,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -36,7 +37,7 @@
   "patched": {
    "kind": "forward",
    "input": "pairs.input",
-   "writes": {
+   "interventions": {
     "patch": {
      "site": {
       "component": "layer_output",
@@ -50,10 +51,13 @@
        "op": "swap",
        "with": "counterfactual.v_cf"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -63,7 +67,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"

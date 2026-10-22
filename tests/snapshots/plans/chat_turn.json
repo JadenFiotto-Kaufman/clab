@@ -15,7 +15,7 @@
   "blanked": {
    "kind": "forward",
    "input": "chats.chat",
-   "writes": {
+   "interventions": {
     "blank": {
      "site": {
       "component": "layer_output",
@@ -33,10 +33,13 @@
        "op": "swap",
        "with": 0.0
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "asked": {
      "site": {
       "component": "layer_output",
@@ -64,7 +67,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "chats"

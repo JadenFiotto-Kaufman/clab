@@ -13,18 +13,15 @@
   "featurizers": {"lora": {"kind": "lora", "file_path": "documents/artifacts/fit.lora.safetensors"}},
   "interventions": {
     "adapted": {
-      "writes": {
-        "adapt": {"site": "target", "pos": {"frame": ":", "index": ":"}, "ops": [{"op": "featurizer", "featurizer": "lora", "mode": "apply"}]}
-      }
+      "adapt": {"site": "target", "pos": {"frame": ":", "index": ":"}, "ops": [{"op": "apply", "featurizer": "lora"}]}
     }
   },
   "steps": {
-    "clean": {"kind": "forward", "input": "test.input", "reads": {"logits": {"site": "head", "pos": -1}}},
+    "clean": {"kind": "forward", "input": "test.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
     "adapted": {
       "kind": "forward",
       "input": "test.input",
-      "interventions": "adapted",
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": ["adapted", {"logits": {"site": "head", "pos": -1}}]
     },
     "clean_ld": {"kind": "op", "op": "logit_diff", "of": "clean.logits", "a": "test.cf_answer", "b": "test.base_answer"},
     "adapted_ld": {"kind": "op", "op": "logit_diff", "of": "adapted.logits", "a": "test.cf_answer", "b": "test.base_answer"},

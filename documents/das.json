@@ -12,20 +12,18 @@
   },
   "featurizers": {"rot": {"kind": "subspace", "k": 8, "parametrization": "cayley"}},
   "interventions": {
-    "cf_read": {
-      "reads": {
-        "v_cf": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "fit.rot", "mode": "encode"}]}
-      }
-    },
+    "cf_read": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}},
     "das": {
-      "writes": {
-        "patch": {
-          "site": "target",
-          "pos": -1,
-          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "fit.rot"}]
-        }
+      "patch": {
+        "site": "target",
+        "pos": -1,
+        "ops": [
+          {"op": "encode", "featurizer": "fit.rot"},
+          {"op": "swap", "with": "counterfactual.v_cf"},
+          {"op": "decode", "featurizer": "fit.rot"}
+        ]
       },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "logits": {"site": "head", "pos": -1}
     }
   },
   "steps": {

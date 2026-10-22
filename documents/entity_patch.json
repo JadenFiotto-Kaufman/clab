@@ -14,19 +14,24 @@
     "counterfactual": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}
+      "interventions": {
+        "v_cf": {
+          "site": "target",
+          "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}
+        }
+      }
     },
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {
+      "interventions": {
         "patch": {
           "site": "target",
           "pos": {"scope": {"column": "pairs.entity"}, "index": -1},
           "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]
-        }
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
     "logit_diff": {

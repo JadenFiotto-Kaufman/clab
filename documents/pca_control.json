@@ -15,19 +15,23 @@
     "counterfactual": {
       "kind": "forward",
       "input": "test.counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "rot", "mode": "encode"}]}}
+      "interventions": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "rot"}]}}
     },
     "patched": {
       "kind": "forward",
       "input": "test.input",
-      "writes": {
+      "interventions": {
         "patch": {
           "site": "target",
           "pos": -1,
-          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "rot"}]
-        }
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+          "ops": [
+            {"op": "encode", "featurizer": "rot"},
+            {"op": "swap", "with": "counterfactual.v_cf"},
+            {"op": "decode", "featurizer": "rot"}
+          ]
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "iia": {
       "kind": "op",

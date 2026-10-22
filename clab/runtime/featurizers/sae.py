@@ -18,14 +18,14 @@ class Sae(Kind):
     dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
     `W_dec` `[latents, width]` with unit-norm rows (kept unit-norm by a projection after each optimizer step),
     both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec) @ W_enc + b_enc`, or
-    `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a write keeps its error term exactly.
+    `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a `decode` keeps its error term exactly.
     `activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
     published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
     zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
     `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
     are checked against each other and the site's width, nothing says what model it was trained on, and the
     document states its `activation` and `centered`, which have no default for it. Its
-    scalars, over every vector the body's encodes of it saw in that run of the body: `reconstruction`, the
+    scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
     mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)

@@ -14,7 +14,9 @@
       "max_new_tokens": 6,
       "min_new_tokens": 6,
       "do_sample": false,
-      "reads": {"logits": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "before": true}}}}
+      "interventions": {
+        "logits": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "before": true}}}
+      }
     },
     "p": {"kind": "op", "op": "token_prob", "of": "answer.logits", "token": "prompts.said"},
     "nll": {"kind": "op", "op": "cross_entropy", "of": "answer.logits", "target": "prompts.said"},

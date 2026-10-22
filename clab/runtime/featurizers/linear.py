@@ -10,7 +10,7 @@ class Linear(Kind):
     """A probe, `h @ W + b` (both starting at zero), whose coordinates are its classes: the distinct values of
     the `classes` column, sorted, which its bundle's header records. A metric scores them against a column of
     those values, as it scores logits against a column of tokens. It has no way back into the value, so it is
-    read in mode `encode` and never written through."""
+    read by `encode` and never decoded."""
     saves = trains = ("W", "b")
     axis, header = "classes", ("classes",)
 

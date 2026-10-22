@@ -16,7 +16,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -27,7 +27,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -39,7 +40,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -50,7 +52,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -61,7 +63,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -73,7 +76,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -84,7 +88,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -95,7 +99,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -107,7 +112,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -118,7 +124,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -129,7 +135,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -141,7 +148,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -152,7 +160,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -163,7 +171,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -175,7 +184,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -186,7 +196,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -197,7 +207,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -209,7 +220,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -220,7 +232,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -231,7 +243,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -243,7 +256,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -254,7 +268,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -265,7 +279,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -277,7 +292,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -288,7 +304,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -299,7 +315,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -311,7 +328,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -322,7 +340,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -333,7 +351,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -345,7 +364,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -356,7 +376,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -367,7 +387,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -379,7 +400,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -390,7 +412,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -401,7 +423,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -413,7 +436,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -424,7 +448,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -435,7 +459,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -447,7 +472,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -458,7 +484,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -469,7 +495,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -481,7 +508,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -492,7 +520,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -503,7 +531,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -515,7 +544,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -526,7 +556,7 @@
    {
     "kind": "forward",
     "input": "days.counterfactual_inputs[0]",
-    "reads": {
+    "interventions": {
      "day": {
       "site": {
        "component": "layer_output",
@@ -537,7 +567,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      },
      "last": {
       "site": {
@@ -549,7 +580,8 @@
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -562,7 +594,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -574,10 +606,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -592,7 +627,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -603,7 +639,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -615,10 +651,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -633,7 +672,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -644,7 +684,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -656,10 +696,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -674,7 +717,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -685,7 +729,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -697,10 +741,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -715,7 +762,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -726,7 +774,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -738,10 +786,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -756,7 +807,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -767,7 +819,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -779,10 +831,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -797,7 +852,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -808,7 +864,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -820,10 +876,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -838,7 +897,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -849,7 +909,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -861,10 +921,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -879,7 +942,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -890,7 +954,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -902,10 +966,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -920,7 +987,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -931,7 +999,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -943,10 +1011,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -961,7 +1032,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -972,7 +1044,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -984,10 +1056,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1002,7 +1077,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1013,7 +1089,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1025,10 +1101,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1043,7 +1122,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1054,7 +1134,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1066,10 +1146,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1084,7 +1167,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1095,7 +1179,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1107,10 +1191,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1125,7 +1212,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1136,7 +1224,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1148,10 +1236,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1166,7 +1257,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1177,7 +1269,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1189,10 +1281,13 @@
         "op": "swap",
         "with": "counterfactual.day"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1207,7 +1302,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1220,7 +1316,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1232,10 +1328,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1250,7 +1349,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1261,7 +1361,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1273,10 +1373,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1291,7 +1394,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1302,7 +1406,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1314,10 +1418,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1332,7 +1439,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1343,7 +1451,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1355,10 +1463,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1373,7 +1484,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1384,7 +1496,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1396,10 +1508,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1414,7 +1529,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1425,7 +1541,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1437,10 +1553,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1455,7 +1574,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1466,7 +1586,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1478,10 +1598,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1496,7 +1619,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1507,7 +1631,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1519,10 +1643,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1537,7 +1664,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1548,7 +1676,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1560,10 +1688,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1578,7 +1709,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1589,7 +1721,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1601,10 +1733,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1619,7 +1754,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1630,7 +1766,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1642,10 +1778,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1660,7 +1799,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1671,7 +1811,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1683,10 +1823,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1701,7 +1844,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1712,7 +1856,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1724,10 +1868,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1742,7 +1889,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1753,7 +1901,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1765,10 +1913,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1783,7 +1934,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1794,7 +1946,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1806,10 +1958,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1824,7 +1979,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -1835,7 +1991,7 @@
    {
     "kind": "forward",
     "input": "days.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -1847,10 +2003,13 @@
         "op": "swap",
         "with": "counterfactual.last"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "hit": {
       "site": {
        "component": "lm_head_output"
@@ -1865,7 +2024,8 @@
       "dims": [
        "rows",
        "pos"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {

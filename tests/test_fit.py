@@ -186,7 +186,7 @@ def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, ran, n
     bit-identical to an unpatched forward (the delta keeps the error term exactly); where it was not, they
     move. The fixture and the dictionary sae_train trains both have each among latents 0 to 3."""
     def change(d):
-        d["steps"]["clean"] = {"kind": "forward", "input": "prompts.input", "reads": {"logits": {"site": "head", "pos": -1}}}
+        d["steps"]["clean"] = {"kind": "forward", "input": "prompts.input", "interventions": {"logits": {"site": "head", "pos": -1}}}
         d["saves"] = ["base.latents", "zeroed.logits", "clean.logits"]
     with open(os.path.join(ran["root"], "documents", f"{name}.json")) as f:
         doc = json.load(f)
@@ -235,7 +235,7 @@ def test_a_trained_dictionary_loads_and_encodes_as_the_trained_one_did(engines, 
     filled.dump(os.path.join(root, "documents", "artifacts"))
     with open(os.path.join(root, "documents", "sae_train_ablation.json")) as f:
         doc = json.load(f)
-    doc["steps"]["base"]["reads"]["latents"]["pos"] = {"index": ":"}
+    doc["steps"]["base"]["interventions"]["latents"]["pos"] = {"index": ":"}
     doc["saves"] = ["base.latents"]
     plan = Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["base.latents"],
@@ -306,9 +306,9 @@ def probe(change=None) -> Plan:
             "kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 30, "batch_size": 4, "seed": 0,
             "optimizer": {"name": "adam", "lr": 0.5}, "eval": {"train": {}},
             "steps": {
-                "read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
+                "read": {"kind": "forward", "input": "days.input", "interventions": {"scores": {
                     "site": {"component": "layer_output", "layers": 1}, "pos": -1,
-                    "ops": [{"op": "featurizer", "featurizer": "fit.probe", "mode": "encode"}]}}},
+                    "ops": [{"op": "encode", "featurizer": "fit.probe"}]}}},
                 "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores", "target": "days.label"},
                 "hit": {"kind": "op", "op": "match", "of": "read.scores", "expected": "days.label"}}}},
         "saves": ["fit.history.ce", "fit.train.hit", "fit.train.read.scores", "fit.probe"]}
@@ -405,7 +405,7 @@ def train_an_sae(d):
 
 
 def use_a_root_read_in_the_body(d):
-    d["steps"] = {"early": {"kind": "forward", "input": "train.input", "reads": {"logits": {"site": "head", "pos": -1}}},
+    d["steps"] = {"early": {"kind": "forward", "input": "train.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
                   **d["steps"]}
     d["steps"]["fit"]["steps"]["iia"] = {"kind": "op", "op": "sub", "of": "patched.logits", "with": "early.logits"}
 
@@ -426,18 +426,19 @@ def test_a_fit_that_cannot_mean_anything_is_refused_at_compile(change, message):
 
 def test_a_write_through_a_probe_is_refused():
     def change(d):
-        d["steps"]["fit"]["steps"]["read"]["writes"] = {"w": {"site": {"component": "layer_output", "layers": 0},
-                                                             "pos": -1, "ops": [{"op": "scale", "factor": 0.0,
-                                                                                 "featurizer": "fit.probe"}]}}
-    with pytest.raises(PlanError, match=r"'fit\.probe' is a 'linear' featurizer, which has no coordinates to edit and write back "
-                                        r"into the value; call it with the featurizer op \(modes: encode\)"):
+        d["steps"]["fit"]["steps"]["read"]["interventions"] = {"w": {
+            "site": {"component": "layer_output", "layers": 0}, "pos": -1,
+            "ops": [{"op": "encode", "featurizer": "fit.probe"}, {"op": "scale", "factor": 0.0},
+                    {"op": "decode", "featurizer": "fit.probe"}]}}
+    with pytest.raises(PlanError, match=r"'fit\.probe' is a 'linear' featurizer, which has no decode: it serves encode; it "
+                                        r"has no way back into the value"):
         probe(change)
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["zeroed"]["writes"]["ablate"]["ops"][0].update(select={"features": [40]}),
+    (lambda d: d["steps"]["zeroed"]["interventions"]["ablate"]["ops"][0].update(select={"features": [40]}),
      r"zeroed\.ablate: select features \[40\] outside the 32 features of 'dictionary'"),
-    (lambda d: d["steps"]["zeroed"]["writes"]["ablate"]["ops"][0].update(select={"features": "40:"}),
+    (lambda d: d["steps"]["zeroed"]["interventions"]["ablate"]["ops"][0].update(select={"features": "40:"}),
      r"zeroed\.ablate: select features '40:' keeps none of the 32 features of 'dictionary'"),
 ])
 def test_a_featurizer_used_outside_its_features_is_refused_before_any_forward(engines, change, message):
@@ -450,7 +451,7 @@ def test_a_readout_in_the_body_carries_the_gradient_on_both_engines(engines):
     """das with its logits read as the logit lens of layer 1's output (`readout`, the engine's own norm and
     head) rather than at the head: the fit still lowers ce, and the engines agree to the bit."""
     def change(d):
-        d["interventions"]["das"]["reads"]["logits"] = {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
+        d["interventions"]["das"]["logits"] = {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
                                                         "ops": [{"op": "readout"}]}
     plan = with_history(change)
     got = [engines(kind, plan.model).execute(with_history(change), batch_size=BATCH_SIZE).results
@@ -484,7 +485,7 @@ def test_a_root_value_without_rows_is_the_bodys_to_use():
     """A root mean over a `layers: ":"` read is `[layers, hidden_size]`: no row per example, so a body may use it."""
     def change(d):
         d["steps"] = {"lens": {"kind": "forward", "input": "train.input",
-                               "reads": {"h": {"site": {"component": "layer_output", "layers": ":"}, "pos": -1}}},
+                               "interventions": {"h": {"site": {"component": "layer_output", "layers": ":"}, "pos": -1}}},
                       "avg": {"kind": "op", "op": "mean", "of": "lens.h", "over": ["rows", "pos"]}, **d["steps"]}
         d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg"}
     plan = edited("das", change).compile()
@@ -535,7 +536,7 @@ def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines
 def applied(corpus_root: str, name: str, featurizer: dict, steps: dict, data: dict) -> Plan:
     """A document that loads `featurizer` from the corpus's artifacts and runs `steps` with it."""
     doc = {"model": TINY, "data": data, "featurizers": {name: featurizer}, "steps": steps,
-           "saves": [next(iter(steps)) + "." + next(iter(next(iter(steps.values()))["reads"]))]}
+           "saves": [next(iter(steps)) + "." + next(iter(next(iter(steps.values()))["interventions"]))]}
     with open(os.path.join(corpus_root, "documents", "applied.json"), "w") as f:
         json.dump(doc, f)
     return Plan(os.path.join(corpus_root, "documents", "applied.json")).compile()
@@ -549,8 +550,8 @@ def test_a_trained_probe_loads_from_its_bundle_and_checks_its_classes(engines, t
     filled.dump(os.path.join(root, "documents", "artifacts"))
     data = probe().model_dump(mode="json", exclude_defaults=True)["data"]
     data["days"] = {"rows": data["days"]["rows"]}
-    read = {"read": {"kind": "forward", "input": "days.input", "reads": {"scores": {
-        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "featurizer", "featurizer": "probe", "mode": "encode"}]}}}}
+    read = {"read": {"kind": "forward", "input": "days.input", "interventions": {"scores": {
+        "site": {"component": "layer_output", "layers": 1}, "pos": -1, "ops": [{"op": "encode", "featurizer": "probe"}]}}}}
     spec = {"kind": "linear", "classes": "days.label", "file_path": "documents/artifacts/fit.probe.safetensors"}
     plan = applied(root, "probe", spec, read, data)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["read.scores"], filled.results["fit.train.read.scores"])
@@ -573,10 +574,11 @@ def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
     def loaded(d):
         d["featurizers"]["mask"]["file_path"] = "documents/artifacts/fit.mask.safetensors"
         d["steps"] = d["steps"]["fit"]["steps"]
-        for side in d["interventions"].values():
-            for record in {**side.get("writes", {}), **side.get("reads", {})}.values():
-                for o in record.get("ops", []):
-                    o["featurizer"] = "mask"
+        for bundle in d["interventions"].values():
+            for entry in bundle.values():
+                for o in entry.get("ops", []):
+                    if "featurizer" in o:
+                        o["featurizer"] = "mask"
         d["saves"] = ["iia", "ce"]
     plan = edited("dbm", loaded)
     plan = Plan(**plan.model_dump(exclude_defaults=True, exclude={"document"}),

@@ -5,21 +5,22 @@ must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of th
 the axes it appends (`adds`), when its value is a bundle a featurizer loads, that featurizer's kind
 (`bundle`), and a rule its arguments keep beyond their types (`check`). `OPS` lists them, in the order at the
 end of this file. An op whose axes and further arguments depend on what it is given declares them as functions
-instead (`layout`, `options`), as the `featurizer` op does for its modes. Compile reads the axes to lay out
+instead (`layout`, `options`), as `encode` and `apply` do for their featurizer's kind. Compile reads the axes to lay out
 every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
 `Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
 run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
 `"with"`).
 """
 
-ABOUT = """An op runs in three places, always as the same function:
+ABOUT = """An op runs in two places, always as the same function:
 
 - as a step, `{"kind": "op", "op": "mean", "of": "harvest.acts"}`, over a value earlier steps produced;
-- inside a read, `"ops": [...]`, on the gathered selection before its name binds;
-- inside a write, `"ops": [...]`, on the live selection at the site; what the last op returns is written back.
+- inside an entry of `interventions`, `"ops": [...]`, on the entry's selection at its site, in order.
 
-Inside a read or write an op sees one batch, so it must act per example: one that aggregates over rows is
-refused there (make it a step after the forward).
+Inside an entry an op sees one batch, so it must act per example: one that aggregates over rows is
+refused there (make it a step after the forward). An entry's edits act on the live value as the forward
+reaches the site, and the value after its last edit is written back; the ops after that run on the value
+once it is taken off the model (an entry nothing uses is not taken off, so they do not run).
 
 A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
 every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
@@ -28,21 +29,34 @@ token text). Reductions skip it: `mean` is the mean over the rows that have a va
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a decoded generation's text); **reductions**
 remove axes, by default every one but the feature axes (`over` names them; over `pos`, one value per row);
-**edits** keep the value's layout and change its contents; **transforms** turn each example's value into
-another of a different layout (logits from a residual stream, tokens from logits, text from ids).
+**edits** keep the value's layout and change its contents, and inside an entry are what writes back (with
+them `decode` when it names a featurizer); **transforms** turn each example's value into another of a
+different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from
+ids). An edit comes before any transform, metric or reduction of its entry, or, after an `encode`, before
+the `decode` that closes it.
+
+A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
+space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
+them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
+the same featurizer, and the ops between them act on the coordinates, their operands laid out on them (an
+`encode`d value, or a number). `decode` writes the change of coordinates back as a delta, so `[encode x,
+decode x]` is the identity to the bit, an op that changes no coordinate changes nothing, and a sparse
+autoencoder's error term survives; a `select`ed coordinate is scattered back and the rest are left as they
+were. Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s coordinates of `a`'s,
+`b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still open, a `decode` with no
+`encode` open, and one of another featurizer than the open one, are refused by name. `apply` is the
+featurizer's own version of the value (a subspace's projection, a dictionary's reconstruction without its
+error term, an adapter's adapted value): an edit, which writes back. An entry that stops after `encode` reads
+coordinates.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
 (a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
 `vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
-else is a literal. Inside a read or write, `featurizer` and `select` are arguments of every op: the op runs on
-the value's coordinates in that featurizer's space (on the features `{"select": {"features": <selector>}}`
-keeps; an operand is laid out on them) and the change is written back as a delta, so an op that changes no
-coordinate changes nothing to the bit. The `featurizer` op calls a featurizer instead, in one of its kind's
-modes (`encode` gives the coordinates themselves, `apply` the featurizer's version of the value).
-`renormalize`'s reference is the value at the site before the step's writes. Inside a write, an operand may
-name a read of the same forward at a site the forward reaches before the write's (`patched.premix` in
-`patched`): it is that read's value in this batch, at the read's positions.
+else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
+`encode`, its coordinates). An operand may name an earlier entry of the same forward at a site the forward
+reaches before this one's (`patched.premix` in `patched`): it is that entry's value in this batch, at its
+positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -108,7 +122,8 @@ def parameters(name: str, args: dict | None = None, kind: str | None = None) -> 
     """An op's parameters by document spelling, without `of` and the supplied ones; with `args` and the `kind`
     of its featurizer, also those of the function its `options` choose (an optional thing, `Value | None`, as
     the thing)."""
-    found = registry.spelled(OPS[name], SUPPLIED + ("of",))
+    found = {k: p.replace(annotation=registry.thing(p.annotation))
+             for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
     fn = options(name, args, kind)
     if fn is not None:
         own = registry.spelled(fn, tuple(inspect.signature(fn).parameters)[:2])
@@ -127,6 +142,12 @@ def featurizer_of(name: str, args: dict) -> Any:
     return next((args.get(k) for k, p in parameters(name).items() if p.annotation == Featurizer), None)
 
 
+def writes(name: str, args: dict) -> bool:
+    """Whether op `name` with `args` is an edit, which inside an entry writes back: an op of the edits group, or
+    a `decode` that closes an `encode`."""
+    return DECLARED[name]["group"] == "edits" or name == "decode" and args.get("featurizer") is not None
+
+
 def kind(name: str, args: dict) -> str | None:
     """The kind of the featurizer instance bound as op `name`'s `Featurizer` argument, if any."""
     f = featurizer_of(name, args)
@@ -134,9 +155,21 @@ def kind(name: str, args: dict) -> str | None:
 
 
 def check(name: str, args: dict) -> None:
-    """Op `name` exists and `args` bind to its signature."""
+    """Op `name` exists and `args` bind to its signature; a featurizer named where an op takes none is refused
+    with the bracket that runs the op in its space."""
+    if name == "featurizer":
+        raise ValueError("there is no 'featurizer' op: 'encode' gives a featurizer's coordinates of the value and "
+                         "'apply' its version of it")
     if name not in OPS:
         raise ValueError(f"unknown op {name!r}; valid: {', '.join(OPS)}")
+    takes = parameters(name)
+    if "featurizer" in args and "featurizer" not in takes:
+        raise ValueError(f"{name!r} takes no 'featurizer': an op runs in a featurizer's space between an encode and "
+                         f"a decode of it, [{{'op': 'encode', 'featurizer': ...}}, {{'op': {name!r}, ...}}, "
+                         "{'op': 'decode', 'featurizer': ...}]")
+    if "select" in args and "select" not in takes:
+        raise ValueError(f"{name!r} takes no 'select': an encode keeps some of a featurizer's coordinates, "
+                         "{'op': 'encode', 'featurizer': ..., 'select': {'features': <selector>}}")
     registry.check(OPS[name], args, SUPPLIED + ("of",), repr(name))
     if DECLARED[name]["check"] is not None:
         DECLARED[name]["check"](args)
@@ -173,14 +206,18 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
 
 
 def select(value: Tensor, component: str, record: dict) -> Tensor:
-    """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)`.
+    """The record's positions and narrowing of `value`, laid out `(rows, pos, ...)` (`taken`)."""
+    return taken(value.movedim(pos_axis(component), 1), record)
+
+
+def taken(x: Tensor, record: dict) -> Tensor:
+    """The record's positions and narrowing of `x`, a site's value with its token axis at 1.
 
     `record["positions"]` is `[rows, width]` token indices; `record["select"]`
     maps a dimension of that layout to the indices kept along it: one list for
     every row, or (`[rows, n]`, on the `key` axis) each row's own. The indices, built where the plan runs,
     move to the value's device.
     """
-    x = value.movedim(pos_axis(component), 1)
     x = x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)]
     for dim, index in record["select"].items():
         x = take(x, dim, index)
@@ -202,48 +239,68 @@ def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
     return index.reshape(shape).expand(size)
 
 
-def write(value: Tensor, component: str, writes: list[dict], got: dict | None = None) -> Tensor:
-    """`value` with `writes` applied in listed order, out of place.
+def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]:
+    """`value` with a site's records done in listed order, and whether any wrote: a write's ops run on its
+    selection of the current value, out of place, and the result lands there; a read takes its selection of
+    the current value into `got` under its name (at a decode call, appended: one per call it reads).
 
-    Each write's ops run on its selection of the current value; `original` is
-    the selection as it was before any of these writes. An argument bound to a read of the same forward
-    (`{"live": <the read's name>}`) is that read's value in `got`, where the forward put it. An op with a
-    `featurizer` (an instance) runs on the selection's coordinates in its space, on the features its `select`
-    keeps, and the change is written back (`Kind.within`). An op is given the dataset row of each of the
-    selection's rows (the op's `rows`) and the token position of each of its positions (the write's `tok`,
-    plus the decode `call` it lands at, which the engine stamps). A write narrows at most
-    one dimension of its selection (compile refuses more). A ragged write's rows are padded to one
-    width; only the positions its `keep` marks are written. Every index, mask and result moves to the value's
-    device, and a result to its dtype, where it meets the value.
+    `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
+    the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
+    An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
+    each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
+    write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
+    padded to one width; only the positions its `keep` marks are written. Every index, mask and result moves
+    to the value's device, and a result to its dtype, where it meets the value.
     """
     axis = pos_axis(component)
-    before = value.movedim(axis, 1)
-    x = before.clone()
+    before = x = value.movedim(axis, 1)
     rows = torch.arange(x.shape[0], device=x.device)[:, None]
-    for w in writes:
+    wrote = False
+    for w in records:
+        if "ops" not in w:
+            if "calls" in w:
+                got[w["name"]].append(taken(x, w))
+            else:
+                got[w["name"]] = taken(x, w)
+            continue
+        if not wrote:
+            x, wrote = before.clone(), True
         pos = w["positions"].to(x.device)
         current, original = x[rows, pos], before[rows, pos]
         new = current
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
         at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
-        for o in w["ops"]:
-            f, features, where = o["featurizer"], o.get("features"), {"rows": o.get("rows"), "positions": at}
-            args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
-            if f is None:
-                new = call(o["op"], new, args, original=original, dims=o["dims"], **where)
-                continue
-            start = f.encode(original)
-            start = start if features is None else start.index_select(-1, features.to(start.device))
-            new = f.within(new, lambda z, args=args, o=o, start=start: call(
-                o["op"], z, args, original=start, dims=o["dims"], **where), features)
+        new = edited(new, original, w["ops"], got, {"positions": at})
         for dim, index in w["select"].items():
             new, index = new.to(device=current.device, dtype=current.dtype), index.to(current.device)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \
                 current.scatter(dim, per_row(new, dim, index), new)
         keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
-    return x.movedim(1, axis)
+    return x.movedim(1, axis), wrote
+
+
+def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict | None, where: dict) -> Tensor:
+    """`new` after a write's bound ops, each on the current value in turn. An `encode` that a `decode` closes
+    (`inner`: how many ops lie between them) runs those ops on the value's coordinates, on the features its
+    `select` keeps, and writes the change back (`Kind.within`); `original` goes in with them, encoded the same
+    way."""
+    i = 0
+    while i < len(bound):
+        o = bound[i]
+        args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
+        if o["op"] == "encode":
+            f: Any = args["featurizer"]
+            features, inner = o.get("features"), bound[i + 1:i + 1 + o["inner"]]
+            start = f.encode(original)
+            start = start if features is None else start.index_select(-1, features.to(start.device))
+            new = f.within(new, lambda z, start=start, inner=inner: edited(z, start, inner, got, where), features)
+            i += o["inner"] + 2
+            continue
+        new = call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
+        i += 1
+    return new
 
 
 def live(got: dict | None, operand: dict) -> Tensor:
@@ -260,8 +317,8 @@ from . import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
-    transforms.readout, transforms.featurizer, reductions.mean, reductions.sum, reductions.min, reductions.pca,
-    metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit, metrics.cross_entropy,
-    metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax, transforms.decode, edits.noise,
-    edits.clamp, metrics.cosine])
+    transforms.readout, transforms.encode, transforms.decode, edits.apply, reductions.mean, reductions.sum,
+    reductions.min, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
+    metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
+    edits.noise, edits.clamp, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"

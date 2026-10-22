@@ -23,7 +23,7 @@
   "base": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "latents": {
      "site": {
       "component": "layer_output",
@@ -32,15 +32,52 @@
      "pos": -1,
      "ops": [
       {
-       "op": "featurizer",
-       "featurizer": "dictionary",
-       "mode": "encode"
+       "op": "encode",
+       "featurizer": "dictionary"
       }
      ],
      "dims": [
       "rows",
       "pos",
       "features"
+     ],
+     "gathered": true
+    },
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "prompts"
+  },
+  "spliced": {
+   "kind": "forward",
+   "input": "prompts.input",
+   "interventions": {
+    "reconstruct": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "apply",
+       "featurizer": "dictionary"
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
     },
     "logits": {
@@ -52,41 +89,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
-    }
-   },
-   "dataset": "prompts"
-  },
-  "spliced": {
-   "kind": "forward",
-   "input": "prompts.input",
-   "writes": {
-    "reconstruct": {
-     "site": {
-      "component": "layer_output",
-      "layers": 0
-     },
-     "pos": -1,
-     "ops": [
-      {
-       "op": "featurizer",
-       "featurizer": "dictionary",
-       "mode": "apply"
-      }
-     ]
-    }
-   },
-   "reads": {
-    "logits": {
-     "site": {
-      "component": "lm_head_output"
-     },
-     "pos": -1,
-     "dims": [
-      "rows",
-      "pos",
-      "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

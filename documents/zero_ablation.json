@@ -11,11 +11,7 @@
     "head": {"component": "lm_head_output"}
   },
   "steps": {
-    "clean": {
-      "kind": "forward",
-      "input": "prompts.input",
-      "reads": {"logits": {"site": "head", "pos": -1}}
-    },
+    "clean": {"kind": "forward", "input": "prompts.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
     "clean_ld": {
       "kind": "op",
       "op": "logit_diff",
@@ -26,8 +22,10 @@
     "zeroed": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {"zero": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": 0.0}]}},
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "zero": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": 0.0}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "zeroed_ld": {
       "kind": "op",

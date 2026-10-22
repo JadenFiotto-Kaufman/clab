@@ -49,7 +49,7 @@
      "counterfactual": {
       "kind": "forward",
       "input": "train.counterfactual_inputs[0]",
-      "reads": {
+      "interventions": {
        "v_cf": {
         "site": {
          "component": "layer_output",
@@ -58,16 +58,16 @@
         "pos": -1,
         "ops": [
          {
-          "op": "featurizer",
-          "featurizer": "fit.mask",
-          "mode": "encode"
+          "op": "encode",
+          "featurizer": "fit.mask"
          }
         ],
         "dims": [
          "rows",
          "pos",
          "features"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -78,7 +78,7 @@
      "patched": {
       "kind": "forward",
       "input": "train.input",
-      "writes": {
+      "interventions": {
        "patch": {
         "site": {
          "component": "layer_output",
@@ -87,14 +87,24 @@
         "pos": -1,
         "ops": [
          {
+          "op": "encode",
+          "featurizer": "fit.mask"
+         },
+         {
           "op": "swap",
-          "featurizer": "fit.mask",
           "with": "counterfactual.v_cf"
+         },
+         {
+          "op": "decode",
+          "featurizer": "fit.mask"
          }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
         ]
-       }
-      },
-      "reads": {
+       },
        "logits": {
         "site": {
          "component": "lm_head_output"
@@ -104,7 +114,8 @@
          "rows",
          "pos",
          "vocab_size"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -177,7 +188,7 @@
      "counterfactual": {
       "kind": "forward",
       "input": "train.counterfactual_inputs[0]",
-      "reads": {
+      "interventions": {
        "v_cf": {
         "site": {
          "component": "layer_output",
@@ -186,16 +197,16 @@
         "pos": -1,
         "ops": [
          {
-          "op": "featurizer",
-          "featurizer": "fit.mask",
-          "mode": "encode"
+          "op": "encode",
+          "featurizer": "fit.mask"
          }
         ],
         "dims": [
          "rows",
          "pos",
          "features"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -206,7 +217,7 @@
      "patched": {
       "kind": "forward",
       "input": "train.input",
-      "writes": {
+      "interventions": {
        "patch": {
         "site": {
          "component": "layer_output",
@@ -215,14 +226,24 @@
         "pos": -1,
         "ops": [
          {
+          "op": "encode",
+          "featurizer": "fit.mask"
+         },
+         {
           "op": "swap",
-          "featurizer": "fit.mask",
           "with": "counterfactual.v_cf"
+         },
+         {
+          "op": "decode",
+          "featurizer": "fit.mask"
          }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
         ]
-       }
-      },
-      "reads": {
+       },
        "logits": {
         "site": {
          "component": "lm_head_output"
@@ -232,7 +253,8 @@
          "rows",
          "pos",
          "vocab_size"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -305,7 +327,7 @@
      "counterfactual": {
       "kind": "forward",
       "input": "train.counterfactual_inputs[0]",
-      "reads": {
+      "interventions": {
        "v_cf": {
         "site": {
          "component": "layer_output",
@@ -314,16 +336,16 @@
         "pos": -1,
         "ops": [
          {
-          "op": "featurizer",
-          "featurizer": "fit.mask",
-          "mode": "encode"
+          "op": "encode",
+          "featurizer": "fit.mask"
          }
         ],
         "dims": [
          "rows",
          "pos",
          "features"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -334,7 +356,7 @@
      "patched": {
       "kind": "forward",
       "input": "train.input",
-      "writes": {
+      "interventions": {
        "patch": {
         "site": {
          "component": "layer_output",
@@ -343,14 +365,24 @@
         "pos": -1,
         "ops": [
          {
+          "op": "encode",
+          "featurizer": "fit.mask"
+         },
+         {
           "op": "swap",
-          "featurizer": "fit.mask",
           "with": "counterfactual.v_cf"
+         },
+         {
+          "op": "decode",
+          "featurizer": "fit.mask"
          }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
         ]
-       }
-      },
-      "reads": {
+       },
        "logits": {
         "site": {
          "component": "lm_head_output"
@@ -360,7 +392,8 @@
          "rows",
          "pos",
          "vocab_size"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -433,7 +466,7 @@
      "counterfactual": {
       "kind": "forward",
       "input": "train.counterfactual_inputs[0]",
-      "reads": {
+      "interventions": {
        "v_cf": {
         "site": {
          "component": "layer_output",
@@ -442,16 +475,16 @@
         "pos": -1,
         "ops": [
          {
-          "op": "featurizer",
-          "featurizer": "fit.mask",
-          "mode": "encode"
+          "op": "encode",
+          "featurizer": "fit.mask"
          }
         ],
         "dims": [
          "rows",
          "pos",
          "features"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {
@@ -462,7 +495,7 @@
      "patched": {
       "kind": "forward",
       "input": "train.input",
-      "writes": {
+      "interventions": {
        "patch": {
         "site": {
          "component": "layer_output",
@@ -471,14 +504,24 @@
         "pos": -1,
         "ops": [
          {
+          "op": "encode",
+          "featurizer": "fit.mask"
+         },
+         {
           "op": "swap",
-          "featurizer": "fit.mask",
           "with": "counterfactual.v_cf"
+         },
+         {
+          "op": "decode",
+          "featurizer": "fit.mask"
          }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
         ]
-       }
-      },
-      "reads": {
+       },
        "logits": {
         "site": {
          "component": "lm_head_output"
@@ -488,7 +531,8 @@
          "rows",
          "pos",
          "vocab_size"
-        ]
+        ],
+        "gathered": true
        }
       },
       "at": {

@@ -1,4 +1,4 @@
-"""The `lora` kind: a low-rank adapter, whose one mode is `apply`."""
+"""The `lora` kind: a low-rank adapter, whose one op is `apply`."""
 
 import torch
 from torch import Tensor
@@ -11,7 +11,7 @@ class Lora(Kind):
     """A low-rank adapter, `A` `[width, rank]` and `B` `[rank, width]` at scale `alpha / rank`: loaded from its
     bundle (its rank and alpha from the bundle's header), or with `rank` and `alpha` one a fit trains, drawn
     from `seed`: `A` standard normal over sqrt(width), `B` zero, so it starts as the identity exactly. It has
-    no coordinates, so its one mode is `apply`, and no edit runs in its space."""
+    no coordinates, so its one op is `apply`, and nothing encodes into it."""
     saves = trains = ("A", "B")
     header = drawn = ("rank", "alpha")
 

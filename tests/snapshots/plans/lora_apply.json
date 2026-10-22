@@ -35,7 +35,7 @@
   "clean": {
    "kind": "forward",
    "input": "test.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -45,7 +45,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "test"
@@ -53,7 +54,7 @@
   "adapted": {
    "kind": "forward",
    "input": "test.input",
-   "writes": {
+   "interventions": {
     "adapt": {
      "site": {
       "component": "layer_output",
@@ -64,14 +65,15 @@
      },
      "ops": [
       {
-       "op": "featurizer",
-       "featurizer": "lora",
-       "mode": "apply"
+       "op": "apply",
+       "featurizer": "lora"
       }
+     ],
+     "dims": [
+      "entries",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -81,7 +83,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "test"
@@ -113,7 +116,7 @@
   "answer": {
    "kind": "generate",
    "input": "test.input",
-   "writes": {
+   "interventions": {
     "adapt": {
      "site": {
       "component": "layer_output",
@@ -124,10 +127,13 @@
      },
      "ops": [
       {
-       "op": "featurizer",
-       "featurizer": "lora",
-       "mode": "apply"
+       "op": "apply",
+       "featurizer": "lora"
       }
+     ],
+     "dims": [
+      "entries",
+      "hidden_size"
      ]
     }
    },

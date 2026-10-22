@@ -37,7 +37,7 @@
   "counterfactual": {
    "kind": "forward",
    "input": "test.counterfactual_inputs[0]",
-   "reads": {
+   "interventions": {
     "v_cf": {
      "site": {
       "component": "layer_output",
@@ -46,16 +46,16 @@
      "pos": -1,
      "ops": [
       {
-       "op": "featurizer",
-       "featurizer": "rot",
-       "mode": "encode"
+       "op": "encode",
+       "featurizer": "rot"
       }
      ],
      "dims": [
       "rows",
       "pos",
       "features"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "test"
@@ -63,7 +63,7 @@
   "patched": {
    "kind": "forward",
    "input": "test.input",
-   "writes": {
+   "interventions": {
     "patch": {
      "site": {
       "component": "layer_output",
@@ -72,14 +72,24 @@
      "pos": -1,
      "ops": [
       {
+       "op": "encode",
+       "featurizer": "rot"
+      },
+      {
        "op": "swap",
-       "featurizer": "rot",
        "with": "counterfactual.v_cf"
+      },
+      {
+       "op": "decode",
+       "featurizer": "rot"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -89,7 +99,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "test"

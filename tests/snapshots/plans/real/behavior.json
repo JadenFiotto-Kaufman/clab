@@ -15,7 +15,7 @@
   "answer": {
    "kind": "forward",
    "input": "days.input",
-   "reads": {
+   "interventions": {
     "correct": {
      "site": {
       "component": "lm_head_output"
@@ -30,7 +30,8 @@
      "dims": [
       "rows",
       "pos"
-     ]
+     ],
+     "gathered": true
     },
     "p": {
      "site": {
@@ -46,7 +47,8 @@
      "dims": [
       "rows",
       "pos"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "days"

@@ -16,7 +16,7 @@
   "clean": {
    "kind": "forward",
    "input": "pairs.input",
-   "reads": {
+   "interventions": {
     "pattern": {
      "site": {
       "component": "attention_probabilities",
@@ -28,7 +28,8 @@
       "pos",
       "num_heads",
       "key"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -37,7 +38,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "zero": {
       "site": {
        "component": "attention_probabilities",
@@ -52,10 +53,14 @@
         "op": "swap",
         "with": 0.0
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -65,7 +70,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -76,7 +82,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "zero": {
       "site": {
        "component": "attention_probabilities",
@@ -91,10 +97,14 @@
         "op": "swap",
         "with": 0.0
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -104,7 +114,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -115,7 +126,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "zero": {
       "site": {
        "component": "attention_probabilities",
@@ -130,10 +141,14 @@
         "op": "swap",
         "with": 0.0
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -143,7 +158,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -154,7 +170,7 @@
    {
     "kind": "forward",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "zero": {
       "site": {
        "component": "attention_probabilities",
@@ -169,10 +185,14 @@
         "op": "swap",
         "with": 0.0
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_heads",
+       "key"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -182,7 +202,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {

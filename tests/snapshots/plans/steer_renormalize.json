@@ -15,7 +15,7 @@
   "harvest": {
    "kind": "forward",
    "input": "pairs.counterfactual_inputs[0]",
-   "reads": {
+   "interventions": {
     "resid": {
      "site": {
       "component": "layer_output",
@@ -26,7 +26,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -43,7 +44,7 @@
   "base": {
    "kind": "forward",
    "input": "pairs.input",
-   "reads": {
+   "interventions": {
     "resid": {
      "site": {
       "component": "layer_output",
@@ -54,7 +55,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -62,7 +64,7 @@
   "steered": {
    "kind": "forward",
    "input": "pairs.input",
-   "writes": {
+   "interventions": {
     "steer": {
      "site": {
       "component": "layer_output",
@@ -75,10 +77,13 @@
        "with": "direction",
        "scale": 4.0
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -88,7 +93,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     },
     "resid": {
      "site": {
@@ -100,7 +106,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -108,7 +115,7 @@
   "steered_renormed": {
    "kind": "forward",
    "input": "pairs.input",
-   "writes": {
+   "interventions": {
     "steer": {
      "site": {
       "component": "layer_output",
@@ -121,6 +128,11 @@
        "with": "direction",
        "scale": 4.0
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
     },
     "restore": {
@@ -133,10 +145,13 @@
       {
        "op": "renormalize"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -146,7 +161,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     },
     "resid": {
      "site": {
@@ -158,7 +174,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"

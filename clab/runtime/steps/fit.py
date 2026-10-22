@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from ...plan.model import Plan, agreeing
+from ...plan.model import Plan, agreeing, entries
 from . import KINDS, home, kind
 from .preflight import instance
 from .state import lookup, put
@@ -74,7 +74,7 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     for label in step.eval:
         final = body_run(engine, name, step, state, trained, sources["evals"][label], None)
         for key, s in step.steps.items():
-            members = ([key] if s.kind == "op" else []) + [f"{key}.{read}" for read in getattr(s, "reads", {})]
+            members = ([key] if s.kind == "op" else []) + [f"{key}.{k}" for k, e in entries(s).items() if e.gathered]
             for member in members:
                 put(state, f"{name}.{label}.{member}", step.at, lookup(final, member, step.at))
     for f, inst in trained.items():

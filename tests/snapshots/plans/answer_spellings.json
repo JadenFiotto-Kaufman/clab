@@ -48,7 +48,7 @@
   "clean": {
    "kind": "forward",
    "input": "qa.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -58,7 +58,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "qa"

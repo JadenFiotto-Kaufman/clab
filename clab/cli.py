@@ -30,15 +30,15 @@ from .runtime import featurizers, ops
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
            "A column read as text": plan.Column, "A literal in a list `input`": plan.TextPart,
-           "A write or a read": plan.Access, "An op in a write or a read": plan.Op, "`pos`": plan.Pos,
-           "`interventions.<name>`": plan.Interventions}
+           "An entry of `interventions`": plan.Intervention, "An op in an entry": plan.Op, "`pos`": plan.Pos}
 STEPS = {name: model for name, model in plan.KINDS.items()}
 FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 
 
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
-         plan.Access: "write or read", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
-         plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal"}
+         plan.Intervention: "entry", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
+         plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal",
+         plan.Interventions: "a bundle's name, an object of entry, or a list of them", plan.Entries: "object of entry"}
 
 
 def as_json(value: Any) -> str:
@@ -100,7 +100,7 @@ def axes(name: str) -> str:
 
 
 def arguments(name: str) -> list[str]:
-    """An op's arguments as a document writes them; `...` where its mode's own follow (the featurizer op)."""
+    """An op's arguments as a document writes them; `...` where its featurizer kind's own follow (`apply`)."""
     out = []
     for key, p in ops.parameters(name).items():
         text = f"{key}: {spell_type(p.annotation)}"
@@ -109,16 +109,16 @@ def arguments(name: str) -> list[str]:
     return out + ["..."] * takes_more
 
 
-def modes(kind: str) -> list[str]:
-    """Each mode a featurizer kind has, with what it produces and the mode's own arguments."""
+def served(kind: str) -> list[str]:
+    """Each op a featurizer kind serves, with what it does and the arguments of the kind's own it takes."""
     out = []
     cls = featurizers.KINDS[kind]
-    for m in cls.modes():
-        fn = cls.mode(m)
+    for name in cls.ops():
+        fn = cls.method(name)
         own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
-               for k, p in featurizers.registry.spelled(fn, ("self", "h")).items()]
-        produces = featurizers.MODES[m]["produces"].format(axis=cls.axis)
-        out.append(f"`{m}`" + (f"({', '.join(own)})" if own else "") + f" gives {produces}"
+               for k, p in featurizers.registry.spelled(fn, ("self", "h", "z", "new")).items()]
+        produces = featurizers.OPS[name]["produces"].format(axis=cls.axis)
+        out.append(f"`{name}`" + (f"({', '.join(own)})" if own else "") + f" {produces}"
                    + (f": {summary(fn)}" if doc(fn) else ""))
     return out
 
@@ -154,17 +154,15 @@ def per_op(base: dict) -> dict:
     branches = []
     for name in ops.OPS:
         params = {k: p for k, p in ops.parameters(name).items() if k not in base["properties"]}
-        # The featurizer op's further arguments are every mode's of every kind, which compile binds to the one
-        # its featurizer's kind has; only that op's options can be listed ahead of a document, so by name.
-        if name == "featurizer":
-            params.update({k: p for cls in featurizers.KINDS.values() for m in cls.modes()
-                           for k, p in featurizers.registry.spelled(cls.mode(m), ("self", "h")).items()})
+        # `apply`'s further arguments are every kind's own, which compile binds to the one its featurizer's kind
+        # has; only that op's options can be listed ahead of a document, so by name.
+        if name == "apply":
+            params.update({k: p for cls in featurizers.KINDS.values() if "apply" in cls.ops()
+                           for k, p in featurizers.registry.spelled(cls.method("apply"), ("self", "h")).items()})
         # An optional thing (`Value | None`) is written as the thing, or left out.
         named = {k: next((a for a in get_args(p.annotation) if a in kinds), p.annotation) for k, p in params.items()}
         args = {k: {"anyOf": [kinds.get(named[k]) or TypeAdapter(p.annotation).json_schema(), sweep]}
                 for k, p in params.items()}
-        if name == "featurizer":
-            args["mode"] = {"enum": list(featurizers.MODES)}
         branches.append({"type": "object", "properties": {**base["properties"], "op": {"const": name}, **args},
                          "required": base.get("required", []) + [k for k, p in ops.parameters(name).items()
                                                                  if p.default is p.empty],
@@ -200,7 +198,7 @@ def describe(what: str | None = None) -> str:
             lines += [f"  {name}({', '.join(fields(model))})", f"      {summary(model)}"]
         sections.append("\n".join(lines))
     if what in (None, "ops"):
-        lines = ["ops (`of` is the value acted on; inside a read or write, the selection there):"]
+        lines = ["ops (`of` is the value acted on; inside an entry, the value it meets there):"]
         for group in ops.GROUPS:
             lines.append(f"  {group}:")
             for name, fn in ops.OPS.items():
@@ -219,7 +217,7 @@ def describe(what: str | None = None) -> str:
             params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
                       for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
             lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
-                      f"      modes: {'; '.join(m.replace('`', '') for m in modes(name))}"]
+                      f"      ops: {'; '.join(m.replace('`', '') for m in served(name))}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
         sections.append("pos:\n" + doc(plan.Pos))
@@ -266,7 +264,7 @@ def markdown() -> str:
     parts += ["## Derived fields\n",
               "Fields a document leaves out, which compile (or, for `run`, the engine) fills:\n",
               "\n".join(f"- `{model.__name__}`: {', '.join(derived(model))}"
-                        for model in (plan.Plan, plan.Data, plan.Access, plan.Forward, plan.Generate, plan.OpStep,
+                        for model in (plan.Plan, plan.Data, plan.Intervention, plan.Forward, plan.Generate, plan.OpStep,
                                       plan.Featurizer)
                         if derived(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
@@ -283,8 +281,8 @@ def markdown() -> str:
     for name, cls in featurizers.KINDS.items():
         params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {as_json(p.default)}`")
                   for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
-        listed = "; ".join(modes(name))
-        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Modes: " + listed
+        listed = "; ".join(served(name))
+        parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Ops: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
     from . import engines
     parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]

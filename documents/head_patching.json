@@ -14,15 +14,15 @@
     "counterfactual": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": -1}}
+      "interventions": {"v_cf": {"site": "target", "pos": -1}}
     },
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {
-        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
     "logit_diff": {

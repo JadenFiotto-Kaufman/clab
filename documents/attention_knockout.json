@@ -17,16 +17,14 @@
     "head": {"component": "lm_head_output"}
   },
   "steps": {
-    "clean": {
-      "kind": "forward",
-      "input": "pairs.input",
-      "reads": {"pattern": {"site": "pattern", "pos": -1}}
-    },
+    "clean": {"kind": "forward", "input": "pairs.input", "interventions": {"pattern": {"site": "pattern", "pos": -1}}},
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {"zero": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": 0.0}]}},
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "zero": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": 0.0}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
     "logit_diff": {

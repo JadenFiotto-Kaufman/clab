@@ -15,28 +15,25 @@
     "base": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {
-        "latents": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "dictionary", "mode": "encode"}]}
+      "interventions": {
+        "latents": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "dictionary"}]}
       }
     },
     "zeroed": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {
+      "interventions": {
         "ablate": {
           "site": "target",
           "pos": -1,
           "ops": [
-            {
-              "op": "swap",
-              "with": 0.0,
-              "featurizer": "dictionary",
-              "select": {"features": {"sweep": [0, 1, 2, 3]}}
-            }
+            {"op": "encode", "featurizer": "dictionary", "select": {"features": {"sweep": [0, 1, 2, 3]}}},
+            {"op": "swap", "with": 0.0},
+            {"op": "decode", "featurizer": "dictionary"}
           ]
-        }
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "logit_diff": {
       "kind": "op",

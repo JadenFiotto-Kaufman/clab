@@ -36,7 +36,7 @@ def record(plan: Plan):
 
 def forced(scope: dict, extra: dict | None = None) -> dict:
     return {"forced": {"kind": "forward", "input": ["days.input", "days.answer"],
-                       "reads": {"logits": {"site": HEAD, "pos": {"scope": scope}}}}, **(extra or {})}
+                       "interventions": {"logits": {"site": HEAD, "pos": {"scope": scope}}}}, **(extra or {})}
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -45,7 +45,7 @@ def test_before_reads_the_positions_that_predict_the_scope_and_each_scores_its_t
     position before each, and token i of the answer scores the distribution there."""
     steps = forced({"column": "days.answer", "occurrence": -1, "before": True}, {
         "at": {"kind": "forward", "input": ["days.input", "days.answer"],
-               "reads": {"logits": {"site": HEAD, "pos": {"scope": {"column": "days.answer", "occurrence": -1}}}}},
+               "interventions": {"logits": {"site": HEAD, "pos": {"scope": {"column": "days.answer", "occurrence": -1}}}}},
         "nll": {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "days.answer"}})
     filled = run(engines, doc(steps, ["nll", "forced.logits"]), kind)
     at, before = record(filled).positions["at.logits"], record(filled).positions["forced.logits"]
@@ -64,7 +64,7 @@ def test_before_reads_the_positions_that_predict_the_scope_and_each_scores_its_t
 def test_a_scope_token_at_position_0_has_no_position_before_it(engines):
     """GPT-2 adds no BOS, so a prompt's first word sits at position 0, and nothing comes before it."""
     plan = doc({"read": {"kind": "forward", "input": "days.input",
-                         "reads": {"x": {"site": HEAD, "pos": {"scope": {"text": "If", "before": True}}}}}},
+                         "interventions": {"x": {"site": HEAD, "pos": {"scope": {"text": "If", "before": True}}}}}},
                ["read.x"], model=GPT2)
     with pytest.raises(ValueError, match=r"^read\.x: row 0: text 'If' begins the row, at position 0, which no "
                                          r"position comes before$"):
@@ -73,7 +73,7 @@ def test_a_scope_token_at_position_0_has_no_position_before_it(engines):
 
 def test_lower_searches_the_input_lowercased_and_the_positions_are_the_inputs(engines):
     def read(scope):
-        return {"kind": "forward", "input": "days.input", "reads": {"x": {"site": HEAD, "pos": {"scope": scope}}}}
+        return {"kind": "forward", "input": "days.input", "interventions": {"x": {"site": HEAD, "pos": {"scope": scope}}}}
     plan = doc({"exact": read({"text": ["Monday", "Thursday"]}),
                 "lowered": read({"column": {"column": "days.lowered", "lower": True}}),
                 "text": read({"text": [" MONDAY ", "THURSDAY"], "lower": True, "strip": True})}, ["exact.x"])
@@ -87,7 +87,7 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
     `token_prob` sums its members, `match` hits on any, `cross_entropy` is minus the log of the sum."""
     rows = [{"input": "Is it? Answer:", "answer": " Yes", "set": [" Yes", " True", " Yes"]}]
     plan = Plan(model=TINY, data={"qa": {"rows": rows}}, steps={
-        "clean": {"kind": "forward", "input": "qa.input", "reads": {"logits": {"site": HEAD, "pos": -1}}},
+        "clean": {"kind": "forward", "input": "qa.input", "interventions": {"logits": {"site": HEAD, "pos": -1}}},
         "p": {"kind": "op", "op": "token_prob", "of": "clean.logits",
               "token": {"column": "qa.answer", "strip": True, "lower": True}},
         "any": {"kind": "op", "op": "token_prob", "of": "clean.logits", "token": "qa.set"},
@@ -123,7 +123,7 @@ def refused_before_any_forward(engines, plan: Plan, message: str) -> None:
 
 
 def test_an_answer_of_several_tokens_needs_a_position_per_token(engines):
-    plan = doc({"read": {"kind": "forward", "input": "days.input", "reads": {"logits": {"site": HEAD, "pos": -1}}},
+    plan = doc({"read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {"site": HEAD, "pos": -1}}},
                 "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": "days.answer"}}, ["p"])
     refused_before_any_forward(engines, plan, r"^p: days\.answer row 0: ' Tuesday' is 3 tokens; the read has 1 "
                                               r"position on that row; token i of an answer scores the read's position "
@@ -145,7 +145,7 @@ def test_an_answer_of_several_tokens_needs_a_pos_axis(engines):
 def test_a_class_or_a_set_has_no_one_logit(engines, op, args):
     """" today" under strip and lower is ▁today, ▁Today and today; a set is its members."""
     rows = [{**r, "set": [" Friday", " Sunday"], "word": " today"} for r in DAYS]
-    plan = doc({"read": {"kind": "forward", "input": "days.input", "reads": {"logits": {"site": HEAD, "pos": -1}}},
+    plan = doc({"read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {"site": HEAD, "pos": -1}}},
                 "x": {"kind": "op", "op": op, "of": "read.logits", **args}}, ["x"], rows)
     refused_before_any_forward(engines, plan, rf"^x: days\.(word|set) row 0: .* stands for (3|2) ids \(a set, or a "
                                               rf"class under strip or lower\), which have no one logit for {op}; "
@@ -154,7 +154,7 @@ def test_a_class_or_a_set_has_no_one_logit(engines, op, args):
 
 def test_a_sets_members_are_one_width(engines):
     rows = [{**r, "set": [" Monday", " Tuesday"]} for r in DAYS]
-    plan = doc({"read": {"kind": "forward", "input": "days.input", "reads": {"logits": {"site": HEAD, "pos": -1}}},
+    plan = doc({"read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {"site": HEAD, "pos": -1}}},
                 "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": "days.set"}}, ["p"], rows)
     refused_before_any_forward(engines, plan, r"^p: days\.set row 0: its members are ' Monday' 1, ' Tuesday' 3 "
                                               r"tokens; a set's members are one width, the positions its read aligns$")
@@ -181,13 +181,13 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
 def test_a_scopes_flags_are_a_texts_or_on_a_columns_reference(scope, message):
     with pytest.raises(PlanError, match=message):
         doc({"read": {"kind": "forward", "input": "days.input",
-                      "reads": {"x": {"site": HEAD, "pos": {"scope": scope}}}}}, ["read.x"])
+                      "interventions": {"x": {"site": HEAD, "pos": {"scope": scope}}}}}, ["read.x"])
 
 
 def test_a_write_beyond_the_prefill_takes_no_before():
-    with pytest.raises(PlanError, match=r"writes\.w\.pos\.scope\.before: a write beyond the prefill lands as its "
+    with pytest.raises(PlanError, match=r"interventions\.w\.pos\.scope\.before: a write beyond the prefill lands as its "
                                         r"call runs, before the token it would predict is chosen"):
-        doc({"gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 2, "writes": {"w": {
+        doc({"gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 2, "interventions": {"w": {
             "site": {"component": "layer_output", "layers": 0}, "pos": {"frame": "1:", "scope": {
                 "text": "Friday", "before": True}, "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}}}}, ["gen"])
 
@@ -201,13 +201,13 @@ def test_a_write_beyond_the_prefill_takes_no_before():
 def test_a_list_input_joins_text_columns_of_one_dataset(input, message):
     with pytest.raises(PlanError, match=message):
         Plan(model=TINY, data={"days": {"rows": DAYS}, "other": {"rows": DAYS}}, steps={
-            "read": {"kind": "forward", "input": input, "reads": {"x": {"site": HEAD, "pos": -1}}}},
+            "read": {"kind": "forward", "input": input, "interventions": {"x": {"site": HEAD, "pos": -1}}}},
             saves=["read.x"]).compile()
 
 
 def test_a_list_input_joins_its_parts_as_they_are(engines):
     plan = doc({"read": {"kind": "forward", "input": ["days.input", {"text": " and then"}, "days.answer"],
-                         "reads": {"x": {"site": HEAD, "pos": -1}}}}, ["read.x"])
+                         "interventions": {"x": {"site": HEAD, "pos": -1}}}}, ["read.x"])
     tokens = record(run(engines, plan)).tokens['days.input + " and then" + days.answer']
     assert engines("nnterp", plan.model).tokenizer.convert_tokens_to_string(tokens[1][1:]) == \
         "If today is Thursday, tomorrow is and then Friday"
@@ -229,7 +229,7 @@ def test_a_before_scope_in_a_generation_is_the_calls_that_chose_its_tokens(engin
                 "pos": {"frame": "1:", "scope": {"text": text, "before": True}}}
     plan = Plan(model=TINY, data={"days": {"rows": [{"input": r["input"]} for r in DAYS]}}, steps={
         "gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 6, "min_new_tokens": 6,
-                "do_sample": False, "reads": {"prompt": read("today"), "first": read("Handler"),
+                "do_sample": False, "interventions": {"prompt": read("today"), "first": read("Handler"),
                                               "said": read("substr")}}},
         saves=["gen.said"]).compile()
     filled = run(engines, plan)
@@ -243,7 +243,7 @@ def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
     """`"day"` alone is ▁day; appended to `Sun` it is part of ▁Sunday, the token the position before predicts."""
     rows = [{"prefix": "If today is Saturday, tomorrow is Sun", "bare": "day"}]
     plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
-        "forced": {"kind": "forward", "input": ["days.prefix", "days.bare"], "reads": {"logits": {
+        "forced": {"kind": "forward", "input": ["days.prefix", "days.bare"], "interventions": {"logits": {
             "site": HEAD, "pos": {"scope": {"column": "days.bare", "occurrence": -1, "before": True}}}}},
         "p": {"kind": "op", "op": "token_prob", "of": "forced.logits", "token": "days.bare"}}, saves=["p"]).compile()
     refused_before_any_forward(engines, plan, r"^p: days\.bare row 0: position 8 predicts '▁Sunday' in the input, "
@@ -259,7 +259,7 @@ def test_strip_and_lower_at_the_point_of_use(engines, kind):
     rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York "}]
     city = {"column": "days.city", "strip": True, "lower": True}
     plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
-        "read": {"kind": "forward", "input": "days.input", "reads": {"logits": {
+        "read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {
             "site": HEAD, "pos": {"scope": {"column": city, "before": True}}}}},
         "hit": {"kind": "op", "op": "match", "of": "read.logits", "expected": city},
         "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": city}},
@@ -278,7 +278,7 @@ def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
     token scores every position of its row."""
     def plan(rows):
         return doc({"read": {"kind": "forward", "input": "days.input",
-                             "reads": {"logits": {"site": HEAD, "pos": {"index": "-3:"}}}},
+                             "interventions": {"logits": {"site": HEAD, "pos": {"index": "-3:"}}}},
                     "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": "days.answer"}}, ["p"], rows)
     refused_before_any_forward(engines, plan(DAYS), r"^p: days\.answer row 1: ' Friday' is 1 token; the read has 3 "
                                                     r"positions on that row")

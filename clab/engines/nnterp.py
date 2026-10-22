@@ -22,7 +22,7 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, landed, nnterp_name, now, stops
 
 
 @engine("nnterp")
@@ -74,26 +74,21 @@ class NnterpEngine:
     def sizes(self) -> dict[str, int]:
         return {k: getattr(self.model, k) for k in SIZES}
 
-    def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]:
-        """One trace over the batch, visiting each site in forward order: writes first, then the reads there."""
+    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]:
+        """One trace over the batch, visiting each site in forward order and doing its records there in turn."""
         model = self.model
-        sites = by_site(writes, reads)
+        sites = by_site(records)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
         with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self))):
             for component, layer in order:
-                here, there = sites[(component, layer)]
                 host = envoy(model, component, layer)
-                value = getattr(host, component)
-                if here:
-                    value = ops.write(value, component, here, got)
+                value, wrote = ops.visit(getattr(host, component), component, sites[(component, layer)], got)
+                if wrote:
                     setattr(host, component, value)
-                for record in there:
-                    got[record["name"]] = ops.select(value, component, record)
         return got
 
-    def generate(self, batch: dict, writes: list[dict], reads: list[dict],
-                 options: dict) -> tuple[Tensor, dict[str, Any]]:
+    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]:
         """`model.generate` over the batch, with `options` as its keyword arguments: the new ids, and each read.
 
         One loop over the forward calls visits, at each call, every site in forward order and does there what
@@ -104,12 +99,12 @@ class NnterpEngine:
         read out of forward order shows up instead as a missing step, which `steps.generate` refuses), so the
         ids are read in an invoke of their own, which the loop's end does not cut short."""
         model = self.model
-        sites = by_site(writes, reads)
+        sites = by_site(records)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
-        asked = [r["calls"] for r in writes + reads if "calls" in r]
+        asked = [r["calls"] for r in records if "calls" in r]
         loop = None if None in asked else sorted({0, *(s for a in asked for s in a)})
-        got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
-        online = any("online" in w for w in writes)
+        got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
+        online = any("online" in r for r in records)
         result: dict = {}
         seen: list = []
         with warnings.catch_warnings():
@@ -121,17 +116,14 @@ class NnterpEngine:
                         if online and step > 0:
                             seen.append(model.input_ids)
                         for component, layer in order:
-                            here, there = now(*sites[(component, layer)], step)
+                            here = now(sites[(component, layer)], step)
                             here = landed(here, seen, model.tokenizer) if step > 0 else here
-                            if not here and not there:
+                            if not here:
                                 continue
                             host = envoy(model, component, layer)
-                            value = getattr(host, component)
-                            if here:
-                                value = ops.write(value, component, here, got)
+                            value, wrote = ops.visit(getattr(host, component), component, here, got)
+                            if wrote:
                                 setattr(host, component, value)
-                            for record in there:
-                                keep(got, record, ops.select(value, component, record))
                 with tracer.invoke():
                     result["ids"] = tracer.result
         return result["ids"][:, batch["input_ids"].shape[1]:], got

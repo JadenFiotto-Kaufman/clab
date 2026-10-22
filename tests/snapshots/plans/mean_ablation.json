@@ -15,7 +15,7 @@
   "harvest": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "acts": {
      "site": {
       "component": "layer_output",
@@ -26,7 +26,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
@@ -43,7 +44,7 @@
   "clean": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -53,7 +54,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
@@ -73,7 +75,7 @@
   "ablated": {
    "kind": "forward",
    "input": "prompts.input",
-   "writes": {
+   "interventions": {
     "ablate": {
      "site": {
       "component": "layer_output",
@@ -85,10 +87,13 @@
        "op": "swap",
        "with": "mean"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -98,7 +103,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

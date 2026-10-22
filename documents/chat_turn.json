@@ -11,14 +11,12 @@
     "blanked": {
       "kind": "forward",
       "input": "chats.chat",
-      "writes": {
+      "interventions": {
         "blank": {
           "site": "target",
           "pos": {"scope": {"turn": "user", "occurrence": 1}, "index": -1},
           "ops": [{"op": "swap", "with": 0.0}]
-        }
-      },
-      "reads": {
+        },
         "asked": {"site": "target", "pos": {"scope": {"turn": "user", "occurrence": 1}, "index": -1}},
         "logits": {"site": "head", "pos": -1}
       }

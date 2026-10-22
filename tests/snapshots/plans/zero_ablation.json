@@ -15,7 +15,7 @@
   "clean": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -25,7 +25,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
@@ -45,7 +46,7 @@
   "zeroed": {
    "kind": "forward",
    "input": "prompts.input",
-   "writes": {
+   "interventions": {
     "zero": {
      "site": {
       "component": "layer_output",
@@ -57,10 +58,13 @@
        "op": "swap",
        "with": 0.0
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -70,7 +74,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
