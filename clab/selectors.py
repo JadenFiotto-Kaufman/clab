@@ -67,52 +67,59 @@ def keyed(selector) -> bool:
     return fixed(selector) is not None and not from_end(selector)
 
 
-def probed(selector) -> tuple[int, list[int], list[int]]:
-    """A number `n` past every number a selector is written with, and what it picks among `n` and `2n` things:
-    where the two agree, what it picks does not depend on how many things there are."""
-    numbers = [abs(int(x)) for x in re.findall(r"-?[0-9]+", str(selector))]
-    n = 2 * (1 + max(numbers, default=0))
-    return n, select(selector, n), select(selector, 2 * n)
+def parsed(selector: str) -> tuple[int | None, int | None, int]:
+    """A slice string's start, stop and step (1 when left out)."""
+    start, stop, step = (int(x) if x else None for x in (selector.split(":") + [""])[:3])
+    return start, stop, 1 if step is None else step
 
 
-def widths(selector) -> list[int]:
-    """How many things a selector picks among 0, 1, ... up to `2n` of them (`n` as `probed` has it)."""
-    n, _, _ = probed(selector)
-    return [len(select(selector, k)) for k in range(2 * n + 1)]
+def bound(selector) -> int:
+    """A number of things past every number the selector is written with: what it picks among that many is
+    all a static selector ever picks."""
+    return 2 * (1 + max((abs(int(x)) for x in re.findall(r"-?[0-9]+", str(selector))), default=0))
 
 
 def fixed(selector) -> int | None:
     """A selector's static width: how many things it picks whatever their number (once there are enough), or
-    None when that grows with the number. An int is 1, a list of picks its length; a slice has one when its
-    two ends count from the same side (`"2:5"`, `":3"`, `"-4:-1"`, `"-3:"`, `"3::-1"`), not `":"`, `"2:"`
-    or `"-2:3"` (which picks fewer of more things): it picks no fewer of more things and, past every number
-    it is written with, the same number.
-    Where there are fewer things than a static width needs, the record does not fit that row: a refusal in
-    the prefill, `alignment_missing` beyond it."""
+    None when that grows with the number. An int is 1, a list of picks its length; a slice has one when both
+    its ends count from the same side, a bound written non-negative counting from the front and one left out
+    counting from where Python starts or stops it (`"2:5"`, `":3"`, `"-4:-1"`, `"-3:"`, `"3::-1"`; not `":"`,
+    `"2:"` or `"-2:3"`). Where there are fewer things than a static width needs, the record does not fit that
+    row: a refusal in the prefill, `alignment_missing` beyond it."""
     if not isinstance(selector, str):
         return 1 if isinstance(selector, int) else len(selector)
-    counts = widths(selector)
-    static = all(a <= b for a, b in zip(counts, counts[1:])) and counts[len(counts) // 2] == counts[-1]
-    return counts[-1] if static else None
+    start, stop, step = parsed(selector)
+    if (step > 0 and stop == 0) or (step < 0 and stop == -1):
+        return 0                                        # empty, however many things there are
+    front = (step > 0 if start is None else start >= 0, step < 0 if stop is None else stop >= 0)
+    return len(select(selector, bound(selector))) if front[0] == front[1] else None
 
 
 def from_end(selector) -> bool:
-    """Whether a selector counts from the end: among more things it picks other ones of the first `n` than
-    among `n` (`-1`, `[0, -1]`, `"-3:"`, `":-1"`), so what it picks of the first `n` is not decided by them."""
-    n, few, many = probed(selector)
-    return few != [i for i in many if i < n]
+    """Whether what a selector picks among the first `n` things depends on `n`: a negative int or pick, a slice
+    with a bound written negative, or a backward slice from the end unless it walks every thing (`"::-1"`)."""
+    if isinstance(selector, int):
+        return selector < 0
+    if isinstance(selector, list):
+        return any(i < 0 for i in selector)
+    start, stop, step = parsed(selector)
+    if stop is not None and stop < 0:
+        return True
+    return start is not None and start < 0 if step > 0 else not (step == -1 and start in (None, -1))
 
 
 def every(selector) -> bool:
     """Whether a selector picks every one of however many things there are, in order (`":"`)."""
-    n, few, many = probed(selector)
-    return few == list(range(n)) and many == list(range(2 * n))
+    return isinstance(selector, str) and parsed(selector) in ((None, None, 1), (0, None, 1))
 
 
 def covers(frame) -> bool:
-    """Whether a frame names every decode call (`":"`, `"1:"`)."""
-    n, few, many = probed(frame)
-    return set(range(1, n)) <= set(few) and set(range(1, 2 * n)) <= set(many)
+    """Whether a frame names every decode call (`":"`, `"1:"`), whichever way it walks them."""
+    if not isinstance(frame, str):
+        return False
+    start, stop, step = parsed(frame)
+    return (step == 1 and start in (None, 0, 1) and stop is None) or \
+        (step == -1 and start in (None, -1) and stop in (None, 0))
 
 
 # Which of a number of things a range picks, as a document writes it: `pos` documents it, `select` resolves it.

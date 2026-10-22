@@ -12,7 +12,7 @@ import re
 
 from . import data, selectors
 from .plan import fail
-from .selectors import covers, every, fixed, from_end, probed, select
+from .selectors import bound, covers, every, fixed, from_end, select
 
 
 MISSING = "alignment_missing"
@@ -34,17 +34,11 @@ def parse(pos) -> dict:
 # -- what the run needs to know before it starts ------------------------------------------------------
 
 
-def bounded(frame) -> bool:
-    """Whether a frame names the same calls on every row that gets that far, a static number of them: not a
-    frame to the row's last call (`":"`, `"1:"`, `"2:"`)."""
-    return fixed(frame) is not None
-
-
 def width(pos: dict) -> int | None:
-    """A record's width on every row, or None when it is ragged: its frame is `bounded`, its index has a
-    static width (`fixed`), and a scope, if any, is one occurrence in the prefill."""
+    """A record's width on every row, or None when rows differ: its frame names a static number of calls, its
+    index has a static width, and a scope, if any, is one occurrence in the prefill."""
     scope = pos["scope"]
-    if not bounded(pos["frame"]) or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
+    if fixed(pos["frame"]) is None or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
         return None
     return fixed(pos["index"])
 
@@ -55,14 +49,14 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     that gets that far, which a write needs, landing as each call runs. `horizon` is how many calls a row makes
     at most (a generation's `max_new_tokens`), when known.
 
-    A frame counted from the end depends on how far each row gets. Any other frame names call `k`
-    on every row that makes it, as `k in select(frame, k + 1)` says. An index other than `":"` must not
-    depend on how far the row gets either: over a frame holding the prompt it does (the prompt's length
-    differs by row); over decode calls, each holding one position, the record is exact when a row that stops
-    after `k` calls names exactly the calls below `k` that a row running to the horizon names (an index
-    counted from the end over several calls does not). Without a horizon, a frame to the row's last call
-    other than every decode call names calls only the run will know. A scope's index counts its text's
-    tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
+    A frame counted from the end depends on how far each row gets. Any other frame names call `k` on every row
+    that makes it. Over a frame holding the prompt any index but `":"` counts through the prompt, whose length
+    differs by row. Over decode calls, each holding one position, the record is exact when a row that stops
+    after `k` calls names exactly the calls below `k` that a row running to the horizon names (an index counted
+    from the end over several calls does not, nor any index over picks out of order). Without a horizon, an
+    open frame with an index that is open or counted from the end names calls only the run will know. A scope's
+    index counts its text's tokens, which any of the frame's calls may hold, so a scoped record can name every
+    call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
     if pos["scope"] and pos["scope"].get("before") and select(frame, 2) != [0]:
         return True, None, False        # the position before a token may be any call's, the prefill's included
@@ -75,10 +69,9 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
         return holds, calls, known and (every(index) or calls == [])
     pos = {**pos, "index": index}
     if horizon is None:
-        k = enough(pos)
-        if named(pos, k) != named(pos, 2 * k):
+        if fixed(frame) is None and (fixed(index) is None or from_end(index)):
             return False, None, False                   # it names calls up to the row's last
-        horizon = max(named(pos, k), default=0) + 1
+        horizon = max(named(pos, enough(pos)), default=0) + 1
     full = named(pos, horizon)
     exact = all(set(named(pos, k)) == {c for c in full if c < k} for k in range(1, horizon))
     return False, sorted(full) if exact else decode_calls(frame, horizon), exact
@@ -88,7 +81,7 @@ def decode_calls(frame, horizon: int | None) -> list[int] | None:
     """A frame's decode calls, in order: listed when it names a static number of them or when the horizon
     bounds them; None when it names every one, or calls to the row's last that only the run will know."""
     if fixed(frame) is not None:
-        return sorted(k for k in probed(frame)[1] if k)
+        return sorted(k for k in select(frame, bound(frame)) if k)
     if covers(frame) or horizon is None:
         return None
     return sorted(k for k in select(frame, horizon) if k)
