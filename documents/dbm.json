@@ -12,20 +12,18 @@
   },
   "featurizers": {"mask": {"kind": "gate", "temperature": {"start": 1.0, "end": 0.05}}},
   "interventions": {
-    "cf_read": {
-      "reads": {
-        "v_cf": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "fit.mask", "mode": "encode"}]}
-      }
-    },
+    "cf_read": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.mask"}]}},
     "dbm": {
-      "writes": {
-        "patch": {
-          "site": "target",
-          "pos": -1,
-          "ops": [{"op": "swap", "with": "counterfactual.v_cf", "featurizer": "fit.mask"}]
-        }
+      "patch": {
+        "site": "target",
+        "pos": -1,
+        "ops": [
+          {"op": "encode", "featurizer": "fit.mask"},
+          {"op": "swap", "with": "counterfactual.v_cf"},
+          {"op": "decode", "featurizer": "fit.mask"}
+        ]
       },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "logits": {"site": "head", "pos": -1}
     }
   },
   "steps": {

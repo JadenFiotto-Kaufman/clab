@@ -14,15 +14,9 @@
       "max_new_tokens": 6,
       "min_new_tokens": 6,
       "do_sample": false,
-      "reads": {
-        "at_said": {
-          "site": "head",
-          "pos": {"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}
-        },
-        "at_last": {
-          "site": "head",
-          "pos": {"frame": -1}
-        }
+      "interventions": {
+        "at_said": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}},
+        "at_last": {"site": "head", "pos": {"frame": -1}}
       }
     },
     "p_answer": {"kind": "op", "op": "token_prob", "of": "answer.at_said", "token": "prompts.cf_answer"}

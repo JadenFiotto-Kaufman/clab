@@ -7,7 +7,8 @@ from typing import Any
 from torch import Tensor
 
 from .. import address
-from ..plan.model import Plan, arguments, body_view, coordinate, corpus_root, dims_of, labelled, points, walk
+from ..plan.model import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, entries, labelled, points,
+                          walk)
 from ..runtime import data, positions
 
 JOIN = ("at", "row", "layer", "pos", "key")
@@ -127,7 +128,7 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
     if isinstance(value, dict) and "tok" in value:
-        return entries(value, dims, place)
+        return ragged(value, dims, place)
     if isinstance(value, dict) and "rows" not in dims:
         raise ValueError("a bundle has no rows to table; read it from plan.results")
     first = next(iter(value.values())) if isinstance(value, dict) else value
@@ -156,7 +157,7 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     return out
 
 
-def entries(value: dict, dims: list[str], place: dict | None) -> list[dict]:
+def ragged(value: dict, dims: list[str], place: dict | None) -> list[dict]:
     """A ragged value's rows: one per entry (per layer on a `layers` axis), labelled with its row and the
     token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach."""
     stack = value["values"] if "layers" in dims else value["values"][None]
@@ -228,7 +229,7 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
         used += columns(plan, args)
         if step.kind != "op":
             used[:0] = [data.parse_input(c)[1] for c in data.input_columns(step.input)]
-            for o in step.reads[member].ops if member else []:
+            for o in entries(step)[member].ops if member else []:
                 used += columns(plan, arguments(o))
             return (name if member else None), list(dict.fromkeys(used))
         name = step.of
@@ -246,7 +247,7 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
-    resolved, site = plan.run.positions[source], producer.reads[member].site
+    resolved, site = plan.run.positions[source], entries(producer)[member].site
     keys = positions.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",

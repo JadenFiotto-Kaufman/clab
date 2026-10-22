@@ -15,7 +15,7 @@
   "counterfactual": {
    "kind": "generate",
    "input": "pairs.counterfactual_inputs[0]",
-   "reads": {
+   "interventions": {
     "v_cf": {
      "site": {
       "component": "layer_output",
@@ -26,7 +26,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs",
@@ -38,7 +39,7 @@
    {
     "kind": "generate",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -50,10 +51,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -65,7 +69,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -79,7 +84,7 @@
    {
     "kind": "generate",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -91,10 +96,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -107,7 +115,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -121,7 +130,7 @@
    {
     "kind": "generate",
     "input": "pairs.input",
-    "writes": {
+    "interventions": {
      "patch": {
       "site": {
        "component": "layer_output",
@@ -133,10 +142,13 @@
         "op": "swap",
         "with": "counterfactual.v_cf"
        }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
       ]
-     }
-    },
-    "reads": {
+     },
      "logits": {
       "site": {
        "component": "lm_head_output"
@@ -149,7 +161,8 @@
        "rows",
        "pos",
        "vocab_size"
-      ]
+      ],
+      "gathered": true
      }
     },
     "at": {
@@ -214,7 +227,7 @@
  "compiled": true,
  "sweeps": {
   "frame": {
-   "path": "steps.patched.reads.logits.pos.frame",
+   "path": "steps.patched.interventions.logits.pos.frame",
    "values": [
     0,
     1,

@@ -25,7 +25,7 @@ from ..address import COMPONENTS
 from ..plan import Model, Plan
 from ..runtime import ops, steps
 from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, keep, landed, nnterp_name, now, stops
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, landed, nnterp_name, now, stops
 
 
 @engine("hooks")
@@ -78,12 +78,12 @@ class HooksEngine:
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
 
-    def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]:
+    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]:
         """One call of the model with a hook at every site the records name; the hooks are removed after."""
-        sites = by_site(writes, reads)
+        sites = by_site(records)
         got: dict[str, Tensor] = {}
-        handles = [hook(self.model, self.config, component, layer, here, there, got, None)
-                   for (component, layer), (here, there) in sites.items()]
+        handles = [hook(self.model, self.config, component, layer, here, got, None)
+                   for (component, layer), here in sites.items()]
         try:
             self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self)))
         finally:
@@ -91,13 +91,12 @@ class HooksEngine:
                 handle.remove()
         return got
 
-    def generate(self, batch: dict, writes: list[dict], reads: list[dict],
-                 options: dict) -> tuple[Tensor, dict[str, Any]]:
+    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]:
         """`generate` over the batch, with `options` as its keyword arguments: the new ids, and each read. A
         pre-hook on the model counts its forward calls (0 is the prompt) and keeps each decode call's
         `input_ids`, and each site's hook does what `now` (and, for an online scope, `landed`) says there."""
-        sites = by_site(writes, reads)
-        got: dict[str, Any] = {r["name"]: [] for r in reads if "calls" in r}
+        sites = by_site(records)
+        got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
         call: dict = {"n": -1, "seen": [], "tokenizer": self.tokenizer}
 
         def count(module, args, kwargs):
@@ -105,8 +104,8 @@ class HooksEngine:
             if call["n"] > 0:
                 call["seen"].append(kwargs["input_ids"])
         handles = [self.model.register_forward_pre_hook(count, with_kwargs=True)]
-        handles += [hook(self.model, self.config, component, layer, here, there, got, call)
-                    for (component, layer), (here, there) in sites.items()]
+        handles += [hook(self.model, self.config, component, layer, here, got, call)
+                    for (component, layer), here in sites.items()]
         try:
             ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), steps.home(self)), **options)
         finally:
@@ -120,26 +119,22 @@ class HooksEngine:
         return head(norm(hidden))
 
 
-def hook(model, config: dict, component: str, layer: int | None, here: list, there: list, got: dict,
-         call: dict | None):
-    """A hook at the component's native module that applies `here` and gathers `there`, in nnterp's layout;
-    under a generation (`call` counts its forward calls), what `now` says on the current call."""
+def hook(model, config: dict, component: str, layer: int | None, here: list, got: dict, call: dict | None):
+    """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout;
+    under a generation (`call` counts its forward calls), those `now` says on the current call."""
     reach = config["sites"][component]
     module = model.get_submodule(reach["paths"][str(layer)])
     shape = config["sizes"]["num_heads"], config["sizes"]["head_dim"]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
-        writes, reads = (here, there) if call is None else now(here, there, call["n"])
+        records = here if call is None else now(here, call["n"])
         if call is not None and call["n"] > 0:
-            writes = landed(writes, call["seen"], call["tokenizer"])
+            records = landed(records, call["seen"], call["tokenizer"])
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
-        if writes:
-            value = ops.write(value, component, writes, got)
-        for record in reads:
-            keep(got, record, ops.select(value, component, record))
-        return (value.flatten(-2) if flat else value), bool(writes)
+        value, wrote = ops.visit(value, component, records, got)
+        return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":
         def pre(module, args):

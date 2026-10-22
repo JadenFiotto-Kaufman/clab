@@ -15,7 +15,7 @@
   "lens": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "layer_output",
@@ -32,7 +32,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

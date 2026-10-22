@@ -25,10 +25,10 @@
         "adapted": {
           "kind": "forward",
           "input": "train.input",
-          "writes": {
-            "adapt": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "featurizer", "featurizer": "fit.lora", "mode": "apply"}]}
-          },
-          "reads": {"logits": {"site": "head", "pos": -1}}
+          "interventions": {
+            "adapt": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "apply", "featurizer": "fit.lora"}]},
+            "logits": {"site": "head", "pos": -1}
+          }
         },
         "ce": {"kind": "op", "op": "cross_entropy", "of": "adapted.logits", "target": "train.cf_answer"}
       }

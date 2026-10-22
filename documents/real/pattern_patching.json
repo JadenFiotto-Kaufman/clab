@@ -22,15 +22,13 @@
     "counterfactual": {
       "kind": "forward",
       "input": "days.counterfactual_inputs[0]",
-      "reads": {"their_pattern": {"site": "one_head", "pos": -1}}
+      "interventions": {"their_pattern": {"site": "one_head", "pos": -1}}
     },
     "patched": {
       "kind": "forward",
       "input": "days.input",
-      "writes": {
-        "look_there": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.their_pattern"}]}
-      },
-      "reads": {
+      "interventions": {
+        "look_there": {"site": "one_head", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.their_pattern"}]},
         "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]},
         "diff": {
           "site": "head",

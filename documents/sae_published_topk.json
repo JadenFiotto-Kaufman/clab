@@ -18,17 +18,17 @@
     "base": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {
-        "latents": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "dictionary", "mode": "encode"}]}
+      "interventions": {
+        "latents": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "dictionary"}]}
       }
     },
     "spliced": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {
-        "reconstruct": {"site": "target", "pos": -1, "ops": [{"op": "featurizer", "featurizer": "dictionary", "mode": "apply"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "reconstruct": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "dictionary"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "p_answer": {"kind": "op", "op": "token_prob", "of": "spliced.logits", "token": "prompts.cf_answer"}
   },

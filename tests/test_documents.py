@@ -35,7 +35,7 @@ def mixed_lengths(rows: list[dict]) -> Plan:
     def change(d):
         d["data"] = {"pairs": {"rows": rows}}
         d["sites"]["target"]["layers"] = 1
-        d["steps"]["patched"]["reads"]["resid"] = {"site": "target", "pos": -1}
+        d["steps"]["patched"]["interventions"]["resid"] = {"site": "target", "pos": -1}
         d["saves"] = ["logit_diff", "patched.resid", "counterfactual.v_cf"]
     return edited("gpt2_reach", change).compile()
 
@@ -45,8 +45,8 @@ def from_the_start() -> Plan:
     first token of the day's name, on prompts 11 and 9 tokens long. Tokens 0 to 2 are "If today is" on
     every row, so a count that included BOS or padding would land on a token both prompts share."""
     def change(d):
-        d["steps"]["counterfactual"]["reads"]["v_cf"]["pos"] = 3
-        d["steps"]["patched"]["writes"]["patch"]["pos"] = 3
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = 3
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = 3
     return edited("patching", change).compile()
 
 
@@ -109,8 +109,8 @@ def test_renormalize_restores_the_norm_steering_changed(filled):
     for kind in ("nnterp", "hooks"):
         values = filled["steer_renormalize", kind].results
         before = values["base.resid"].norm(dim=-1)
-        torch.testing.assert_close(values["steered_renormed.resid"].norm(dim=-1), before)
-        assert not torch.allclose(values["steered.resid"].norm(dim=-1), before)
+        torch.testing.assert_close(values["steered_renormed.restore"].norm(dim=-1), before)
+        assert not torch.allclose(values["steered.steer"].norm(dim=-1), before)
 
 
 def test_every_layer_is_the_layer_sweep_stacked(filled):
@@ -174,7 +174,7 @@ def test_clamp_bounds_what_it_writes(filled):
 
 def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled):
     """noise_write.json: `jitter` is the clean value plus 0.5 times each row's draw from a CPU generator seeded by
-    (7, row, its index along pos); the write's noise moves the answer. A write of zeros then noise reads back
+    (7, row, its index along pos); the write's noise moves the answer. A write of zeros then noise, saved, is
     the noise alone: at each row's position the draw seeded by (7, row, token position), the same at batch
     sizes 1 and 4, in a forward and at each decode call of a generation, never the same twice."""
     for kind in ("nnterp", "hooks"):
@@ -186,9 +186,8 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
     def pure(d, step, frame):
         site = {"component": "layer_output", "layers": 0}
         d["steps"] = {step: d["steps"][step]}
-        d["steps"][step]["writes"] = {"n": {"site": site, "pos": {"frame": frame, "index": ":"}, "ops": [
+        d["steps"][step]["interventions"] = {"n": {"site": site, "pos": {"frame": frame, "index": ":"}, "ops": [
             {"op": "swap", "with": 0.0}, {"op": "noise", "scale": 1.0, "seed": 7}]}}
-        d["steps"][step]["reads"] = {"n": {"site": site, "pos": {"frame": frame, "index": ":"}}}
         d["saves"] = [f"{step}.n"]
     for name, step, frame in (("noise_write", "noisy", 0), ("generated_answer", "answer", "1:")):
         plan = edited(name, lambda d: pure(d, step, frame)).compile()
@@ -211,7 +210,7 @@ def test_ndif_remote_local_is_nnterp_to_the_bit(engines, filled, name):
 def test_the_logit_lens_at_the_last_layer_is_the_models_logits(engines):
     def change(d):
         d["sites"]["resid"]["layers"] = 1
-        d["steps"]["lens"]["reads"]["model"] = {"site": {"component": "logits"}, "pos": -1}
+        d["steps"]["lens"]["interventions"]["model"] = {"site": {"component": "logits"}, "pos": -1}
         d["saves"] = ["lens.logits", "lens.model"]
     plan = edited("logit_lens", change).compile()
     for kind in ("nnterp", "hooks"):
@@ -374,9 +373,10 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
     """A window from prompt token 5 to the end is four tokens on the 10-token row and two on the others: zeros
     land there, and every other position (padding and BOS included) keeps its value."""
     def change(d, write):
-        d["steps"]["patched"]["writes"] = {"zero": {"site": "target", "pos": {"index": "5:-1"},
-                                                    "ops": [{"op": "swap", "with": 0.0}]}} if write else {}
-        d["steps"]["patched"]["reads"]["whole"] = {"site": "target", "pos": {"index": ":"}}
+        entries = d["steps"]["patched"]["interventions"]
+        zero = {"zero": {"site": "target", "pos": {"index": "5:-1"}, "ops": [{"op": "swap", "with": 0.0}]}}
+        d["steps"]["patched"]["interventions"] = {**(zero if write else {}), "logits": entries["logits"],
+                                                  "whole": {"site": "target", "pos": {"index": ":"}}}
         d["saves"] = ["patched.whole"]
     written, clean = (edited("patching", lambda d, w=w: change(d, w)).compile() for w in (True, False))
     engine = engines(kind, written.model)
@@ -390,7 +390,7 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
 def test_a_swept_value_joins_an_unswept_one_beside_each_point(engines):
     def change(d):
         d["steps"]["clean"] = {"kind": "forward", "input": "pairs.input",
-                               "reads": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+                               "interventions": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
         d["steps"]["clean_ld"] = {"kind": "op", "op": "logit_diff", "of": "clean.logits", "a": "pairs.cf_answer",
                                   "b": "pairs.base_answer"}
         d["saves"] = ["logit_diff", "clean_ld"]
@@ -464,7 +464,7 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
     """A metric (`cosine` here, `kl` and `js` alike) scores a value against another laid out as it is, or
     against one vector; a stacked or ragged operand beside a one-layer, rectangular value is refused by name."""
     def change(d, op, operand_site, pos):
-        d["steps"]["clean"]["reads"]["other"] = {"site": operand_site, "pos": pos}
+        d["steps"]["clean"]["interventions"]["other"] = {"site": operand_site, "pos": pos}
         d["steps"]["similarity"] = {"kind": "op", "op": op, "of": "patched.resid", "with": "clean.other"}
     stacked = {"component": "layer_output", "layers": [0, 2]}
     for site, pos, message in ((stacked, {"index": "-2:"}, r"\['layers', 'rows', 'pos', 'hidden_size'\]"),
@@ -487,13 +487,13 @@ def test_select_on_key_counts_each_rows_own_tokens(engines):
         pattern = {"component": "attention_probabilities", "layers": 0}
         d["steps"] = {
             "clean": {"kind": "forward", "input": "pairs.input",
-                      "reads": {"whole": {"site": pattern, "pos": -1},
-                                "first": {"site": {**pattern, "select": {"key": "0:2"}}, "pos": -1},
-                                "picks": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
+                      "interventions": {"whole": {"site": pattern, "pos": -1},
+                                        "first": {"site": {**pattern, "select": {"key": "0:2"}}, "pos": -1},
+                                        "picks": {"site": {**pattern, "select": {"key": [0, 1]}}, "pos": -1}}},
             "zeroed": {"kind": "forward", "input": "pairs.input",
-                       "writes": {"zero": {"site": {**pattern, "select": {"key": 0}}, "pos": -1,
-                                           "ops": [{"op": "swap", "with": 0.0}]}},
-                       "reads": {"whole": {"site": pattern, "pos": -1}}}}
+                       "interventions": {"zero": {"site": {**pattern, "select": {"key": 0}}, "pos": -1,
+                                                  "ops": [{"op": "swap", "with": 0.0}]},
+                                         "whole": {"site": pattern, "pos": -1}}}}
         d["saves"] = ["clean.whole", "clean.first", "clean.picks", "zeroed.whole"]
     plan = engines("nnterp", plan_of("attention_knockout").model).execute(
         edited("attention_knockout", change).compile(), batch_size=BATCH_SIZE)

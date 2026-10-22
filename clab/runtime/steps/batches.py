@@ -1,14 +1,14 @@
-"""A step's input in batches, and a record bound to one batch: its site in the padded batch, its writes'
-ops, its reads' values with their ops applied."""
+"""A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
+with, its value with the ops after its last edit applied."""
 
-from typing import Any, cast
+from typing import Any
 
 import torch
 from torch import Tensor
 
 from ... import address
-from ...plan.model import Plan, arguments, encodes, space
-from .. import data, featurizers, ops, positions
+from ...plan.model import Plan, arguments, bracketed, entries, gathers, writes
+from .. import data, ops, positions
 from .preflight import head, made_at
 from .state import bound, lookup, put, within_row
 
@@ -46,22 +46,28 @@ def selection(record, picks: dict, pads: list[int]) -> dict:
             for axis, v in picks.items()}
 
 
-def edit(engine, plan: Plan, record, o, state: dict, at: dict, rows: slice, live: dict | None = None,
-         answers: dict | None = None) -> dict:
-    """A write's op bound to one batch, as `ops.write` runs it: in a featurizer's space, with its instance and
-    the features its `select` keeps; an operand that names a read of the same forward (`live`: by name, the
-    engine's name for it) is bound to that name, for the forward to fill."""
-    dims = address.dims(record.site.component, None, False)
-    within = space(o)
-    f = lookup(state, within, at) if within is not None else None
-    return {"op": o.op, "args": bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers),
-            "rows": torch.arange(rows.start, rows.stop), "featurizer": f,
-            "features": features(o, f), "dims": dims[:-1] + ["features"] if within is not None else dims}
+def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: dict | None = None,
+         answers: dict | None = None) -> list[dict]:
+    """An entry's ops up to its last edit, bound to one batch, as `ops.visit` runs them: each with the layout of
+    the value it meets (`dims`), the dataset rows of the batch, and its arguments bound, an operand that names an
+    earlier entry of the same forward (`live`: by name, the engine's name for it) to that name, for the forward
+    to fill. An `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features
+    its `select` keeps."""
+    last = len(record.ops) - len(gathers(record))
 
-
-def features(o, f) -> Tensor | None:
-    """The features an op in featurizer `f`'s space keeps, if it narrows them: its `select` among `f`'s."""
-    return torch.tensor(positions.select(o.select["features"], f.size())) if o.select else None
+    def bind(nodes: list[dict], dims: list[str]) -> list[dict]:
+        out = []
+        for node in nodes:
+            o = node["op"]
+            args = bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
+            out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
+            if o.op == "encode":
+                f, select = args["featurizer"], arguments(o).get("select")
+                if select is not None:
+                    out[-1]["features"] = torch.tensor(positions.select(select["features"], f.size()))
+                out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
+        return out
+    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component, None, False))
 
 
 def batches(engine, step, found: dict, batch_size: int):
@@ -75,20 +81,24 @@ def batches(engine, step, found: dict, batch_size: int):
         yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
 
 
-def bind(engine, plan: Plan, name: str, step, reads: dict, state: dict, found: dict, rows: slice,
-         pads: list[int], beyond: frozenset | set = frozenset()) -> tuple[dict, list[dict], list[dict]]:
-    """A step's prefill writes (all but `beyond`) and the prefill `reads` bound to one batch: each record's
-    site, the writes with their ops, and the reads, one per layer (`<read>@<layer>`)."""
-    writes_here = {k: w for k, w in step.writes.items() if k not in beyond}
+def bind(engine, plan: Plan, name: str, step, state: dict, found: dict, rows: slice,
+         pads: list[int]) -> tuple[dict, list[dict]]:
+    """A forward's entries bound to one batch: each one's site, and the records the engine does in their order:
+    an entry that writes as a write with its ops, then, when it is gathered, its reads, one per layer
+    (`<entry>@<layer>`). An entry that does neither is left out."""
+    chosen = {k: r for k, r in entries(step).items() if writes(r) or r.gathered}
     sites = {key: site(record, lookup(found["selects"], f"{name}.{key}", step.at),
                        lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
-             for key, record in {**writes_here, **reads}.items()}
-    live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in reads.items()}
-    writes = [{**sites[key], "name": key, "layer": layers(engine, record)[0],
-               "ops": [edit(engine, plan, record, o, state, step.at, rows, live, found["answers"]) for o in record.ops]}
-              for key, record in writes_here.items()]
-    return sites, writes, [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
-                           for key, record in reads.items() for layer in layers(engine, record)]
+             for key, record in chosen.items()}
+    live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in chosen.items() if record.gathered}
+    records = []
+    for key, record in chosen.items():
+        if writes(record):
+            records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
+                            "ops": edit(engine, plan, record, state, step.at, rows, live, found["answers"])})
+        if record.gathered:
+            records += [{**sites[key], "name": f"{key}@{layer}", "layer": layer} for layer in layers(engine, record)]
+    return sites, records
 
 
 def layers(engine, record) -> list:
@@ -108,8 +118,11 @@ def stacked(record, values: list) -> Any:
 
 
 def joined(state: dict, name: str, step, parts: list[dict]) -> None:
-    """Each read's per-batch values joined along rows (a ragged read's entries, after the layer axis)."""
-    for key, record in step.reads.items():
+    """Each gathered entry's per-batch values joined along rows (a ragged one's entries, after the layer
+    axis)."""
+    for key, record in entries(step).items():
+        if not record.gathered:
+            continue
         axis = 1 if address.stacks(record.site.layers) else 0
         values = [p[key] for p in parts]
         put(state, f"{name}.{key}", step.at, torch.cat(values, axis) if isinstance(values[0], Tensor) else
@@ -118,8 +131,8 @@ def joined(state: dict, name: str, step, parts: list[dict]) -> None:
 
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
          at: dict, answers: dict) -> Any:
-    """One layer of a prefill read in one batch: its entries when it is ragged, then its ops (`answers` as
-    preflight resolved them)."""
+    """One layer of an entry's value taken off the model in the prefill, in one batch: its entries when it is
+    ragged, then the ops after its last edit (`answers` as preflight resolved them)."""
     if positions.width(positions.parse(record.pos)) is None:
         keep = site["keep"]
         value = {"values": value[keep.to(value.device)],
@@ -129,22 +142,17 @@ def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: 
 
 def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows: slice,
              places: Tensor | None, answers: dict) -> Any:
-    """A read's value with its ops applied in listed order: one in a featurizer's space on the value's
-    coordinates there, the change written back. Past a probe's `encode` a column names its classes. An op is
-    given each row's dataset row and each position's token position (`places`, `[rows, width]`; a ragged
-    value's own `row` and `tok`)."""
+    """An entry's value taken off the model with the ops after its last edit applied in turn. Past a probe's
+    `encode` a column names its classes. An op is given each row's dataset row and each position's token
+    position (`places`, `[rows, width]`; a ragged value's own `row` and `tok`)."""
     dims = address.dims(record.site.component, None, positions.width(positions.parse(record.pos)) is None)
     vocabulary = None
-    for o in record.ops:
-        within = space(o)
-        f = lookup(state, within, at) if within is not None else None
+    for o in gathers(record):
         args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
-        value = apply(engine, o.op, value, args, dims[:-1] + ["features"] if f else dims, featurizer=f,
-                      features=features(o, f), rows=torch.arange(rows.start, rows.stop), places=places)
-        if f is None:
-            dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
-        if encodes(o):
-            vocabulary = getattr(ops.featurizer_of(o.op, args), "classes", None)
+        value = apply(engine, o.op, value, args, dims, rows=torch.arange(rows.start, rows.stop), places=places)
+        dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
+        if o.op == "encode":
+            vocabulary = getattr(args["featurizer"], "classes", None)
     return value
 
 
@@ -162,10 +170,8 @@ def dense(value: dict, dims: list[str], rows: Tensor) -> tuple[Tensor, list[str]
 
 
 def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
-          featurizer: featurizers.Kind | None = None, features: Tensor | None = None, rows: Tensor | None = None,
-          places: Tensor | None = None) -> Any:
-    """Op `name` on a value, or in `featurizer`'s space on its coordinates there (the `features` it keeps),
-    the change written back; on a ragged value, on its entries, which stay ragged while the op keeps them.
+          rows: Tensor | None = None, places: Tensor | None = None) -> Any:
+    """Op `name` on a value; on a ragged value, on its entries, which stay ragged while the op keeps them.
     `rows` and `places` say which dataset row and token position each of the value's rows and positions
     is, where the run knows them; a ragged value's are its `row` and `tok`."""
     over = args.get("over") if ops.DECLARED[name]["group"] == "reductions" else None
@@ -176,11 +182,7 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
             return apply(engine, name, value, args, dims, eos, rows=rows)
         args = {**args, "over": [a for a in over if a not in ("rows", "pos")] + ["entries"]}
     if isinstance(value, dict) and "tok" in value:
-        got = apply(engine, name, value["values"], args, dims, eos, featurizer, features, value["row"], value["tok"])
+        got = apply(engine, name, value["values"], args, dims, eos, value["row"], value["tok"])
         kind = ops.kind(name, args)
-        return {**value, "values": got} if featurizer is not None or "entries" in ops.out_dims(name, dims, args, kind) \
-            else got
-
-    def fn(x: Any) -> Any:
-        return ops.call(name, x, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)
-    return fn(value) if featurizer is None else featurizer.within(cast(Tensor, value), fn, features)
+        return {**value, "values": got} if "entries" in ops.out_dims(name, dims, args, kind) else got
+    return ops.call(name, value, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)

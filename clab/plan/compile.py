@@ -8,15 +8,16 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 
 import inspect
 import itertools
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import address, registry
 from ..runtime import data, featurizers, ops, positions
 from pydantic import ValidationError
 
-from .model import (Column, Op, Plan, Site, agreeing, arguments, corpus_root, fail, find_sweeps, horizon, kind_of,
-                    parameters, points, space, uses)
+from .model import (Column, Intervention, Op, Plan, Site, Unbracketed, agreeing, arguments, bracketed, corpus_root,
+                    edits, fail, find_sweeps, gathers, horizon, kind_of, parameters, points, uses, visited, walk,
+                    writes)
 
 
 def compile(plan: Plan) -> Plan:
@@ -37,7 +38,8 @@ def compile(plan: Plan) -> Plan:
             fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
     sweeps = find_sweeps(doc)
     values = {label: get(doc, path)["sweep"] for path, label in sweeps.items()}
-    cx = Compiling(doc=doc, root=root, rows=rows, sweeps=sweeps, values=values, names={}, axes_of={}, refs=[])
+    cx = Compiling(doc=doc, root=root, rows=rows, sweeps=sweeps, values=values, names={}, axes_of={}, refs=[],
+                   used=set())
     compiled = {"featurizers": {}, "steps": {}}
     for name in plan.featurizers:
         compiled["featurizers"][name] = expand(cx, name, ("featurizers", name),
@@ -57,6 +59,7 @@ def compile(plan: Plan) -> Plan:
         if name not in saveable:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
+    gathered(compiled["steps"], cx.used | set(plan.saves))
     done = Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
                    "sweeps": {label: {"path": ".".join(map(str, path)), "values": values[label]}
                               for path, label in sweeps.items()},
@@ -71,7 +74,7 @@ def bundled_sites(plan: Plan) -> None:
     featurizer is used at is that one. A layer counted from the last is the model's to resolve, and preflight
     checks it."""
     for name, records in uses(plan).items():
-        for where, site, at, _ in records:
+        for where, site, at, _, _ in records:
             f = agreeing(plan.featurizers[name], at)
             layer = [] if isinstance(site.layers, int) and site.layers < 0 else [("layer", str(site.layers))]
             for key, value in [("component", site.component), *layer]:
@@ -88,9 +91,11 @@ class Compiling:
     Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
     document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document
     order: each name produced so far, `{dims, data, kind}` (`names`), each entry's sweep axes (`axes_of`),
-    and the names the entry being compiled references (`refs`), which decide the axes it inherits. A fit's
-    body compiles in a copy whose `names` is its own scope; it shares `refs`, since what the body references
-    is what the fit references, and `axes_of`."""
+    the names the entry being compiled references (`refs`), which decide the axes it inherits, and every value
+    any entry references (`used`), which decides what the run gathers. A fit's body compiles in a copy whose
+    `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
+    `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
+    `rot` is `<fit>.rot`, the instance being trained)."""
     doc: dict
     root: str
     rows: dict
@@ -99,6 +104,8 @@ class Compiling:
     names: dict
     axes_of: dict
     refs: list
+    used: set
+    aliases: dict = field(default_factory=dict)
 
 
 def get(doc: dict, path: tuple):
@@ -155,8 +162,9 @@ def footprint(cx: Compiling, where: tuple) -> list[tuple]:
                     found.append(("sites", v))
                 if k == "interventions":
                     for n in named:
-                        found.append(("interventions", n))
-                        walk(doc.get("interventions", {}).get(n))
+                        if isinstance(n, str):
+                            found.append(("interventions", n))
+                            walk(doc.get("interventions", {}).get(n))
                 if k in ("featurizer", "train"):
                     found.extend(("featurizers", n) for n in named if isinstance(n, str) and n in doc.get("featurizers", {}))
                 walk(v)
@@ -175,10 +183,10 @@ def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     """Names are one flat namespace per scope: no dots, and no step also a dataset or a featurizer.
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
-    `counterfactual`'s read `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
+    `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
     is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member. Values are produced in
     document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A named intervention
+    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
     is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
     producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
     rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
@@ -207,77 +215,104 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                 if not isinstance(data.field(row, part), str):
                     fail(at, f"{part!r} is not text on row {r} of {dataset!r}; a list input joins text")
     assert dataset is not None
-    given: dict[str, list] = {"writes": [], "reads": []}
-    for n in [spec.interventions] if isinstance(spec.interventions, str) else spec.interventions or []:
-        if n not in plan.interventions:
-            fail(f"{path}.interventions", f"no intervention {n!r}; declared: {', '.join(plan.interventions) or 'none'}")
-        own = plan.interventions[n].reads
-        for side in given:
-            declared = getattr(plan.interventions[n], side)
-            given[side] += [(f"interventions.{n}.{side}.{k}", k, a if side == "reads" else
-                             scoped(plan, f"interventions.{n}.{side}.{k}", a, own, name)) for k, a in declared.items()]
-    for side in given:
-        given[side] += [(f"{path}.{side}.{k}", k, a) for k, a in getattr(spec, side).items()]
-        seen = [k for _, k, _ in given[side]]
-        for k in seen:
-            if seen.count(k) > 1:
-                fail(f"{path}.{side}", f"two {side[:-1]}s named {k!r}")
-    reads = {k: access(cx, p, a, plan, spec, dataset, False, {}, set()) for p, k, a in given["reads"]}
-    named = {f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value"} for k, r in reads.items()}
-    # A forward's writes may name its own reads, which the engine makes as the forward reaches them; a
-    # generation's land call by call, so they may not yet.
-    live = {n: reads[n.partition(".")[2]] for n in named} if spec.kind == "forward" else {}
-    cx.names.update(named if live else {})
-    records = {"writes": {k: access(cx, p, a, plan, spec, dataset, True, live, set(named))
-                          for p, k, a in given["writes"]}, "reads": reads}
-    cx.names.update(named)
+    given = items(plan, path, name, spec)
+    keys = [k for _, k, _ in given]
+    for k in keys:
+        if keys.count(k) > 1:
+            fail(f"{path}.interventions", f"two entries named {k!r}; a step binds each name once")
+    own = {f"{name}.{k}" for k in keys}
+    records: dict[str, dict] = {}
+    live: dict[str, tuple[dict, Intervention]] = {}
+    for p, k, e in given:
+        records[k] = entry(cx, p, e, plan, spec, dataset, live, own)
+        named = {"dims": records[k]["dims"], "data": dataset, "kind": "value", "space": records[k].get("space", [])}
+        # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
+        # a generation's land call by call, so they may not yet.
+        if spec.kind == "forward":
+            cx.names[f"{name}.{k}"] = named
+            live[f"{name}.{k}"] = (records[k], e)
+    cx.names.update({f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value", "space": r.get("space", [])}
+                     for k, r in records.items()})
     if spec.kind == "generate":
         cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
-    return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), **records, "dataset": dataset}
+    return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), "interventions": records,
+            "dataset": dataset}
 
 
-def scoped(plan: Plan, path: str, spec, reads: dict, step: str):
-    """A named intervention's write, its operands that name one of the intervention's own `reads` by its bare
-    name (`"premix"`) naming that read of the step it is pulled into (`"<step>.premix"`). An operand that names
-    `<a step>.<one of those reads>` is refused: pulled into another step it would still mean that step's
-    read, not the one this step makes."""
+def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
+    """A step's entries in the order written, each with its document path and name: the items of its
+    `interventions` in turn (a dict is one item), a bundle's entries where its name stands, rescoped to the
+    step (`scoped`)."""
+    value = spec.interventions
+    listed = value if isinstance(value, list) else [value]
+    out = []
+    for i, item in enumerate(listed):
+        at = f"{path}.interventions" + (f"[{i}]" if isinstance(value, list) else "")
+        if isinstance(item, dict):
+            out += [(f"{at}.{k}", k, e) for k, e in item.items()]
+            continue
+        if item not in plan.interventions:
+            fail(at, f"no intervention bundle {item!r}; declared: {', '.join(plan.interventions) or 'none'}")
+        pullers = {n.rpartition(".")[2] for n, s in walk(plan.steps) if item in bundles_of(s)}
+        out += [(f"interventions.{item}.{k}", k, scoped(plan, f"interventions.{item}.{k}", e, item, name, pullers))
+                for k, e in plan.interventions[item].items()]
+    return out
+
+
+def bundles_of(step) -> list[str]:
+    """The bundles a step's `interventions` pull in, by name."""
+    value = getattr(step, "interventions", None)
+    return [i for i in (value if isinstance(value, list) else [value]) if isinstance(i, str)]
+
+
+def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pullers: set) -> Intervention:
+    """A bundle's entry, its operands that name one of the bundle's own entries by its bare name (`"premix"`)
+    naming that entry of the step it is pulled into (`"<step>.premix"`). An operand that names `<a step that
+    pulls the bundle in>.<one of its entries>` is refused: pulled into another step it would still mean that
+    step's entry, not the one this step makes. `pullers` are the steps that pull the bundle in."""
+    own = plan.interventions[bundle]
     rewritten = []
     for i, o in enumerate(spec.ops):
         args = arguments(o)
         try:
             params = parameters(plan, o.op, args)
-        except (KeyError, ValueError):          # an unknown featurizer or mode, which compile refuses by name
+        except (KeyError, ValueError):          # an unknown featurizer or argument, which compile refuses by name
             params = ops.parameters(o.op)
         changes = {}
         for key, value in args.items():
             if key not in params or params[key].annotation != ops.Value or not isinstance(value, str):
                 continue
-            if value.partition(".")[2] in reads:
-                fail(f"{path}.ops[{i}].{key}", f"{value!r} names a step's read {value.partition('.')[2]!r}, which is "
-                     f"also this intervention's own read; name the intervention's own read bare "
-                     f"({value.partition('.')[2]!r}), which means it in whichever step pulls it in")
-            if value in reads:
+            thing, _, member = value.partition(".")
+            if thing in pullers and member in own:
+                fail(f"{path}.ops[{i}].{key}", f"{value!r} names step {thing!r}'s entry {member!r}, which is also "
+                     f"this bundle's own entry; name the bundle's own entry bare ({member!r}), which means it in "
+                     "whichever step pulls the bundle in")
+            if value in own:
                 changes[key] = f"{step}.{value}"
         rewritten.append(Op(**{**o.model_dump(exclude_defaults=True), **changes}) if changes else o)
     return spec.model_copy(update={"ops": rewritten})
 
 
-def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write: bool, live: dict,
-           own: set) -> dict:
-    """One write or read: its site inlined, its positions checked against the step, its ops' layouts. `live`
-    holds the reads of a write's own forward, by name, which its operands may name; `own` names its step's
-    reads, which a generation's writes may not name yet."""
+def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, dataset: str,
+          live: dict[str, tuple[dict, Intervention]], own: set) -> dict:
+    """One entry: its site inlined, its positions checked against the step, its ops' layouts. An entry that
+    holds an edit writes: each op up to its last edit acts on the live value, so no edit follows an op that
+    changed the layout, unless an `encode` changed it and its `decode` follows, and every `encode` before the
+    write-back is closed by then; its operands stand for the value they meet (`operands`). `live` holds the
+    earlier entries of a forward, by name, which an operand may name; `own` names every entry of the step."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
         site = plan.sites[spec.site]
     else:
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
+    write = writes(spec)
     if write and address.stacks(site.layers):
-        fail(f"{path}.site", f"a write names its layer, an int; layers {site.layers!r} stack several, which is a "
-             "read's (or sweep the layers)")
+        fail(f"{path}.site", f"an entry that writes names its layer, an int; layers {site.layers!r} stack several, "
+             "which is a read's (or sweep the layers)")
     if write and len(site.select or {}) > 1:
-        fail(f"{path}.site.select", f"a write selects on one axis; this one selects {', '.join(site.select or {})}")
+        fail(f"{path}.site.select", f"an entry that writes selects on one axis; this one selects "
+             f"{', '.join(site.select or {})}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
     if step.kind != "generate" and positions.select(frame, 1) != [0]:
@@ -295,55 +330,91 @@ def access(cx: Compiling, path: str, spec, plan: Plan, step, dataset: str, write
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
                      dataset)
     ragged = positions.width(pos) is None
-    dims = selection = address.dims(site.component, site.layers, ragged)
+    dims = address.dims(site.component, site.layers, ragged)
+    last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
+    try:
+        tree = bracketed(spec.ops)
+    except Unbracketed as e:
+        fail(f"{path}.ops[{e.at}]", str(e))
+    around = {node["at"]: list(outer) for node, outer in visited(tree)}
+    closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
+    before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
+    changed = None                                          # the op that changed the layout, which no edit follows
     for i, o in enumerate(spec.ops):
-        at, within = f"{path}.ops[{i}]", space(o)
+        at, args = f"{path}.ops[{i}]", arguments(o)
+        outer = around[closes[i]["at"]] if i in closes else around[i]
         if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
-        if within is not None:
-            featurizer_ref(cx, within, f"{at}.featurizer")
-            kind = featurizers.KINDS[kind_of(plan, within)]
-            if not kind.writable():
-                fail(f"{at}.featurizer", f"{within!r} is a {kind.kind!r} featurizer, which has no coordinates to edit "
-                     f"and write back into the value; call it with the featurizer op (modes: "
-                     f"{', '.join(kind.modes())})")
-        kind = called(cx, plan, at, o.op, arguments(o))
-        for key, value in arguments(o).items():
+        if edits(o) and changed is not None:
+            fail(at, f"{o.op!r} is an edit, which writes back, and it follows {changed!r}, which turned the value "
+                 f"into {dims}: there is no live value to write; an edit comes before it, or put the transform in "
+                 "a later entry at this site")
+        ref = args.get("featurizer")
+        mine = next((n for n in outer if arguments(n["op"])["featurizer"] == ref), None) if i not in closes else None
+        if mine is not None:
+            fail(at, f"{o.op!r} of {ref!r} at ops[{i}] is inside the encode of {ref!r} (ops[{mine['at']}]), so it "
+                 f"would act on {ref!r}'s own coordinates; put it before that encode or after the decode that closes it")
+        kind = called(cx, plan, at, o.op, args)
+        for key, value in args.items():
             if isinstance(value, str) and value in own and value not in live:
-                fail(f"{at}.{key}", f"{value!r} is a read of this generation; a write's operand from a read of its "
-                     "own step is served in a forward, not yet inside a generate")
-        found = references(cx, plan, at, o.op, arguments(o), "classes" in dims)
+                fail(f"{at}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
+                     "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
+                     f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
+                     "entry")
+        found = references(cx, plan, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
-        if not write:
-            paired(at, o.op, dims, found)
-        if write:
-            chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
-            operands(at, found, selection, within, ragged, live, chosen)
-            for key, info in found.items():
-                if info["name"] in live and address.stacks(live[info["name"]]["site"].get("layers")):
-                    fail(f"{at}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
-                         "forward is one layer's read")
-        # An op in a featurizer's space acts on the value's coordinates there, and the change is written back.
-        inner = dims[:-1] + ["features"] if within is not None else dims
-        out = layout(at, o.op, arguments(o), inner, "write" if write else "read", kind)
-        if within is not None and out != inner:
-            fail(at, f"{o.op!r} turns {inner} into {out}; an op in a featurizer's space keeps its layout")
-        dims = dims if within is not None else out
-        if write and dims != selection:
-            fail(at, f"{o.op!r} turns {selection} into {dims}; a write's ops keep the value's layout")
+        paired(at, o.op, dims, found)
+        if i <= last:
+            chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
+            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, chosen)
+        if i in closes:
+            dims = before[closes[i]["at"]]
+        elif o.op == "encode":
+            before[i] = dims
+            dims = layout(at, o.op, args, dims, "entry", kind)
+        else:
+            out = layout(at, o.op, args, dims, "entry", kind)
+            changed = o.op if out != dims and changed is None else changed
+            dims = out
+    unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
+    if any(n["at"] < last for n in unclosed):
+        j = max(n["at"] for n in unclosed if n["at"] < last)
+        ref = arguments(spec.ops[j])["featurizer"]
+        fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
+             f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
-    return record if write else {**record, "dims": dims}
+    return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
+
+
+def space_of(cx: Compiling, encodes: list[Op]) -> list[dict]:
+    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer, by the
+    name it resolves to here (inside a fit's body `rot` and `<fit>.rot` are the one being trained), and the
+    `select` it keeps; none for the site's own layout."""
+    return [{k: cx.aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
+             if k in ("featurizer", "select")} for o in encodes]
+
+
+def said(space: list[dict]) -> str:
+    """A value's coordinates as a message names them."""
+    if not space:
+        return "the site's own layout"
+    return "the coordinates of " + " then ".join(repr(s["featurizer"]) + (f" (select {s['select']})" if "select" in s
+                                                                       else "") for s in space)
 
 
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
-    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist; and the op's
-    further arguments bound to the function its `options` choose for them (a mode the kind lacks refused by
-    name), a `Value` among them a name. None when the op takes no featurizer."""
+    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist and to serve the op
+    (`encode`, `decode`, `apply`); and the op's further arguments bound to the function its `options` choose for
+    them, a `Value` among them a name. None when the op takes no featurizer."""
     ref = ops.featurizer_of(name, args)
     if ref is None:
         return None
     featurizer_ref(cx, ref, f"{path}.featurizer")
     kind = kind_of(plan, ref)
+    serves = featurizers.KINDS[kind].ops()
+    if name not in serves:
+        fail(f"{path}.featurizer", f"{ref!r} is a {kind!r} featurizer, which has no {name}: it serves "
+             f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
     own = {k: v for k, v in args.items() if k not in ops.parameters(name)}
     try:
         fn = ops.options(name, args, kind)
@@ -360,16 +431,21 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+    if spec.op == "decode":
+        fail(path, "decode closes an encode of its own entry, so it runs inside the entry that encodes, after the "
+             "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
+             "generation's ids into text)")
     of = value_ref(cx, spec.of, f"{path}.of")
     if spec.op == "contains" and not of.get("text"):
-        fail(f"{path}.of", f"contains reads text, a decode's value (without tokens); {spec.of!r} is not one")
+        fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
     found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
     paired(path, spec.op, of["dims"], found)
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
-                      "text": spec.op == "decode" and not arguments(spec).get("tokens")}
+                      "text": spec.op == "detokenize" and not arguments(spec).get("tokens"),
+                      "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else []}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
@@ -418,43 +494,55 @@ def paired(path: str, name: str, dims: list[str], found: dict) -> None:
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
 
 
-def operands(path: str, found: dict, selection: list[str], featurizer: str | None, ragged: bool, live: dict,
-             chosen: set) -> None:
-    """Inside a write an operand stands for the selection: its own layout (in a featurizer's space, its
-    features), or one vector of its features; only the vector when the selection is ragged, unless the operand
-    is a read of the write's own forward, which is gathered as the selection is. An argument of the function
-    an op's `options` choose (`chosen`: a lora's `with`) is laid out on the selection's rows and positions,
-    whatever its features, which that function takes as it says."""
-    own = selection[:-1] + ["features"] if featurizer is not None else selection
-    lead = [a for a in selection if a in address.EXAMPLE_AXES]
+def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, chosen: set) -> None:
+    """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space` (the
+    encodes open around the op): in the same coordinates, encoded by the same featurizers with the same
+    `select`, and that layout or one vector of its features; only the vector when the selection is ragged,
+    unless the operand is an earlier entry of the same forward, which is gathered as the selection is. Such an
+    entry is taken off the model as the forward reaches it, so its value is what its edits left (no op after its
+    last edit), at one layer. An argument of the function an op's `options` choose (`chosen`: a lora's `with`)
+    is laid out on the selection's rows and positions, whatever its features, which that function takes as it
+    says."""
+    lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info["kind"] != "value":
             continue
+        if info["name"] in live:
+            record, spec = live[info["name"]]
+            if gathers(spec):
+                fail(f"{path}.{key}", f"{info['name']!r} runs {gathers(spec)[0].op!r} once it is off the model, "
+                     "after this forward; an operand from the same forward is an entry with no op after its edits")
+            if address.stacks(record["site"].get("layers")):
+                fail(f"{path}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
+                     "forward is one layer's read")
         whole = not ragged or info["name"] in live
         if key in chosen:
             if [a for a in info["dims"] if a in address.EXAMPLE_AXES] != lead or not whole:
                 fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {key!r} is "
-                     f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is a read of its "
-                                                           "own forward"))
+                     f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is an entry of "
+                                                           "its own forward"))
             continue
+        if info.get("space", []) != space:
+            fail(f"{path}.{key}", f"{info['name']!r} is in {said(info.get('space', []))}; this "
+                 f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
         if info["dims"] not in allowed:
-            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's selection is {own}, "
+            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's value is {own} here, "
                  f"so an operand is {' or '.join(map(str, allowed))}")
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
     """The layout of op `name`'s result on a value laid out `dims` (for an op with a `layout`, for its
-    featurizer's `kind`). Inside a read or write (`where`) the op sees one batch, so it may not aggregate over rows;
-    `original` is only a write's."""
-    if where != "write" and "original" in inspect.signature(ops.OPS[name]).parameters:
-        fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside a write")
+    featurizer's `kind`). Inside an entry (`where`) the op sees one batch, so it may not aggregate over rows;
+    `original` is only an entry's."""
+    if where != "entry" and "original" in inspect.signature(ops.OPS[name]).parameters:
+        fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside an entry")
     try:
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
     if where != "step" and {"rows", "entries"} & (set(dims) - set(out)):
-        fail(path, f"{name!r} aggregates over rows, and inside a read or write it sees one batch; "
+        fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; "
              "make it a step after the forward")
     return out
 
@@ -473,7 +561,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
             fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
                  "it draws")
-    within = replace(cx, names=dict(cx.names))
+    within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
     for f in spec.train:
         within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
     before = len(cx.refs)
@@ -497,6 +585,12 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                 kind_of(plan, thing)].scalars):
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
+        if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
+            for n, s in body.items():
+                for k, e in s.get("interventions", {}).items():
+                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
+                           for o in gathers(Intervention(**e))):
+                        cx.used.add(f"{n}.{k}")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
@@ -521,7 +615,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     for n, s in body.items():
         if s["kind"] == "op":
             cx.names[f"{name}.history.{n}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
-        members = ([n] if s["kind"] == "op" else []) + [f"{n}.{read}" for read in s.get("reads", {})]
+        members = ([n] if s["kind"] == "op" else []) + [f"{n}.{k}" for k in s.get("interventions", {})]
         for label, swap in spec.eval.items():
             for member in members:
                 info = inner[member]
@@ -539,7 +633,24 @@ def value_ref(cx: Compiling, value, path: str) -> dict:
         known = sorted(k for k, v in cx.names.items() if v["kind"] == "value")
         fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
     cx.refs.append(value)
+    cx.used.add(value)
     return info
+
+
+def gathered(steps: dict, used: set) -> None:
+    """Marks each compiled entry the run takes off the model (`gathered`): one `used` names (a value something
+    references, a save, or the entries a fit's objective scalar is over), and in a fit's body one a
+    `<fit>.<eval>.<step>.<entry>` member names. Any other entry only writes, and an entry that neither writes
+    nor is gathered does nothing."""
+    for name, entry in steps.items():
+        for point in entry if isinstance(entry, list) else [entry]:
+            if point["kind"] == "fit":
+                inner = {member.partition(".")[2] for member in (u.removeprefix(f"{name}.") for u in used
+                                                                if u.startswith(f"{name}."))
+                         if member.partition(".")[0] in point.get("eval", {})}
+                gathered(point["steps"], used | inner)
+            for k, e in point.get("interventions", {}).items():
+                e["gathered"] = f"{name}.{k}" in used
 
 
 def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:

@@ -11,23 +11,19 @@
     "head": {"component": "lm_head_output"}
   },
   "steps": {
-    "clean": {
-      "kind": "forward",
-      "input": "pairs.input",
-      "reads": {"logits": {"site": "head", "pos": -1}}
-    },
+    "clean": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
     "counterfactual": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"v_cf": {"site": "target", "pos": -1}}
+      "interventions": {"v_cf": {"site": "target", "pos": -1}}
     },
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {
-        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "kl": {"kind": "op", "op": "kl", "of": "patched.logits", "against": "clean.logits"},
     "js": {"kind": "op", "op": "js", "of": "patched.logits", "against": "clean.logits"},

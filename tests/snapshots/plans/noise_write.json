@@ -15,7 +15,7 @@
   "clean": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -25,7 +25,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     },
     "resid": {
      "site": {
@@ -37,7 +38,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"
@@ -57,7 +59,7 @@
   "noisy": {
    "kind": "forward",
    "input": "prompts.input",
-   "writes": {
+   "interventions": {
     "noise": {
      "site": {
       "component": "layer_output",
@@ -72,10 +74,13 @@
        "scale": 0.5,
        "seed": 7
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -85,7 +90,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

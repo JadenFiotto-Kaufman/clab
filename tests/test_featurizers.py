@@ -45,9 +45,9 @@ def every_kind() -> dict[str, featurizers.Kind]:
 
 
 def outputs(f: featurizers.Kind, h: torch.Tensor) -> list[torch.Tensor]:
-    """Everything a featurizer computes on a value: each of its modes, and an edit in its space written back."""
-    out = [f.call(m, h, {}) for m in f.modes()]
-    if f.writable():
+    """Everything a featurizer computes on a value: its encode and apply, and an edit of its coordinates decoded."""
+    out = [f.call(op, h, {}) for op in f.ops() if op != "decode"]
+    if "decode" in f.ops():
         out.append(f.within(h, lambda z: z * 2, torch.tensor([1, 2])))
     return out
 
@@ -59,7 +59,7 @@ def mixed(z: torch.Tensor) -> torch.Tensor:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
 def test_featurizer_math_runs_on_the_values_device():
-    """Each kind's tensors made on the CPU meet a value on the GPU: every mode and an edit in its space run there,
+    """Each kind's tensors made on the CPU meet a value on the GPU: its ops and an edit of its coordinates run there,
     the tensors themselves stay where they were made, and the numbers are the CPU's (to float32 rounding)."""
     h = H.to("cuda")
     for name, f in every_kind().items():
@@ -75,8 +75,8 @@ def test_featurizer_math_runs_on_the_values_device():
 
 
 def test_featurizer_math_inside_autocast_is_the_same_bits_as_outside():
-    """A model run under autocast (a bfloat16 server) leaves a featurizer's float32 math in float32: every mode,
-    an edit in its space and an sae's reconstruction give the same bits inside an enabled autocast region as
+    """A model run under autocast (a bfloat16 server) leaves a featurizer's float32 math in float32: every op, an
+    edit of its coordinates and an sae's reconstruction give the same bits inside an enabled autocast region as
     outside it."""
     for name, f in every_kind().items():
         outside = outputs(f, H)
@@ -92,8 +92,9 @@ def test_featurizer_math_inside_autocast_is_the_same_bits_as_outside():
 
 
 def test_an_edit_in_a_featurizers_space_runs_outside_autocast_too():
-    """`within` turns autocast off for the edit op as well: a matmul in a gate's space (whose own math has none)
-    gives the bits inside an enabled autocast region that it gives outside."""
+    """`within` (an encode and the decode that closes it) turns autocast off for the edit between as well: a
+    matmul on a gate's coordinates (whose own math has none) gives the bits inside an enabled autocast region
+    that it gives outside."""
     gate = Gate(16, bundle={"theta": torch.linspace(-1, 1, 16)})
     outside = gate.within(H, mixed, None), gate.within(H, mixed, torch.tensor([1, 2, 5]))
     with torch.autocast("cpu", dtype=torch.bfloat16):

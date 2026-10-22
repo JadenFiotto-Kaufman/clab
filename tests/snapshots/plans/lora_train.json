@@ -45,23 +45,23 @@
     "adapted": {
      "kind": "forward",
      "input": "train.input",
-     "writes": {
+     "interventions": {
       "adapt": {
        "site": {
         "component": "layer_output",
         "layers": 0
        },
-       "pos": {},
        "ops": [
         {
-         "op": "featurizer",
-         "featurizer": "fit.lora",
-         "mode": "apply"
+         "op": "apply",
+         "featurizer": "fit.lora"
         }
+       ],
+       "dims": [
+        "entries",
+        "hidden_size"
        ]
-      }
-     },
-     "reads": {
+      },
       "logits": {
        "site": {
         "component": "lm_head_output"
@@ -71,7 +71,8 @@
         "rows",
         "pos",
         "vocab_size"
-       ]
+       ],
+       "gathered": true
       }
      },
      "dataset": "train"

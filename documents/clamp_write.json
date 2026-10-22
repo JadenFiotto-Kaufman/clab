@@ -14,7 +14,7 @@
     "clean": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
     },
     "clean_ld": {
       "kind": "op",
@@ -26,10 +26,11 @@
     "clamped": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {
-        "clamp": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "clamp", "min": -0.01, "max": 0.01}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": {
+        "clamp": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "clamp", "min": -0.01, "max": 0.01}]},
+        "logits": {"site": "head", "pos": -1},
+        "resid": {"site": "target", "pos": -1}
+      }
     },
     "clamped_ld": {
       "kind": "op",

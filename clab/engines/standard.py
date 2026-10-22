@@ -84,22 +84,26 @@ def stops(config, tokenizer) -> list[int]:
     return [found] if isinstance(found, int) else list(found)
 
 
-def now(here: list, there: list, call: int) -> tuple[list, list]:
-    """What a generation does at a site on forward call `call` (0 is the prefill): a record with no `calls`
-    acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
+def now(records: list, call: int) -> list:
+    """What a generation does at a site on forward call `call` (0 is the prefill), in order: a record with no
+    `calls` acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
     def wanted(record: dict) -> bool:
         if "calls" not in record:
             return call == 0
         return call > 0 and (record["calls"] is None or call in record["calls"])
-    return [w for w in here if wanted(w)], [r for r in there if wanted(r)]
+    return [r for r in records if wanted(r)]
 
 
-def landed(writes: list[dict], seen: list, tokenizer) -> list[dict]:
-    """The writes at a decode call, each stamped with the call (`call`, the number of inputs `seen` so far),
-    a write with an `online` scope narrowed to the rows it lands on there (`keep`), as `positions.landing`
-    decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row is left out."""
+def landed(records: list[dict], seen: list, tokenizer) -> list[dict]:
+    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
+    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
+    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
+    is left out. A read is as it was."""
     out = []
-    for w in writes:
+    for w in records:
+        if "ops" not in w:
+            out.append(w)
+            continue
         online, w = w.get("online"), {**w, "call": len(seen)}
         if online is None:
             out.append(w)
@@ -111,20 +115,9 @@ def landed(writes: list[dict], seen: list, tokenizer) -> list[dict]:
     return out
 
 
-def keep(got: dict, record: dict, value) -> None:
-    """A read's value into `got`: a prefill read's as itself, a decode-call read's appended to its list, one
-    per call read."""
-    if "calls" in record:
-        got[record["name"]].append(value)
-    else:
-        got[record["name"]] = value
-
-
-def by_site(writes: list[dict], reads: list[dict]) -> dict[tuple, tuple[list, list]]:
-    """A forward's writes and reads by `(component, layer)`, each site's in listed order."""
-    sites: dict[tuple, tuple[list, list]] = {}
-    for side, records in ((0, writes), (1, reads)):
-        for record in records:
-            sites.setdefault((record["component"], record["layer"]), ([], []))[side].append(record)
+def by_site(records: list[dict]) -> dict[tuple, list]:
+    """A forward's records by `(component, layer)`, each site's in listed order."""
+    sites: dict[tuple, list] = {}
+    for record in records:
+        sites.setdefault((record["component"], record["layer"]), []).append(record)
     return sites
-

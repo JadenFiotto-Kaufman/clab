@@ -22,8 +22,12 @@
         "harvest": {
           "kind": "forward",
           "input": "prompts.input",
-          "reads": {
-            "latents": {"site": "target", "pos": {"index": ":"}, "ops": [{"op": "featurizer", "featurizer": "fit.dictionary", "mode": "encode"}]}
+          "interventions": {
+            "latents": {
+              "site": "target",
+              "pos": {"index": ":"},
+              "ops": [{"op": "encode", "featurizer": "fit.dictionary"}]
+            }
           }
         }
       }

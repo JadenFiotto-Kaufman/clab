@@ -1,20 +1,20 @@
 """Featurizer kinds: the fields each kind takes, what an instance is, and how a value moves in and out of its space.
 
-A featurizer is a space a read or write happens in, or a function on a value. Its kind's signature is its
+A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
 and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
 `labels` (its class list). An instance holds plain tensors, never an `nn.Module`, made where the model is: a
 declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
 `seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
-the plan and checks key by key against the document; a loaded one is fixed. It is called by the `featurizer`
-op in one of its kind's modes: `encode` gives its coordinates of a value `h` (the last axis becomes the
-kind's axis: `features`, or a probe's `classes`), and `apply` its version of `h` in `h`'s own layout (a
-subspace's projection, a dictionary's reconstruction, a gate's masked value, an adapter's adapted value). An
-edit op in its space runs on its coordinates, and the change is written back as a delta (`replace`), so an op
-that changes nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly. A fit
-trains an instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>`
-(a gate's `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over what the body's
-encodes of it saw in that run of the body, which the instance keeps while a fit trains it). Its math runs on
+the plan and checks key by key against the document; a loaded one is fixed. Three ops reach it: `encode` gives
+its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
+`decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
+nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
+its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
+masked value, an adapter's adapted value). A fit trains an instance's `trains` tensors; its objective may name
+a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
+`reconstruction` and `l1` are over the coordinates the body read of it in that run of the body, its
+`encode`s no `decode` closes, which the instance keeps while a fit trains it). Its math runs on
 the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a float32
 featurizer's float32 math alone.
 
@@ -31,9 +31,10 @@ width: nothing says what model or site it was made at, so neither is checked.
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`) and the scalars a fit's objective may name (`scalars`); its constructor makes an instance. Its modes
-are the methods of the same names, `encode(h)` and `apply(h, ...)`, a kind defining only those it has; the
-rest is the protocol `Kind` declares, with a default for what a kind need not have.
+(`drawn`) and the scalars a fit's objective may name (`scalars`); its constructor makes an instance. The ops
+it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode`
+when it has both) and `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind`
+declares, with a default for what a kind need not have.
 """
 
 import functools
@@ -50,14 +51,13 @@ SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"
 KINDS: dict[str, type["Kind"]] = {}
 
-# The two modes the `featurizer` op calls a featurizer in: what each produces, and the layout of what it
-# produces on a value laid out `dims`, for a kind whose coordinates are on `axis`. A kind has a mode when it
-# defines the method of that name.
-MODES: dict[str, dict] = {
-    "encode": {"produces": "its coordinates, the last axis becoming {axis}",
-               "layout": lambda axis, dims: dims[:-1] + [axis]},
-    "apply": {"produces": "its version of the value, in the value's own layout",
-              "layout": lambda axis, dims: list(dims)},
+# The ops that reach a featurizer: the method of the kind's each runs, and what it produces on a value, for a
+# kind whose coordinates are on `axis`. A kind serves an op when it defines its method (one with `replace` has
+# `encode` too).
+OPS: dict[str, dict] = {
+    "encode": {"method": "encode", "produces": "gives its coordinates, the last axis becoming {axis}"},
+    "decode": {"method": "replace", "produces": "writes a change of its coordinates back into the value"},
+    "apply": {"method": "apply", "produces": "gives its version of the value, in the value's own layout"},
 }
 
 
@@ -68,7 +68,7 @@ def unautocast(h: Tensor):
 
 
 def exact(math: Callable) -> Callable:
-    """A kind's method on a value `h` (a mode, `replace`), run with autocast off."""
+    """A kind's method on a value `h` (`encode`, `replace`, `apply`), run with autocast off."""
     @functools.wraps(math)
     def run(self, h: Tensor, *args: Any, **kwargs: Any) -> Tensor:
         with unautocast(h):
@@ -94,7 +94,7 @@ class Kind:
 
     def __init_subclass__(cls) -> None:
         cls.kind = cls.__name__.lower()
-        for name in (*MODES, "replace"):
+        for name in ("encode", "replace", "apply"):
             if name in vars(cls):
                 setattr(cls, name, exact(vars(cls)[name]))
         registry.registers(KINDS, cls.kind)(cls)
@@ -107,26 +107,16 @@ class Kind:
         registry.check(cls, fields, SUPPLIED, repr(cls.kind))
 
     @classmethod
-    def modes(cls) -> list[str]:
-        """The modes the kind has."""
-        return [m for m in MODES if hasattr(cls, m)]
+    def ops(cls) -> list[str]:
+        """The ops the kind serves: those whose method it defines."""
+        return [op for op, o in OPS.items() if hasattr(cls, o["method"])]
 
     @classmethod
-    def mode(cls, name: str) -> Callable:
-        """The kind's method for mode `name`; a mode the kind lacks is refused by name."""
-        if name not in cls.modes():
-            raise ValueError(f"kind {cls.kind!r} has no mode {name!r}; its modes: {', '.join(cls.modes())}")
-        return getattr(cls, name)
-
-    @classmethod
-    def writable(cls) -> bool:
-        """Whether an edit op runs in the kind's space: it has coordinates (`encode`) and a way back (`replace`)."""
-        return hasattr(cls, "encode") and hasattr(cls, "replace")
-
-    @classmethod
-    def layout(cls, mode: str, dims: list[str]) -> list[str]:
-        """The layout of what mode `mode` produces on a value laid out `dims`."""
-        return MODES[mode]["layout"](cls.axis, dims)
+    def method(cls, op: str) -> Callable:
+        """The kind's method op `op` runs; an op the kind does not serve is refused by name."""
+        if op not in cls.ops():
+            raise ValueError(f"a {cls.kind!r} featurizer has no {op}; it serves {', '.join(cls.ops())}")
+        return getattr(cls, OPS[op]["method"])
 
     @classmethod
     def width(cls, tensors: dict[str, Tensor]) -> int:
@@ -141,20 +131,21 @@ class Kind:
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
-    def call(self, mode: str, h: Tensor, options: dict) -> Tensor:
-        """The instance called in mode `mode` on `h`, with the mode's own arguments (`options`, by document
-        spelling). An encode is kept beside `h` while a fit watches the instance (`seen`)."""
-        fn = self.mode(mode)
+    def call(self, op: str, h: Tensor, options: dict) -> Tensor:
+        """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
+        document spelling). An encode is kept beside `h` while a fit watches the instance (`seen`)."""
+        fn = self.method(op)
         names = {k: p.name for k, p in registry.spelled(fn, ("self", "h")).items()}
         out = fn(self, h, **{names[k]: v for k, v in options.items()})
-        if mode == "encode" and self.seen is not None:
+        if op == "encode" and self.seen is not None:
             self.seen.append((h, out))
         return out
 
     def within(self, h: Tensor, fn: Callable[[Tensor], Tensor], features: Tensor | None) -> Tensor:
         """`h` after `fn` ran on its coordinates, on the `features` it keeps (every one when None), and the change
-        was written back; `new == z` gives `h` to the bit."""
-        space = cast(Writable, self)         # compile lets an edit run only in a `writable` kind's space
+        was written back: an `encode` and the `decode` that closes it, `fn` the ops between; `new == z` gives `h`
+        to the bit."""
+        space = cast(Writable, self)         # compile closes an encode only of a kind that serves `decode`
         with unautocast(h):
             z = space.encode(h)
             index = None if features is None else features.to(z.device)
@@ -177,7 +168,7 @@ class Kind:
 
     def size(self) -> int:
         """How many coordinates the instance's space has."""
-        return self.mode("encode")(self, torch.zeros(1, self.width(self.tensors()))).shape[-1]
+        return self.method("encode")(self, torch.zeros(1, self.width(self.tensors()))).shape[-1]
 
     def parameters(self) -> list[Tensor]:
         """The tensors a fit trains."""
@@ -189,7 +180,7 @@ class Kind:
 
 
 class Writable(Protocol):
-    """A kind with coordinates and a way back into the value (`Kind.writable`)."""
+    """A kind with coordinates and a way back into the value: one that serves `decode`."""
     def encode(self, h: Tensor) -> Tensor: ...
     def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor: ...
 

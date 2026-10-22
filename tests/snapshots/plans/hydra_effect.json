@@ -15,7 +15,7 @@
   "noise": {
    "kind": "forward",
    "input": "sample.resample_input",
-   "reads": {
+   "interventions": {
     "v_noise": {
      "site": {
       "component": "attention_output",
@@ -26,7 +26,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"
@@ -34,7 +35,7 @@
   "clean": {
    "kind": "forward",
    "input": "sample.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -44,7 +45,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     },
     "a0": {
      "site": {
@@ -56,7 +58,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     },
     "a1": {
      "site": {
@@ -68,7 +71,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"
@@ -76,7 +80,7 @@
   "ablated": {
    "kind": "forward",
    "input": "sample.input",
-   "writes": {
+   "interventions": {
     "resample": {
      "site": {
       "component": "attention_output",
@@ -88,10 +92,13 @@
        "op": "swap",
        "with": "noise.v_noise"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -101,7 +108,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     },
     "a1": {
      "site": {
@@ -113,7 +121,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"
@@ -121,7 +130,7 @@
   "inj0_clean": {
    "kind": "forward",
    "input": "sample.input",
-   "writes": {
+   "interventions": {
     "inject": {
      "site": {
       "component": "layer_output",
@@ -133,10 +142,13 @@
        "op": "swap",
        "with": "clean.a0"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -146,7 +158,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"
@@ -154,7 +167,7 @@
   "inj1_clean": {
    "kind": "forward",
    "input": "sample.input",
-   "writes": {
+   "interventions": {
     "inject": {
      "site": {
       "component": "layer_output",
@@ -166,10 +179,13 @@
        "op": "swap",
        "with": "clean.a1"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -179,7 +195,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"
@@ -187,7 +204,7 @@
   "inj1_abl": {
    "kind": "forward",
    "input": "sample.input",
-   "writes": {
+   "interventions": {
     "inject": {
      "site": {
       "component": "layer_output",
@@ -199,10 +216,13 @@
        "op": "swap",
        "with": "ablated.a1"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -212,7 +232,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "sample"

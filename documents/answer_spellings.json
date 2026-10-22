@@ -13,7 +13,7 @@
   ]}},
   "sites": {"head": {"component": "lm_head_output"}},
   "steps": {
-    "clean": {"kind": "forward", "input": "qa.input", "reads": {"logits": {"site": "head", "pos": -1}}},
+    "clean": {"kind": "forward", "input": "qa.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
     "p_spelled": {"kind": "op", "op": "token_prob", "of": "clean.logits",
                   "token": {"column": "qa.answer", "strip": true, "lower": true}},
     "hit_spelled": {"kind": "op", "op": "match", "of": "clean.logits",

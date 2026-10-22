@@ -15,7 +15,7 @@
   "clean": {
    "kind": "forward",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "logits"
@@ -25,7 +25,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts"

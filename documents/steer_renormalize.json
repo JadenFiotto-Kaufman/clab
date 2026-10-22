@@ -1,5 +1,5 @@
 {
-  "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked.",
+  "description": "Steer, then put the norm back. `direction` is the mean of the residual stream over the counterfactual prompts; `steered` adds it, scaled by 4, at the last position (the `add` op), which also makes the activation longer. `steered_renormed` lists `restore` after `steer`, so both writes are in force on its one forward, and the renormalize, last at its site, rescales the result to the norm the activation had before either. 'Change the direction, keep the magnitude' — and `steered`, without the renormalize, is the comparison that shows how much of steering's effect was the longer vector. The three norms are saved, so the claim can be checked: `base.resid`, and the writes' own values, `steered.steer` (the steered activation) and `steered_renormed.restore` (the renormalized one).",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -11,36 +11,30 @@
     "head": {"component": "lm_head_output"}
   },
   "interventions": {
-    "steer": {
-      "writes": {
-        "steer": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "direction", "scale": 4.0}]}
-      }
-    },
-    "restore": {"writes": {"restore": {"site": "target", "pos": -1, "ops": [{"op": "renormalize"}]}}}
+    "steer": {"steer": {"site": "target", "pos": -1, "ops": [{"op": "add", "with": "direction", "scale": 4.0}]}},
+    "restore": {"restore": {"site": "target", "pos": -1, "ops": [{"op": "renormalize"}]}}
   },
   "steps": {
     "harvest": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {"resid": {"site": "target", "pos": -1}}
+      "interventions": {"resid": {"site": "target", "pos": -1}}
     },
     "direction": {"kind": "op", "op": "mean", "of": "harvest.resid"},
-    "base": {
-      "kind": "forward",
-      "input": "pairs.input",
-      "reads": {"resid": {"site": "target", "pos": -1}}
-    },
+    "base": {"kind": "forward", "input": "pairs.input", "interventions": {"resid": {"site": "target", "pos": -1}}},
     "steered": {
       "kind": "forward",
       "input": "pairs.input",
-      "interventions": "steer",
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": ["steer", {"logits": {"site": "head", "pos": -1}}]
     },
     "steered_renormed": {
       "kind": "forward",
       "input": "pairs.input",
-      "interventions": ["steer", "restore"],
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": [
+        "steer",
+        "restore",
+        {"logits": {"site": "head", "pos": -1}}
+      ]
     },
     "renormed_ld": {
       "kind": "op",
@@ -63,5 +57,5 @@
       "b": "pairs.base_answer"
     }
   },
-  "saves": ["renormed_ld", "steered_ld", "base.resid", "steered_renormed.resid", "steered.resid"]
+  "saves": ["renormed_ld", "steered_ld", "base.resid", "steered_renormed.restore", "steered.steer"]
 }

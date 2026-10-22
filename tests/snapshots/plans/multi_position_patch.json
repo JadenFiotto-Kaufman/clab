@@ -15,7 +15,7 @@
   "counterfactual": {
    "kind": "forward",
    "input": "pairs.counterfactual_inputs[0]",
-   "reads": {
+   "interventions": {
     "v_m4": {
      "site": {
       "component": "layer_output",
@@ -26,7 +26,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     },
     "v_m3": {
      "site": {
@@ -38,7 +39,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     },
     "v_m2": {
      "site": {
@@ -50,7 +52,8 @@
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"
@@ -58,7 +61,7 @@
   "patched": {
    "kind": "forward",
    "input": "pairs.input",
-   "writes": {
+   "interventions": {
     "at_m4": {
      "site": {
       "component": "layer_output",
@@ -70,6 +73,11 @@
        "op": "swap",
        "with": "counterfactual.v_m4"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
     },
     "at_m3": {
@@ -83,6 +91,11 @@
        "op": "swap",
        "with": "counterfactual.v_m3"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
     },
     "at_m2": {
@@ -96,10 +109,13 @@
        "op": "swap",
        "with": "counterfactual.v_m2"
       }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
      ]
-    }
-   },
-   "reads": {
+    },
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -109,7 +125,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "pairs"

@@ -9,6 +9,8 @@ import torch
 
 import clab
 from clab import Plan
+from clab.plan.model import PlanError, entries, points
+from clab.runtime.ops import edits
 from clab.cli import main
 from conftest import (BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot,
                       stand_in)
@@ -164,7 +166,7 @@ def test_the_cli_runs(tmp_path, capsys):
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_read_at_a_written_site_observes_the_write(engines, kind):
     def change(d):
-        d["steps"]["patched"]["reads"]["after"] = {"site": "target", "pos": -1}
+        d["steps"]["patched"]["interventions"]["after"] = {"site": "target", "pos": -1}
         d["saves"] = ["patched.after", "counterfactual.v_cf"]
     plan = edited("patching", change).compile()
     values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
@@ -178,9 +180,9 @@ def test_the_engine_never_sees_a_sweep_or_at(engines, kind, monkeypatch):
     seen = []
     forward = engine.forward
 
-    def recording(batch, writes, reads):
-        seen.append(writes + reads)
-        return forward(batch, writes, reads)
+    def recording(batch, records):
+        seen.append(records)
+        return forward(batch, records)
 
     def keys(value):
         if isinstance(value, dict):
@@ -346,3 +348,91 @@ def test_an_option_goes_where_the_engine_declares_it(monkeypatch, tmp_path, caps
         clab.run(document("patching"), engine=loaded, width=2)
     with pytest.raises(ValueError, match="the scratch engine runs with no 'nope'; it runs with: tag"):
         loaded.execute(plan_of("patching"), nope=1)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_writes_value_is_what_a_read_after_it_at_the_site_takes(engines, kind):
+    """Every entry binds its value after its ops, a write's included: `patched.patch` is the swapped activation,
+    to the bit the counterfactual's and what a read at the site after it takes. An op after the last edit runs
+    on that value once it is off the model, and the model still sees the write: `lensed` swaps, then reads out."""
+    def change(d):
+        entries = d["steps"]["patched"]["interventions"]
+        entries["after"] = {"site": "target", "pos": -1}
+        entries["after_lens"] = {"site": "target", "pos": -1, "ops": [{"op": "readout"}]}
+        d["steps"]["lensed"] = {"kind": "forward", "input": "pairs.input", "interventions": {
+            "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"},
+                                                            {"op": "readout"}]},
+            "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+        d["saves"] = ["patched.patch", "patched.after", "patched.after_lens", "patched.logits", "counterfactual.v_cf",
+                      "lensed.patch", "lensed.logits"]
+    plan = edited("patching", change).compile()
+    assert entries(points(plan.steps["lensed"])[0])["patch"].dims == ["rows", "pos", "vocab_size"]
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["patched.patch"], values["patched.after"])
+    assert torch.equal(values["patched.patch"], values["counterfactual.v_cf"])
+    assert torch.equal(values["lensed.patch"], values["patched.after_lens"])
+    assert torch.equal(values["lensed.logits"], values["patched.logits"])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_two_entries_at_one_site_compose_in_order_each_binding_its_own_value(engines, kind):
+    """steer_renormalize.json's `steered_renormed` runs `steer` then `restore` at one site: `steer`'s value is
+    the steered activation before `restore` renormalizes it (`steered.steer`'s, to the bit), and `restore`'s is
+    what a read after both takes."""
+    def change(d):
+        d["steps"]["steered_renormed"]["interventions"][-1]["resid"] = {"site": "target", "pos": -1}
+        d["saves"] = ["steered.steer", "steered_renormed.steer", "steered_renormed.restore", "steered_renormed.resid"]
+    plan = edited("steer_renormalize", change).compile()
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["steered_renormed.steer"], values["steered.steer"])
+    assert torch.equal(values["steered_renormed.restore"], values["steered_renormed.resid"])
+    assert not torch.equal(values["steered_renormed.restore"], values["steered_renormed.steer"])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_an_entry_nothing_uses_is_not_gathered(engines, kind, monkeypatch):
+    """A value leaves the model only when something uses it: `patch` writes and is not taken off, an unused read
+    is not either (nor do its ops run), and what is saved or consumed is; the numbers are the document's."""
+    def change(d):
+        d["steps"]["patched"]["interventions"]["unused"] = {"site": "target", "pos": -1, "ops": [{"op": "readout"}]}
+    plan = edited("patching", change).compile()
+    flags = {f"{name}.{k}": e.gathered for name in ("counterfactual", "patched")
+             for k, e in entries(points(plan.steps[name])[0]).items()}
+    assert flags == {"counterfactual.v_cf": True, "patched.patch": False, "patched.logits": True,
+                     "patched.unused": False}
+    engine = engines(kind, plan.model)
+    seen, forward = [], engine.forward
+
+    def recording(batch, records):
+        seen.extend(r["name"] for r in records if "ops" not in r)
+        return forward(batch, records)
+    monkeypatch.setattr(engine, "forward", recording)
+    filled = engine.execute(plan, batch_size=BATCH_SIZE)
+    assert sorted(set(seen)) == ["logits@None", "v_cf@0"]
+    assert same(filled.results, engine.execute(plan_of("patching"), batch_size=BATCH_SIZE).results)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_an_earlier_entry_at_the_writes_own_site_is_its_operand(engines, kind):
+    """`h` reads layer 0 at the last token, then `w` adds twice `s.h` at the same site: `s.h` keeps the value
+    from before the write (the clean one), `w` is `h + 2 h` to the bit and is what the site holds after it, on
+    both engines. An operand listed after the write is refused."""
+    entry = {"site": "target", "pos": -1}
+
+    def change(d):
+        d["steps"]["clean"] = {"kind": "forward", "input": "pairs.input", "interventions": {"h": entry}}
+        d["steps"]["s"] = {"kind": "forward", "input": "pairs.input", "interventions": {
+            "h": entry, "w": {**entry, "ops": [{"op": "add", "with": "s.h", "scale": 2.0}]}, "after": entry}}
+        d["saves"] = ["clean.h", "s.h", "s.w", "s.after"]
+    plan = edited("patching", change).compile()
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["s.h"], values["clean.h"])
+    assert torch.equal(values["s.w"], edits.add(values["s.h"], values["s.h"], scale=2.0))
+    assert torch.equal(values["s.after"], values["s.w"])
+
+    def later(d):
+        change(d)
+        d["steps"]["s"]["interventions"] = {"w": {**entry, "ops": [{"op": "add", "with": "s.h", "scale": 2.0}]},
+                                            "h": entry}
+    with pytest.raises(PlanError, match=r"'s\.h' is this entry or one this forward makes after it"):
+        edited("patching", later).compile()

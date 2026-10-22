@@ -14,8 +14,8 @@ from .. import data, ops
 def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
           of: Any = None, vocabulary: list | None = None, live: dict | None = None,
           dims: list[str] | None = None, answers: dict | None = None) -> dict:
-    """An op's arguments bound to tensors: names looked up (a featurizer to its instance; a read of the same
-    forward, in `live`, to `{"live": <the engine's name for it>}`), columns resolved against the value's own
+    """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
+    forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
     the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`. On a ragged
     value `of`, an argument with a row per example is taken at each entry's row."""

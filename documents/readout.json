@@ -10,7 +10,7 @@
     "clean": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {"logits": {"site": {"component": "logits"}, "pos": -1}}
+      "interventions": {"logits": {"site": {"component": "logits"}, "pos": -1}}
     },
     "top3": {"kind": "op", "op": "top_k", "of": "clean.logits", "k": 3},
     "p_answer": {

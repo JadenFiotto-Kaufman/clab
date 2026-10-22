@@ -33,13 +33,18 @@ def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
     for change in (lambda d: d["steps"]["iia"].update(op="matches"),
                    lambda d: d["sites"]["target"].update(component="nope"),
                    lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
-                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": -1, "span": [0, 2]}),
-                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": "all"}),
-                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": [1, 1]}),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": -1, "span": [0, 2]}),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "all"}),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": [1, 1]}),
                    lambda d: d["sites"]["target"].update(layers="1:2:3:4"),
-                   lambda d: d["steps"]["patched"]["writes"]["patch"].update(
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"].update(
                        pos={"scope": {"column": "pairs.base_answer", "lower": True}}),
                    lambda d: d.update(compiled=True),
+                   lambda d: d["steps"].update(gen={"kind": "generate", "input": "pairs.input", "reads": {}}),
+                   lambda d: d["steps"]["patched"].update(reads={}),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update(featurizer="rot"),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"].insert(
+                       0, {"op": "featurizer", "featurizer": "rot", "mode": "encode"}),
                    lambda d: d["steps"]["iia"].update(dims=["rows"])):
         bad = copy.deepcopy(doc)
         change(bad)
@@ -50,7 +55,7 @@ def test_describe_lists_every_registry():
     text = describe()
     for word in ("records:", "step kinds:", "metrics:", "reductions:", "edits:", "transforms:", "components:",
                  "featurizer kinds:",
-                 "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode("):
+                 "pos:", "logit_diff(", "layer_output", "subspace(", "fit(", "decode(", "detokenize("):
         assert word in text, word
 
 

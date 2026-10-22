@@ -14,7 +14,7 @@
     "clean": {
       "kind": "forward",
       "input": "prompts.input",
-      "reads": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
+      "interventions": {"logits": {"site": "head", "pos": -1}, "resid": {"site": "target", "pos": -1}}
     },
     "clean_ld": {
       "kind": "op",
@@ -26,10 +26,10 @@
     "noisy": {
       "kind": "forward",
       "input": "prompts.input",
-      "writes": {
-        "noise": {"site": "target", "pos": {"index": "-3:"}, "ops": [{"op": "noise", "scale": 0.5, "seed": 7}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "noise": {"site": "target", "pos": {"index": "-3:"}, "ops": [{"op": "noise", "scale": 0.5, "seed": 7}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "noisy_ld": {
       "kind": "op",

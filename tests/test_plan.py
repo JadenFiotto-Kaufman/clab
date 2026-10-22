@@ -150,13 +150,13 @@ def test_sweeps_become_points():
     assert not isinstance(plan.steps["counterfactual"], list)         # no sweep touches it: it runs once
     patched = plan.steps["patched"]
     assert isinstance(patched, list) and [p.at for p in patched] == [{"pos": 0}, {"pos": 1}, {"pos": 2}]
-    assert [p.writes["patch"].pos for p in points(step(plan, "patched"))] == [-1, -2, -3]
+    assert [p.interventions["patch"].pos for p in points(step(plan, "patched"))] == [-1, -2, -3]
 
 
 def test_one_sweep_reached_from_two_steps_is_one_axis():
     plan = plan_of("head_patching")
-    reads = [(p.reads["v_cf"].site.select or {})["num_heads"] for p in points(plan.steps["counterfactual"])]
-    writes = [(p.writes["patch"].site.select or {})["num_heads"] for p in points(plan.steps["patched"])]
+    reads = [(p.interventions["v_cf"].site.select or {})["num_heads"] for p in points(plan.steps["counterfactual"])]
+    writes = [(p.interventions["patch"].site.select or {})["num_heads"] for p in points(plan.steps["patched"])]
     assert reads == writes == list(range(4))
 
 
@@ -170,7 +170,8 @@ def test_a_reference_carries_its_producers_axes():
 def test_every_value_knows_its_dataset_and_layout():
     plan = plan_of("patching")
     assert step(plan, "patched").dataset == "pairs"
-    assert step(plan, "patched").reads["logits"].dims == ["rows", "pos", "vocab_size"]
+    assert step(plan, "patched").interventions["logits"].dims == ["rows", "pos", "vocab_size"]
+    assert step(plan, "patched").interventions["patch"].dims == ["rows", "pos", "hidden_size"]
     assert (step(plan, "iia").dataset, step(plan, "iia").dims) == ("pairs", ["rows", "pos"])
     mean = step(plan_of("mean_ablation"), "mean")
     assert (mean.dataset, mean.dims) == ("prompts", ["hidden_size"])
@@ -186,9 +187,12 @@ def test_two_datasets_in_one_op_are_refused():
 
 
 def test_an_inline_site_and_a_named_intervention_are_inlined():
+    """A step's `interventions` compile to one dict of entries in execution order: the bundles where their names
+    stand, then the step's own."""
     steered = step(plan_of("steer_renormalize"), "steered_renormed")
-    assert steered.interventions is None and list(steered.writes) == ["steer", "restore"]
-    assert steered.writes["steer"].site.component == "layer_output" and steered.writes["steer"].site.layers == 0
+    assert list(steered.interventions) == ["steer", "restore", "logits"]
+    entry = steered.interventions["steer"]
+    assert entry.site.component == "layer_output" and entry.site.layers == 0
 
 
 def test_a_hub_dataset_is_declared_but_not_loaded_yet():
@@ -205,28 +209,29 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
     (lambda d: d["sites"]["target"].update(component="block_output"),
      r"sites\.target: unknown component 'block_output'; valid: token_embeddings"),
     (lambda d: d["steps"]["patched"].update(field="input"),
-     r"steps\.patched: unknown field 'field'; valid: kind, input, writes, reads, interventions"),
+     r"steps\.patched: unknown field 'field'; valid: kind, input, interventions"),
     (lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
      r"steps\.iia: 'match' takes no 'expect'; its arguments: expected$"),
     (lambda d: d["steps"]["patched"].update(kind="trace"),
      r"steps\.patched: unknown step kind 'trace'; valid: forward, generate, op, fit"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"index": 1, "scope": {"turn": "user", "text": "x"}}),
-     r"steps\.patched\.writes\.patch\.pos\.scope: a scope is one of \{'column'"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": "prompt"}),
-     r"steps\.patched\.writes\.patch\.pos\.frame: 'prompt' is not a selector: an int \(2, -1\), a slice "
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(
+        pos={"index": 1, "scope": {"turn": "user", "text": "x"}}),
+     r"steps\.patched\.interventions\.patch\.pos\.scope: a scope is one of \{'column'"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "prompt"}),
+     r"steps\.patched\.interventions\.patch\.pos\.frame: 'prompt' is not a selector: an int \(2, -1\), a slice "
      r"in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)$"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"frame": 1, "scope": {"turn": "user"}}),
-     r"steps\.patched\.writes\.patch\.pos: scope turn 'user' is a chat turn of the prompt; it takes frame 0$"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos={"idx": -1}),
-     r"steps\.patched\.writes\.patch\.pos: unknown field 'idx'; valid: frame, scope, index$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": 1, "scope": {"turn": "user"}}),
+     r"steps\.patched\.interventions\.patch\.pos: scope turn 'user' is a chat turn of the prompt; it takes frame 0$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"idx": -1}),
+     r"steps\.patched\.interventions\.patch\.pos: unknown field 'idx'; valid: frame, scope, index$"),
     (lambda d: d["sites"]["target"].update(layers="two"), r"sites\.target\.layers: 'two' is not a "
      r"selector: an int \(2, -1\), a slice in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)$"),
     (lambda d: d["sites"]["target"].update(layers=[1, 1]), r"sites\.target\.layers: picks \[1, 1\] name 1 "
      r"twice$"),
     (lambda d: d["sites"]["target"].update(layers="5:2"), r"sites\.target\.layers: '5:2' picks nothing, however "
      r"many things there are$"),
-    (lambda d: d["steps"]["patched"]["reads"]["logits"].update(site={"component": "nope"}),
-     r"steps\.patched\.reads\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
+     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
@@ -243,20 +248,20 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
 
 
 @pytest.mark.parametrize("change, message", [
-    (lambda d: d["steps"]["counterfactual"]["reads"]["v_cf"].update(ops=[{"op": "mean"}]),
-     r"steps\.counterfactual\.reads\.v_cf\.ops\[0\]: 'mean' aggregates over rows.*make it a step after the forward"),
+    (lambda d: d["steps"]["counterfactual"]["interventions"]["v_cf"].update(ops=[{"op": "mean"}]),
+     r"steps\.counterfactual\.interventions\.v_cf\.ops\[0\]: 'mean' aggregates over rows.*make it a step after the forward"),
     (lambda d: d["steps"]["iia"].update(expected="pairs.answers"),
      r"steps\.iia\.expected: dataset 'pairs' has no column 'answers'"),
-    (lambda d: d["steps"]["patched"]["writes"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
-     r"steps\.patched\.writes\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
+     r"steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
      r"known: counterfactual\.v_cf"),
     (lambda d: d.update(saves=["iia", "nothing"]), r"saves\[1\]: 'nothing' names no step's value; a save is a step "
                                                    r"or a step's member: counterfactual\.v_cf, iia, logit_diff, "
-                                                   r"patched\.logits$"),
+                                                   r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
     (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' is a dataset; hub datasets and dataset saves land later$"),
     (lambda d: d["sites"]["target"].update(layers=":"),
-     r"steps\.patched\.writes\.patch\.site: a write names its layer"),
+     r"steps\.patched\.interventions\.patch\.site: an entry that writes names its layer"),
 ])
 def test_a_compile_error_names_the_path(change, message):
     with pytest.raises(PlanError, match=message):
@@ -324,8 +329,8 @@ def test_anything_but_the_three_forms_is_refused_naming_them(value):
     ({"frame": [2], "index": [1, 2]}, r": index \[1, 2\] picks none of the 1 tokens"),
 ])
 def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
-    with pytest.raises(PlanError, match=r"steps\.patched\.writes\.patch\.pos" + message):
-        edited("generate_probe", lambda d: d["steps"]["patched"]["writes"]["patch"].update(pos=pos))
+    with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
 
 
 def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():

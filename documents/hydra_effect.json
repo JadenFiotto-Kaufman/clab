@@ -17,12 +17,12 @@
     "noise": {
       "kind": "forward",
       "input": "sample.resample_input",
-      "reads": {"v_noise": {"site": "abl", "pos": -1}}
+      "interventions": {"v_noise": {"site": "abl", "pos": -1}}
     },
     "clean": {
       "kind": "forward",
       "input": "sample.input",
-      "reads": {
+      "interventions": {
         "logits": {"site": "head", "pos": -1},
         "a0": {"site": "probe0", "pos": -1},
         "a1": {"site": "probe1", "pos": -1}
@@ -31,32 +31,35 @@
     "ablated": {
       "kind": "forward",
       "input": "sample.input",
-      "writes": {"resample": {"site": "abl", "pos": -1, "ops": [{"op": "swap", "with": "noise.v_noise"}]}},
-      "reads": {"logits": {"site": "head", "pos": -1}, "a1": {"site": "probe1", "pos": -1}}
+      "interventions": {
+        "resample": {"site": "abl", "pos": -1, "ops": [{"op": "swap", "with": "noise.v_noise"}]},
+        "logits": {"site": "head", "pos": -1},
+        "a1": {"site": "probe1", "pos": -1}
+      }
     },
     "inj0_clean": {
       "kind": "forward",
       "input": "sample.input",
-      "writes": {
-        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "clean.a0"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "clean.a0"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "inj1_clean": {
       "kind": "forward",
       "input": "sample.input",
-      "writes": {
-        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "clean.a1"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "clean.a1"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "inj1_abl": {
       "kind": "forward",
       "input": "sample.input",
-      "writes": {
-        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "ablated.a1"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": -1}}
+      "interventions": {
+        "inject": {"site": "resid_final", "pos": -1, "ops": [{"op": "swap", "with": "ablated.a1"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
     },
     "te_clean": {"kind": "op", "op": "token_logit", "of": "clean.logits", "token": "sample.ml_token"},
     "te_abl": {"kind": "op", "op": "token_logit", "of": "ablated.logits", "token": "sample.ml_token"},

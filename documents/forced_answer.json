@@ -11,8 +11,9 @@
     "forced": {
       "kind": "forward",
       "input": ["days.input", "days.base_answer"],
-      "reads": {"logits": {"site": "head",
-                           "pos": {"scope": {"column": "days.base_answer", "occurrence": -1, "before": true}}}}
+      "interventions": {
+        "logits": {"site": "head", "pos": {"scope": {"column": "days.base_answer", "occurrence": -1, "before": true}}}
+      }
     },
     "nll": {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "days.base_answer"},
     "seq_nll": {"kind": "op", "op": "sum", "of": "nll", "over": ["pos"]},

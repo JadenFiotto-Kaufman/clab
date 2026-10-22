@@ -17,7 +17,7 @@
       "max_new_tokens": 3,
       "min_new_tokens": 3,
       "do_sample": false,
-      "reads": {"v_cf": {"site": "target", "pos": -1}}
+      "interventions": {"v_cf": {"site": "target", "pos": -1}}
     },
     "patched": {
       "kind": "generate",
@@ -25,10 +25,10 @@
       "max_new_tokens": 3,
       "min_new_tokens": 3,
       "do_sample": false,
-      "writes": {
-        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
-      },
-      "reads": {"logits": {"site": "head", "pos": {"frame": {"sweep": [0, 1, 2]}, "index": -1}}}
+      "interventions": {
+        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]},
+        "logits": {"site": "head", "pos": {"frame": {"sweep": [0, 1, 2]}, "index": -1}}
+      }
     },
     "p_answer": {"kind": "op", "op": "token_prob", "of": "patched.logits", "token": "pairs.cf_answer"}
   },

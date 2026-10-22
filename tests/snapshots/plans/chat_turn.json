@@ -1,5 +1,5 @@
 {
- "description": "A chat prompt, and a position inside one of its turns. The `chat` column holds a list of {'role', 'content'} messages rather than a string, so the run renders it through the checkpoint's own chat template and records where each turn landed; a position may then name a role's messages the way it names a column's text, each message an occurrence. `blanked` zeroes, and reads, the last token of the SECOND user message — `{'scope': {'turn': 'user', 'occurrence': 1}, 'index': -1}`: the conversation has two, and occurrence 0, the default, would be the first, the same rule a column's text that occurs twice gets. The template's control tokens are between the turns and in none of them, so the position is the question's own last token and not `[/INST]`.",
+ "description": "A chat prompt, and a position inside one of its turns. The `chat` column holds a list of {'role', 'content'} messages rather than a string, so the run renders it through the checkpoint's own chat template and records where each turn landed; a position may then name a role's messages the way it names a column's text, each message an occurrence. `blanked` zeroes the last token of the SECOND user message (`blanked.blank` is that zeroed value) — `{'scope': {'turn': 'user', 'occurrence': 1}, 'index': -1}`: the conversation has two, and occurrence 0, the default, would be the first, the same rule a column's text that occurs twice gets. The template's control tokens are between the turns and in none of them, so the position is the question's own last token and not `[/INST]`.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -15,7 +15,7 @@
   "blanked": {
    "kind": "forward",
    "input": "chats.chat",
-   "writes": {
+   "interventions": {
     "blank": {
      "site": {
       "component": "layer_output",
@@ -33,22 +33,7 @@
        "op": "swap",
        "with": 0.0
       }
-     ]
-    }
-   },
-   "reads": {
-    "asked": {
-     "site": {
-      "component": "layer_output",
-      "layers": 0
-     },
-     "pos": {
-      "scope": {
-       "turn": "user",
-       "occurrence": 1
-      },
-      "index": -1
-     },
+     ],
      "dims": [
       "rows",
       "pos",
@@ -64,7 +49,8 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "chats"

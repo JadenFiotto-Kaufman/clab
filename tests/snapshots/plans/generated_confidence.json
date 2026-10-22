@@ -15,7 +15,7 @@
   "answer": {
    "kind": "generate",
    "input": "prompts.input",
-   "reads": {
+   "interventions": {
     "logits": {
      "site": {
       "component": "lm_head_output"
@@ -30,7 +30,8 @@
      "dims": [
       "entries",
       "vocab_size"
-     ]
+     ],
+     "gathered": true
     }
    },
    "dataset": "prompts",

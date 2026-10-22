@@ -38,24 +38,28 @@
     "harvest": {
      "kind": "forward",
      "input": "prompts.input",
-     "reads": {
+     "interventions": {
       "latents": {
        "site": {
         "component": "layer_output",
         "layers": 0
        },
-       "pos": {},
        "ops": [
         {
-         "op": "featurizer",
-         "featurizer": "fit.dictionary",
-         "mode": "encode"
+         "op": "encode",
+         "featurizer": "fit.dictionary"
         }
        ],
        "dims": [
         "entries",
         "features"
-       ]
+       ],
+       "space": [
+        {
+         "featurizer": "fit.dictionary"
+        }
+       ],
+       "gathered": true
       }
      },
      "dataset": "prompts"

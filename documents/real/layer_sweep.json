@@ -14,19 +14,23 @@
     "counterfactual": {
       "kind": "forward",
       "input": "days.counterfactual_inputs[0]",
-      "reads": {"day": {"site": "target", "pos": -4}, "last": {"site": "target", "pos": -1}}
+      "interventions": {"day": {"site": "target", "pos": -4}, "last": {"site": "target", "pos": -1}}
     },
     "at_day": {
       "kind": "forward",
       "input": "days.input",
-      "writes": {"patch": {"site": "target", "pos": -4, "ops": [{"op": "swap", "with": "counterfactual.day"}]}},
-      "reads": {"hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}}
+      "interventions": {
+        "patch": {"site": "target", "pos": -4, "ops": [{"op": "swap", "with": "counterfactual.day"}]},
+        "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}
+      }
     },
     "at_last": {
       "kind": "forward",
       "input": "days.input",
-      "writes": {"patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.last"}]}},
-      "reads": {"hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}}
+      "interventions": {
+        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.last"}]},
+        "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}
+      }
     },
     "iia_day": {"kind": "op", "op": "mean", "of": "at_day.hit"},
     "iia_last": {"kind": "op", "op": "mean", "of": "at_last.hit"}

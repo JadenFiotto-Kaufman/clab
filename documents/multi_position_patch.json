@@ -11,7 +11,7 @@
     "counterfactual": {
       "kind": "forward",
       "input": "pairs.counterfactual_inputs[0]",
-      "reads": {
+      "interventions": {
         "v_m4": {"site": "target", "pos": -4},
         "v_m3": {"site": "target", "pos": -3},
         "v_m2": {"site": "target", "pos": -2}
@@ -20,12 +20,12 @@
     "patched": {
       "kind": "forward",
       "input": "pairs.input",
-      "writes": {
+      "interventions": {
         "at_m4": {"site": "target", "pos": -4, "ops": [{"op": "swap", "with": "counterfactual.v_m4"}]},
         "at_m3": {"site": "target", "pos": -3, "ops": [{"op": "swap", "with": "counterfactual.v_m3"}]},
-        "at_m2": {"site": "target", "pos": -2, "ops": [{"op": "swap", "with": "counterfactual.v_m2"}]}
-      },
-      "reads": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}
+        "at_m2": {"site": "target", "pos": -2, "ops": [{"op": "swap", "with": "counterfactual.v_m2"}]},
+        "logits": {"site": {"component": "lm_head_output"}, "pos": -1}
+      }
     },
     "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
     "logit_diff": {

@@ -1,4 +1,4 @@
-"""The implemented ops on plain tensors, and the site machinery that runs them inside a write."""
+"""The implemented ops on plain tensors, and the site machinery that runs an entry's records at a site."""
 
 import math
 
@@ -17,10 +17,10 @@ DIMS = ["rows", "pos", "hidden_size"]
 
 
 def test_every_op_is_listed_once_in_order_under_its_own_name():
-    assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "readout",
-                             "featurizer", "mean", "sum", "min", "pca", "match", "logit_diff", "token_prob",
-                             "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "decode",
-                             "noise", "clamp", "cosine"]
+    assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
+                             "apply", "noise", "clamp", "readout", "encode", "mean", "sum", "min", "pca", "match",
+                             "logit_diff", "token_prob", "token_logit", "cross_entropy", "contains", "kl", "js", "top_k",
+                             "argmax", "detokenize", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -28,9 +28,11 @@ def test_every_op_is_listed_once_in_order_under_its_own_name():
 def test_each_op_declares_its_group_and_bundle():
     groups = {name: ops.DECLARED[name]["group"] for name in ops.OPS}
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
-                                                               "normalize", "project_out", "noise", "clamp"}
+                                                               "normalize", "project_out", "decode", "apply", "noise",
+                                                               "clamp"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "pca"}
-    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "featurizer", "top_k", "argmax", "decode"}
+    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "top_k", "argmax",
+                                                                    "detokenize"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
                                                                  "cross_entropy", "contains", "kl", "js", "cosine"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
@@ -170,38 +172,45 @@ def test_out_dims_follows_each_ops_declaration():
         ops.out_dims("match", ["rows", "pos", "hidden_size"], {})
 
 
+def taken(value: torch.Tensor, component: str, rec: dict) -> torch.Tensor:
+    """What a read record at a site takes of `value`."""
+    got: dict = {}
+    assert not ops.visit(value, component, [{**rec, "name": "r"}], got)[1]
+    return got["r"]
+
+
 def record(start: int, width: int, value, ops_=None) -> dict:
     positions = torch.arange(start, start + width).expand(3, width)
     return {"positions": positions, "select": {},
-            "ops": ops_ or [{"op": "swap", "args": {"with": value}, "featurizer": None, "dims": DIMS}]}
+            "ops": ops_ or [{"op": "swap", "args": {"with": value}, "dims": DIMS}]}
 
 
 def test_a_ragged_write_writes_only_the_positions_it_keeps():
     value = torch.randn(2, 4, 5)
     ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
-              "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "featurizer": None, "dims": DIMS}]}
-    out = ops.write(value, "layer_output", [ragged])
+              "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "dims": DIMS}]}
+    out = ops.visit(value, "layer_output", [ragged], {})[0]
     assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
     unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
     assert torch.equal(out[unwritten], value[unwritten])
     empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
-    assert torch.equal(ops.write(value, "layer_output", [empty]), value)
+    assert torch.equal(ops.visit(value, "layer_output", [empty], {})[0], value)
 
 
 def test_a_window_write_and_three_single_writes_are_one_tensor():
     value = torch.randn(3, 6, 5)                         # batch, seq, hidden
     other = torch.randn(3, 6, 5)
-    window = ops.write(value, "layer_output", [record(2, 3, other[:, 2:5])])
-    singles = ops.write(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)])
+    window = ops.visit(value, "layer_output", [record(2, 3, other[:, 2:5])], {})[0]
+    singles = ops.visit(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)], {})[0]
     assert torch.equal(window, singles)
     assert torch.equal(window[:, 2:5], other[:, 2:5]) and torch.equal(window[:, :2], value[:, :2])
 
 
 def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
-    steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "featurizer": None, "dims": DIMS}])
-    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "featurizer": None, "dims": DIMS}])
-    out = ops.write(value, "layer_output", [steer, restore])
+    steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "dims": DIMS}])
+    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}])
+    out = ops.visit(value, "layer_output", [steer, restore], {})[0]
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])
     assert torch.equal(out[:, :3], value[:, :3])
@@ -210,9 +219,9 @@ def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
 def test_select_narrows_one_axis_and_write_puts_it_back():
     value = torch.randn(2, 3, 4, 2)                      # batch, seq, num_heads, head_dim (attention_premix)
     head = {"positions": torch.tensor([[2], [2]]), "select": {2: torch.tensor([1])}}
-    assert torch.equal(ops.select(value, "attention_premix", head), value[:, 2:3, 1:2])
-    out = ops.write(value, "attention_premix", [{**head, "ops": [
-        {"op": "swap", "args": {"with": 0.0}, "featurizer": None, "dims": ["rows", "pos", "num_heads", "head_dim"]}]}])
+    assert torch.equal(taken(value, "attention_premix", head), value[:, 2:3, 1:2])
+    out = ops.visit(value, "attention_premix", [{**head, "ops": [
+        {"op": "swap", "args": {"with": 0.0}, "dims": ["rows", "pos", "num_heads", "head_dim"]}]}], {})[0]
     assert torch.equal(out[:, 2, 1], torch.zeros(2, 2))
     out[:, 2, 1] = value[:, 2, 1]
     assert torch.equal(out, value)
@@ -221,7 +230,7 @@ def test_select_narrows_one_axis_and_write_puts_it_back():
 def test_a_pattern_is_selected_along_its_query_axis():
     value = torch.randn(2, 4, 5, 5)                      # batch, num_heads, query, key
     rec = {"positions": torch.tensor([[4], [4]]), "select": {}}
-    assert torch.equal(ops.select(value, "attention_probabilities", rec), value[:, :, 4:5].movedim(2, 1))
+    assert torch.equal(taken(value, "attention_probabilities", rec), value[:, :, 4:5].movedim(2, 1))
 
 
 def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
@@ -261,11 +270,11 @@ class Engine:
     eos = [0]
 
 
-def test_decode_stops_at_each_rows_first_eos():
+def test_detokenize_stops_at_each_rows_first_eos():
     ids = torch.tensor([[5, 6, 0, 7], [8, 9, 9, 9]])
-    assert transforms.decode(ids, engine=Engine(), eos=[0]) == ["<5><6>", "<8><9><9><9>"]
-    assert transforms.decode(ids, engine=Engine(), eos=[0], tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
-    assert transforms.decode(ids, engine=Engine(), eos=[6, 9]) == ["<5>", "<8>"]
+    assert transforms.detokenize(ids, engine=Engine(), eos=[0]) == ["<5><6>", "<8><9><9><9>"]
+    assert transforms.detokenize(ids, engine=Engine(), eos=[0], tokens=True) == [["t5", "t6"], ["t8", "t9", "t9", "t9"]]
+    assert transforms.detokenize(ids, engine=Engine(), eos=[6, 9]) == ["<5>", "<8>"]
 
 
 def test_a_missing_row_is_missing_all_the_way_down():
