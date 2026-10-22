@@ -947,7 +947,8 @@ class Compiling:
     gathers. A fit's body compiles in a copy whose
     `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
     `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
-    `rot` is `<fit>.rot`, the instance being trained)."""
+    `rot` is `<fit>.rot`, the instance being trained). `points` holds each point of the document built so far,
+    by its coordinates (`point`)."""
     doc: dict
     root: str
     rows: dict
@@ -958,3 +959,4 @@ class Compiling:
     refs: list
     used: set
     aliases: dict = field(default_factory=dict)
+    points: dict = field(default_factory=dict)

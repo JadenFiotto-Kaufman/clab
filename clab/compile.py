@@ -96,16 +96,20 @@ def expand(cx: Compiling, name: str, where: tuple, build) -> dict | list:
 
 
 def point(cx: Compiling, at: dict) -> Plan:
-    """The document with every sweep `at` names replaced by its value there."""
-    def substitute(value: Any, path: tuple) -> Any:
-        if cx.sweeps.get(path) in at:
-            return value["sweep"][at[cx.sweeps[path]]]
-        if isinstance(value, dict):
-            return {k: substitute(v, path + (k,)) for k, v in value.items()}
-        if isinstance(value, list):
-            return [substitute(v, path + (i,)) for i, v in enumerate(value)]
-        return value
-    return Plan(**substitute(cx.doc, ()))
+    """The document with every sweep `at` names replaced by its value there, built and validated once per
+    distinct `at` (`cx.points`): every step of an unswept document compiles against the one plan."""
+    key = tuple(sorted(at.items()))
+    if key not in cx.points:
+        def substitute(value: Any, path: tuple) -> Any:
+            if cx.sweeps.get(path) in at:
+                return value["sweep"][at[cx.sweeps[path]]]
+            if isinstance(value, dict):
+                return {k: substitute(v, path + (k,)) for k, v in value.items()}
+            if isinstance(value, list):
+                return [substitute(v, path + (i,)) for i, v in enumerate(value)]
+            return value
+        cx.points[key] = Plan(**substitute(cx.doc, ()))
+    return cx.points[key]
 
 
 def footprint(cx: Compiling, where: tuple) -> list[tuple]:
