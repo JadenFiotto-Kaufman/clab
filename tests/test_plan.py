@@ -195,15 +195,6 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     assert entry.site.component == "layer_output" and entry.site.layers == 0
 
 
-def test_a_hub_dataset_is_declared_but_not_loaded_yet():
-    def hub(d):
-        d["data"]["pairs"] = {"hf": "org/name", "revision": "abc", "split": "train", "take": 4}
-    with pytest.raises(PlanError, match="data.pairs.hf: hub datasets land later"):
-        edited("patching", hub).compile()
-    with pytest.raises(PlanError, match="data.pairs: a hub dataset is pinned"):
-        edited("patching", lambda d: d["data"].update(pairs={"hf": "org/name"}))
-
-
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["iia"].update(op="matches"), r"steps\.iia: unknown op 'matches'; valid: swap, add"),
     (lambda d: d["sites"]["target"].update(component="block_output"),
@@ -233,7 +224,7 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
      r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
-     r"data\.pairs: 'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows$"),
+     r"data\.pairs: 'split' keeps rows of a file; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
@@ -259,7 +250,7 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
                                                    r"or a step's member: counterfactual\.v_cf, iia, logit_diff, "
                                                    r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
-    (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' is a dataset; hub datasets and dataset saves land later$"),
+    (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' names no step's value; a save is a step or a step's member"),
     (lambda d: d["sites"]["target"].update(layers=":"),
      r"steps\.patched\.interventions\.patch\.site: an entry that writes names its layer"),
 ])

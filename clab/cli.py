@@ -1,4 +1,4 @@
-"""`clab run`, `clab show`, `clab table`, `clab describe` and `clab schema`: a thin command line over
+"""`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
 `show` prints what a run's directory holds (each result with its step, dims, axes and shape, and how the
@@ -7,7 +7,7 @@ and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
 models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
-`describe --markdown` renders all of it as `FORMAT.md`; `schema` prints the plan's JSON Schema.
+`describe --markdown` renders all of it as `FORMAT.md`.
 """
 
 import argparse
@@ -19,7 +19,7 @@ import os
 import sys
 from typing import Any, get_args
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 
 from . import address, output
 from .plan import compile as compiler
@@ -125,66 +125,15 @@ def served(kind: str) -> list[str]:
     return out
 
 
-def schema() -> dict:
-    """The document's JSON Schema: the plan's, without the fields compile and the run fill, with an op's
-    arguments spelled out per op."""
-    found = plan.Plan.model_json_schema()
-
-    def strip(node: Any) -> None:
-        if isinstance(node, dict):
-            for key in [k for k, v in node.get("properties", {}).items() if isinstance(v, dict) and v.get("derived")]:
-                del node["properties"][key]
-                node["required"] = [k for k in node.get("required", []) if k != key]
-            for value in node.values():
-                strip(value)
-        elif isinstance(node, list):
-            for value in node:
-                strip(value)
-
-    strip(found)
-    for key in ("Op", "OpStep"):
-        found["$defs"][key] = per_op(found["$defs"][key])
-    return found
-
-
-def per_op(base: dict) -> dict:
-    """An op record's schema as one branch per op: its own fields beside the op's arguments, nothing else."""
-    sweep = {"$ref": "#/$defs/Sweep"}
-    column = {"anyOf": [{"type": "string"}, {"$ref": "#/$defs/Column"}]}
-    kinds = {ops.Value: {"type": ["number", "string"]}, ops.Tokens: column, ops.Text: column,
-             ops.Featurizer: {"type": "string"}}
-    branches = []
-    for name in ops.OPS:
-        params = {k: p for k, p in ops.parameters(name).items() if k not in base["properties"]}
-        # `apply`'s further arguments are every kind's own, which compile binds to the one its featurizer's kind
-        # has; only that op's options can be listed ahead of a document, so by name.
-        if name == "apply":
-            params.update({k: p for cls in featurizers.KINDS.values() if "apply" in cls.ops()
-                           for k, p in featurizers.registry.spelled(cls.method("apply"), ("self", "h")).items()})
-        # An optional thing (`Value | None`) is written as the thing, or left out.
-        named = {k: next((a for a in get_args(p.annotation) if a in kinds), p.annotation) for k, p in params.items()}
-        args = {k: {"anyOf": [kinds.get(named[k]) or TypeAdapter(p.annotation).json_schema(), sweep]}
-                for k, p in params.items()}
-        branches.append({"type": "object", "properties": {**base["properties"], "op": {"const": name}, **args},
-                         "required": base.get("required", []) + [k for k, p in ops.parameters(name).items()
-                                                                 if p.default is p.empty],
-                         "additionalProperties": False})
-    return {"title": base["title"], "description": base.get("description", ""), "oneOf": branches}
-
-
-def run_options(name: str) -> dict[str, list[tuple[str, str]]]:
-    """Engine `name`'s run options, each `key: type = default` beside what its docstring says it takes: those
-    it loads with (`device`, then its own) and those it runs with (`batch_size`, then its own)."""
-    from .engines import ENGINES, Engine, options
+def run_options(name: str) -> list[tuple[str, str]]:
+    """Engine `name`'s options, each `key: type = default` beside what its constructor's docstring says it
+    takes: `device`, then its own."""
+    from .engines import ENGINES, SUPPLIED, options
 
     cls: Any = ENGINES[name]
-    declared = options(name)
-    common = {"loads": {"device": inspect.signature(cls.__init__).parameters["device"]},
-              "runs": {"batch_size": inspect.signature(cls.execute).parameters["batch_size"]}}
-    said = {"loads": registry.described(cls.__init__),
-            "runs": {**registry.described(Engine.execute), **registry.described(cls.execute)}}
-    return {side: [(f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}", said[side].get(k, ""))
-                   for k, p in {**common[side], **declared[side]}.items()] for side in ("loads", "runs")}
+    params = {"device": inspect.signature(cls.__init__).parameters["device"], **options(name)}
+    said = registry.described(cls.__init__)
+    return [(f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}", said.get(k, "")) for k, p in params.items()]
 
 
 def describe(what: str | None = None) -> str:
@@ -227,11 +176,8 @@ def describe(what: str | None = None) -> str:
         from . import engines
         lines = ["engines (`clab run --engine NAME --device D --batch-size N -o KEY=VALUE`):"]
         for name, cls in engines.ENGINES.items():
-            given = run_options(name)
             lines.append(f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()))
-            for side, says in (("loads", "loads with"), ("runs", "runs with")):
-                lines += [f"      {says}:"] + [f"        {o}" + (f" — {text}" if text else "")
-                                                for o, text in given[side]]
+            lines += [f"      {o}" + (f" — {text}" if text else "") for o, text in run_options(name)]
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
@@ -251,8 +197,7 @@ def markdown() -> str:
     parts = [
         "# The clab format\n",
         "Generated by `clab describe --markdown` from the code; a test fails when this file and the code "
-        "disagree. A document is one JSON object that declares a complete experiment; `clab run DOC` runs it. "
-        "Its JSON Schema is `schema.json` (`clab schema`).\n",
+        "disagree. A document is one JSON object that declares a complete experiment; `clab run DOC` runs it.\n",
         "## Root keys\n",
         table([["key", "holds"], ["---", "---"]] + [[f"`{k}`", plan.Plan.model_fields[k].description or ""]
                                                     for k in plan.documented(plan.Plan)]),
@@ -287,12 +232,11 @@ def markdown() -> str:
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Ops: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
     from . import engines
-    parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n"]
+    parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n",
+              "Every engine runs with `batch_size`, how many of a step's rows go through the model in one forward "
+              "or generation (default 8); the options below are each engine's own.\n"]
     for name, cls in engines.ENGINES.items():
-        given = run_options(name)
-        listed = "".join(f"- {says}:\n" + "".join(f"  - `{o}`" + (f": {text}" if text else "") + "\n"
-                                                  for o, text in given[side])
-                         for side, says in (("loads", "Loads with"), ("runs", "Runs with")))
+        listed = "".join(f"- `{o}`" + (f": {text}" if text else "") + "\n" for o, text in run_options(name))
         parts += [f"### `{name}`\n", listed + "\n" + doc(inspect.getmodule(cls)) + "\n"]
     parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
               "## Sweeps\n", doc(plan.find_sweeps) + "\n",
@@ -316,8 +260,7 @@ def show(filled: "plan.Plan") -> str:
     lines = [f"{plan.name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
-             f"  versions: clab {run.versions.get('clab')}, python {run.versions.get('python')} and "
-             f"{max(len(run.versions) - 2, 0)} more installed where the model was (the manifest lists them)"]
+             "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for name in filled.saves:
         entry = filled.steps[name.partition(".")[0]]
@@ -389,7 +332,6 @@ def main(argv: list[str] | None = None) -> int:
     tell = commands.add_parser("describe", help="print the format's tables, read off the code")
     tell.add_argument("what", nargs="?", choices=WHAT)
     tell.add_argument("--markdown", action="store_true", help="write FORMAT.md")
-    commands.add_parser("schema", help="print the plan's JSON Schema")
     args = parser.parse_args(argv)
 
     if args.command == "describe":
@@ -399,9 +341,6 @@ def main(argv: list[str] | None = None) -> int:
             print("wrote FORMAT.md")
         else:
             print(describe(args.what))
-        return 0
-    if args.command == "schema":
-        print(json.dumps(schema(), indent=1, ensure_ascii=False))
         return 0
     if args.command in ("show", "table"):
         try:

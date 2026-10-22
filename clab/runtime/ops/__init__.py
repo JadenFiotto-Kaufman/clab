@@ -324,7 +324,7 @@ def live(got: dict | None, operand: dict) -> Tensor:
     return (got or {})[operand["live"]]
 
 
-# The ops, in the order the tables (`describe`, FORMAT.md, schema.json) list them.
+# The ops, in the order the tables (`describe`, FORMAT.md) list them.
 from . import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [

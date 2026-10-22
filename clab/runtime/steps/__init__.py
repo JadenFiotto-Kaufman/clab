@@ -9,7 +9,6 @@ under ndif); under the hooks engine, in plain Python. The cross-step state is a 
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
 
-import functools
 import importlib.metadata
 import json
 import os
@@ -21,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 import torch
 from torch import Tensor
 
-from ... import registry
 from ...plan.model import Plan, Run, coordinate, labelled, points
 from ...registry import registers
 from .preflight import instance, preflight
@@ -34,23 +32,16 @@ KINDS: dict = {}
 kind = registers(KINDS)
 
 
-def begin(engine, plan: Plan, batch_size: int, options: dict) -> float:
+def begin(engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
-    the device, the options it loaded with and those it runs with (`options`, each declared by its `execute`'s
-    signature) after their defaults, and what is installed on the client (`versions`); returns the start time."""
-    runs = registry.spelled(type(engine).execute, ("self", "plan", "batch_size"))
-    for key in options:
-        if key not in runs:
-            raise ValueError(f"the {engine.name} engine runs with no {key!r}; it runs with: "
-                             f"{', '.join(runs) or 'nothing'}")
+    the device and the options it loaded with; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     if plan.model != engine.spec:
         raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
                          f"{plan.model.key}@{plan.model.revision}")
-    given = {**engine.options, **{k: options.get(k, p.default) for k, p in runs.items()}}
-    plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=given,
-                   client=versions(), started=time.strftime("%Y-%m-%dT%H:%M:%S"))
+    plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=engine.options,
+                   started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
 
@@ -135,14 +126,14 @@ def finished(value):
     return value
 
 
-@functools.cache
+PACKAGES = ("nnsight", "nnterp", "torch", "transformers")
+
+
 def versions() -> dict[str, str]:
-    """Every distribution installed here by name, sorted, clab's with its commit (`version`), and `python`. `run`
-    calls it inside the session, so under the ndif engine they are the server's; `begin` calls it on the client.
-    Read once per process: what is installed does not change while it runs."""
-    found = {d.metadata["Name"]: d.version for d in importlib.metadata.distributions()}
-    found["clab"] = version()
-    return {**dict(sorted(found.items(), key=lambda item: item[0].lower())), "python": platform.python_version()}
+    """What served the run, by name: clab's version with its commit (`version`), the packages it runs on, and
+    `python`. `run` calls it inside the session, so under the ndif engine they are the server's."""
+    return {"clab": version(), **{p: importlib.metadata.version(p) for p in PACKAGES},
+            "python": platform.python_version()}
 
 
 def version() -> str:

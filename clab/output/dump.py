@@ -36,7 +36,7 @@ def dump(plan: Plan, out: str) -> None:
     manifest = plan.model_dump(mode="json", exclude_defaults=True)
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
-        if "path" in d or "hf" in d:
+        if "path" in d:
             del d["rows"]
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)

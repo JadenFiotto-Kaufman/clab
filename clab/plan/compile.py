@@ -28,8 +28,6 @@ def compile(plan: Plan) -> Plan:
     doc = plan.model_dump(exclude_defaults=True, exclude={"run", "document"})
     rows = {}
     for name, d in plan.data.items():
-        if d.hf is not None:
-            fail(f"data.{name}.hf", "hub datasets land later")
         try:
             rows[name] = d.rows if d.path is None else data.rows(root, d.path, d.split)
         except ValueError as e:
@@ -52,8 +50,6 @@ def compile(plan: Plan) -> Plan:
             cx, f"steps.{name}", name, point.steps[name], point))
     saveable = sorted(n for n, v in cx.names.items() if n.partition(".")[0] in plan.steps and v["kind"] != "scalar")
     for i, name in enumerate(plan.saves):
-        if name in plan.data:
-            fail(f"saves[{i}]", f"{name!r} is a dataset; hub datasets and dataset saves land later")
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")
         if name not in saveable:

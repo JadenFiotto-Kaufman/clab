@@ -632,10 +632,8 @@ def test_m5_argmax_over_features_says_it_ranks_a_vocabulary_only():
             "top": {"kind": "op", "op": "argmax", "of": "f.z"}}).compile()
 
 
-def test_m6_take_on_a_file_says_what_to_do_instead():
-    with pytest.raises(PlanError, match=r"data\.d: 'take' keeps the first rows of a hub dataset \('hf'\), which "
-                                        r"lands later; of a file or inline rows, keep the rows you want in the file "
-                                        r"itself, or mark them with a 'split' column and give 'split'"):
+def test_m6_take_on_a_file_is_an_unknown_field():
+    with pytest.raises(PlanError, match=r"data\.d: unknown field 'take'; valid: path, rows, split"):
         plan(data={"d": {"path": "weekdays/data", "take": 2}}, steps={})
 
 

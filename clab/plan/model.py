@@ -17,8 +17,7 @@ import types
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
 from pydantic import (BaseModel, BeforeValidator, ConfigDict, Discriminator, Field, Tag, ValidationError,
-                      WithJsonSchema, field_serializer, field_validator, model_serializer, model_validator)
-from pydantic.json_schema import SkipJsonSchema
+                      field_serializer, field_validator, model_serializer, model_validator)
 from pydantic_core import core_schema
 from torch import Tensor
 
@@ -120,9 +119,7 @@ Swept = Annotated[Union[T, Sweep], ByShape()]
 
 # Which of a number of things (layers, forward calls, occurrences, tokens) a range picks: an int, a slice
 # string in Python notation, or a list of distinct picks; `pos` documents it, `positions.select` resolves it.
-Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(positions.checked), WithJsonSchema(
-    {"anyOf": [{"type": "integer"}, {"type": "string", "pattern": positions.SLICE},
-               {"type": "array", "items": {"type": "integer"}, "minItems": 1, "uniqueItems": True}]})]
+Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(positions.checked)]
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 
@@ -139,32 +136,20 @@ class Model(Record):
 
 
 class Data(Record):
-    """A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline, or `hf` names a
-    pinned hub dataset (`revision`, `take` rows of `split`). `split` keeps the rows of that split."""
+    """A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline; `split` keeps the
+    rows of a file whose `split` column is that."""
     path: str | None = None
     rows: list[dict] | None = None
-    hf: str | None = None
-    revision: str | None = None
     split: str | None = None
-    take: int | None = None
     sha256: str | None = derived(None, "the digest of the rows, which a re-materialization must match")
     n_rows: int | None = derived(None, "how many rows the dataset has")
 
     @model_validator(mode="after")
     def _one_source(self):
-        sources = [s for s in (self.path, self.hf) if s is not None]
-        if len(sources) > 1 or not sources and self.rows is None:
-            raise ValueError("a dataset is a 'path', inline 'rows' or a hub dataset 'hf'")
-        if self.hf is not None and self.revision is None:
-            raise ValueError("a hub dataset is pinned: give its 'revision'")
-        if self.hf is None and self.take is not None:
-            raise ValueError("'take' keeps the first rows of a hub dataset ('hf'), which lands later; of a file or "
-                             "inline rows, keep the rows you want in the file itself, or mark them with a 'split' "
-                             "column and give 'split'")
-        if self.hf is None and self.revision is not None:
-            raise ValueError("'revision' pins a hub dataset ('hf'); a file or inline rows are pinned by their digest")
-        if not sources and self.split is not None:
-            raise ValueError("'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows")
+        if self.path is None and self.rows is None:
+            raise ValueError("a dataset is a 'path' or inline 'rows'")
+        if self.path is None and self.split is not None:
+            raise ValueError("'split' keeps rows of a file; inline 'rows' are the rows")
         return self
 
 
@@ -173,7 +158,7 @@ class Site(Record):
     layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
     it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
     (`{<axis>: <selector>}`, which Components describes)."""
-    component: str = Field(json_schema_extra={"enum": list(address.COMPONENTS)})
+    component: str
     layers: Swept[Selector] | None = None
     select: dict[str, Swept[Selector]] | None = None
 
@@ -232,9 +217,6 @@ class Scope(Record):
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
     # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
-    model_config = ConfigDict(json_schema_extra={"oneOf": [
-        {"required": [k], **({} if k == "text" else {"not": {"anyOf": [{"required": [f]} for f in FLAGS]}})}
-        for k in ("column", "text", "turn")]})
     column: ColumnRef | list[ColumnRef] | None = None
     text: str | list[str] | None = None
     turn: str | None = None
@@ -381,7 +363,7 @@ class Pos(Record):
 class Op(Record):
     """An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops)."""
     model_config = ConfigDict(extra="allow")
-    op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
+    op: str
 
     @model_validator(mode="after")
     def _arguments(self):
@@ -602,7 +584,7 @@ class Generate(Forward):
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
     batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
-    model_config = ConfigDict(extra="allow", json_schema_extra={"not": {"anyOf": [{"required": [k]} for k in SIDES]}})
+    model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
 
 
@@ -617,7 +599,7 @@ class OpStep(Record):
     Ops). The step's value is the op's result; a step holds exactly one op, and chaining is the next step."""
     model_config = ConfigDict(extra="allow")
     kind: Literal["op"]
-    op: str = Field(json_schema_extra={"enum": list(ops.OPS)})
+    op: str
     of: str
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
@@ -729,7 +711,7 @@ class Featurizer(Record):
     model_config = ConfigDict(extra="allow")
     kind: str
     at: dict[str, int] = derived({}, AT)
-    bundle: SkipJsonSchema[dict[str, Tensor] | None] = derived(
+    bundle: dict[str, Tensor] | None = derived(
         None, "the tensors of the bundle `file_path` names, checked against its header", exclude=True)
     header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
                                                   "checks the model's width against")
@@ -753,8 +735,8 @@ class Axis(Record):
 class Run(Record):
     """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the
     engine does not place the model, as on an NDIF server, and every engine option after its defaults in
-    `options`), and every distribution installed on each side, by name, clab's with its commit: on the client
-    (`client`) and where the model is (`versions`: the server's, under `ndif`). `dtype` and `devices` are the
+    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
+    where the model is: the server's, under `ndif`). `dtype` and `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met. `tokens` and
     `positions` describe values without holding any: how each dataset input tokenized and what each generate
     step's rows generated (token strings per row, under the input or the step's name), and the position every
@@ -766,7 +748,6 @@ class Run(Record):
     batch_size: int
     device: str | None
     options: dict[str, Any] = {}
-    client: dict[str, str] = {}
     versions: dict[str, str] = {}
     dtype: list[str] = []
     devices: list[str] = []
@@ -799,7 +780,7 @@ class Plan(Record):
                                          "corpus root, where data paths and bundles resolve")
     compiled: bool = derived(False, "whether this is the compiled plan")
     sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order")
-    results: SkipJsonSchema[dict[str, Any]] = derived(
+    results: dict[str, Any] = derived(
         {}, "each saved value by name; a swept one is a dict keyed by coordinate", exclude=True)
     run: Run | None = derived(None, "how the plan ran, set by `execute`")
 

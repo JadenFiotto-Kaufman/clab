@@ -141,9 +141,8 @@ back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token,
 ```
 
 `clab.run(plan_or_path, engine=..., out=None, batch_size=8, device="cpu", **options)` is the four steps of a
-run (`options` are the engine's own, each routed by name to what it loads or runs with: `clab describe
-engines` lists them), which
-are also there to take one at a time:
+run (`options` are the engine's own: `clab describe engines` lists them), which are also there to take one at
+a time:
 
 ```python
 from clab.engines import load
@@ -180,11 +179,10 @@ named in every error.
   `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
 - **Step kinds** (`clab/runtime/steps/`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
-  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
-  loads with); `execute(plan, batch_size=, ...)` is its one entry point, and its keyword parameters are what it
-  runs with. One pool of options (`-o`, or `clab.run`'s keywords) goes to each by name; `clab describe engines`
-  lists both, each option with what its docstring says it takes (on nnterp and hooks `device` is one torch
-  device, `cpu` or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
+  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
+  `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists
+  each option with what its docstring says it takes (on nnterp and hooks `device` is one torch device, `cpu`
+  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
 
 ## The output
 
@@ -215,7 +213,7 @@ the same way.
 arguments and axis behaviour (grouped as metrics, reductions and edits), every component, featurizer kinds,
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that, every input token a position), names and scoping, sweeps and the output. It is generated from the code (`clab describe
---markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
+--markdown`); a test fails when it is stale.
 `documents/` holds the corpus: the 31 original documents and the example documents added since (44 in all),
 and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
 
