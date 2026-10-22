@@ -1,34 +1,30 @@
 """The `fit` step kind: train featurizers through the frozen model, then score its body under each eval."""
 
-from __future__ import annotations
-
 from dataclasses import replace
-from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 
 from . import featurizers
 from .featurizers.uses import instance
-from .plan import Intervention, Plan, agreeing, arguments, entries, fail, gathers, kind_of, points
+from .preflight import Found
+from .plan import Compiling, Intervention, Known, Plan, agreeing, arguments, entries, fail, gathers, kind_of, points
 from .batches import home
 from .sweeps import lookup, put
 
-if TYPE_CHECKING:
-    from .compile import Compiling
 
 
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
 
-def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
     weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there."""
-    sources = lookup(found["bodies"], name, step.at)
+    sources = lookup(found.bodies, name, step.at)
     device = home(engine)
-    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found["widths"][f], step.seed, device)
+    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found.widths[f], step.seed, device)
                for f in step.train}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     optimizer = step.optimizer
@@ -116,16 +112,16 @@ def datasets(step) -> list[str]:
     return sorted({s.dataset for s in step.steps.values() if s.dataset is not None})
 
 
-def narrowed(plan: Plan, found: dict, index: list[int], names: list[str]) -> tuple[Plan, dict]:
+def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tuple[Plan, Found]:
     """A body's plan and findings over the rows `index` picks of each of its datasets (`names`)."""
     data = {**plan.data, **{d: plan.data[d].model_copy(update={"rows": [(plan.data[d].rows or [])[i] for i in index]})
                             for d in names}}
-    return plan.model_copy(update={"data": data}), {
-        "inputs": {k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found["inputs"].items()},
-        "positions": {w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found["positions"].items()},
-        "said": {}, "selects": found["selects"], "widths": found["widths"],
-        "answers": {k: {**a, "values": [a["values"][i] for i in index], "sets": [a["sets"][i] for i in index]}
-                    if a["column"].partition(".")[0] in names else a for k, a in found["answers"].items()}}
+    return plan.model_copy(update={"data": data}), Found(
+        inputs={k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found.inputs.items()},
+        positions={w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found.positions.items()},
+        selects=found.selects, widths=found.widths,
+        answers={k: {**a, "values": [a["values"][i] for i in index], "sets": [a["sets"][i] for i in index]}
+                 if a["column"].partition(".")[0] in names else a for k, a in found.answers.items()})
 
 
 def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:
@@ -163,7 +159,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                  "it draws")
     within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
     for f in spec.train:
-        within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
+        within.names[f"{name}.{f}"] = Known(kind="featurizer")
     before = len(cx.refs)
     body = {}
     for n, s in spec.steps.items():
@@ -176,7 +172,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
     inner = within.names
     for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref]["dims"]:
+        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref].dims:
             fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
                  "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
@@ -211,15 +207,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
                  + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
                  "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
     for f in spec.train:
-        cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
+        cx.names[f"{name}.{f}"] = Known(kind="featurizer")
         for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:
-            cx.names[f"{name}.history.{f}.{scalar}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
+            cx.names[f"{name}.history.{f}.{scalar}"] = Known(["epochs"])
     for n, s in body.items():
         if s["kind"] == "op":
-            cx.names[f"{name}.history.{n}"] = {"dims": ["epochs"], "data": None, "kind": "value"}
+            cx.names[f"{name}.history.{n}"] = Known(["epochs"])
         members = ([n] if s["kind"] == "op" else []) + [f"{n}.{k}" for k in s.get("interventions", {})]
         for label, swap in spec.eval.items():
             for member in members:
                 info = inner[member]
-                cx.names[f"{name}.{label}.{member}"] = {**info, "data": swap.get(info["data"], info["data"])}
+                cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap.get(info.data, info.data))
     return {**spec.model_dump(exclude_defaults=True), "steps": body}

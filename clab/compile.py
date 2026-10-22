@@ -7,7 +7,6 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 """
 
 import itertools
-from dataclasses import dataclass, field
 from typing import Any
 
 from . import data, featurizers, positions
@@ -15,7 +14,7 @@ from .answers import column_ref
 from .featurizers.uses import bundled_sites, featurizer
 from .fit import compile_fit
 from .interventions import aligned, called, entry, items, layout, narrowed_readout, paired, references, value_ref
-from .plan import Intervention, Plan, arguments, corpus_root, fail, kind_of
+from .plan import Compiling, Intervention, Known, Plan, arguments, corpus_root, fail, kind_of
 from .sweeps import find_sweeps
 
 
@@ -41,13 +40,13 @@ def compile(plan: Plan) -> Plan:
     for name in plan.featurizers:
         compiled["featurizers"][name] = expand(cx, name, ("featurizers", name),
                                                lambda point, name=name: featurizer(cx, point, name))
-        cx.names[name] = {"dims": [], "data": None, "kind": "featurizer"}
+        cx.names[name] = Known(kind="featurizer")
         for scalar in featurizers.KINDS[kind_of(plan, name)].scalars:
-            cx.names[f"{name}.{scalar}"] = {"dims": [], "data": None, "kind": "scalar"}
+            cx.names[f"{name}.{scalar}"] = Known(kind="scalar")
     for name in plan.steps:
         compiled["steps"][name] = expand(cx, name, ("steps", name), lambda point, name=name: step(
             cx, f"steps.{name}", name, point.steps[name], point))
-    saveable = sorted(n for n, v in cx.names.items() if n.partition(".")[0] in plan.steps and v["kind"] != "scalar")
+    saveable = sorted(n for n, v in cx.names.items() if n.partition(".")[0] in plan.steps and v.kind != "scalar")
     for i, name in enumerate(plan.saves):
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")
@@ -62,31 +61,6 @@ def compile(plan: Plan) -> Plan:
                                 "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
     return done
-
-
-@dataclass
-class Compiling:
-    """What compiling an entry needs beside the entry, passed to every function that resolves a name.
-
-    Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
-    document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document
-    order: each name produced so far, `{dims, data, kind}` and, for a value, what `value_of` records of it
-    (`names`), each entry's sweep axes (`axes_of`), the names the entry being compiled references (`refs`),
-    which decide the axes it inherits, and every value any entry references (`used`), which decides what the run
-    gathers. A fit's body compiles in a copy whose
-    `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
-    `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
-    `rot` is `<fit>.rot`, the instance being trained)."""
-    doc: dict
-    root: str
-    rows: dict
-    sweeps: dict
-    values: dict
-    names: dict
-    axes_of: dict
-    refs: list
-    used: set
-    aliases: dict = field(default_factory=dict)
 
 
 def get(doc: dict, path: tuple):
@@ -215,19 +189,17 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
             live[f"{name}.{k}"] = (records[k], e)
     cx.names.update({f"{name}.{k}": v for k, v in made.items()})
     if spec.kind == "generate":
-        cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
+        cx.names[name] = Known(["rows", "new"], dataset)
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), "interventions": records,
             "dataset": dataset}
 
 
-def value_of(record: dict, spec: Intervention, dataset: str) -> dict:
-    """What a name records of an entry's value: its layout, its dataset, its coordinates (`space`), its site's
-    `select` on the axes it still has, and how many positions it holds on every row (`width`, None when
-    ragged)."""
+def value_of(record: dict, spec: Intervention, dataset: str) -> Known:
+    """What a name records of an entry's value (`Known`)."""
     dims = record["dims"]
-    return {"dims": dims, "data": dataset, "kind": "value", "space": record.get("space", []),
-            "select": {a: v for a, v in (record["site"].get("select") or {}).items() if a in dims},
-            "width": positions.width(positions.parse(spec.pos)) if "pos" in dims else None}
+    return Known(dims, dataset, space=record.get("space", []),
+                 select={a: v for a, v in (record["site"].get("select") or {}).items() if a in dims},
+                 width=positions.width(positions.parse(spec.pos)) if "pos" in dims else None)
 
 
 def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
@@ -236,20 +208,19 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
              "generation's ids into text)")
     of = value_ref(cx, spec.of, f"{path}.of")
-    if spec.op == "contains" and not of.get("text"):
+    if spec.op == "contains" and not of.text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
-    found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
-    dataset = aligned(path, (of["data"], repr(spec.of)), found)
-    paired(path, spec.op, of["dims"], of.get("width"), found)
-    if spec.op == "readout" and "hidden_size" in of.get("select", {}):
+    found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of.dims)
+    dataset = aligned(path, (of.data, repr(spec.of)), found)
+    paired(path, spec.op, of.dims, of.width, found)
+    if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
-    dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
-    cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
-                      "text": spec.op == "detokenize" and not arguments(spec).get("tokens"),
-                      "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else [],
-                      "select": {a: v for a, v in of.get("select", {}).items() if a in dims},
-                      "width": of.get("width") if "pos" in dims else None}
+    dims = layout(path, spec.op, arguments(spec), of.dims, "step", kind)
+    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not arguments(spec).get("tokens"),
+                           space=of.space if dims[-1:] == of.dims[-1:] else [],
+                           select={a: v for a, v in of.select.items() if a in dims},
+                           width=of.width if "pos" in dims else None)
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 

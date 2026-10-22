@@ -25,7 +25,7 @@ from . import ops
 from .batches import batches, bind, bound, home, joined, layers, read, stacked
 from .featurizers.uses import instance
 from .plan import Plan, Run, arguments, dims_of, entries, points
-from .preflight import preflight
+from .preflight import Found, preflight
 from .sweeps import by_coordinate, coordinate, lookup, put
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     assert plan.run is not None
     plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
-    state = made(plan, found["widths"], home(engine))
+    state = made(plan, found.widths, home(engine))
     with torch.no_grad():
         for name, entry in plan.steps.items():
             for step in points(entry):
@@ -64,15 +64,15 @@ def run(engine, plan: Plan, batch_size: int) -> None:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
-    positions = dict(found["positions"])
-    for fit, by_point in found["bodies"].items():        # a body's records, as each eval run resolved them
+    positions = dict(found.positions)
+    for fit, by_point in found.bodies.items():        # a body's records, as each eval run resolved them
         for sources in by_point.values():
             for label, (_, body) in sources["evals"].items():
-                for where, resolved in body["positions"].items():
+                for where, resolved in body.positions.items():
                     key = f"{fit}.{label}.{where}"
                     positions[key] = {**positions.get(key, {}), **resolved}
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
-    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found["said"].items()})
+    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
 
 
@@ -146,7 +146,7 @@ def version() -> str:
 
 
 
-def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
     """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
     rows.
 
@@ -159,13 +159,13 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
         parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
-                                                 pads, state, step.at, found["answers"])
+                                                 pads, state, step.at, found.answers)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
     joined(state, name, step, parts)
 
 
-def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
     """The op over the whole value `of` names, given each of its rows' dataset row. `top_k`'s value also holds
     its tokens, decoded."""
     of = lookup(state, step.of, step.at)
@@ -175,7 +175,7 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     dims = dims_of(plan, step.of)
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
     value = ops.call(step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of, vocabulary,
-                                        dims=dims, answers=found["answers"]), engine=engine, dims=dims,
+                                        dims=dims, answers=found.answers), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

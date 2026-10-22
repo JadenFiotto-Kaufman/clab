@@ -1,7 +1,7 @@
 """A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
 with, its value with the ops after its last edit applied."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -13,6 +13,9 @@ from .interventions import bracketed, made_at
 from .plan import Plan, arguments, dims_of, entries, gathers, writes
 from .positions import head
 from .sweeps import lookup, put
+
+if TYPE_CHECKING:
+    from .preflight import Found
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
@@ -85,10 +88,10 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
     return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component))
 
 
-def batches(engine, step, found: dict, batch_size: int):
+def batches(engine, step, found: "Found", batch_size: int):
     """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
     input's longest row, and each row's padding."""
-    encoded = found["inputs"][data.input_name(step.input)]
+    encoded = found.inputs[data.input_name(step.input)]
     n = len(encoded["rows"])
     for lo in range(0, n, batch_size):
         chunk = slice(lo, min(lo + batch_size, n))
@@ -96,22 +99,22 @@ def batches(engine, step, found: dict, batch_size: int):
         yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
 
 
-def bind(engine, plan: Plan, name: str, step, state: dict, found: dict, rows: slice,
+def bind(engine, plan: Plan, name: str, step, state: dict, found: "Found", rows: slice,
          pads: list[int]) -> tuple[dict, list[dict]]:
     """A forward's entries bound to one batch: each one's site, and the records the engine does in their order:
     an entry that writes as a write with its ops, then, when it is gathered, its reads, one per layer
     (`<entry>@<layer>`). An entry that does neither is left out."""
     chosen = {k: r for k, r in entries(step).items() if writes(r) or r.gathered}
-    width = found["inputs"][data.input_name(step.input)]["width"]
-    sites = {key: site(record, lookup(found["selects"], f"{name}.{key}", step.at),
-                       lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
+    width = found.inputs[data.input_name(step.input)]["width"]
+    sites = {key: site(record, lookup(found.selects, f"{name}.{key}", step.at),
+                       lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
              for key, record in chosen.items()}
     live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in chosen.items() if record.gathered}
     records = []
     for key, record in chosen.items():
         if writes(record):
             records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
-                            "ops": edit(engine, plan, record, state, step.at, rows, live, found["answers"])})
+                            "ops": edit(engine, plan, record, state, step.at, rows, live, found.answers)})
         if record.gathered:
             records += [{**sites[key], "name": f"{key}@{layer}", "layer": layer} for layer in layers(engine, record)]
     return sites, records

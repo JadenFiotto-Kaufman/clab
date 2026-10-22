@@ -1,6 +1,6 @@
 """The `generate` step kind, and its entries beyond the prefill."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -11,6 +11,9 @@ from .plan import Plan, entries, horizon, writes
 from .positions import head, place, texts
 from .sweeps import lookup, put
 
+if TYPE_CHECKING:
+    from .preflight import Found
+
 
 def stops(engine, step) -> list[int]:
     """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
@@ -18,7 +21,7 @@ def stops(engine, step) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: "Found") -> None:
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as
     its options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
@@ -34,13 +37,13 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     continuation, as token strings, in `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes
     fewer calls; its ids are filled after their EOS to the longest batch's."""
     eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
-    encoded, padded = (found["inputs"][data.input_name(step.input)][k] for k in ("rows", "width"))
+    encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k: r for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
     most = horizon(step)
-    picks = {key: lookup(found["selects"], f"{name}.{key}", step.at) for key in every}
+    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         prompts = [len(e["ids"]) for e in encoded[chunk]]
         sites, records = {}, []
@@ -48,18 +51,18 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             pos = positions.parse(record.pos)
             if key in first:
                 if writes(record) or record.gathered:
-                    sites[key] = site(record, picks[key], lookup(found["positions"], f"{name}.{key}", step.at)[chunk],
+                    sites[key] = site(record, picks[key], lookup(found.positions, f"{name}.{key}", step.at)[chunk],
                                       pads, padded, head(step, record))
                 if writes(record):
                     records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
-                                    "ops": edit(engine, plan, record, state, step.at, chunk, answers=found["answers"])})
+                                    "ops": edit(engine, plan, record, state, step.at, chunk, answers=found.answers)})
                 if record.gathered:
                     records += [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
                                 for layer in layers(engine, record)]
                 continue
             holds, calls, _ = positions.reach(pos, most)
             if writes(record):
-                edits = edit(engine, plan, record, state, step.at, chunk, answers=found["answers"])
+                edits = edit(engine, plan, record, state, step.at, chunk, answers=found.answers)
                 if holds:
                     where = [positions.prompted(len(e["ids"]), head(step, record)) for e in encoded[chunk]]
                     records.append({**site(record, picks[key], where, pads, padded, head(step, record)),
@@ -85,7 +88,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                     raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
                                        f"{len(made)} decode calls it made; a read out of forward order shifts calls")
         out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
-                                          state, step.at, found["answers"]) for layer in layers(engine, record)])
+                                          state, step.at, found.answers) for layer in layers(engine, record)])
                for key, record in first.items() if record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in after.items():
@@ -101,7 +104,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if record.gathered:
                 out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(f"{key}@{layer}#0"),
                                                      got[f"{key}@{layer}"], where, encoded[chunk], pads, chunk,
-                                                     state, step.at, head(step, record), most, found["answers"])
+                                                     state, step.at, head(step, record), most, found.answers)
                                             for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
@@ -110,8 +113,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
     put(state, name, step.at, ids)
     for where, per_row in resolved.items():
-        put(found["positions"], where, step.at, per_row)
-    put(found["said"], name, step.at,
+        put(found.positions, where, step.at, per_row)
+    put(found.said, name, step.at,
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 

@@ -1,6 +1,8 @@
 """Everything that needs the model, checked before any forward: what the run needs found, and what it
 cannot run refused by name."""
 
+from dataclasses import dataclass, field
+
 from . import address, data, featurizers, ops, positions, selectors
 from .answers import check_classes, check_tokens, placed, probe_of
 from .featurizers.uses import widths
@@ -11,7 +13,25 @@ from .positions import indices
 from .sweeps import lookup, put
 
 
-def preflight(engine, plan: Plan) -> dict:
+@dataclass
+class Found:
+    """What preflight found, which the run needs: each dataset input's encoded rows and padded width
+    (`inputs`), every prefill record's positions per row by point (`positions`, which the run extends with the
+    other records'), the indices every record's `select` keeps on each axis (`selects`), room for what each
+    generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
+    each featurizer's width (`widths`), and for each fit point the same for its body (`bodies`): over its
+    training rows (`train`) and under each of its named `eval` substitutions (`evals`), each beside the plan
+    the body runs in."""
+    inputs: dict = field(default_factory=dict)
+    positions: dict = field(default_factory=dict)
+    said: dict = field(default_factory=dict)
+    selects: dict = field(default_factory=dict)
+    answers: dict = field(default_factory=dict)
+    widths: dict = field(default_factory=dict)
+    bodies: dict = field(default_factory=dict)
+
+
+def preflight(engine, plan: Plan) -> Found:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
@@ -43,8 +63,8 @@ def preflight(engine, plan: Plan) -> dict:
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
     found = prepare(engine, plan, plan.steps, {}, classes)
-    found["widths"] = widths(engine, plan)
-    found["bodies"] = {}
+    found.widths = widths(engine, plan)
+    found.bodies = {}
     for name, entry in plan.steps.items():
         for step in points(entry):
             if step.kind != "fit":
@@ -57,12 +77,12 @@ def preflight(engine, plan: Plan) -> dict:
                 sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
                     engine, held, step.steps, swap, classes))) if swap else sources["train"]
             for _, body in [sources["train"], *sources["evals"].values()]:
-                body["widths"] = found["widths"]
-            put(found["bodies"], name, step.at, sources)
+                body.widths = found.widths
+            put(found.bodies, name, step.at, sources)
     return found
 
 
-def inside(fit: str, label: str | None, swap: dict, run) -> dict:
+def inside(fit: str, label: str | None, swap: dict, run) -> Found:
     """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
     reads in place of the body's, whose rows a row number counts."""
     try:
@@ -74,13 +94,13 @@ def inside(fit: str, label: str | None, swap: dict, run) -> dict:
         raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
-def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
+def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found:
     """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
     the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found: dict = {"inputs": {}, "positions": {}, "said": {}, "selects": {}, "answers": {}}
+    found = Found()
     shapes: dict = {}
     for name, entry in steps.items():
         for step in points(entry):
@@ -100,8 +120,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     if arguments(step)[field] > len(width):
                         raise ValueError(f"{name}: {step.op} {field} {arguments(step)[field]} counts directions of a "
                                          f"value {len(width)} wide, which has no more than {len(width)}")
-                if step.op == "pca" and step.of in found["positions"]:
-                    n = sum(map(len, lookup(found["positions"], step.of, step.at)))
+                if step.op == "pca" and step.of in found.positions:
+                    n = sum(map(len, lookup(found.positions, step.of, step.at)))
                     if n <= arguments(step)["k"]:
                         raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
                                          f"it needs more than {arguments(step)['k']}")
@@ -110,17 +130,17 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 generation_options(name, step.model_extra or {})
             rows = plan.data[step.dataset].rows or []
             source = data.input_name(step.input)
-            if source not in found["inputs"]:
+            if source not in found.inputs:
                 encoded = []
                 for i, r in enumerate(rows):
                     try:
                         encoded.append(data.encode(tokenizer, data.field(r, step.input)))
                     except ValueError as e:
                         raise ValueError(f"{name}: {source} row {i}: {e}") from None
-                found["inputs"][source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
+                found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
                 plan.run.tokens[data.input_name(step.input, swap)] = \
                     [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
-            encoded = found["inputs"][source]["rows"]
+            encoded = found.inputs[source]["rows"]
             later = []                      # a write's operands, checked once the step's entries have their shapes
             for key, record in entries(step).items():
                 where, site, write = f"{name}.{key}", record.site, writes(record)
@@ -132,12 +152,12 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                         if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
                     selected(where, axis, index, size, what)
                 kept = selectors.kept(site.select, sizes)
-                put(found["selects"], where, step.at, kept)
+                put(found.selects, where, step.at, kept)
                 pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
                 resolved = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved = indices(where, write, record, step, rows, encoded, tokenizer)
-                    put(found["positions"], where, step.at, resolved)
+                    put(found.positions, where, step.at, resolved)
                     shape = (max(map(len, resolved)), select)
                 else:               # resolved in the run, from what each row generates; one position a call
                     shape = (positions.width(pos) or 1, select)

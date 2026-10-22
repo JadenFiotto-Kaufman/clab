@@ -1,8 +1,6 @@
 """Answers: a dataset column scored against a value's vocabulary (the tokenizer's against logits, or a probe's
 classes), each row's answer tokenized as written and lined up with the read it scores; and a column read as text."""
 
-from __future__ import annotations
-
 import functools
 import json
 from typing import TYPE_CHECKING, Any, cast
@@ -13,11 +11,12 @@ from torch import Tensor
 
 from . import data, ops, positions
 from .ops.metrics import ONE_ID
-from .plan import Column, Plan, arguments, body_view, declared, entries, fail, points
+from .plan import Column, Compiling, Plan, arguments, body_view, declared, entries, fail, points
 from .sweeps import lookup
 
 if TYPE_CHECKING:
-    from .compile import Compiling
+    from .preflight import Found
+
 
 
 def probe_of(plan: Plan, name: str) -> str:
@@ -71,9 +70,9 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     return name
 
 
-def check_tokens(engine, plan: Plan, found: dict, where: str, name: str, args: dict, dims: list[str] | None,
+def check_tokens(engine, plan: Plan, found: "Found", where: str, name: str, args: dict, dims: list[str] | None,
                  placed: list | None, forced: list | None = None) -> None:
-    """Every column op `name` scores against logits, resolved once into `found["answers"]` (`answer`): a class or
+    """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
     tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
     `dims` are known) and, where the read's positions are known before the run (`placed`, per row), each row
@@ -107,22 +106,22 @@ def check_tokens(engine, plan: Plan, found: dict, where: str, name: str, args: d
                                      "it tokenizes, so the input says it the same way")
 
 
-def answer(engine, plan: Plan, found: dict, ref, where: str) -> dict:
+def answer(engine, plan: Plan, found: "Found", ref, where: str) -> dict:
     """A column reference's answers, resolved once per findings (`state.tokens`): each row's `values`, per
     token the ids it may be (`sets`), the `column`, and whether its rows line up with the read (`aligned`:
     some row is several tokens; else every row is one, which scores every position of its row)."""
     key = refkey(ref)
-    if key not in found["answers"]:
+    if key not in found.answers:
         try:
             values, sets, column = tokens(engine, plan, ref, None)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
-        found["answers"][key] = {"values": values, "sets": sets, "column": column,
+        found.answers[key] = {"values": values, "sets": sets, "column": column,
                                  "aligned": any(len(row) > 1 for row in sets)}
-    return found["answers"][key]
+    return found.answers[key]
 
 
-def placed(plan: Plan, found: dict, name: str, at: dict) -> tuple[list | None, list | None]:
+def placed(plan: Plan, found: "Found", name: str, at: dict) -> tuple[list | None, list | None]:
     """The positions per row of the read value `name`'s positions are (following `of` through op steps), where
     they are known before the run, else None; and each row's input ids where that read is a scope that is
     `before` (whose next tokens an answer scores), else None."""
@@ -133,12 +132,12 @@ def placed(plan: Plan, found: dict, name: str, at: dict) -> tuple[list | None, l
             break
         name = step.of
     try:
-        where = lookup(found["positions"], name, at)
+        where = lookup(found.positions, name, at)
     except KeyError:
         return None, None
     record = entries(step).get(member) if step.kind in ("forward", "generate") else None
     scope = (positions.parse(record.pos)["scope"] or {}) if record is not None else {}
-    return where, [e["ids"] for e in found["inputs"][data.input_name(step.input)]["rows"]] \
+    return where, [e["ids"] for e in found.inputs[data.input_name(step.input)]["rows"]] \
         if scope.get("before") else None
 
 

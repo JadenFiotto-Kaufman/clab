@@ -2,21 +2,21 @@
 positions checked against its step, its ops' layouts and operands), and what preflight checks of them against
 the model."""
 
-from __future__ import annotations
-
 import inspect
 import math
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from . import address, data, featurizers, ops, positions, selectors
 from .answers import column_ref, text_ref
-from .plan import (Intervention, Op, Plan, Site, agreeing, arguments, body_view, dims_of, edits, entries, entry_of,
-                   fail, gathers, horizon, kind_of, walk, writes)
+from .plan import (Compiling, Intervention, Known, Op, Plan, Site, agreeing, arguments, body_view, dims_of, edits,
+                   entries, entry_of, fail, gathers, horizon, kind_of, walk, writes)
 from .positions import decided
 from .sweeps import lookup
 
 if TYPE_CHECKING:
-    from .compile import Compiling
+    from .preflight import Found
+
 
 
 class Unbracketed(ValueError):
@@ -254,8 +254,8 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     return kind
 
 
-def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, classes: bool = False) -> dict[str, dict]:
-    """Op `name`'s arguments that name a value or a column, each resolved to `{"dims", "data", "kind", "name"}`
+def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, classes: bool = False) -> dict[str, Known]:
+    """Op `name`'s arguments that name a value or a column, each resolved (`Known`, `name` how it was referenced)
     (a column is laid out `["rows"]`): a column read as text, or scored against the vocabulary, holds text on
     every row; one scored against a probe's `classes` holds its labels, whatever they are. A featurizer
     argument is checked to exist."""
@@ -263,31 +263,31 @@ def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, clas
     for key, p in ops.parameters(name).items():
         value, at = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
-            found[key] = {**value_ref(cx, value, at), "name": value}
+            found[key] = replace(value_ref(cx, value, at), name=value)
         elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
             ref = data.column_of(value)
             dataset = column_ref(cx, ref[0] if ref else value, at, None) if classes and p.annotation == ops.Tokens \
                 else text_ref(cx, value, at, None)
-            found[key] = {"dims": ["rows"], "data": dataset, "kind": "column", "name": ref[0] if ref else value}
+            found[key] = Known(["rows"], dataset, "column", name=ref[0] if ref else value)
         elif p.annotation == ops.Featurizer and value is not None:
             featurizer_ref(cx, value, at)
     return found
 
 
-def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
+def aligned(path: str, of: tuple[str | None, str], found: dict[str, Known]) -> str | None:
     """The one dataset an op's rows align to: that of the value it acts on (`of`: its dataset, and how to name
     it), of its operands with a rows axis, and of its columns."""
     datasets = {of[0]: of[1]} if of[0] else {}
     for info in found.values():
-        if info["data"] is not None and "rows" in info["dims"]:
-            datasets.setdefault(info["data"], repr(info["name"]))
+        if info.data is not None and "rows" in info.dims:
+            datasets.setdefault(info.data, repr(info.name))
     if len(datasets) > 1:
         (a, x), (b, y) = list(datasets.items())[:2]
         fail(path, f"{x} has a row per example of {a!r} and {y} of {b!r}; an op takes one dataset's rows")
     return next(iter(datasets), None)
 
 
-def paired(path: str, name: str, dims: list[str], width: int | None, found: dict) -> None:
+def paired(path: str, name: str, dims: list[str], width: int | None, found: dict[str, Known]) -> None:
     """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, as many
     positions wide (`width`) when it has positions, or is one vector of its features, the same for every
     example; one as wide as its widest row (no static width) lines up with nothing."""
@@ -295,21 +295,21 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
         return
     one = [a for a in dims if a not in address.EXAMPLE_AXES]
     for key, info in found.items():
-        if info["kind"] != "value":
+        if info.kind != "value":
             continue
-        if "pos" in info["dims"] and info.get("width") is None:
-            fail(f"{path}.{key}", f"{info['name']!r} holds a different number of positions on each row, which pair "
+        if "pos" in info.dims and info.width is None:
+            fail(f"{path}.{key}", f"{info.name!r} holds a different number of positions on each row, which pair "
                  f"with no other value's; read both at a static index (pos -1, or {{'index': '-3:'}})")
-        if info["dims"] not in (dims, one):
-            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
+        if info.dims not in (dims, one):
+            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {name!r} scores a value laid out "
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
-        if "pos" in dims and info["dims"] == dims and info.get("width") != width:
-            fail(f"{path}.{key}", f"{info['name']!r} holds {info.get('width')} position(s) per row and the value "
+        if "pos" in dims and info.dims == dims and info.width != width:
+            fail(f"{path}.{key}", f"{info.name!r} holds {info.width} position(s) per row and the value "
                  f"{name!r} scores holds {width}; position i scores against position i, so both are read at as "
                  "many (a pos axis broadcasts no more than a layers axis does)")
 
 
-def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, adapts: bool) -> None:
+def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool, live: dict, adapts: bool) -> None:
     """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space` (the
     encodes open around the op): in the same coordinates, encoded by the same featurizers with the same
     `select`, and that layout or one vector of its features; only the vector when the selection is ragged,
@@ -319,36 +319,36 @@ def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: 
     and positions, whatever its features, which the adapter takes as it says."""
     lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
-        if info["kind"] != "value":
+        if info.kind != "value":
             continue
-        if info["name"] in live:
-            record, spec = live[info["name"]]
+        if info.name in live:
+            record, spec = live[info.name]
             if gathers(spec):
-                fail(f"{path}.{key}", f"{info['name']!r} runs {gathers(spec)[0].op!r} once it is off the model, "
+                fail(f"{path}.{key}", f"{info.name!r} runs {gathers(spec)[0].op!r} once it is off the model, "
                      "after this forward; an operand from the same forward is an entry with no op after its edits")
             if address.stacks(record["site"].get("layers")):
-                fail(f"{path}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
+                fail(f"{path}.{key}", f"{info.name!r} is read at every layer; an operand from the write's own "
                      "forward is one layer's read")
-        whole = not ragged or info["name"] in live
+        whole = not ragged or info.name in live
         if adapts and key == "with":
-            if [a for a in info["dims"] if a in address.EXAMPLE_AXES] != lead or not whole:
-                fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {key!r} is "
+            if [a for a in info.dims if a in address.EXAMPLE_AXES] != lead or not whole:
+                fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {key!r} is "
                      f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is an entry of "
                                                            "its own forward"))
             continue
-        if info.get("space", []) != space:
-            fail(f"{path}.{key}", f"{info['name']!r} is in {said(info.get('space', []))}; this "
+        if info.space != space:
+            fail(f"{path}.{key}", f"{info.name!r} is in {said(info.space)}; this "
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
-        if info["dims"] == own and not whole and info.get("width") is None:
-            fail(f"{path}.{key}", f"{info['name']!r} and this write both hold a different number of positions on each "
+        if info.dims == own and not whole and info.width is None:
+            fail(f"{path}.{key}", f"{info.name!r} and this write both hold a different number of positions on each "
                  "row, and another forward's positions need not pair with this one's: read both at a static index "
                  "(pos -1, {'index': '-3:'}), or reduce the operand to one vector")
-        if "layers" in info["dims"] and "layers" not in own:
-            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}: it keeps a layers axis, and this "
+        if "layers" in info.dims and "layers" not in own:
+            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}: it keeps a layers axis, and this "
                  "write lands at one layer, so its operand has none; read the operand at the write's own layer")
-        if info["dims"] not in allowed:
-            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's value is {own} here, "
+        if info.dims not in allowed:
+            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; this write's value is {own} here, "
                  f"so an operand is {' or '.join(map(str, allowed))}")
 
 
@@ -418,7 +418,7 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: dict, shapes: dict) -> None:
+def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: "Found", shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
     that line up token for token. One from an entry of the write's own forward is an earlier entry at the
     write's own site, or one at a site this engine reaches first (by site, not rank: the hooks engine ranks
@@ -447,7 +447,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
-            ours, at = (lookup(found["positions"], n, step.at) for n in (where, value)) if same else ([], [])
+            ours, at = (lookup(found.positions, n, step.at) for n in (where, value)) if same else ([], [])
             for row, (a, b) in enumerate(zip(at, ours)):
                 if a != b:
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
@@ -458,7 +458,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
         producer, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer != consumer:
-            for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][consumer]["rows"])):
+            for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
@@ -468,7 +468,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
             windowed(engine, where, value, producer, consumer, found, step.at)
 
 
-def windowed(engine, where: str, value: str, producer: str, consumer: str, found: dict, at: dict) -> None:
+def windowed(engine, where: str, value: str, producer: str, consumer: str, found: "Found", at: dict) -> None:
     """The same positions with no scope, read on one input and written on another, pair the operand's i-th
     position with the write's i-th (positions written differently pair what they say). On a row whose two prompts are as long, those count alike. On one where they are not, the
     check is conservative: each pair is the same distance from the start within the tokens the two prompts
@@ -476,11 +476,11 @@ def windowed(engine, where: str, value: str, producer: str, consumer: str, found
     in (both are the first token where the prompts part); any other pair may be two different tokens and is
     refused by name, as an attention pattern's keys are."""
     try:
-        ours, theirs = lookup(found["positions"], where, at), lookup(found["positions"], value, at)
+        ours, theirs = lookup(found.positions, where, at), lookup(found.positions, value, at)
     except KeyError:
         return                  # beyond the prefill, where positions are calls
     tokens = engine.tokenizer.convert_ids_to_tokens
-    for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][consumer]["rows"])):
+    for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
             continue
@@ -542,15 +542,15 @@ def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] |
             if a in chosen or a in sizes}
 
 
-def value_ref(cx: Compiling, value, path: str) -> dict:
+def value_ref(cx: Compiling, value, path: str) -> Known:
     """A named value produced before this point."""
     info = cx.names.get(value) if isinstance(value, str) else None
-    if info is not None and info["kind"] == "featurizer":
+    if info is not None and info.kind == "featurizer":
         fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
              "binds is an operand")
-    if info is None or info["kind"] != "value":
-        known = sorted(k for k, v in cx.names.items() if v["kind"] == "value")
+    if info is None or info.kind != "value":
+        known = sorted(k for k, v in cx.names.items() if v.kind == "value")
         fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
     cx.refs.append(value)
     cx.used.add(value)
@@ -558,7 +558,7 @@ def value_ref(cx: Compiling, value, path: str) -> dict:
 
 
 def featurizer_ref(cx: Compiling, value, path: str) -> None:
-    if not (isinstance(value, str) and cx.names.get(value, {}).get("kind") == "featurizer"):
-        known = sorted(k for k, v in cx.names.items() if v["kind"] == "featurizer")
+    if not (isinstance(value, str) and value in cx.names and cx.names[value].kind == "featurizer"):
+        known = sorted(k for k, v in cx.names.items() if v.kind == "featurizer")
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
     cx.refs.append(value)

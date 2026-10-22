@@ -2,21 +2,17 @@
 checks of a loaded bundle's header against those uses, the instance made for the run, and the header a saved
 bundle carries."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .. import address, ops, selectors
 from ..answers import column_ref
 from ..interventions import bracketed, selected, visited
-from ..plan import Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, kind_of, scope, walk
+from ..plan import Compiling, Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, kind_of, scope, walk
 from ..plan import name as named
 from ..sweeps import coordinate, labelled
 from ..table import materialized, provenance
 from . import KINDS, Kind, bundles, labels, make
 
-if TYPE_CHECKING:
-    from ..compile import Compiling
 
 
 def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
