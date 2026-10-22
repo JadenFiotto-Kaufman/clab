@@ -159,10 +159,13 @@ def test_apply_writes_the_featurizers_version_back_on_both_engines(engines):
     assert torch.equal(got[0]["base.after"], got[0]["base.recon"])
 
 
-def test_an_argument_the_kinds_apply_does_not_take_is_refused_at_compile():
-    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]: featurizer 'dictionary': an sae's "
-                                        r"`apply` takes no 'scale'; its arguments: none"):
+def test_an_argument_apply_does_not_take_is_refused_at_compile():
+    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]: 'apply' takes no 'scale'; its "
+                                        r"arguments: featurizer, with"):
         reconstructed({"scale": 2.0})
+    with pytest.raises(PlanError, match=r"steps\.base\.interventions\.recon\.ops\[0\]\.with: a sae's apply takes no "
+                                        r"'with', an adapter's input read at another site \(a lora's\)"):
+        reconstructed({"with": "base.plain"})
 
 
 def test_describe_shows_the_ops_and_each_kinds_ops():
@@ -170,7 +173,7 @@ def test_describe_shows_the_ops_and_each_kinds_ops():
     assert "encode(featurizer: Featurizer, select: {features: selector} = null)  [the last axis becomes" in text
     assert "decode(featurizer: Featurizer)  [the layout its `encode` had]" in text
     assert "detokenize(tokens: bool = false)  [needs new; removes new]" in text
-    assert "apply(featurizer: Featurizer, ...)  [keeps the layout]" in text
+    assert "apply(featurizer: Featurizer, with: Value = null)  [keeps the layout]" in text
     assert "ops: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "ops: apply(with: Value or null = null) gives its version of the value" in text
 

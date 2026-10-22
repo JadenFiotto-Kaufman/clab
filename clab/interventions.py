@@ -8,10 +8,10 @@ import inspect
 import math
 from typing import TYPE_CHECKING
 
-from . import address, data, featurizers, ops, positions, registry, selectors
+from . import address, data, featurizers, ops, positions, selectors
 from .answers import column_ref, text_ref
 from .plan import (Intervention, Op, Plan, Site, agreeing, arguments, body_view, dims_of, edits, entries, entry_of,
-                   fail, gathers, horizon, kind_of, parameters, walk, writes)
+                   fail, gathers, horizon, kind_of, walk, writes)
 from .positions import decided
 from .sweeps import lookup
 
@@ -97,12 +97,7 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
     own = plan.interventions[bundle]
     rewritten = []
     for i, o in enumerate(spec.ops):
-        args = arguments(o)
-        try:
-            params = parameters(plan, o.op, args)
-        except (KeyError, ValueError):          # an unknown featurizer or argument, which compile refuses by name
-            params = ops.parameters(o.op)
-        changes = {}
+        args, params, changes = arguments(o), ops.parameters(o.op), {}
         for key, value in args.items():
             if key not in params or params[key].annotation != ops.Value or not isinstance(value, str):
                 continue
@@ -195,8 +190,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         aligned(at, (dataset, repr(step.input)), found)
         paired(at, o.op, dims, positions.width(pos), found)
         if i <= last:
-            chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
-            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, chosen)
+            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, o.op == "apply")
         if i in closes:
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
@@ -240,8 +234,8 @@ def said(space: list[dict]) -> str:
 
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
     """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist and to serve the op
-    (`encode`, `decode`, `apply`); and the op's further arguments bound to the function its `options` choose for
-    them, a `Value` among them a name. None when the op takes no featurizer."""
+    (`encode`, `decode`, `apply`), and an `apply`'s `with` to be a name its kind takes. None when the op takes
+    no featurizer."""
     ref = ops.featurizer_of(name, args)
     if ref is None:
         return None
@@ -251,17 +245,11 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     if name not in serves:
         fail(f"{path}.featurizer", f"{ref!r} is a {kind!r} featurizer, which has no {name}: it serves "
              f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
-    own = {k: v for k, v in args.items() if k not in ops.parameters(name)}
-    try:
-        fn = ops.options(name, args, kind)
-        if fn is not None:
-            article = "an" if kind[0] in "aeiou" or kind == "sae" else "a"        # "an sae", said letter by letter
-            registry.check(fn, own, tuple(inspect.signature(fn).parameters)[:2], f"{article} {kind}'s `{fn.__name__}`")
-    except ValueError as e:
-        fail(path, f"featurizer {ref!r}: {e}")
-    for key, p in ops.parameters(name, args, kind).items():
-        if key in own and p.annotation == ops.Value and not isinstance(own[key], str):
-            fail(f"{path}.{key}", f"{own[key]!r} is not a name; {key!r} names a value read at the positions the op "
+    if name == "apply" and args.get("with") is not None:
+        if "with_" not in inspect.signature(featurizers.KINDS[kind].method("apply")).parameters:
+            fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's)")
+        if not isinstance(args["with"], str):
+            fail(f"{path}.with", f"{args['with']!r} is not a name; 'with' names a value read at the positions the op "
                  "acts on")
     return kind
 
@@ -272,7 +260,7 @@ def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, clas
     every row; one scored against a probe's `classes` holds its labels, whatever they are. A featurizer
     argument is checked to exist."""
     found = {}
-    for key, p in parameters(plan, name, args).items():
+    for key, p in ops.parameters(name).items():
         value, at = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
             found[key] = {**value_ref(cx, value, at), "name": value}
@@ -321,15 +309,14 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
                  "many (a pos axis broadcasts no more than a layers axis does)")
 
 
-def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, chosen: set) -> None:
+def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, adapts: bool) -> None:
     """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space` (the
     encodes open around the op): in the same coordinates, encoded by the same featurizers with the same
     `select`, and that layout or one vector of its features; only the vector when the selection is ragged,
     unless the operand is an earlier entry of the same forward, which is gathered as the selection is. Such an
     entry is taken off the model as the forward reaches it, so its value is what its edits left (no op after its
-    last edit), at one layer. An argument of the function an op's `options` choose (`chosen`: a lora's `with`)
-    is laid out on the selection's rows and positions, whatever its features, which that function takes as it
-    says."""
+    last edit), at one layer. An adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's rows
+    and positions, whatever its features, which the adapter takes as it says."""
     lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info["kind"] != "value":
@@ -343,7 +330,7 @@ def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: 
                 fail(f"{path}.{key}", f"{info['name']!r} is read at every layer; an operand from the write's own "
                      "forward is one layer's read")
         whole = not ragged or info["name"] in live
-        if key in chosen:
+        if adapts and key == "with":
             if [a for a in info["dims"] if a in address.EXAMPLE_AXES] != lead or not whole:
                 fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {key!r} is "
                      f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is an entry of "
@@ -439,8 +426,8 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
     lora's `with`) is as wide per position, its axes after the positions flattened, as the value the op acts on,
     and, from the same forward, read at the write's own positions."""
     args, sizes = arguments(o), engine.sizes()
-    chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
-    for key, p in parameters(plan, o.op, args).items():
+    adapts = o.op == "apply"
+    for key, p in ops.parameters(o.op).items():
         value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
@@ -454,7 +441,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                              f"{engine.name} engine's forward reaches no earlier than this write's {site.component} "
                              f"layer {site.layers}; an operand from the write's own forward is an earlier entry at "
                              "this site, or at a site the forward reaches first")
-        if key in chosen:
+        if adapts and key == "with":
             per, own = (math.prod(kept.get(a) or sizes[a] for a in address.dims(s.component)[2:])
                         for s, kept in ((read, theirs[1]), (site, shape[1])))
             if per != own:
@@ -466,7 +453,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")
-        if theirs[0] != shape[0] or (theirs[1] != shape[1] and key not in chosen):
+        if theirs[0] != shape[0] or (theirs[1] != shape[1] and not (adapts and key == "with")):
             raise ValueError(f"{where}: operand {value!r} is {theirs[0]} token(s) wide, narrowed to {theirs[1]}; "
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
         producer, consumer = data.input_name(producer.input), data.input_name(step.input)
@@ -514,11 +501,10 @@ def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: l
     step's `of` holds, `held`), in its order. A `select` list is positional: an operand read at heads `[1, 4]`
     swapped into a write at `[4, 1]`, or subtracted from a value read at `[4, 1]`, would mix the heads, and one
     head's value would broadcast over three. A number, or a value no read made, holds none to compare."""
-    chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
     whose = "this write's selection" if write else "the value it acts on"
-    for key, p in parameters(plan, o.op, arguments(o)).items():
+    for key, p in ops.parameters(o.op).items():
         value = arguments(o).get(key)
-        if p.annotation != ops.Value or not isinstance(value, str) or key in chosen:
+        if p.annotation != ops.Value or not isinstance(value, str) or (o.op == "apply" and key == "with"):
             continue
         theirs, their_dims = held(plan, value, at, sizes), dims_of(plan, value)
         for axis, own in (ours or {}).items():

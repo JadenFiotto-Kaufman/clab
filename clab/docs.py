@@ -94,13 +94,12 @@ def axes(name: str) -> str:
 
 
 def arguments(name: str) -> list[str]:
-    """An op's arguments as a document writes them; `...` where its featurizer kind's own follow (`apply`)."""
+    """An op's arguments as a document writes them."""
     out = []
     for key, p in ops.parameters(name).items():
         text = f"{key}: {spell_type(p.annotation)}"
         out.append(text if p.default is p.empty else f"{text} = {as_json(p.default)}")
-    takes_more = any(p.kind is p.VAR_KEYWORD for p in inspect.signature(ops.OPS[name]).parameters.values())
-    return out + ["..."] * takes_more
+    return out
 
 
 def served(kind: str) -> list[str]:

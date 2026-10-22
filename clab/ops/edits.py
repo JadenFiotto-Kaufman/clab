@@ -2,13 +2,11 @@
 
 import hashlib
 import itertools
-from typing import Any, Callable
 
 import torch
 from torch import Tensor
 
 from ..registry import Featurizer, Value
-from .. import featurizers
 from . import op
 
 
@@ -36,16 +34,13 @@ def scale(of: Tensor, factor: float) -> Tensor:
     return of * factor
 
 
-def applies(args: dict, kind: str) -> Callable:
-    return featurizers.KINDS[kind].method("apply")
-
-
-@op("edits", options=applies)
-def apply(of: Tensor, featurizer: Featurizer, **options: Any) -> Tensor:
+@op("edits")
+def apply(of: Tensor, featurizer: Featurizer, with_: Value | None = None) -> Tensor:
     """`featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's
-    reconstruction without its error term, a gate's masked value, an adapter's adapted value (with the
-    arguments its kind's `apply` takes beside: `with`, for a lora)."""
-    return featurizer.call("apply", of, options)
+    reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an
+    adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply`
+    takes none refuses it."""
+    return featurizer.call("apply", of, {} if with_ is None else {"with": with_})
 
 
 def uncoded(dims: list[str], args: dict, kind: str | None) -> list[str]:

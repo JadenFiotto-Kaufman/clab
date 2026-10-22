@@ -10,7 +10,6 @@ The plan's methods are views and serialization, never execution: it pickles, pri
 thing wherever it lands, which is what lets it travel into a remote session and back.
 """
 
-import inspect
 import json
 import os
 import types
@@ -370,13 +369,6 @@ class Op(Record):
 def arguments(op: "Op | OpStep") -> dict:
     """An op record's arguments by document spelling."""
     return dict(op.model_extra or {})
-
-
-def parameters(plan: "Plan", name: str, args: dict) -> dict[str, inspect.Parameter]:
-    """Op `name`'s parameters by document spelling, with those of the function its `options` choose for the
-    kind of the featurizer `args` names."""
-    ref = ops.featurizer_of(name, args)
-    return ops.parameters(name, args, kind_of(plan, ref) if isinstance(ref, str) else None)
 
 
 # What an entry's value spelled `reads` and `writes` is now, said where a document still spells them.

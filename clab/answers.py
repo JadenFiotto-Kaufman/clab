@@ -13,7 +13,7 @@ from torch import Tensor
 
 from . import data, ops, positions
 from .ops.metrics import ONE_ID
-from .plan import Column, Plan, arguments, body_view, declared, entries, fail, parameters, points
+from .plan import Column, Plan, arguments, body_view, declared, entries, fail, points
 from .sweeps import lookup
 
 if TYPE_CHECKING:
@@ -79,7 +79,7 @@ def check_tokens(engine, plan: Plan, found: dict, where: str, name: str, args: d
     `dims` are known) and, where the read's positions are known before the run (`placed`, per row), each row
     has as many. Where the read is a scope that is `before` on the step's own input (`forced`: each row's
     input ids), the input's next token at each position is among the ids the answer's token there may be."""
-    for key, p in parameters(plan, name, args).items():
+    for key, p in ops.parameters(name).items():
         if p.annotation != ops.Tokens or key not in args:
             continue
         got = answer(engine, plan, found, args[key], where)
@@ -146,7 +146,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
     """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
     dataset it reads (named as the run reads it: under eval, the substituted one)."""
     vocabulary = classes[declared(plan, probe)]
-    for key, p in parameters(plan, name, args).items():
+    for key, p in ops.parameters(name).items():
         if p.annotation == ops.Tokens and key in args:
             ref, strip, lower = data.column_of(args[key]) or ("", False, False)
             if strip or lower:

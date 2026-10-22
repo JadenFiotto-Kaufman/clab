@@ -10,7 +10,7 @@ from . import address, data, ops, positions, selectors
 from .address import pos_axis
 from .answers import answered, column_texts, indexed, refkey
 from .interventions import bracketed, made_at
-from .plan import Plan, arguments, dims_of, entries, gathers, parameters, writes
+from .plan import Plan, arguments, dims_of, entries, gathers, writes
 from .positions import head
 from .sweeps import lookup, put
 
@@ -195,7 +195,7 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
     forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
     the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`."""
-    params, out = parameters(plan, name, args), {}
+    params, out = ops.parameters(name), {}
     for key, value in args.items():
         annotation, per_row = params[key].annotation, False
         if annotation == ops.Value and isinstance(value, str) and value in (live or {}):

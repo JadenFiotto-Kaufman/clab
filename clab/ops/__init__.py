@@ -4,9 +4,8 @@
 must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of the argument that lists them),
 the axes it appends (`adds`), when its value is a bundle a featurizer loads, that featurizer's kind
 (`bundle`), and a rule its arguments keep beyond their types (`check`). `OPS` lists them, in the order at the
-end of this file. An op whose axes and further arguments depend on what it is given declares them as functions
-instead (`layout`, `options`), as `encode` and `apply` do for their featurizer's kind. Compile reads the axes to lay out
-every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
+end of this file. An op whose axes depend on what it is given declares them as a function instead (`layout`),
+as `encode` does for its featurizer's kind. Compile reads the axes to lay out every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
 `Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
 run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
 `"with"`).
@@ -107,39 +106,26 @@ DECLARED: dict[str, dict] = {}
 
 
 def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (), bundle: str | None = None,
-       layout: Callable | None = None, options: Callable | None = None, check: Callable | None = None):
+       layout: Callable | None = None, check: Callable | None = None):
     """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`,
     `edits` or `transforms`), its axes, and, for a value a featurizer loads, the featurizer kind its `bundle`
     is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of
-    the axes, and one whose `**` arguments do declares `options(args, kind)`, the function they go to, whose
-    first two parameters (the featurizer and the value) the op fills; `kind` is that of the featurizer the
-    op's `Featurizer` argument names. `check(args)` raises on arguments its signature accepts but the op
-    cannot mean. It joins `OPS` by its place in the list at the end of this file."""
+    the axes, `kind` that of the featurizer the op's `Featurizer` argument names. `check(args)` raises on
+    arguments its signature accepts but the op cannot mean. It joins `OPS` by its place in the list at the end
+    of this file."""
     assert group in GROUPS
     def declare(fn: Callable) -> Callable:
         DECLARED[fn.__name__] = {"group": group, "needs": needs, "removes": removes, "adds": adds, "bundle": bundle,
-                                 "layout": layout, "options": options, "check": check}
+                                 "layout": layout, "check": check}
         return fn
     return declare
 
 
-def parameters(name: str, args: dict | None = None, kind: str | None = None) -> dict[str, inspect.Parameter]:
-    """An op's parameters by document spelling, without `of` and the supplied ones; with `args` and the `kind`
-    of its featurizer, also those of the function its `options` choose (an optional thing, `Value | None`, as
-    the thing)."""
-    found = {k: p.replace(annotation=registry.thing(p.annotation))
-             for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
-    fn = options(name, args, kind)
-    if fn is not None:
-        own = registry.spelled(fn, tuple(inspect.signature(fn).parameters)[:2])
-        found.update({k: p.replace(annotation=registry.thing(p.annotation)) for k, p in own.items()})
-    return found
-
-
-def options(name: str, args: dict | None, kind: str | None) -> Callable | None:
-    """The function op `name`'s `**` arguments go to, for these arguments and featurizer kind, if it has one."""
-    chooses = DECLARED[name]["options"]
-    return chooses(args, kind) if chooses is not None and args is not None and kind is not None else None
+def parameters(name: str) -> dict[str, inspect.Parameter]:
+    """An op's parameters by document spelling, without `of` and the supplied ones, an optional thing (`Value |
+    None`) as the thing."""
+    return {k: p.replace(annotation=registry.thing(p.annotation))
+            for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
 
 
 def featurizer_of(name: str, args: dict) -> Any:
