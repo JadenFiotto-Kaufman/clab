@@ -2,8 +2,9 @@
 
 import os
 
-from clab.docs import describe, markdown
 from conftest import ROOT
+
+from clab.docs import describe, markdown
 
 
 def test_format_md_is_what_the_code_generates():

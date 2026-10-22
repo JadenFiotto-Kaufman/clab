@@ -19,9 +19,8 @@ import statistics
 import pytest
 import torch
 import transformers
-from huggingface_hub import try_to_load_from_cache
-
 from conftest import REAL, close, plain, plan_of, same, snapshot
+from huggingface_hub import try_to_load_from_cache
 
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)

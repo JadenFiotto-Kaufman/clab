@@ -47,8 +47,7 @@ from typing import Any, Callable, ClassVar, Protocol, cast
 import torch
 from torch import Tensor
 
-from .. import registry
-
+from clab.format import registry
 
 SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"
@@ -239,4 +238,4 @@ def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | N
 
 
 # The kinds register in this order, and `describe` and FORMAT.md list them in it.
-from . import subspace, gate, pca, sae, linear, lora, bundles  # noqa: E402,F401
+from clab.featurizers import subspace, gate, pca, sae, linear, lora, bundles  # noqa: E402,F401,I001  (the kinds register in this order)

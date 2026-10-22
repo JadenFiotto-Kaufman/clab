@@ -9,12 +9,12 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import BATCH_SIZE, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 from transformers import AutoTokenizer
 
 from clab import Plan
 from clab.cli import main
-from conftest import BATCH_SIZE, plan_of, same
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}

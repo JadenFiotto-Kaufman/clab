@@ -4,12 +4,12 @@ say, a set is any of its members, a scope that is `before` is the positions that
 
 import pytest
 import torch
-
-from clab import Plan
-from clab.plan import PlanError
-from clab import answers, ops
-from clab.answers import answered
 from conftest import BATCH_SIZE, plan_of
+
+from clab import Plan, ops
+from clab.compile import answers
+from clab.compile.answers import answered
+from clab.format.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}

@@ -18,12 +18,22 @@ import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 
-from .. import batches, steps
-from ..address import COMPONENTS
-from ..generate import landed, now
-from ..plan import Model, Plan
-from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab import steps
+from clab.engines import engine
+from clab.engines.standard import (
+    COMPUTED,
+    SIZES,
+    build,
+    by_site,
+    envoy,
+    inputs,
+    nnterp_name,
+    stops,
+)
+from clab.format.address import COMPONENTS
+from clab.format.plan import Model, Plan
+from clab.steps import batches
+from clab.steps.generate import landed, now
 
 
 @engine("nnterp")

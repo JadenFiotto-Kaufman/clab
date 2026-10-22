@@ -7,10 +7,11 @@ from typing import Annotated, Any
 import torch
 from torch import Tensor
 
-from ..registry import Featurizer
-from .. import featurizers, selectors
-from . import op
-from .metrics import missing, ranked
+from clab import featurizers
+from clab.format import selectors
+from clab.format.registry import Featurizer
+from clab.ops import op
+from clab.ops.metrics import missing, ranked
 
 
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))

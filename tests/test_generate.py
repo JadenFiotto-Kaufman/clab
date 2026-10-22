@@ -17,12 +17,24 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import (
+    BATCH_SIZE,
+    GENERATE,
+    ROOT,
+    TRIP,
+    close,
+    edited,
+    plain,
+    plan_of,
+    same,
+    snapshot,
+    stand_in,
+)
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
-from clab.plan import PlanError
-from clab import positions
-from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
+from clab.compile import positions
+from clab.format.plan import PlanError
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 # Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two

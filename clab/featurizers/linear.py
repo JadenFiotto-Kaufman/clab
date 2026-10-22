@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from . import Kind
+from clab.featurizers import Kind
 
 
 class Linear(Kind):

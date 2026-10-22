@@ -3,13 +3,22 @@ arguments are checked against that function's signature."""
 
 import inspect
 import types
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Callable,
+    Literal,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from pydantic import TypeAdapter, ValidationError
 from torch import Tensor
 
 if TYPE_CHECKING:       # a featurizer instance; its package imports this module, so only the checker sees it
-    from .featurizers import Kind
+    from clab.featurizers import Kind
 
 # How a document fills a parameter that names a thing the run binds: a named value or a number, a dataset
 # column resolved through a vocabulary, a dataset column as text, a featurizer's name.

@@ -5,17 +5,46 @@ the model."""
 import math
 from typing import TYPE_CHECKING
 
-from . import address, data, ops, positions, selectors
-from .answers import text_ref
-from .arguments import aligned, called, layout, narrowed_readout, paired, references, space_of, said
-from .plan import (Compiling, Intervention, Known, Op, Plan, Site, agreeing, arguments, body_view, dims_of, edits,
-                   entries, entry_of, fail, gathers, horizon, walk, writes)
-from .positions import decided
-from .selectors import made_at, picked
-from .sweeps import lookup
+from clab import ops
+from clab.compile import positions
+from clab.compile.answers import text_ref
+from clab.compile.arguments import (
+    aligned,
+    called,
+    layout,
+    narrowed_readout,
+    paired,
+    references,
+    said,
+    space_of,
+)
+from clab.compile.positions import decided
+from clab.format import address, data, selectors
+from clab.format.plan import (
+    Compiling,
+    Intervention,
+    Known,
+    Op,
+    Plan,
+    Site,
+    agreeing,
+    arguments,
+    body_view,
+    dims_of,
+    edits,
+    entries,
+    entry_of,
+    fail,
+    gathers,
+    horizon,
+    walk,
+    writes,
+)
+from clab.format.selectors import made_at, picked
+from clab.format.sweeps import lookup
 
 if TYPE_CHECKING:
-    from .preflight import Found
+    from clab.steps.preflight import Found
 
 
 class Unbracketed(ValueError):

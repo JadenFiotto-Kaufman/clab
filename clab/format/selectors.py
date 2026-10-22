@@ -8,7 +8,6 @@ from typing import Annotated, Union
 
 from pydantic import BeforeValidator
 
-
 # A slice string: each part an int or empty, no `-0`, no step 0.
 SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
 

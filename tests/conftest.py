@@ -11,8 +11,8 @@ import torch  # noqa: E402
 from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
-from clab.plan import Model  # noqa: E402
 from clab.featurizers import FORMAT  # noqa: E402
+from clab.format.plan import Model  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -101,7 +101,7 @@ def same(a, b) -> bool:
 
 # The modules a run's request names by reference, and the marks of something shipped by value: a class
 # rebuilt from its definition (cloudpickle) or a function from its source (nnsight).
-REFERENCED = (b"clab.plan", b"clab.engines.ndif", b"clab.steps")
+REFERENCED = (b"clab.format.plan", b"clab.engines.ndif", b"clab.steps")
 BY_VALUE = (b"_make_skeleton_class", b"_load_function")
 
 

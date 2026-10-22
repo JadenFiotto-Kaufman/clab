@@ -5,8 +5,9 @@ import math
 import pytest
 import torch
 
-from clab import batches, ops
+from clab import ops
 from clab.ops import edits, metrics, reductions, transforms
+from clab.steps import batches
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden

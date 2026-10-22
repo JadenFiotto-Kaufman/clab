@@ -1,9 +1,9 @@
 """`clab show` and `clab table`: `Plan.load` and one call each, printed."""
 
 import pytest
+from conftest import BATCH_SIZE, ROOT, plan_of
 
 from clab.cli import main
-from conftest import BATCH_SIZE, ROOT, plan_of
 
 
 @pytest.fixture(scope="module")

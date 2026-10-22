@@ -7,18 +7,18 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import BATCH_SIZE, bundle_header, edited, same
 from safetensors import safe_open
 from safetensors.torch import save_file
-
-from clab import Plan
-from clab.docs import describe
-from clab.plan import PlanError, dims_of
-from clab.sweeps import points
-from clab import batches, featurizers, ops
-from clab.featurizers.gate import Gate
-from conftest import BATCH_SIZE, bundle_header, edited, same
 from test_featurizers import every_kind
 from test_fit import TINY, corpus_copy
+
+from clab import Plan, featurizers, ops
+from clab.docs import describe
+from clab.featurizers.gate import Gate
+from clab.format.plan import PlanError, dims_of
+from clab.format.sweeps import points
+from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)
 H = torch.randn(3, 2, 16, generator=G)

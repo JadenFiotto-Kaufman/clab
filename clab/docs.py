@@ -9,9 +9,10 @@ from typing import Any, get_args
 
 from pydantic import BaseModel
 
-from . import address, featurizers, ops, output, plan, registry, sweeps, table
-from . import compile as compiler
-
+from clab import compile as compiler
+from clab import featurizers, ops, output
+from clab.format import address, plan, registry, sweeps
+from clab.output import table
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 
@@ -119,7 +120,7 @@ def served(kind: str) -> list[str]:
 def run_options(name: str) -> list[tuple[str, str]]:
     """Engine `name`'s options, each `key: type = default` beside what its constructor's docstring says it
     takes: `device`, then its own."""
-    from .engines import ENGINES, options
+    from clab.engines import ENGINES, options
 
     cls: Any = ENGINES[name]
     params = {"device": inspect.signature(cls.__init__).parameters["device"], **options(name)}
@@ -164,7 +165,7 @@ def describe(what: str | None = None) -> str:
     if what in (None, "pos"):
         sections.append("pos:\n" + doc(plan.Pos))
     if what in (None, "engines"):
-        from . import engines
+        from clab import engines
         lines = ["engines (`clab run --engine NAME --device D --batch-size N -o KEY=VALUE`):"]
         for name, cls in engines.ENGINES.items():
             lines.append(f"  {name}: " + " ".join(doc(inspect.getmodule(cls)).split("\n\n")[0].split()))
@@ -222,7 +223,7 @@ def markdown() -> str:
         listed = "; ".join(served(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Ops: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]
-    from . import engines
+    from clab import engines
     parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n",
               "Every engine runs with `batch_size`, how many of a step's rows go through the model in one forward "
               "or generation (default 8); the options below are each engine's own.\n"]

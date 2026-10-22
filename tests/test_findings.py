@@ -2,23 +2,23 @@
 name, each silent behaviour a refusal or a check, and each refusal that did not say what to do saying it. A test
 is named after its finding's tag."""
 
-import os
 import json
+import os
 import shutil
 from typing import Any
 
 import numpy
 import pytest
 import torch
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-from clab import Plan
-from clab.plan import PlanError
-from clab.plan import dims_of
-from clab import data, ops, positions
+from clab import Plan, ops
+from clab.compile import positions
+from clab.format import data
+from clab.format.plan import PlanError, dims_of
 from clab.ops import metrics, reductions, transforms
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, same
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -163,7 +163,7 @@ def test_b6_batches_join_on_the_first_ones_device():
     """A batch that made no call a read names makes its blank where no value says otherwise; batches join on
     the first one's device, as a `layers` read's layers do, so a CPU blank beside CUDA values (the crash) joins.
     Two devices without a GPU: a meta batch first, then a CPU one."""
-    from clab.batches import joined
+    from clab.steps.batches import joined
 
     compiled = generate_at(3)
     step: Any = compiled.steps["g"]
@@ -375,7 +375,7 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     assert positions.located([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
     assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
     assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
-    from clab.plan import Pos, Scope
+    from clab.format.plan import Pos, Scope
     assert "starts where a token starts and ends where a token" in " ".join((Pos.__doc__ or "").split())
     assert "lies on token and word boundaries" in " ".join((Scope.__doc__ or "").split())
 

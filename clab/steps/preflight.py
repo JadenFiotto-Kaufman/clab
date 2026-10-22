@@ -3,15 +3,27 @@ cannot run refused by name."""
 
 from dataclasses import dataclass, field
 
-from . import address, data, featurizers, ops, positions, selectors
-from .answers import check_classes, check_tokens, placed, probe_of
-from .featurizers.uses import widths
-from .generate import generation_options
-from .interventions import check_labels, check_operands, held, refuse
-from .plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
-from .positions import indices
-from .selectors import picked, selected
-from .sweeps import lookup, put
+from clab import featurizers, ops
+from clab.compile import positions
+from clab.compile.answers import check_classes, check_tokens, placed, probe_of
+from clab.compile.interventions import check_labels, check_operands, held, refuse
+from clab.compile.positions import indices
+from clab.featurizers.uses import widths
+from clab.format import address, data, selectors
+from clab.format.plan import (
+    Plan,
+    arguments,
+    body_view,
+    dims_of,
+    entries,
+    gathers,
+    kind_of,
+    points,
+    writes,
+)
+from clab.format.selectors import picked, selected
+from clab.format.sweeps import lookup, put
+from clab.steps.generate import generation_options
 
 
 @dataclass

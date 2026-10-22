@@ -8,7 +8,7 @@ from typing import Any
 from safetensors import safe_open
 from torch import Tensor
 
-from . import FORMAT, KINDS
+from clab.featurizers import FORMAT, KINDS
 
 # The keys every clab header holds beside `format` and its kind's own fields (`header`, below, writes them).
 OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "layer", "width", "document",

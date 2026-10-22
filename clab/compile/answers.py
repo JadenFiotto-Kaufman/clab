@@ -10,13 +10,25 @@ import torch
 from pydantic import ValidationError
 from torch import Tensor
 
-from . import data, ops, positions
-from .ops.metrics import ONE_ID
-from .plan import Column, Compiling, Plan, arguments, body_view, declared, entries, fail, points
-from .sweeps import lookup
+from clab import ops
+from clab.compile import positions
+from clab.format import data
+from clab.format.plan import (
+    Column,
+    Compiling,
+    Plan,
+    arguments,
+    body_view,
+    declared,
+    entries,
+    fail,
+    points,
+)
+from clab.format.sweeps import lookup
+from clab.ops.metrics import ONE_ID
 
 if TYPE_CHECKING:
-    from .preflight import Found
+    from clab.steps.preflight import Found
 
 
 

@@ -13,13 +13,24 @@ import os
 
 import pytest
 import torch
+from conftest import (
+    BATCH_SIZE,
+    FORWARD,
+    INSIDE,
+    close,
+    document,
+    edited,
+    plain,
+    plan_of,
+    same,
+    snapshot,
+)
 
 from clab import Plan
 from clab.cli import main
-from clab.plan import PlanError
-from clab.sweeps import points
+from clab.format.plan import PlanError
+from clab.format.sweeps import points
 from clab.ops import edits
-from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 ROWS = [
     {"input": "If the count is one, next is", "counterfactual_inputs": ["two"], "base_answer": " two", "cf_answer": " three"},

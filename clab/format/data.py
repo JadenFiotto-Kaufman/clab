@@ -7,7 +7,6 @@ import re
 
 import torch
 
-
 INPUT = re.compile(r"^(\w+)\.(\w+)(?:\[(\d+)\])?$")
 
 

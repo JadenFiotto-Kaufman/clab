@@ -3,8 +3,8 @@
 import torch
 from torch import Tensor
 
-from ..registry import Value
-from . import Kind
+from clab.featurizers import Kind
+from clab.format.registry import Value
 
 
 class Lora(Kind):

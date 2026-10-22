@@ -6,17 +6,19 @@ from typing import TYPE_CHECKING, Any
 import torch
 from torch import Tensor
 
-from . import address, data, ops, positions, selectors
-from .address import pos_axis
-from .answers import answered, column_texts, indexed, refkey
-from .interventions import bracketed
-from .plan import Plan, arguments, dims_of, entries, gathers, writes
-from .selectors import made_at
-from .positions import head
-from .sweeps import lookup, put
+from clab import ops
+from clab.compile import positions
+from clab.compile.answers import answered, column_texts, indexed, refkey
+from clab.compile.interventions import bracketed
+from clab.compile.positions import head
+from clab.format import address, data, selectors
+from clab.format.address import pos_axis
+from clab.format.plan import Plan, arguments, dims_of, entries, gathers, writes
+from clab.format.selectors import made_at
+from clab.format.sweeps import lookup, put
 
 if TYPE_CHECKING:
-    from .preflight import Found
+    from clab.steps.preflight import Found
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
@@ -89,7 +91,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
     return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component))
 
 
-def batches(engine, step, found: "Found", batch_size: int):
+def chunked(engine, step, found: "Found", batch_size: int):
     """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
     input's longest row, and each row's padding."""
     encoded = found.inputs[data.input_name(step.input)]

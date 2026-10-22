@@ -31,8 +31,8 @@ from typing import Any, Callable, Iterator, Protocol
 
 from torch import Tensor
 
-from .. import registry
-from ..plan import Model, Plan
+from clab.format import registry
+from clab.format.plan import Model, Plan
 
 # What every engine's constructor takes beside its own options.
 SUPPLIED = ("self", "model", "device")
@@ -101,4 +101,4 @@ def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
     return ENGINES[name](model, device=device, **given)
 
 
-from . import nnterp, hooks, ndif  # noqa: E402,F401  (the order the tables list them)
+from clab.engines import nnterp, hooks, ndif  # noqa: E402,F401,I001  (the order the tables list them)

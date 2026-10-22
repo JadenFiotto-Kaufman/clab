@@ -7,11 +7,11 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 import os
 from typing import TYPE_CHECKING
 
-from .docs import describe
-from .plan import Plan, name
+from clab.docs import describe
+from clab.format.plan import Plan, name
 
 if TYPE_CHECKING:
-    from .engines import Engine
+    from clab.engines import Engine
 
 __all__ = ["Plan", "run", "describe"]
 
@@ -23,7 +23,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
     engine was placed and configured when it loaded, so it takes no `device` or option here."""
-    from .engines import load
+    from clab.engines import load
 
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):

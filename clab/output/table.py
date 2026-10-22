@@ -6,10 +6,19 @@ from typing import Any
 
 from torch import Tensor
 
-from . import address, data, positions, selectors
-from .plan import Plan, arguments, body_view, corpus_root, dims_of, entries, points, walk
-from .sweeps import by_point, coordinate, labelled
-
+from clab.compile import positions
+from clab.format import address, data, selectors
+from clab.format.plan import (
+    Plan,
+    arguments,
+    body_view,
+    corpus_root,
+    dims_of,
+    entries,
+    points,
+    walk,
+)
+from clab.format.sweeps import by_point, coordinate, labelled
 
 JOIN = ("at", "row", "layer", "pos", "key")
 

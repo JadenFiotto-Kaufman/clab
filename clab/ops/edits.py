@@ -6,8 +6,8 @@ import itertools
 import torch
 from torch import Tensor
 
-from ..registry import Featurizer, Value
-from . import op
+from clab.format.registry import Featurizer, Value
+from clab.ops import op
 
 
 @op("edits")

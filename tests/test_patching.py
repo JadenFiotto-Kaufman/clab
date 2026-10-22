@@ -6,15 +6,25 @@ from typing import Any
 
 import pytest
 import torch
+from conftest import (
+    BATCH_SIZE,
+    ROOT,
+    TRIP,
+    by_reference,
+    document,
+    edited,
+    plan_of,
+    same,
+    snapshot,
+    stand_in,
+)
 
 import clab
 from clab import Plan
-from clab.plan import PlanError, entries
-from clab.sweeps import points
-from clab.ops import edits
 from clab.cli import main
-from conftest import (BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot,
-                      stand_in)
+from clab.format.plan import PlanError, entries
+from clab.format.sweeps import points
+from clab.ops import edits
 
 SAVED = ["iia", "logit_diff"]
 

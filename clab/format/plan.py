@@ -14,16 +14,36 @@ import json
 import os
 import types
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    NoReturn,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
-from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError,
-                      field_serializer, field_validator, model_serializer, model_validator)
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_serializer,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 from pydantic_core import core_schema
 from torch import Tensor
 
-from . import address, data, featurizers, ops, selectors
-from .selectors import Selector
-from .sweeps import agreeing, find_sweeps, points
+from clab import featurizers, ops
+from clab.format import address, data, selectors
+from clab.format.selectors import Selector
+from clab.format.sweeps import agreeing, find_sweeps, points
 
 
 class PlanError(ValueError):
@@ -782,18 +802,18 @@ class Plan(Record):
     def compile(self) -> "Plan":
         """This plan compiled: rows loaded, sites and named interventions inlined, bundles loaded, sweeps
         expanded into points, every name resolved and every value's layout and dataset known."""
-        from .compile import compile
+        from clab.compile import compile
         return compile(self)
 
     def dump(self, out: str) -> None:
         """A run's output directory: one file per save and `manifest.json`."""
-        from .output import dump
+        from clab.output import dump
         dump(self, out)
 
     @classmethod
     def load(cls, out: str) -> "Plan":
         """The filled plan an output directory holds: the inverse of `dump`."""
-        from .output import load
+        from clab.output import load
         return load(out)
 
     def write(self, path: str) -> None:
@@ -804,7 +824,7 @@ class Plan(Record):
 
     def table(self, *names: str, columns: list[str] | None = None) -> list[dict]:
         """The saved values `names` as rows, joined wide on their shared axes (see `table.table`)."""
-        from .table import table
+        from clab.output.table import table
         return table(self, names, columns)
 
 

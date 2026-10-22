@@ -5,14 +5,28 @@ from typing import TYPE_CHECKING, Any
 import torch
 from torch import Tensor
 
-from . import address, data, positions
-from .batches import batches, bind, decoding, edit, joined, layers, read, read_name, site, stacked, with_ops, write_name
-from .plan import Plan, entries, horizon, writes
-from .positions import head, place, texts
-from .sweeps import lookup, put
+from clab.compile import positions
+from clab.compile.positions import head, place, texts
+from clab.format import address, data
+from clab.format.plan import Plan, entries, horizon, writes
+from clab.format.sweeps import lookup, put
+from clab.steps.batches import (
+    bind,
+    chunked,
+    decoding,
+    edit,
+    joined,
+    layers,
+    read,
+    read_name,
+    site,
+    stacked,
+    with_ops,
+    write_name,
+)
 
 if TYPE_CHECKING:
-    from .preflight import Found
+    from clab.steps.preflight import Found
 
 
 def stops(engine, step) -> list[int]:
@@ -39,7 +53,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
     most = horizon(step)
-    for chunk, batch, pads in batches(engine, step, found, batch_size):
+    for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
         for key, record in after.items():
             records += beyond(engine, plan, record, key, picks[key], step, state, found, chunk, pads, padded,

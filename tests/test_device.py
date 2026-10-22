@@ -9,12 +9,13 @@ an env whose torch can, with clab installed in it, runs it with one command from
 
 import pytest
 import torch
-
-from clab.engines import load
-from clab import batches, featurizers, ops
-from clab.ops import metrics
 from conftest import BATCH_SIZE, plan_of
 from test_ops import taken
+
+from clab import featurizers, ops
+from clab.engines import load
+from clab.ops import metrics
+from clab.steps import batches
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs a CUDA device")
 
@@ -137,7 +138,7 @@ def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, devi
     """das's rotation is made where the model is, on `cuda` whether one device or a device map ("auto") put it
     there: at every optimizer step its parameters, their gradients and the optimizer's state are on the model's
     device, and the trained bundle still comes home on the CPU."""
-    from clab import fit
+    from clab.steps import fit
 
     seen: set[str] = set()
 

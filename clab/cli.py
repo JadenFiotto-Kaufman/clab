@@ -18,10 +18,10 @@ import os
 import sys
 from typing import Any
 
-from . import output
-from .docs import WHAT, as_json, describe, markdown
-from .plan import Plan, Run, dims_of, name, points
-from .sweeps import coordinate, labelled
+from clab import output
+from clab.docs import WHAT, as_json, describe, markdown
+from clab.format.plan import Plan, Run, dims_of, name, points
+from clab.format.sweeps import coordinate, labelled
 
 
 def how(run: Run) -> str:
@@ -90,7 +90,7 @@ def option(text: str) -> tuple[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from .engines import ENGINES
+    from clab.engines import ENGINES
 
     parser = argparse.ArgumentParser(prog="clab")
     commands = parser.add_subparsers(dest="command", required=True)

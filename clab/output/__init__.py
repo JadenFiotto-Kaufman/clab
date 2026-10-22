@@ -25,13 +25,23 @@ import torch
 from safetensors.torch import load_file, save
 from torch import Tensor
 
-from . import ops, selectors
-from .featurizers import KINDS, bundles, labels
-from .featurizers.uses import uses
-from .plan import Plan, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
-from .plan import name as named
-from .sweeps import coordinate, labelled
-from .table import materialized, provenance
+from clab import ops
+from clab.featurizers import KINDS, bundles, labels
+from clab.featurizers.uses import uses
+from clab.format import selectors
+from clab.format.plan import (
+    Plan,
+    agreeing,
+    arguments,
+    dims_of,
+    entry_of,
+    kind_of,
+    points,
+    scope,
+)
+from clab.format.plan import name as named
+from clab.format.sweeps import coordinate, labelled
+from clab.output.table import materialized, provenance
 
 
 def dump(plan: Plan, out: str) -> None:

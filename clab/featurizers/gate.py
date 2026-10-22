@@ -5,7 +5,7 @@ from typing import TypedDict
 import torch
 from torch import Tensor
 
-from . import Kind
+from clab.featurizers import Kind
 
 
 class Temperature(TypedDict):

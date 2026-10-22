@@ -161,20 +161,19 @@ tokenized). `clab.describe()` prints the format's tables.
 
 ## The package
 
-One level of modules, each owning one concept end to end (its grammar's checks at compile, its resolution in
-the run, its labels in the output), so a change to a feature stays in its module:
+Seven packages, read as a chain from what a document says to what comes out; each imports only from the
+ones before it, and each module owns one concept end to end (its checks at compile, its resolution in the run,
+its labels in the output), so a change to a feature stays in its module:
 
-| module | owns |
+| package | holds |
 | --- | --- |
-| `plan.py` | the records a document is made of (the format), `Plan`, and what compile knows of a name |
-| `compile.py`, `preflight.py`, `steps.py` | the three drivers: resolve the document, check it against the model, run it |
-| `sweeps.py`, `selectors.py` | sweeps and their points; the selector grammar (`2`, `"-3:"`, `[1, 3]`) |
-| `data.py`, `answers.py` | datasets, inputs and tokenization; answers scored against a vocabulary |
-| `positions.py` | `pos`: frame, scope, index, resolved per row, and where a scoped write lands |
-| `interventions.py`, `batches.py` | an entry's ops, operands and brackets; an entry bound to a batch, and `visit`, which engines call |
-| `generate.py`, `fit.py` | the generate and fit step kinds, with their own compile checks |
-| `ops/`, `featurizers/`, `engines/` | the op vocabulary; the featurizer kinds and their bundles; the three engines |
-| `output.py`, `table.py`, `cli.py`, `docs.py` | a run's directory and back; tables; the command line; `describe` and FORMAT.md |
+| `format/` | what a document may say: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`), and the records, `Plan` and compile's symbol table (`plan`) |
+| `ops/`, `featurizers/` | the op vocabulary, one plain function per op; the featurizer kinds, their bundles (`bundles`) and their uses in a plan (`uses`) |
+| `compile/` | what it means: the compile driver, and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands) |
+| `steps/` | the run inside the session: the driver with the forward and op kinds, `preflight` (everything that needs the model before a forward), `batches` (an entry bound to a batch, and `visit`, which engines call), `generate`, `fit` |
+| `engines/` | the protocol and the three engines, each holding a model and nothing else |
+| `output/` | a run's directory and back, and `table` |
+| `cli.py`, `docs.py` | the command line; `describe` and FORMAT.md |
 
 ## Extending clab
 
@@ -194,7 +193,7 @@ named in every error.
   registered under their lowercase name: class attributes declare what their bundle holds and what a fit
   trains, the constructor's signature is the document's fields, and the ops it serves are its methods
   `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
-- **Step kinds** (`steps.KINDS`, one function each) and
+- **Step kinds** (`clab/steps/`, one function each in `KINDS`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
   `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists

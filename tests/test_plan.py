@@ -7,12 +7,13 @@ import pickle
 from typing import Any
 
 import pytest
+from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 from clab import Plan
-from clab.plan import PlanError
-from clab.sweeps import points
-from clab import positions, selectors
-from conftest import NAMES, REAL, document, edited, plan_of, snapshot
+from clab.compile import positions
+from clab.format import selectors
+from clab.format.plan import PlanError
+from clab.format.sweeps import points
 
 
 def step(plan: Plan, name: str) -> Any:

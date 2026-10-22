@@ -14,10 +14,10 @@ from typing import Literal
 import torch
 from nnterp import StandardizedTransformer
 
-from ..plan import Model
-from . import engine
-from .nnterp import NnterpEngine
-from .standard import build
+from clab.engines import engine
+from clab.engines.nnterp import NnterpEngine
+from clab.engines.standard import build
+from clab.format.plan import Model
 
 
 @engine("ndif")

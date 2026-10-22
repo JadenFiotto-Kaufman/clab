@@ -20,16 +20,26 @@ from typing import TYPE_CHECKING, Any
 import torch
 from torch import Tensor
 
-from .answers import probe_of
-from . import ops
-from .batches import batches, bind, bound, home, joined, layers, read, read_name, stacked
-from .featurizers.uses import instance
-from .plan import Plan, Run, arguments, dims_of, entries, points
-from .preflight import Found, preflight
-from .sweeps import by_coordinate, coordinate, lookup, put
+from clab import ops
+from clab.compile.answers import probe_of
+from clab.featurizers.uses import instance
+from clab.format.plan import Plan, Run, arguments, dims_of, entries, points
+from clab.format.sweeps import by_coordinate, coordinate, lookup, put
+from clab.steps.batches import (
+    bind,
+    bound,
+    chunked,
+    home,
+    joined,
+    layers,
+    read,
+    read_name,
+    stacked,
+)
+from clab.steps.preflight import Found, preflight
 
 if TYPE_CHECKING:
-    from .engines import Parameterized
+    from clab.engines import Parameterized
 
 def begin(engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
@@ -129,7 +139,7 @@ def version() -> str:
     commit = url.get("vcs_info", {}).get("commit_id")
     if commit:
         return f"{dist.version}+{commit[:12]}"
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if not os.path.exists(os.path.join(root, ".git")):         # not a checkout (never a git repo above one)
         return dist.version
     try:
@@ -151,7 +161,7 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     NaN past a row's own."""
     parts = []
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
-    for chunk, batch, pads in batches(engine, step, found, batch_size):
+    for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
         parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
@@ -185,7 +195,7 @@ def decoded(tokenizer, ids: Tensor) -> list:
     return [tokenizer.decode([i]) if i >= 0 else None for i in ids.tolist()]
 
 
-from . import fit, generate  # noqa: E402
+from clab.steps import fit, generate  # noqa: E402
 
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found)`.
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}

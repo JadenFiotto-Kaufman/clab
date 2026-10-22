@@ -5,13 +5,11 @@ from dataclasses import replace
 import torch
 from torch import Tensor
 
-from .batches import home
-from .featurizers.uses import instance
-from .plan import Plan, agreeing, entries
-from .preflight import Found
-from .sweeps import lookup, put
-
-
+from clab.featurizers.uses import instance
+from clab.format.plan import Plan, agreeing, entries
+from clab.format.sweeps import lookup, put
+from clab.steps.batches import home
+from clab.steps.preflight import Found
 
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
@@ -99,7 +97,7 @@ def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple,
         inst.seen = []
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
-    from .steps import KINDS
+    from clab.steps import KINDS
     with torch.set_grad_enabled(index is not None):
         for n, s in step.steps.items():
             KINDS[s.kind](engine, plan, n, s, body, step.batch_size, found)

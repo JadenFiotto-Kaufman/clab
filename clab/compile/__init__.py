@@ -1,4 +1,9 @@
-"""compile: a plan resolved for running, every name checked, every sweep expanded into points.
+"""What a document means: a plan resolved for running, every name checked, every sweep expanded into points.
+
+The package holds the driver here and the concepts it resolves: `sweeps` and `data` are the format's own; `answers`
+(a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments
+against what compile knows) and `interventions` (an entry, its brackets and operands) are here, each with its
+checks at compile and what it resolves to in the run.
 
 Compile knows the document and the files; the run knows the model. Anything decided from the document, the
 data files and bundle headers is checked here; anything that needs the tokenizer or a size of the model is
@@ -7,18 +12,38 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 """
 
 import itertools
+from dataclasses import replace
 from typing import Any
 
-from dataclasses import replace
-
-from . import data, featurizers, positions
-from .answers import column_ref
-from .arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
-from .featurizers import KINDS, bundles, labels
-from .featurizers.uses import bundled_sites
-from .interventions import entry, items
-from .plan import Compiling, Intervention, Known, Plan, arguments, corpus_root, fail, gathers, kind_of, points
-from .sweeps import find_sweeps
+from clab import featurizers
+from clab.compile import positions
+from clab.compile.answers import column_ref
+from clab.compile.arguments import (
+    aligned,
+    called,
+    layout,
+    narrowed_readout,
+    paired,
+    references,
+    value_ref,
+)
+from clab.compile.interventions import entry, items
+from clab.featurizers import KINDS, bundles, labels
+from clab.featurizers.uses import bundled_sites
+from clab.format import data
+from clab.format.plan import (
+    Compiling,
+    Intervention,
+    Known,
+    Plan,
+    arguments,
+    corpus_root,
+    fail,
+    gathers,
+    kind_of,
+    points,
+)
+from clab.format.sweeps import find_sweeps
 
 
 def compile(plan: Plan) -> Plan:

@@ -5,8 +5,7 @@ scope lands."""
 
 from typing import Any, Callable, cast
 
-from ..address import COMPONENTS
-
+from clab.format.address import COMPONENTS
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
          "vocab_size")

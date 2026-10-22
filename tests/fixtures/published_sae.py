@@ -10,7 +10,6 @@ import torch
 
 from clab.output import write
 
-
 if __name__ == "__main__":
     g = torch.Generator().manual_seed(1)
     write("documents/artifacts/sae_gemma_scope.safetensors", {

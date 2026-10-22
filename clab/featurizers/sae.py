@@ -6,7 +6,8 @@ from typing import Literal, TypedDict
 import torch
 from torch import Tensor
 
-from . import Kind, unautocast
+from clab.featurizers import Kind, unautocast
+
 
 class TrainedAt(TypedDict):
     """The site a dictionary was trained at: a component and one layer."""

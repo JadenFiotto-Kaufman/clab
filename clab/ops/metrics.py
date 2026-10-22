@@ -6,9 +6,9 @@ import math
 import torch
 from torch import Tensor
 
-from ..registry import Text, Tokens, Value
-from ..data import compared
-from . import VOCABULARY, op
+from clab.format.data import compared
+from clab.format.registry import Text, Tokens, Value
+from clab.ops import VOCABULARY, op
 
 
 def missing(of: Tensor) -> Tensor:

@@ -14,11 +14,10 @@ run, never by a document; a trailing underscore is dropped from a parameter's do
 import inspect
 from typing import Any, Callable
 
-from .. import registry
-from ..address import EXAMPLE_AXES
-from ..registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
-from .. import featurizers
-
+from clab import featurizers
+from clab.format import registry
+from clab.format.address import EXAMPLE_AXES
+from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
 
 ABOUT = """An op runs in two places, always as the same function:
 
@@ -194,7 +193,7 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
 
 
 # The ops, in the order the tables (`describe`, FORMAT.md) list them.
-from . import edits, metrics, reductions, transforms  # noqa: E402
+from clab.ops import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,

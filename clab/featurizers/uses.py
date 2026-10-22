@@ -4,12 +4,22 @@ bundle carries."""
 
 from typing import Any
 
-from .. import address, selectors
-from ..interventions import bracketed, visited
-from ..plan import Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, scope, walk
-from ..selectors import selected
-from . import KINDS, Kind, labels, make
-
+from clab.compile.interventions import bracketed, visited
+from clab.featurizers import KINDS, Kind, labels, make
+from clab.format import address, selectors
+from clab.format.plan import (
+    Op,
+    Plan,
+    agreeing,
+    arguments,
+    declared,
+    entries,
+    entry_of,
+    fail,
+    scope,
+    walk,
+)
+from clab.format.selectors import selected
 
 
 def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
