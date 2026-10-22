@@ -86,7 +86,8 @@ def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
         point = header(plan, name, plan.results[name][coordinate(plan, p.at)], p)
         if point is None:
             return None
-        found.update({"format": point.pop("format")}, **{f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
+        found["format"] = point.pop("format")
+        found.update({f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
     return found
 
 

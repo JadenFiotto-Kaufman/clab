@@ -90,9 +90,10 @@ class Compiling:
 
     Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
     document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document
-    order: each name produced so far, `{dims, data, kind}` (`names`), each entry's sweep axes (`axes_of`),
-    the names the entry being compiled references (`refs`), which decide the axes it inherits, and every value
-    any entry references (`used`), which decides what the run gathers. A fit's body compiles in a copy whose
+    order: each name produced so far, `{dims, data, kind}` and, for a value, what `value_of` records of it
+    (`names`), each entry's sweep axes (`axes_of`), the names the entry being compiled references (`refs`),
+    which decide the axes it inherits, and every value any entry references (`used`), which decides what the run
+    gathers. A fit's body compiles in a copy whose
     `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
     `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
     `rot` is `<fit>.rot`, the instance being trained)."""

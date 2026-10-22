@@ -307,10 +307,7 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
-    if "turn" in scope:
-        spans = turns(row, scope["turn"])
-    else:
-        spans = located(texts, row["text"], row["offsets"] or [])
+    spans = turns(row, scope["turn"]) if "turn" in scope else located(texts, row["text"], row["offsets"])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
@@ -320,13 +317,14 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
     return found
 
 
-def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None) -> list[tuple[int, int]]:
     """Every character span in `words` where one of `texts` occurs at token boundaries, each `(text, strip,
     lower)` compared as its flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own);
     in order of end, then start: where an occurrence becomes known, so a write found online, a read and the run
     record count them alike. An occurrence starts where a token starts and ends where a token ends (`bounds`,
-    over the tokens' character spans `tokens`): ` Sara` is not in ` Sarah`, and `:` is not inside `):`."""
-    edges = bounds(words, tokens)
+    over the tokens' character spans `tokens`): ` Sara` is not in ` Sarah`, and `:` is not inside `):`. Without
+    the spans (a tokenizer with no offsets, which `occurrences` then refuses) every character is a boundary."""
+    edges = bounds(words, tokens) if tokens is not None else set(range(len(words) + 1))
     spans = []
     for text, strip, lower in texts:
         text = data.compared(text, strip, lower)

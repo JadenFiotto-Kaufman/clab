@@ -26,13 +26,17 @@ def preflight(engine, plan: Plan) -> dict:
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
     option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
     row's scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
-    one token on some row; a write whose operand was selected at a different width or narrowing; a write to a
-    component with a `key` axis (the attention pattern, the scores) whose operand was read on another input that
-    does not tokenize to the same length on every row, which would misalign the keys; a `pca` over no more vectors
-    than its `k`; a featurizer used at two widths (at a site, the site's; inside an `encode`, that one's
+    one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
+    indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
+    write to a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
+    input that does not tokenize to the same length on every row, which would misalign the keys, and a window of
+    several positions that reaches past the tokens two such inputs share (`windowed`); a `pca` over no more
+    vectors than its `k`; a featurizer used at two widths (at a site, the site's; inside an `encode`, that one's
     coordinates'), at a width its bundle's header does not say (or, with no header, whose tensors are not as
-    wide), or encoded with a `select` outside its features or keeping none of them; and a trained featurizer
-    used at no site.
+    wide), with a field that counts more directions than that width (`counts`), at another layer than the one
+    it says it was trained at, reading its input elsewhere than its bundle was made reading it (`read_with`),
+    or encoded with a `select` outside its features or keeping none of them; and a trained featurizer used at
+    no site. A refusal inside a fit's body names the fit, and under an eval the eval and the datasets it reads.
     """
     assert plan.run is not None
     refuse(engine, plan)
