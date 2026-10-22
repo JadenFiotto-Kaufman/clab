@@ -111,7 +111,7 @@ def by_reference(blob: bytes) -> bool:
 
 
 def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
-    """`plan` run on the ndif engine against this design's own model of a server (DESIGN.md section 10(b)):
+    """`plan` run on the ndif engine against a stand-in for a server:
     serialize the session the client's meta shell opens, run the *deserialized* tracer with the persistent
     objects of a loaded model (the nnterp engine's, which is what a server holds), take what its outermost
     boundary pushes, round-trip that through torch.save/torch.load as a response does, then mark it and push

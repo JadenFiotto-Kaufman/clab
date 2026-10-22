@@ -159,13 +159,30 @@ plan as a JSON document, in its current state), `table`; `plan.run` says how it 
 device and every engine option; the versions, dtype and devices where the model was; timing; how each input
 tokenized). `clab.describe()` prints the format's tables.
 
+## The package
+
+One level of modules, each owning one concept end to end (its grammar's checks at compile, its resolution in
+the run, its labels in the output), so a change to a feature stays in its module:
+
+| module | owns |
+| --- | --- |
+| `plan.py` | the records a document is made of (the format), `Plan`, and what compile knows of a name |
+| `compile.py`, `preflight.py`, `steps.py` | the three drivers: resolve the document, check it against the model, run it |
+| `sweeps.py`, `selectors.py` | sweeps and their points; the selector grammar (`2`, `"-3:"`, `[1, 3]`) |
+| `data.py`, `answers.py` | datasets, inputs and tokenization; answers scored against a vocabulary |
+| `positions.py` | `pos`: frame, scope, index, resolved per row, and where a scoped write lands |
+| `interventions.py`, `batches.py` | an entry's ops, operands and brackets; an entry bound to a batch, and `visit`, which engines call |
+| `generate.py`, `fit.py` | the generate and fit step kinds, with their own compile checks |
+| `ops/`, `featurizers/`, `engines/` | the op vocabulary; the featurizer kinds and their bundles; the three engines |
+| `output.py`, `table.py`, `cli.py`, `docs.py` | a run's directory and back; tables; the command line; `describe` and FORMAT.md |
+
 ## Extending clab
 
 Every extensible thing is a plain function or class under its name, registered by a decorator (ops: declared
 by one, and listed in order at the end of `ops/__init__.py`), and its signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
 named in every error.
 
-- **Ops** (`clab/runtime/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
+- **Ops** (`clab/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
   check=None)` declares the function's group (`metrics`, `reductions`, `edits`, `transforms`), the axes the
   input must carry, the axes it removes (a tuple, or the name of the argument that lists them) and appends,
   when its value is a bundle a featurizer loads, that featurizer's kind, and a rule its arguments keep beyond
@@ -173,11 +190,11 @@ named in every error.
   A parameter annotated `Value`, `Tokens` or
   `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
-- **Featurizer kinds** (`clab/runtime/featurizers/`, one module each) are classes on the `Kind` protocol,
+- **Featurizer kinds** (`clab/featurizers/`, one module each) are classes on the `Kind` protocol,
   registered under their lowercase name: class attributes declare what their bundle holds and what a fit
   trains, the constructor's signature is the document's fields, and the ops it serves are its methods
   `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
-- **Step kinds** (`clab/runtime/steps/`, `@kind`) and
+- **Step kinds** (`steps.KINDS`, one function each) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
   `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists

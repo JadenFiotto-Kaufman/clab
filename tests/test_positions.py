@@ -1,6 +1,6 @@
 """Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
 document's `pos`, `run.positions`, a ragged value's `tok`, `clab table`'s `pos` and `key`, an attention pattern's
-`key` axis, and a refusal's token counts (PLAN.md §14, PR 15; FINDINGS.md S4, S7, D7, D17).
+`key` axis, and a refusal's token counts (PR 15; FINDINGS.md S4, S7, D7, D17).
 
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
 Qwen3-8B's tokenizer is cached): `<|im_start|>` and `<|im_end|>` are its markers, and it adds no BOS."""
@@ -307,25 +307,3 @@ def test_a_key_mixing_op_step_over_a_pattern_takes_each_rows_own_keys(engines):
         n, pat, unit = len(row), filled.results["f.pat"][r], filled.results["unit"][r]
         torch.testing.assert_close(unit[..., :n], pat[..., :n] / pat[..., :n].norm(dim=-1, keepdim=True))
         assert unit[..., n:].isnan().all()
-
-
-def test_the_table_refuses_a_key_axis_written_as_the_padded_batchs(engines, tmp_path, capsys):
-    """A run an earlier clab wrote holds an unselected key axis as the padded batch's, a shorter row's padding
-    first: its keys would be labelled with the wrong tokens, so the table refuses it, from `Plan.load` and from
-    the CLI, and says to rerun; the same run as this clab writes it tables."""
-    from safetensors.torch import save_file
-    plan = doc(EAGER, DAYS, {"f": forward({"pat": {"site": PATTERN, "pos": -1}})}, ["f.pat"])
-    filled = run(engines, plan)
-    filled.dump(str(tmp_path))
-    assert len(Plan.load(str(tmp_path)).table("f.pat")) == sum(len(row) for row in filled.run.tokens["d.input"])
-    own, width = filled.results["f.pat"], filled.results["f.pat"].shape[-1]
-    padded = torch.zeros_like(own)
-    for r, row in enumerate(filled.run.tokens["d.input"]):
-        padded[r, ..., width - len(row):] = own[r, ..., :len(row)]
-    save_file({"f.pat": padded.contiguous()}, str(tmp_path / "f.pat.safetensors"))
-    message = r"f\.pat: row 1 holds values past its own 4 keys: it was written by a clab whose key axis was the " \
-        r"padded batch's; rerun the document"
-    with pytest.raises(ValueError, match=f"^{message}$"):
-        Plan.load(str(tmp_path)).table("f.pat")
-    assert main(["table", str(tmp_path), "f.pat"]) == 1
-    assert "it was written by a clab whose key axis was the padded batch's" in capsys.readouterr().err

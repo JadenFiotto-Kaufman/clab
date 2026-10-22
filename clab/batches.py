@@ -66,7 +66,7 @@ def selection(record, picks: dict) -> dict:
 
 def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: dict | None = None,
          answers: dict | None = None) -> list[dict]:
-    """An entry's ops up to its last edit, bound to one batch, as `ops.visit` runs them: each with the layout of
+    """An entry's ops up to its last edit, bound to one batch, as `visit` runs them: each with the layout of
     the value it meets (`dims`), the dataset rows of the batch, and its arguments bound, an operand that names an
     earlier entry of the same forward (`live`: by name, the engine's name for it) to that name, for the forward
     to fill. An `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features

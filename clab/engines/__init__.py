@@ -10,7 +10,7 @@ where it does not place the model: an NDIF server does) and `options` as given, 
 `execute` records in `plan.run`.
 
 `execute(plan, batch_size=...)` is the single entry point and the only method an engine that ignores
-`clab.runtime.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine: one
+`clab.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine: one
 batch through the model with its records done (`forward`), a generation (`generate`), the model's own
 unembedding (`readout`), what it cannot serve (`unserved`), where a component falls in its forward (`rank`, any
 sortable value), its sizes, its tokenizer, and the ids its generation stops on (`eos`).
@@ -21,7 +21,7 @@ turn, a write on the value as the records before it left it and a read taking th
 `batches.visit(value, component, records, got)`; it gathers nothing a record does not ask for. A write's op argument
 may be `{"live": <read name>}`: the value of a read the same call has already made (`got[<read name>]`), which
 `batches.visit` resolves. Preflight has checked, by `rank`, that the read's site comes first; an engine that runs
-the plan without `clab.runtime.steps` must resolve such an argument the same way. An engine holds its model and
+the plan without `clab.steps` must resolve such an argument the same way. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
 block it loaded, `name` the name it registered under, `device` and `options` how it loaded.
 """
