@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Runs interpretability experiments on transformer LMs from declarative JSON documents."
 requires-python = ">=3.10"
 dependencies = [
-    "nnsight",
+    "nnsight>=0.8.1",
     "nnterp",
     "torch",
     "safetensors",
@@ -18,17 +18,10 @@ clab = "clab.cli:main"
 [dependency-groups]
 dev = ["pytest", "jsonschema"]
 
-# nnsight and nnterp are the shared working checkouts on this machine,
-# installed editable. Leave these two entries and the override alone; add your
-# own dependencies above as needed.
+# nnsight comes from PyPI; nnterp is the shared working checkout on this machine, installed editable. Leave
+# the nnterp entry alone; add your own dependencies above as needed.
 [tool.uv.sources]
-nnsight = { path = "/home/localjadenfk/wd/nnsight-dev-parent", editable = true }
 nnterp = { path = "/home/localjadenfk/wd/nnterp", editable = true }
-
-# nnterp declares `nnsight>=0.8`, but the nnsight dev checkout's scm version is
-# an rc (0.8.0rc..., which sorts BELOW 0.8). Delete when nnsight tags 0.8.0.
-[tool.uv]
-override-dependencies = ["nnsight>=0.8.0rc1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
