@@ -40,6 +40,11 @@ def test_the_schema_accepts_the_corpus_and_refuses_what_the_plan_refuses():
                    lambda d: d["steps"]["patched"]["interventions"]["patch"].update(
                        pos={"scope": {"column": "pairs.base_answer", "lower": True}}),
                    lambda d: d.update(compiled=True),
+                   lambda d: d["steps"].update(gen={"kind": "generate", "input": "pairs.input", "reads": {}}),
+                   lambda d: d["steps"]["patched"].update(reads={}),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update(featurizer="rot"),
+                   lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"].insert(
+                       0, {"op": "featurizer", "featurizer": "rot", "mode": "encode"}),
                    lambda d: d["steps"]["iia"].update(dims=["rows"])):
         bad = copy.deepcopy(doc)
         change(bad)

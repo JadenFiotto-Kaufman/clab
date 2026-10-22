@@ -533,7 +533,8 @@ class Generate(Forward):
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
     batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
-    model_config = ConfigDict(extra="allow")
+    # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
+    model_config = ConfigDict(extra="allow", json_schema_extra={"not": {"anyOf": [{"required": [k]} for k in SIDES]}})
     kind: Literal["generate"]  # type: ignore[assignment]
 
 

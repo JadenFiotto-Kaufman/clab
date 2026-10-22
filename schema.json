@@ -400,6 +400,20 @@
   "Generate": {
    "additionalProperties": true,
    "description": "Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;\nevery other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,\n...), and may sweep. Its entries name forward calls by `pos`'s `frame`: the\nprefill, and the decode calls, each at its one position. A write at decode call k takes effect from\ngenerated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it\nselects is known by then: its frame not counted from the row's last call, and with an\nindex that names the same calls on a row that stops early as on one that runs on (not one counted from\nthe end over several calls, nor any but `\":\"` over the prompt); a frame to the row's last call other than\nevery decode call (`\"2:\"`, `\"1::2\"`) lands at the calls up to the step's `max_new_tokens`, which it then\ngives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the\nfirst. A scoped write is found\nonline, decoding the inputs fed so far at each call: it lands at the call fed the last token of each\noccurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there\nto find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame\ncounted from a row's last call. A row's calls are what the engine actually generated, up to the\none that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the\nengine's generation stops on (its generation config's). The step's own value is the\nnew token ids, `[rows, new]`; `decode` makes them text. Options that would change the rows or the value\n(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything\nruns; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step\nruns, naming the step.\n\nRows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill\nprojects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so\nbatch sizes 4 and 2 already differ by about 1e-7 at call 0.",
+   "not": {
+    "anyOf": [
+     {
+      "required": [
+       "reads"
+      ]
+     },
+     {
+      "required": [
+       "writes"
+      ]
+     }
+    ]
+   },
    "properties": {
     "kind": {
      "const": "generate",
