@@ -18,9 +18,8 @@ if TYPE_CHECKING:
     from .preflight import Found
 
 
-
 class Unbracketed(ValueError):
-    """A `decode` its entry has no encode open for, at index `at` among the entry's ops."""
+    """A `decode` with no matching encode open, at index `at` among the entry's ops."""
 
     def __init__(self, at: int, message: str):
         super().__init__(message)
@@ -28,11 +27,9 @@ class Unbracketed(ValueError):
 
 
 def bracketed(listed: list[Op]) -> list[dict]:
-    """An entry's ops as their brackets nest, the one place a bracket is read: each op `{"at": <its index>,
-    "op": <the op>}` in turn, and an `encode` also with the ops after it as `inner`, nested the same way, up to
-    the `decode` that closes it (`closed`, that decode's index; the decode is not a node of its own) or, when
-    none does, to the end. A `decode` closes the most recent `encode` not yet closed; one with none open, or of
-    another featurizer than the open one, is refused (`Unbracketed`)."""
+    """An entry's ops as their brackets nest: each op a node `{"at", "op"}`, an `encode` also holding the ops
+    after it as `inner` up to the `decode` that closes it (`closed`, that decode's index) or to the end. A decode
+    closes the most recent encode still open; one with none open, or of another featurizer, is `Unbracketed`."""
     top: list[dict] = []
     opened: list[dict] = []
     for i, o in enumerate(listed):
@@ -44,7 +41,8 @@ def bracketed(listed: list[Op]) -> list[dict]:
             theirs = arguments(opened[-1]["op"])["featurizer"]
             if theirs != ref:
                 raise Unbracketed(i, f"decode of {ref!r}, and the open encode is of {theirs!r} "
-                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most recent encode not yet closed")
+                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most "
+                                     "recent encode not yet closed")
             opened.pop()["closed"] = i
             continue
         node = {"at": i, "op": o}
@@ -56,8 +54,7 @@ def bracketed(listed: list[Op]) -> list[dict]:
 
 
 def visited(nodes: list[dict], around: tuple = ()):
-    """`bracketed` nodes in the order their ops run, each `(node, around)`, `around` the encode nodes open
-    around it, outermost first."""
+    """`bracketed` nodes in the order their ops run, each with the encode nodes open around it, outermost first."""
     for node in nodes:
         yield node, around
         yield from visited(node.get("inner", []), around + (node,))
@@ -65,8 +62,7 @@ def visited(nodes: list[dict], around: tuple = ()):
 
 def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
     """A step's entries in the order written, each with its document path and name: the items of its
-    `interventions` in turn (a dict is one item), a bundle's entries where its name stands, rescoped to the
-    step (`scoped`)."""
+    `interventions` in turn, a bundle's entries where its name stands, rescoped to the step (`scoped`)."""
     value = spec.interventions
     listed = value if isinstance(value, list) else [value]
     out = []
@@ -90,10 +86,9 @@ def bundles_of(step) -> list[str]:
 
 
 def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pullers: set) -> Intervention:
-    """A bundle's entry, its operands that name one of the bundle's own entries by its bare name (`"premix"`)
-    naming that entry of the step it is pulled into (`"<step>.premix"`). An operand that names `<a step that
-    pulls the bundle in>.<one of its entries>` is refused: pulled into another step it would still mean that
-    step's entry, not the one this step makes. `pullers` are the steps that pull the bundle in."""
+    """A bundle's entry with an operand that names one of the bundle's own entries bare (`"premix"`) naming it in
+    the step the bundle is pulled into (`"<step>.premix"`). Naming `<a step that pulls the bundle in>.<one of its
+    entries>` is refused: pulled into another step it would still mean that step's entry."""
     own = plan.interventions[bundle]
     rewritten = []
     for i, o in enumerate(spec.ops):
@@ -114,11 +109,10 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
 
 def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, dataset: str,
           live: dict[str, tuple[dict, Intervention]], own: set) -> dict:
-    """One entry: its site inlined, its positions checked against the step, its ops' layouts. An entry that
-    holds an edit writes: each op up to its last edit acts on the live value, so no edit follows an op that
-    changed the layout, unless an `encode` changed it and its `decode` follows, and every `encode` before the
-    write-back is closed by then; its operands stand for the value they meet (`operands`). `live` holds the
-    earlier entries of a forward, by name, which an operand may name; `own` names every entry of the step."""
+    """One entry compiled: its site inlined, its positions checked against the step, its ops walked for their
+    layouts and operands. Up to its last edit each op acts on the live value, so no edit follows an op that
+    changed the layout unless that was an `encode` its `decode` closes, and every encode before the write-back is
+    closed by then. `live` holds the forward's earlier entries by name; `own` names every entry of the step."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -217,9 +211,8 @@ def narrowed_readout(what: str) -> str:
 
 
 def space_of(cx: Compiling, encodes: list[Op]) -> list[dict]:
-    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer, by the
-    name it resolves to here (inside a fit's body `rot` and `<fit>.rot` are the one being trained), and the
-    `select` it keeps; none for the site's own layout."""
+    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer (by the
+    name it resolves to here: inside a fit's body `rot` and `<fit>.rot` are one) and `select`."""
     return [{k: cx.aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
              if k in ("featurizer", "select")} for o in encodes]
 
@@ -233,9 +226,8 @@ def said(space: list[dict]) -> str:
 
 
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
-    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist and to serve the op
-    (`encode`, `decode`, `apply`), and an `apply`'s `with` to be a name its kind takes. None when the op takes
-    no featurizer."""
+    """The kind of the featurizer op `name` names, checked to exist and to serve the op, and an `apply`'s `with`
+    to be a name its kind takes; None when the op takes no featurizer."""
     ref = ops.featurizer_of(name, args)
     if ref is None:
         return None
@@ -255,10 +247,9 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
 
 
 def references(cx: Compiling, plan: Plan, path: str, name: str, args: dict, classes: bool = False) -> dict[str, Known]:
-    """Op `name`'s arguments that name a value or a column, each resolved (`Known`, `name` how it was referenced)
-    (a column is laid out `["rows"]`): a column read as text, or scored against the vocabulary, holds text on
-    every row; one scored against a probe's `classes` holds its labels, whatever they are. A featurizer
-    argument is checked to exist."""
+    """Op `name`'s arguments that name a value or a column, each resolved (`Known`, with `name` as written). A
+    column read as text or scored against the vocabulary holds text on every row; one scored against a probe's
+    `classes` holds its labels, whatever they are. A featurizer argument is checked to exist."""
     found = {}
     for key, p in ops.parameters(name).items():
         value, at = args.get(key), f"{path}.{key}"
@@ -289,8 +280,7 @@ def aligned(path: str, of: tuple[str | None, str], found: dict[str, Known]) -> s
 
 def paired(path: str, name: str, dims: list[str], width: int | None, found: dict[str, Known]) -> None:
     """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, as many
-    positions wide (`width`) when it has positions, or is one vector of its features, the same for every
-    example; one as wide as its widest row (no static width) lines up with nothing."""
+    positions wide, or is one vector of its features; one without a static width lines up with nothing."""
     if ops.DECLARED[name]["group"] != "metrics":
         return
     one = [a for a in dims if a not in address.EXAMPLE_AXES]
@@ -309,14 +299,13 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
                  "many (a pos axis broadcasts no more than a layers axis does)")
 
 
-def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool, live: dict, adapts: bool) -> None:
-    """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space` (the
-    encodes open around the op): in the same coordinates, encoded by the same featurizers with the same
-    `select`, and that layout or one vector of its features; only the vector when the selection is ragged,
-    unless the operand is an earlier entry of the same forward, which is gathered as the selection is. Such an
-    entry is taken off the model as the forward reaches it, so its value is what its edits left (no op after its
-    last edit), at one layer. An adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's rows
-    and positions, whatever its features, which the adapter takes as it says."""
+def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool, live: dict,
+             adapts: bool) -> None:
+    """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space`: the
+    same coordinates, and that layout or one vector of its features; only the vector when the selection is
+    ragged, unless the operand is an earlier entry of the same forward, gathered as the selection is (one layer,
+    no op after its last edit). An adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's
+    rows and positions, whatever its features."""
     lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info.kind != "value":
@@ -353,9 +342,8 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
-    """The layout of op `name`'s result on a value laid out `dims` (for an op with a `layout`, for its
-    featurizer's `kind`). Inside an entry (`where`) the op sees one batch, so it may not aggregate over rows;
-    `original` is only an entry's."""
+    """The layout of op `name`'s result on a value laid out `dims`. Inside an entry (`where`) the op sees one
+    batch, so it may not aggregate over rows; `original` is only an entry's."""
     if where != "entry" and "original" in inspect.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside an entry")
     try:
@@ -368,15 +356,17 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
+# -- what preflight checks of the entries against the model ---------------------------------------------
+
+
 def made_at(site, n: int) -> list:
-    """The layers a site is made at among the model's `n`: those its `layers` select, or `[None]` for a
-    model's own value, which has none."""
+    """The layers a site is made at among the model's `n`, or `[None]` for a model's own value."""
     return [None] if site.layers is None else selectors.select(site.layers, n)
 
 
 def picked(where: str, layers, n: int) -> list[int]:
-    """The layers a site's `layers` select among the model's `n`, each one there: an int or a pick outside
-    them, or a slice that picks none, is refused by name."""
+    """The layers a site's `layers` select among the model's `n`; a layer outside them, or a slice that picks
+    none, is refused by name."""
     for i in [layers] if isinstance(layers, int) else layers if isinstance(layers, list) else []:
         if not -n <= i < n:
             raise ValueError(f"{where}: layer {i}; the model has {n} layers")
@@ -390,8 +380,7 @@ def picked(where: str, layers, n: int) -> list[int]:
 
 
 def selected(where: str, axis: str, selector, n: int, what: str) -> None:
-    """Refuses by name a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps
-    none of it."""
+    """Refuses a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps none."""
     written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
     try:
         got = selectors.kept({axis: selector}, {axis: n})[axis]
@@ -404,8 +393,8 @@ def selected(where: str, axis: str, selector, n: int, what: str) -> None:
 
 
 def refuse(engine, plan: Plan) -> None:
-    """Every component the plan reads or writes that the engine cannot serve, by name. `engine.unserved()`
-    maps a component to None (served), why not, or why not per layer (nnterp's `support()` shape)."""
+    """Every component the plan reads or writes that the engine cannot serve, by name (`engine.unserved()` maps
+    a component to None, why not, or why not per layer)."""
     reasons = engine.unserved()
     for name, step in walk(plan.steps):
         for key, record in entries(step).items():
@@ -420,11 +409,9 @@ def refuse(engine, plan: Plan) -> None:
 
 def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: "Found", shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
-    that line up token for token. One from an entry of the write's own forward is an earlier entry at the
-    write's own site, or one at a site this engine reaches first (by site, not rank: the hooks engine ranks
-    every component at one module boundary the same). An argument of the function an op's `options` choose (a
-    lora's `with`) is as wide per position, its axes after the positions flattened, as the value the op acts on,
-    and, from the same forward, read at the write's own positions."""
+    that line up token for token; from the write's own forward, read at a site this engine reaches first. An
+    adapter's input (`apply`'s `with`) is as wide per position as the value the op acts on, its axes after the
+    positions flattened, and from the same forward is read at the write's own positions."""
     args, sizes = arguments(o), engine.sizes()
     adapts = o.op == "apply"
     for key, p in ops.parameters(o.op).items():
@@ -469,12 +456,10 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
 
 
 def windowed(engine, where: str, value: str, producer: str, consumer: str, found: "Found", at: dict) -> None:
-    """The same positions with no scope, read on one input and written on another, pair the operand's i-th
-    position with the write's i-th (positions written differently pair what they say). On a row whose two prompts are as long, those count alike. On one where they are not, the
-    check is conservative: each pair is the same distance from the start within the tokens the two prompts
-    begin with alike, or from the end within those they end with alike, the first token past either counted
-    in (both are the first token where the prompts part); any other pair may be two different tokens and is
-    refused by name, as an attention pattern's keys are."""
+    """The same unscoped positions read on one input and written on another pair position i with position i. On
+    a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
+    from the start within the tokens both prompts begin with alike, or from the end within those they end with
+    alike (the first token past either counted in); any other pair may be two different tokens and is refused."""
     try:
         ours, theirs = lookup(found.positions, where, at), lookup(found.positions, value, at)
     except KeyError:
@@ -496,11 +481,10 @@ def windowed(engine, where: str, value: str, producer: str, consumer: str, found
 
 def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: list[str], sizes: dict,
                  write: bool) -> None:
-    """An op's operand holds, on each axis a read's site narrows (`num_heads`, `hidden_size`, ...), the indices the
-    value the op acts on holds (`ours`, by axis, laid out `dims`: a write's selection, or what a read or an op
-    step's `of` holds, `held`), in its order. A `select` list is positional: an operand read at heads `[1, 4]`
-    swapped into a write at `[4, 1]`, or subtracted from a value read at `[4, 1]`, would mix the heads, and one
-    head's value would broadcast over three. A number, or a value no read made, holds none to compare."""
+    """An op's operand holds, on each axis a read's site narrows, the same indices as the value the op acts on
+    (`ours`, by axis: a write's selection, or what a read or an op step's `of` holds), in the same order: a
+    `select` list is positional, so `[1, 4]` read into `[4, 1]` would trade the heads, and one head would
+    broadcast over several. A number, or a value no read made, holds none to compare."""
     whose = "this write's selection" if write else "the value it acts on"
     for key, p in ops.parameters(o.op).items():
         value = arguments(o).get(key)
@@ -524,9 +508,8 @@ def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: l
 
 
 def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] | None:
-    """The indices value `name` holds on each axis its read's site could narrow: what the site's `select` keeps,
-    every index where it keeps them all; followed through op steps and into a fit's eval members. None for a
-    value no read made (a fit's history, a generation's ids)."""
+    """The indices value `name` holds on each axis its read's site could narrow (every index where its `select`
+    keeps them all), followed through op steps and into a fit's eval members; None for a value no read made."""
     thing, _, member = name.partition(".")
     step = agreeing(plan.steps[thing], at)
     if step.kind == "op":
@@ -543,7 +526,7 @@ def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] |
 
 
 def value_ref(cx: Compiling, value, path: str) -> Known:
-    """A named value produced before this point."""
+    """A named value produced before this point, noted as referenced and used."""
     info = cx.names.get(value) if isinstance(value, str) else None
     if info is not None and info.kind == "featurizer":
         fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
@@ -558,6 +541,7 @@ def value_ref(cx: Compiling, value, path: str) -> Known:
 
 
 def featurizer_ref(cx: Compiling, value, path: str) -> None:
+    """A declared featurizer's name, noted as referenced."""
     if not (isinstance(value, str) and value in cx.names and cx.names[value].kind == "featurizer"):
         known = sorted(k for k, v in cx.names.items() if v.kind == "featurizer")
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
