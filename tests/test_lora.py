@@ -11,8 +11,9 @@ import torch
 from safetensors.torch import save_file
 
 from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime.featurizers.lora import Lora
+from clab.plan import PlanError
+from clab.sweeps import points
+from clab.featurizers.lora import Lora
 from conftest import BATCH_SIZE, TRIP, bundle_header, edited, same, stand_in
 from test_fit import TINY, corpus_copy
 
@@ -299,9 +300,9 @@ def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
 
 
 def test_a_live_operand_the_engine_had_not_read_is_named():
-    from clab.runtime import ops
+    from clab import batches
     with pytest.raises(ValueError, match=r"operand 'premix@0' is a read of this forward the engine had not made"):
-        ops.live({}, {"live": "premix@0"})
+        batches.live({}, {"live": "premix@0"})
 
 
 # -- loading: a document may state the kind's declaration fields, and each it states is checked ---------------

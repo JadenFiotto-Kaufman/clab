@@ -11,8 +11,8 @@ import pytest
 import torch
 
 from clab.engines import load
-from clab.runtime import featurizers, ops
-from clab.runtime.ops import metrics
+from clab import batches, featurizers, ops
+from clab.ops import metrics
 from conftest import BATCH_SIZE, plan_of
 from test_ops import taken
 
@@ -45,8 +45,8 @@ def writes() -> list[dict]:
 
 
 def test_a_write_built_on_the_cpu_lands_on_the_values_device():
-    on_cpu = ops.visit(VALUE, "layer_output", writes(), {})[0]
-    on_gpu = ops.visit(VALUE.cuda(), "layer_output", writes(), {})[0]
+    on_cpu = batches.visit(VALUE, "layer_output", writes(), {})[0]
+    on_gpu = batches.visit(VALUE.cuda(), "layer_output", writes(), {})[0]
     assert on_gpu.device.type == "cuda"
     torch.testing.assert_close(on_gpu.cpu(), on_cpu, atol=1e-6, rtol=1e-6)
 
@@ -137,7 +137,7 @@ def test_a_fit_trains_its_featurizers_where_the_model_is(monkeypatch, kind, devi
     """das's rotation is made where the model is, on `cuda` whether one device or a device map ("auto") put it
     there: at every optimizer step its parameters, their gradients and the optimizer's state are on the model's
     device, and the trained bundle still comes home on the CPU."""
-    from clab.runtime.steps import fit
+    from clab import fit
 
     seen: set[str] = set()
 

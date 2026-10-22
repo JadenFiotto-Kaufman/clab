@@ -16,8 +16,9 @@ import torch
 
 from clab import Plan
 from clab.cli import main
-from clab.plan.model import PlanError, points
-from clab.runtime.ops import edits
+from clab.plan import PlanError
+from clab.sweeps import points
+from clab.ops import edits
 from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 ROWS = [

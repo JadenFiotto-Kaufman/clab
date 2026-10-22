@@ -11,10 +11,11 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime import featurizers
-from clab.runtime.featurizers.gate import Gate
-from clab.runtime.featurizers.sae import Sae
+from clab.plan import PlanError
+from clab.sweeps import points
+from clab import featurizers
+from clab.featurizers.gate import Gate
+from clab.featurizers.sae import Sae
 from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
 
 G = torch.Generator().manual_seed(5)

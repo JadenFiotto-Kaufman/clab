@@ -18,9 +18,9 @@ sortable value), its sizes, its tokenizer, and the ids its generation stops on (
 The records are one list in the order a step's entries run: a write (it has `ops`) or a read (it has none),
 each at a site. A forward visits the sites in its own forward order and does each site's records there in
 turn, a write on the value as the records before it left it and a read taking that value, with
-`ops.visit(value, component, records, got)`; it gathers nothing a record does not ask for. A write's op argument
+`batches.visit(value, component, records, got)`; it gathers nothing a record does not ask for. A write's op argument
 may be `{"live": <read name>}`: the value of a read the same call has already made (`got[<read name>]`), which
-`ops.visit` resolves. Preflight has checked, by `rank`, that the read's site comes first; an engine that runs
+`batches.visit` resolves. Preflight has checked, by `rank`, that the read's site comes first; an engine that runs
 the plan without `clab.runtime.steps` must resolve such an argument the same way. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
 block it loaded, `name` the name it registered under, `device` and `options` how it loaded.

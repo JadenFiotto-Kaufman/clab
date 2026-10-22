@@ -1,16 +1,33 @@
-"""A filled plan into its output directory: one file per save, and the manifest."""
+"""A run's output directory and back.
+
+One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
+bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
+save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
+(`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
+nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
+fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
+after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
+
+`manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
+`results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
+step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`.
+`shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
+tokenized, what each generate step's rows generated, and which position (as `pos` counts them: an index into the
+row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
+`table` uses to label positions. Values are never in the manifest.
+"""
 
 import json
 import os
 from typing import Any
 
-from safetensors.torch import save
+import torch
+from safetensors.torch import load_file, save
 from torch import Tensor
 
-from ..plan.model import (Plan, agreeing, arguments, coordinate, dims_of, entry_of, kind_of, labelled, name as named,
-                          points, scope, uses)
-from ..runtime import featurizers, ops, positions
-from .table import materialized, provenance
+from .featurizers.uses import headed
+from .plan import Plan, dims_of, points
+from .sweeps import coordinate, labelled
 
 
 def dump(plan: Plan, out: str) -> None:
@@ -76,47 +93,42 @@ def describe(value: Any, what: str) -> Any:
     return [len(value)] if isinstance(value, list) and what == "shape" else None
 
 
-def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
-    """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
-    coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
-    if not isinstance(entry, list):
-        return header(plan, name, plan.results[name], entry)
-    found: dict[str, str] = {}
-    for p in entry:
-        point = header(plan, name, plan.results[name][coordinate(plan, p.at)], p)
-        if point is None:
-            return None
-        found["format"] = point.pop("format")
-        found.update({f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
-    return found
+def load(out: str) -> Plan:
+    with open(os.path.join(out, "manifest.json")) as f:
+        manifest = json.load(f)
+    described = manifest.pop("results")
+    plan = Plan(**manifest)
+    for name, d in described.items():
+        file = os.path.join(out, d["file"])
+        if file.endswith(".safetensors"):
+            value = nested(load_file(file))
+            value = value[name] if isinstance(d["dtype"], str) else value
+        else:
+            with open(file) as f:
+                value = json.load(f)
+        value = restored(value, d["dtype"])
+        entry = plan.steps[d["step"]]
+        if isinstance(entry, list):
+            value = {coordinate(plan, p.at): value[labelled(plan, p.at, file.endswith(".safetensors"))] for p in entry}
+        plan.results[name] = value
+    return plan
 
 
-def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | None:
-    """A bundle's header, when the value is one (`value`, at `step`, the point that made it): an op step's whose op
-    declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
-    trained featurizer, made at the first site it is used at."""
-    member = name.partition(".")[2]
-    if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
-        kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
-        reads = None
-    elif step.kind == "fit" and member in step.train:
-        kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
-        used = uses(plan)[member]
-        where, site, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
-        given = arguments(o).get("with")
-        reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
-    else:
-        return None
-    classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
-        if "classes" in fields else None
-    site, reads = (counted(plan, s) for s in (site, reads))
-    return featurizers.bundles.header(kind, fields, plan.model, classes, site, featurizers.KINDS[kind].width(value),
-                                      named(plan), reads)
+def nested(value: dict[str, Tensor]) -> dict:
+    out: dict = {}
+    for key, v in value.items():
+        *path, last = key.split("/")
+        here = out
+        for k in path:
+            here = here.setdefault(k, {})
+        here[last] = v
+    return out
 
 
-def counted(plan: Plan, site: Any) -> Any:
-    """A site whose one layer is counted from the first, as a header records it."""
-    if site is not None and isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
-        return site.model_copy(update={"layers": positions.select(site.layers, plan.run.num_layers)[0]})
-    return site
+def restored(value: Any, dtype: Any) -> Any:
+    """A loaded value with every entry its `dtype` says was a tensor a tensor again."""
+    if isinstance(dtype, str):
+        return value if isinstance(value, Tensor) else torch.tensor(value, dtype=getattr(torch, dtype))
+    if isinstance(dtype, dict):
+        return {k: restored(value[k], dtype[k]) for k in value}
+    return value

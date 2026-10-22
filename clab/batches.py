@@ -1,16 +1,18 @@
 """A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
 with, its value with the ops after its last edit applied."""
 
-from typing import Any
+from typing import Any, cast
 
 import torch
 from torch import Tensor
 
-from ... import address
-from ...plan.model import Plan, arguments, bracketed, entries, gathers, writes
-from .. import data, ops, positions
-from .preflight import head, made_at
-from .state import bound, lookup, put, within_row
+from . import address, data, ops, positions, selectors
+from .address import pos_axis
+from .answers import answered, column_texts, indexed, refkey, within_row
+from .interventions import bracketed, made_at
+from .plan import Plan, arguments, dims_of, entries, gathers, parameters, writes
+from .positions import head
+from .sweeps import lookup, put
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
@@ -76,7 +78,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
                 if select is not None:
-                    out[-1]["features"] = torch.tensor(positions.select(select["features"], f.size()))
+                    out[-1]["features"] = torch.tensor(selectors.select(select["features"], f.size()))
                 out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
         return out
     return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component, None, False))
@@ -204,3 +206,166 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
         # An op whose value is a dict (`top_k`'s ids and probs) keeps its keys beside the entries' rows and tokens.
         return {"row": value["row"], "tok": value["tok"], **got} if isinstance(got, dict) else {**value, "values": got}
     return ops.call(name, value, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)
+
+
+def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
+          of: Any = None, vocabulary: list | None = None, live: dict | None = None,
+          dims: list[str] | None = None, answers: dict | None = None) -> dict:
+    """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
+    forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
+    vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
+    the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`. On a ragged
+    value `of`, an argument with a row per example is taken at each entry's row."""
+    params, out = parameters(plan, name, args), {}
+    for key, value in args.items():
+        annotation, per_row = params[key].annotation, False
+        if annotation == ops.Value and isinstance(value, str) and value in (live or {}):
+            out[key] = {"live": (live or {})[value]}
+            continue
+        if annotation == ops.Value and isinstance(value, str):
+            given, value = value, lookup(state, value, at)
+            per_row = dims_of(plan, given)[:1] == ["rows"]
+            value = value[rows] if rows is not None and per_row else value
+        elif annotation == ops.Tokens:
+            if vocabulary is None:
+                got, part = (answers or {})[refkey(value)], rows or slice(None)
+                out[key] = answered(got["values"][part], got["sets"][part], got["column"], of, dims or [], rows,
+                                    got["aligned"])
+                continue
+            value, per_row = indexed(plan, value, vocabulary, rows)[:, None], True
+        elif annotation == ops.Text:
+            column, strip, lower = data.column_of(value) or ("", False, False)
+            out[key] = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, rows)]
+            continue
+        elif annotation == ops.Featurizer:
+            value = lookup(state, value, at)
+        if per_row and isinstance(of, dict) and "tok" in of:
+            value = value[(of["row"] - (rows.start if rows is not None else 0)).to(cast(Tensor, value).device)]
+        out[key] = value
+    return out
+
+
+def taken(x: Tensor, record: dict) -> Tensor:
+    """The record's positions and narrowing of `x`, a site's value with its token axis at 1.
+
+    `record["positions"]` is `[rows, width]` token indices; a `key` axis is each row's own keys (`owned`);
+    `record["select"]` maps a dimension of that layout to the indices kept along it, the same for every row. The
+    indices, built where the plan runs, move to the value's device.
+    """
+    x = owned(x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)], record)
+    for dim, index in record["select"].items():
+        x = take(x, dim, index)
+    return x
+
+
+def owned(x: Tensor, record: dict) -> Tensor:
+    """A selection's `key` axis as each row's own keys, its positions in order, NaN past them, where the record has
+    one (`record["keys"]`: each row's keys in the padded batch, then its padding's, and which are its own); else
+    `x` as it is."""
+    if "keys" not in record:
+        return x
+    dim, keys = record["keys"]["dim"], record["keys"]
+    x = x.gather(dim, per_row(x, dim, keys["index"].to(x.device)))
+    return x.masked_fill(~per_row(x, dim, keys["own"].to(x.device)), float("nan"))
+
+
+def unowned(current: Tensor, new: Tensor, record: dict) -> Tensor:
+    """`new`, a selection in each row's own key order (`owned`), back in the batch's order over `current`: the
+    row's own keys from `new`, its padding's as `current` has them."""
+    dim, keys = record["keys"]["dim"], record["keys"]
+    index, own = (per_row(current, dim, keys[k].to(current.device)) for k in ("index", "own"))
+    return current.scatter(dim, index, torch.where(own, new, current.gather(dim, index)))
+
+
+def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """`x` at `index` along `dim`, the same indices on every row."""
+    return x.index_select(dim, index.to(x.device))
+
+
+def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
+    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter."""
+    shape = [1] * x.dim()
+    shape[0], shape[dim] = index.shape
+    size = list(x.shape)
+    size[dim] = index.shape[1]
+    return index.reshape(shape).expand(size)
+
+
+def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]:
+    """`value` with a site's records done in listed order, and whether any wrote: a write's ops run on its
+    selection of the current value, out of place, and the result lands there; a read takes its selection of
+    the current value into `got` under its name (at a decode call, appended: one per call it reads).
+
+    `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
+    the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
+    An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
+    each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
+    write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
+    padded to one width; only the positions its `keep` marks are written. A `key` axis is each row's own keys in
+    order, NaN past them (`owned`), to a read and to a write's ops alike, and a write writes those alone
+    (`unowned`). Every index, mask and result moves to the value's device, and a result to its dtype, where it
+    meets the value.
+    """
+    axis = pos_axis(component)
+    before = x = value.movedim(axis, 1)
+    rows = torch.arange(x.shape[0], device=x.device)[:, None]
+    wrote = False
+    for w in records:
+        if "ops" not in w:
+            if "calls" in w:
+                got[w["name"]].append(taken(x, w))
+            else:
+                got[w["name"]] = taken(x, w)
+            continue
+        if not wrote:
+            x, wrote = before.clone(), True
+        pos = w["positions"].to(x.device)
+        current = x[rows, pos]
+        new, original = owned(current, w), owned(before[rows, pos], w)
+        whole = new
+        for dim, index in w["select"].items():
+            new, original = take(new, dim, index), take(original, dim, index)
+        at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
+        new = edited(new, original, w["ops"], got, {"positions": at})
+        new = new.to(device=current.device, dtype=current.dtype)
+        for dim, index in w["select"].items():
+            new = whole.index_copy(dim, index.to(current.device), new)
+        new = unowned(current, new, w) if "keys" in w else new
+        keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
+        x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
+    return x.movedim(1, axis), wrote
+
+
+def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict | None, where: dict) -> Tensor:
+    """`new` after a write's bound ops, each on the current value in turn. An `encode` runs the ops its `decode`
+    closes over (`inner`) on the value's coordinates, on the features its `select` keeps, and writes the change
+    back (`Kind.within`); `original` goes in with them, encoded the same way."""
+    for o in bound:
+        args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
+        if o["op"] != "encode":
+            new = ops.call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
+            continue
+        f: Any = args["featurizer"]
+        features = o.get("features")
+        start = f.encode(original)
+        start = start if features is None else start.index_select(-1, features.to(start.device))
+        new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, where), features)
+    return new
+
+
+def live(got: dict | None, operand: dict) -> Tensor:
+    """A write's operand that names a read of its own forward: that read's value, which the engine made before
+    it reached the write."""
+    if operand["live"] not in (got or {}):
+        raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
+                         "reached the write; it reads it at a later site")
+    return (got or {})[operand["live"]]
+
+
+def home(engine) -> str:
+    """Where the model is, which is where the run makes featurizers and an engine sends a batch's inputs: where
+    its first parameter is (on an NDIF server, or wherever the engine's `device` put it: the first of several
+    under a device map that spreads it), else, while the model is a meta shell that loads its weights at its
+    first forward, the engine's device."""
+    device = str(next(engine.model.parameters()).device)
+    return (engine.device or "cpu") if device == "meta" else device

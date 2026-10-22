@@ -3,8 +3,9 @@
 import torch
 from torch import Tensor
 
-from ...address import EXAMPLE_AXES
+from ..address import EXAMPLE_AXES
 from . import op
+
 
 # What a reduction without `over` removes: the rows and the positions (a ragged value's entries are both). A
 # `layers` axis says which layer each value is, as a feature axis says which unit, so it stays unless `over` names it.

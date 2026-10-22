@@ -18,11 +18,12 @@ import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 
+from .. import batches, steps
 from ..address import COMPONENTS
+from ..generate import landed, now
 from ..plan import Model, Plan
-from ..runtime import ops, steps
 from . import engine
-from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, landed, nnterp_name, now, stops
+from .standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
 
 
 @engine("nnterp")
@@ -79,10 +80,10 @@ class NnterpEngine:
         sites = by_site(records)
         order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
         got: dict[str, Tensor] = {}
-        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), steps.home(self))):
+        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
             for component, layer in order:
                 host = envoy(model, component, layer)
-                value, wrote = ops.visit(getattr(host, component), component, sites[(component, layer)], got)
+                value, wrote = batches.visit(getattr(host, component), component, sites[(component, layer)], got)
                 if wrote:
                     setattr(host, component, value)
         return got
@@ -110,7 +111,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), steps.home(self))):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.home(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)
@@ -120,7 +121,7 @@ class NnterpEngine:
                             if not here:
                                 continue
                             host = envoy(model, component, layer)
-                            value, wrote = ops.visit(getattr(host, component), component, here, got)
+                            value, wrote = batches.visit(getattr(host, component), component, here, got)
                             if wrote:
                                 setattr(host, component, value)
                 with tracer.invoke():

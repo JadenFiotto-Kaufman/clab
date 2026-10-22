@@ -6,10 +6,10 @@ from typing import Any
 
 from torch import Tensor
 
-from .. import address
-from ..plan.model import (Plan, arguments, body_view, coordinate, corpus_root, dims_of, entries, labelled, points,
-                          walk)
-from ..runtime import data, positions
+from . import address, data, positions, selectors
+from .plan import Plan, arguments, body_view, corpus_root, dims_of, entries, points, walk
+from .sweeps import by_point, coordinate, labelled
+
 
 JOIN = ("at", "row", "layer", "pos", "key")
 
@@ -117,15 +117,6 @@ def dataset_of(plan: Plan, name: str) -> str | None:
     label, _, rest = member.partition(".")
     inner = step.steps[rest.partition(".")[0]].dataset
     return step.eval[label].get(inner, inner) if inner is not None else None
-
-
-def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
-    """A saved value per point: each point's coordinates (none when its step is not swept) and its value."""
-    entry = plan.steps[name.partition(".")[0]]
-    if not isinstance(entry, list):
-        return [({}, plan.results[name])]
-    return [({label: plan.sweeps[label].values[i] for label, i in p.at.items()}, plan.results[name][coordinate(plan, p.at)])
-            for p in entry]
 
 
 def evaluated(plan: Plan, fit: str, name: str) -> Plan:
@@ -270,12 +261,12 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
     resolved, site = plan.run.positions[source], entries(producer)[member].site
-    keys = positions.keys(site.select["key"]) if "key" in (site.select or {}) else None
+    keys = selectors.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
-            "layers": positions.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
+            "layers": selectors.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
             else None}
 
 

@@ -9,8 +9,9 @@ import torch
 
 import clab
 from clab import Plan
-from clab.plan.model import PlanError, entries, points
-from clab.runtime.ops import edits
+from clab.plan import PlanError, entries
+from clab.sweeps import points
+from clab.ops import edits
 from clab.cli import main
 from conftest import (BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot,
                       stand_in)
@@ -96,7 +97,7 @@ def test_the_by_reference_check_sees_a_function_shipped_by_value(engines, monkey
     from nnsight.schema.request import RequestModel
     from nnsight.tracing.backend import Backend
 
-    from clab.runtime import steps
+    from clab import steps
 
     plan = plan_of("patching")
     client = engines("ndif", plan.model, remote=True)
@@ -252,7 +253,7 @@ def test_the_run_record_names_the_versions_and_where_ndif_ran(engines, monkeypat
     """`versions` is what served the run where the model is (here this process), clab's with its commit; under
     remote=True the server places the model, so the run's device is None."""
     from clab.cli import how
-    from clab.runtime.steps import version
+    from clab.steps import version
 
     run = engines("nnterp", plan_of("patching").model).execute(plan_of("patching"), batch_size=2).run
     assert run is not None and list(run.versions) == ["clab", "nnsight", "nnterp", "torch", "transformers", "python"]

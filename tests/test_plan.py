@@ -9,8 +9,9 @@ from typing import Any
 import pytest
 
 from clab import Plan
-from clab.plan.model import PlanError, points
-from clab.runtime import positions
+from clab.plan import PlanError
+from clab.sweeps import points
+from clab import positions, selectors
 from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 
@@ -265,12 +266,12 @@ def test_a_compile_error_names_the_path(change, message):
 def test_a_selector_picks_as_python_slices_and_lists_do():
     n = list(range(6))
     for text in (":", "2:5", "-3:", ":4", "::2", "-4:-1", "1::-2", "5:1:-1", "9:", "-9:2"):
-        assert positions.select(text, 6) == n[slice(*[int(x) if x else None for x in (text.split(":") + [""])[:3]])]
-    assert positions.select(-1, 6) == [5] and positions.select(6, 6) == [] and positions.select(-7, 6) == []
-    assert positions.select([1, 3, -1], 6) == [1, 3, 5] and positions.select([4, 0], 6) == [4, 0]
-    assert positions.select([1, 7], 6) == [1]                   # a pick that is not there; a static width refuses it
+        assert selectors.select(text, 6) == n[slice(*[int(x) if x else None for x in (text.split(":") + [""])[:3]])]
+    assert selectors.select(-1, 6) == [5] and selectors.select(6, 6) == [] and selectors.select(-7, 6) == []
+    assert selectors.select([1, 3, -1], 6) == [1, 3, 5] and selectors.select([4, 0], 6) == [4, 0]
+    assert selectors.select([1, 7], 6) == [1]                   # a pick that is not there; a static width refuses it
     with pytest.raises(ValueError, match=r"picks \[0, -2\] count one of these 2 twice"):
-        positions.select([0, -2], 2)
+        selectors.select([0, -2], 2)
 
 
 def test_a_selectors_static_width_needs_its_ends_on_one_side():
@@ -279,9 +280,9 @@ def test_a_selectors_static_width_needs_its_ends_on_one_side():
               "::-1": None}
     for selector, width in widths.items():
         selector = [1, 3, 7] if selector == "[1, 3, 7]" else selector
-        assert positions.fixed(selector) == width, selector
+        assert selectors.fixed(selector) == width, selector
         if width is not None:
-            assert all(len(positions.select(selector, n)) == width for n in (8, 9, 12)), selector
+            assert all(len(selectors.select(selector, n)) == width for n in (8, 9, 12)), selector
 
 
 @pytest.mark.parametrize("pos, reach", [
@@ -326,5 +327,5 @@ def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
 
 def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():
     """`"-2:3"` picks something of three things and nothing of five: it has no static width, and is a selector."""
-    assert positions.fixed("-2:3") is None and positions.select("-2:3", 3) == [1, 2]
+    assert selectors.fixed("-2:3") is None and selectors.select("-2:3", 3) == [1, 2]
     edited("generate_probe", lambda d: d["sites"]["target"].update(layers="-2:3"))

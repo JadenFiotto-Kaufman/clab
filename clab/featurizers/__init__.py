@@ -47,7 +47,8 @@ from typing import Any, Callable, ClassVar, Protocol, cast
 import torch
 from torch import Tensor
 
-from ... import registry
+from .. import registry
+
 
 SUPPLIED = ("width", "bundle", "header", "labels")
 FORMAT = "clab/1"

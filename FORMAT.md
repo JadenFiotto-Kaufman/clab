@@ -146,7 +146,7 @@ column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bo
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
 ```
 
-Each stage is a selector over what the stage before it left (`positions.select`): an int counts one
+Each stage is a selector over what the stage before it left (`selectors.select`): an int counts one
 (negative from the last), a slice string is a range in Python notation, half-open, each part optional
 (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
 that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
@@ -205,7 +205,7 @@ in order: `{"frame": "0:3", "index": -1}` is one position, the last token of cal
 A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
 number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
 static width (an int, picks, or
-a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `positions.fixed`),
+a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `selectors.fixed`),
 and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
 one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
 a row does not have, or a rectangular index that does not fit, is refused by name before any forward:
@@ -735,7 +735,7 @@ swept step is a dict keyed by coordinate: the axis's value, or a tuple of them i
 
 ## Saves and the output
 
-A run's output directory and back, and saved values as tables.
+A run's output directory and back.
 
 One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
 bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
@@ -747,10 +747,10 @@ after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
-step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
-The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
-position (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones)
-every read and write resolved to per row, which
+step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`.
+`shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
+tokenized, what each generate step's rows generated, and which position (as `pos` counts them: an index into the
+row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
 `table` uses to label positions. Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.

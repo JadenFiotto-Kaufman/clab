@@ -1,12 +1,12 @@
 """Rows at compile time; encoding, padding and token columns inside the run."""
 
-import functools
 import hashlib
 import json
 import os
 import re
 
 import torch
+
 
 INPUT = re.compile(r"^(\w+)\.(\w+)(?:\[(\d+)\])?$")
 
@@ -117,64 +117,6 @@ def pad(tokenizer, ids: list[list[int]], width: int) -> dict:
     input_ids = torch.tensor([[value] * (width - len(x)) + x for x in ids])
     mask = torch.tensor([[0] * (width - len(x)) + [1] * len(x) for x in ids])
     return {"input_ids": input_ids, "attention_mask": mask, "position_ids": (mask.cumsum(-1) - 1).clamp(min=0)}
-
-
-def answers(tokenizer, values: list, column: str, strip: bool = False, lower: bool = False) -> list[list[list[int]]]:
-    """Each row's answer as, per token, the ids it may be. A row's value is a string or a set of them (a list),
-    each tokenized exactly as written without special tokens (`" Friday"` and `"Friday"` are different tokens
-    on most tokenizers; the column says which), and under `strip` without its whitespace-only tokens at either
-    end; a set's members are one width, and its token i is any of theirs. Under `strip` or `lower` a token
-    stands for its class (`spellings`). Each position's ids are in first-met order, each once."""
-    out = []
-    for row, value in enumerate(values):
-        members = value if isinstance(value, list) else [value]
-        tokenized = [trimmed(tokenizer, tokenizer(m, add_special_tokens=False)["input_ids"], strip) for m in members]
-        if len({len(t) for t in tokenized}) > 1 or not tokenized[0]:
-            raise ValueError(f"{column} row {row}: " + (f"{value!r} is no tokens" if not tokenized[0] else
-                             "its members are " + ", ".join(f"{m!r} {len(t)}" for m, t in zip(members, tokenized))
-                             + " tokens; a set's members are one width, the positions its read aligns"))
-        out.append([list(dict.fromkeys(i for t in tokenized for i in spelled(tokenizer, t[k], strip, lower)))
-                    for k in range(len(tokenized[0]))])
-    return out
-
-
-def trimmed(tokenizer, ids: list[int], strip: bool) -> list[int]:
-    """`ids` without the whitespace-only tokens at either end under `strip` (`"  New York "`: `ĠNew ĠYork`)."""
-    texts = vocabulary(tokenizer)
-    while strip and ids and not texts[ids[0]].strip():
-        ids = ids[1:]
-    while strip and ids and not texts[ids[-1]].strip():
-        ids = ids[:-1]
-    return ids
-
-
-def spelled(tokenizer, token: int, strip: bool, lower: bool) -> list[int]:
-    """The ids a token stands for: under `strip` or `lower`, its class, every id whose text compares the same
-    (`compared`); else the token alone. A token that is part of a character (its text is U+FFFD) is its own."""
-    text = vocabulary(tokenizer)[token]
-    if not (strip or lower) or "\ufffd" in text:
-        return [token]
-    return spellings(tokenizer, strip, lower)[compared(text, strip, lower)]
-
-
-@functools.cache
-def vocabulary(tokenizer) -> list[str]:
-    """Each id's text: what it decodes to after another token (`a`'s first), so a leading space (` Positive`,
-    `▁Positive`) is its own. Made once per tokenizer."""
-    anchor = tokenizer("a", add_special_tokens=False)["input_ids"][0]
-    lead = len(tokenizer.decode([anchor]))
-    return [text[lead:] for text in tokenizer.batch_decode([[anchor, i] for i in range(len(tokenizer))])]
-
-
-@functools.cache
-def spellings(tokenizer, strip: bool, lower: bool) -> dict[str, list[int]]:
-    """Every id of the vocabulary but a part of a character by its text as `strip` and `lower` compare it: the
-    classes an answer's tokens stand for. Made once per tokenizer and flags."""
-    found: dict[str, list[int]] = {}
-    for i, text in enumerate(vocabulary(tokenizer)):
-        if "\ufffd" not in text:
-            found.setdefault(compared(text, strip, lower), []).append(i)
-    return found
 
 
 def compared(text: str, strip: bool, lower: bool) -> str:

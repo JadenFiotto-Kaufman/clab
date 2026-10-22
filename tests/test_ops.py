@@ -5,8 +5,8 @@ import math
 import pytest
 import torch
 
-from clab.runtime import ops
-from clab.runtime.ops import edits, metrics, reductions, transforms
+from clab import batches, ops
+from clab.ops import edits, metrics, reductions, transforms
 
 torch.manual_seed(0)
 X = torch.randn(3, 2, 5)                       # rows, pos, hidden
@@ -122,7 +122,7 @@ def test_sum_and_min_skip_what_is_missing_and_a_row_with_nothing_stays_missing()
 
 
 def test_a_ragged_value_reduces_per_row_over_pos_and_over_every_entry_over_rows_and_pos():
-    from clab.runtime.steps.batches import apply
+    from clab.batches import apply
     value = {"values": torch.tensor([1.0, 2.0, 5.0]), "row": torch.tensor([0, 0, 2]), "tok": torch.tensor([3, 4, 1])}
     assert ops.out_dims("sum", ["entries"], {"over": ["pos"]}) == ["rows"]
     assert ops.out_dims("sum", ["entries"], {"over": ["rows", "pos"]}) == []
@@ -175,7 +175,7 @@ def test_out_dims_follows_each_ops_declaration():
 def taken(value: torch.Tensor, component: str, rec: dict) -> torch.Tensor:
     """What a read record at a site takes of `value`."""
     got: dict = {}
-    assert not ops.visit(value, component, [{**rec, "name": "r"}], got)[1]
+    assert not batches.visit(value, component, [{**rec, "name": "r"}], got)[1]
     return got["r"]
 
 
@@ -189,19 +189,19 @@ def test_a_ragged_write_writes_only_the_positions_it_keeps():
     value = torch.randn(2, 4, 5)
     ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
               "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "dims": DIMS}]}
-    out = ops.visit(value, "layer_output", [ragged], {})[0]
+    out = batches.visit(value, "layer_output", [ragged], {})[0]
     assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
     unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
     assert torch.equal(out[unwritten], value[unwritten])
     empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
-    assert torch.equal(ops.visit(value, "layer_output", [empty], {})[0], value)
+    assert torch.equal(batches.visit(value, "layer_output", [empty], {})[0], value)
 
 
 def test_a_window_write_and_three_single_writes_are_one_tensor():
     value = torch.randn(3, 6, 5)                         # batch, seq, hidden
     other = torch.randn(3, 6, 5)
-    window = ops.visit(value, "layer_output", [record(2, 3, other[:, 2:5])], {})[0]
-    singles = ops.visit(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)], {})[0]
+    window = batches.visit(value, "layer_output", [record(2, 3, other[:, 2:5])], {})[0]
+    singles = batches.visit(value, "layer_output", [record(i, 1, other[:, i:i + 1]) for i in (2, 3, 4)], {})[0]
     assert torch.equal(window, singles)
     assert torch.equal(window[:, 2:5], other[:, 2:5]) and torch.equal(window[:, :2], value[:, :2])
 
@@ -210,7 +210,7 @@ def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
     steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "dims": DIMS}])
     restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}])
-    out = ops.visit(value, "layer_output", [steer, restore], {})[0]
+    out = batches.visit(value, "layer_output", [steer, restore], {})[0]
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])
     assert torch.equal(out[:, :3], value[:, :3])
@@ -220,7 +220,7 @@ def test_select_narrows_one_axis_and_write_puts_it_back():
     value = torch.randn(2, 3, 4, 2)                      # batch, seq, num_heads, head_dim (attention_premix)
     head = {"positions": torch.tensor([[2], [2]]), "select": {2: torch.tensor([1])}}
     assert torch.equal(taken(value, "attention_premix", head), value[:, 2:3, 1:2])
-    out = ops.visit(value, "attention_premix", [{**head, "ops": [
+    out = batches.visit(value, "attention_premix", [{**head, "ops": [
         {"op": "swap", "args": {"with": 0.0}, "dims": ["rows", "pos", "num_heads", "head_dim"]}]}], {})[0]
     assert torch.equal(out[:, 2, 1], torch.zeros(2, 2))
     out[:, 2, 1] = value[:, 2, 1]

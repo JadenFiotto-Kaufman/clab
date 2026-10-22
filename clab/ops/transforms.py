@@ -7,8 +7,8 @@ from typing import Annotated, Any
 import torch
 from torch import Tensor
 
-from ...registry import Featurizer
-from .. import featurizers, positions
+from ..registry import Featurizer
+from .. import featurizers, selectors
 from . import op
 from .metrics import missing, ranked
 
@@ -34,7 +34,7 @@ def selects(args: dict) -> None:
                          "{'features': <selector>}")
     if not (isinstance(given["features"], dict) and "sweep" in given["features"]):
         try:
-            positions.checked(given["features"])
+            selectors.checked(given["features"])
         except ValueError as e:
             raise ValueError(f"select.features: {e}") from None
 
@@ -51,7 +51,7 @@ def encode(of: Tensor, featurizer: Featurizer, select: Kept | None = None) -> Te
     z = featurizer.call("encode", of, {})
     if select is None:
         return z
-    return z.index_select(-1, torch.tensor(positions.select(select["features"], z.shape[-1]), device=z.device))
+    return z.index_select(-1, torch.tensor(selectors.select(select["features"], z.shape[-1]), device=z.device))
 
 
 @op("transforms", needs=("new",), removes=("new",))

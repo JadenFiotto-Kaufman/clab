@@ -6,7 +6,7 @@ import math
 import torch
 from torch import Tensor
 
-from ...registry import Text, Tokens, Value
+from ..registry import Text, Tokens, Value
 from ..data import compared
 from . import VOCABULARY, op
 

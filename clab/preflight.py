@@ -1,0 +1,162 @@
+"""Everything that needs the model, checked before any forward: what the run needs found, and what it
+cannot run refused by name."""
+
+from . import address, data, featurizers, ops, positions, selectors
+from .answers import check_classes, check_tokens, placed, probe_of
+from .featurizers.uses import widths
+from .generate import generation_options
+from .interventions import check_labels, check_operands, held, picked, refuse, selected
+from .plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
+from .positions import indices
+from .sweeps import lookup, put
+
+
+def preflight(engine, plan: Plan) -> dict:
+    """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
+    tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
+    every prefill record's positions per row (`positions`, which the run extends with the other records'),
+    the indices every record's `select` keeps on each axis (`selects`, resolved here once, among the engine's
+    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
+    fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
+    `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
+    each substituted dataset's rows under the body's name for it.
+
+    Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
+    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
+    option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
+    row's scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
+    one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
+    indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
+    write to a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
+    input that does not tokenize to the same length on every row, which would misalign the keys, and a window of
+    several positions that reaches past the tokens two such inputs share (`windowed`); a `pca` over no more
+    vectors than its `k`; a featurizer used at two widths (at a site, the site's; inside an `encode`, that one's
+    coordinates'), at a width its bundle's header does not say (or, with no header, whose tensors are not as
+    wide), with a field that counts more directions than that width (`counts`), at another layer than the one
+    it says it was trained at, reading its input elsewhere than its bundle was made reading it (`read_with`),
+    or encoded with a `select` outside its features or keeping none of them; and a trained featurizer used at
+    no site. A refusal inside a fit's body names the fit, and under an eval the eval and the datasets it reads.
+    """
+    assert plan.run is not None
+    refuse(engine, plan)
+    rows = {n: d.rows or [] for n, d in plan.data.items()}
+    classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
+               for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
+    found = prepare(engine, plan, plan.steps, {}, classes)
+    found["widths"] = widths(engine, plan)
+    found["bodies"] = {}
+    for name, entry in plan.steps.items():
+        for step in points(entry):
+            if step.kind != "fit":
+                continue
+            within = body_view(plan, name, step.at)
+            sources: dict = {"train": (within, inside(name, None, {}, lambda within=within: prepare(
+                engine, within, step.steps, {}, classes))), "evals": {}}
+            for label, swap in step.eval.items():
+                held = body_view(plan, name, step.at, swap)
+                sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
+                    engine, held, step.steps, swap, classes))) if swap else sources["train"]
+            for _, body in [sources["train"], *sources["evals"].values()]:
+                body["widths"] = found["widths"]
+            put(found["bodies"], name, step.at, sources)
+    return found
+
+
+def inside(fit: str, label: str | None, swap: dict, run) -> dict:
+    """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
+    reads in place of the body's, whose rows a row number counts."""
+    try:
+        return run()
+    except ValueError as e:
+        if label is None:
+            raise ValueError(f"{fit}.{e}") from None
+        read = ", ".join(f"dataset {a!r} read as {b!r}" for a, b in swap.items())
+        raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
+
+
+def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
+    """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
+    the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
+    `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
+    assert plan.run is not None
+    sizes, tokenizer = engine.sizes(), engine.tokenizer
+    found: dict = {"inputs": {}, "positions": {}, "said": {}, "selects": {}, "answers": {}}
+    shapes: dict = {}
+    for name, entry in steps.items():
+        for step in points(entry):
+            if step.kind == "fit":
+                continue
+            if step.kind == "op":
+                check_labels(plan, name, step, step.at, held(plan, step.of, step.at, sizes), dims_of(plan, step.of),
+                             sizes, False)
+                if "classes" in dims_of(plan, step.of):
+                    check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
+                else:
+                    check_tokens(engine, plan, found, name, step.op, arguments(step), dims_of(plan, step.of),
+                                 *placed(plan, found, step.of, step.at))
+                bundle = ops.DECLARED[step.op]["bundle"]
+                for field in featurizers.KINDS[bundle].counts if bundle else ():
+                    width = (held(plan, step.of, step.at, sizes) or {}).get("hidden_size", range(sizes["hidden_size"]))
+                    if arguments(step)[field] > len(width):
+                        raise ValueError(f"{name}: {step.op} {field} {arguments(step)[field]} counts directions of a "
+                                         f"value {len(width)} wide, which has no more than {len(width)}")
+                if step.op == "pca" and step.of in found["positions"]:
+                    n = sum(map(len, lookup(found["positions"], step.of, step.at)))
+                    if n <= arguments(step)["k"]:
+                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
+                                         f"it needs more than {arguments(step)['k']}")
+                continue
+            if step.kind == "generate":
+                generation_options(name, step.model_extra or {})
+            rows = plan.data[step.dataset].rows or []
+            source = data.input_name(step.input)
+            if source not in found["inputs"]:
+                encoded = []
+                for i, r in enumerate(rows):
+                    try:
+                        encoded.append(data.encode(tokenizer, data.field(r, step.input)))
+                    except ValueError as e:
+                        raise ValueError(f"{name}: {source} row {i}: {e}") from None
+                found["inputs"][source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
+                plan.run.tokens[data.input_name(step.input, swap)] = \
+                    [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
+            encoded = found["inputs"][source]["rows"]
+            later = []                      # a write's operands, checked once the step's entries have their shapes
+            for key, record in entries(step).items():
+                where, site, write = f"{name}.{key}", record.site, writes(record)
+                if site.layers is not None:
+                    picked(where, site.layers, sizes["num_layers"])
+                for axis, index in (site.select or {}).items():
+                    shortest = min(len(e["ids"]) for e in encoded)
+                    size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
+                        if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
+                    selected(where, axis, index, size, what)
+                kept = selectors.kept(site.select, sizes)
+                put(found["selects"], where, step.at, kept)
+                pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
+                resolved = None
+                if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
+                    resolved = indices(where, write, record, step, rows, encoded, tokenizer)
+                    put(found["positions"], where, step.at, resolved)
+                    shape = (len(resolved[0]), select)
+                else:               # resolved in the run, from what each row generates; one position a call
+                    shape = (positions.width(pos) or 1, select)
+                probe = None                        # past a probe's encode, a column names its classes
+                for o in record.ops:
+                    if probe is None:
+                        forced = [e["ids"] for e in encoded] if (pos["scope"] or {}).get("before") else None
+                        check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved, forced)
+                    else:
+                        check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
+                    if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
+                        probe = arguments(o)["featurizer"]
+                put(shapes, where, step.at, shape)
+                later += [(where, o, shape, site) for o in record.ops[:len(record.ops) - len(gathers(record))]]
+            for where, o, shape, site in later:
+                check_operands(engine, plan, where, o, shape, step, site, found, shapes)
+            for key, record in entries(step).items():
+                where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
+                for i, o in enumerate(record.ops):
+                    check_labels(plan, where, o, step.at, held(plan, where, step.at, sizes),
+                                 address.dims(record.site.component, None, False), sizes, i < edits)
+    return found

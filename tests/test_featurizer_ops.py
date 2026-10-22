@@ -11,10 +11,11 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 from clab import Plan
-from clab.cli import describe
-from clab.plan.model import PlanError, dims_of, points
-from clab.runtime import featurizers, ops
-from clab.runtime.featurizers.gate import Gate
+from clab.docs import describe
+from clab.plan import PlanError, dims_of
+from clab.sweeps import points
+from clab import batches, featurizers, ops
+from clab.featurizers.gate import Gate
 from conftest import BATCH_SIZE, bundle_header, edited, same
 from test_featurizers import every_kind
 from test_fit import TINY, corpus_copy
@@ -84,14 +85,14 @@ def test_encode_then_decode_is_the_identity_to_the_bit_on_every_kind(kind):
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
     for features in (None, torch.tensor([1, 2])):
         for between in ((), [{"op": "scale", "args": {"factor": 1.0}}]):
-            out, wrote = ops.visit(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
+            out, wrote = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
             assert wrote and torch.equal(out, H), (kind, features, between)
 
 
 def test_a_decode_scatters_back_only_the_coordinates_its_encode_kept():
     f = made("subspace")
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
-    out, _ = ops.visit(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
+    out, _ = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
         {"op": "swap", "args": {"with": 0.0}}])}], {})
     z, kept = f.encode(H), f.encode(out)
     torch.testing.assert_close(kept[..., 2], torch.zeros(3, 2), atol=1e-6, rtol=0)

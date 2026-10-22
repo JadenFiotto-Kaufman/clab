@@ -21,7 +21,7 @@ from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
 from clab.plan import PlanError
-from clab.runtime import positions
+from clab import positions
 from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included

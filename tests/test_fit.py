@@ -16,10 +16,10 @@ from safetensors.torch import load_file, save_file
 
 from clab import Plan
 from clab.cli import main
-from clab.plan.model import PlanError, dims_of
-from clab.runtime import featurizers
-from clab.runtime.featurizers.gate import Gate
-from clab.runtime.featurizers.subspace import Subspace
+from clab.plan import PlanError, dims_of
+from clab import featurizers
+from clab.featurizers.gate import Gate
+from clab.featurizers.subspace import Subspace
 from conftest import (BATCH_SIZE, DOCUMENTS, FIT, ROOT, TRIP, bundle_header, close, edited, plain, same,
                       snapshot, stand_in)
 
@@ -122,7 +122,7 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     """das with `batch_size: 1` makes two minibatches of its two training rows an epoch: 20 optimizer steps
     over 10 epochs, its history pinned. With the rotation's own seed fixed, another fit seed changes only the
     order the rows are shuffled in, and that changes the trajectory."""
-    from clab.runtime.steps.fit import OPTIMIZERS
+    from clab.fit import OPTIMIZERS
 
     def change(d, seed=0):
         d["steps"]["fit"].update(batch_size=1, seed=seed)

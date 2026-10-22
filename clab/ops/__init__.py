@@ -12,6 +12,15 @@ run, never by a document; a trailing underscore is dropped from a parameter's do
 `"with"`).
 """
 
+import inspect
+from typing import Any, Callable
+
+from .. import registry
+from ..address import EXAMPLE_AXES
+from ..registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
+from .. import featurizers
+
+
 ABOUT = """An op runs in two places, always as the same function:
 
 - as a step, `{"kind": "op", "op": "mean", "of": "harvest.acts"}`, over a value earlier steps produced;
@@ -80,17 +89,6 @@ where the most likely token is any of a position's ids, `token_prob` is their su
 not, so a class or a set of more than one is refused there. A missing row (a scope the row does not say)
 stays missing: NaN, or no entries.
 """
-
-import inspect
-from typing import Any, Callable
-
-import torch
-from torch import Tensor
-
-from ... import registry
-from ...address import EXAMPLE_AXES, pos_axis
-from ...registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
-from .. import featurizers
 
 # `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
@@ -205,123 +203,6 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
                 raise ValueError(f"{name!r} cannot remove {axis!r}; the value is {dims}")
         removes = removes if removes is not None else EXAMPLE_AXES
     return [a for a in dims if a not in removes] + list(axes["adds"])
-
-
-def taken(x: Tensor, record: dict) -> Tensor:
-    """The record's positions and narrowing of `x`, a site's value with its token axis at 1.
-
-    `record["positions"]` is `[rows, width]` token indices; a `key` axis is each row's own keys (`owned`);
-    `record["select"]` maps a dimension of that layout to the indices kept along it, the same for every row. The
-    indices, built where the plan runs, move to the value's device.
-    """
-    x = owned(x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)], record)
-    for dim, index in record["select"].items():
-        x = take(x, dim, index)
-    return x
-
-
-def owned(x: Tensor, record: dict) -> Tensor:
-    """A selection's `key` axis as each row's own keys, its positions in order, NaN past them, where the record has
-    one (`record["keys"]`: each row's keys in the padded batch, then its padding's, and which are its own); else
-    `x` as it is."""
-    if "keys" not in record:
-        return x
-    dim, keys = record["keys"]["dim"], record["keys"]
-    x = x.gather(dim, per_row(x, dim, keys["index"].to(x.device)))
-    return x.masked_fill(~per_row(x, dim, keys["own"].to(x.device)), float("nan"))
-
-
-def unowned(current: Tensor, new: Tensor, record: dict) -> Tensor:
-    """`new`, a selection in each row's own key order (`owned`), back in the batch's order over `current`: the
-    row's own keys from `new`, its padding's as `current` has them."""
-    dim, keys = record["keys"]["dim"], record["keys"]
-    index, own = (per_row(current, dim, keys[k].to(current.device)) for k in ("index", "own"))
-    return current.scatter(dim, index, torch.where(own, new, current.gather(dim, index)))
-
-
-def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
-    """`x` at `index` along `dim`, the same indices on every row."""
-    return x.index_select(dim, index.to(x.device))
-
-
-def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
-    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter."""
-    shape = [1] * x.dim()
-    shape[0], shape[dim] = index.shape
-    size = list(x.shape)
-    size[dim] = index.shape[1]
-    return index.reshape(shape).expand(size)
-
-
-def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]:
-    """`value` with a site's records done in listed order, and whether any wrote: a write's ops run on its
-    selection of the current value, out of place, and the result lands there; a read takes its selection of
-    the current value into `got` under its name (at a decode call, appended: one per call it reads).
-
-    `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
-    the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
-    An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
-    each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
-    write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
-    padded to one width; only the positions its `keep` marks are written. A `key` axis is each row's own keys in
-    order, NaN past them (`owned`), to a read and to a write's ops alike, and a write writes those alone
-    (`unowned`). Every index, mask and result moves to the value's device, and a result to its dtype, where it
-    meets the value.
-    """
-    axis = pos_axis(component)
-    before = x = value.movedim(axis, 1)
-    rows = torch.arange(x.shape[0], device=x.device)[:, None]
-    wrote = False
-    for w in records:
-        if "ops" not in w:
-            if "calls" in w:
-                got[w["name"]].append(taken(x, w))
-            else:
-                got[w["name"]] = taken(x, w)
-            continue
-        if not wrote:
-            x, wrote = before.clone(), True
-        pos = w["positions"].to(x.device)
-        current = x[rows, pos]
-        new, original = owned(current, w), owned(before[rows, pos], w)
-        whole = new
-        for dim, index in w["select"].items():
-            new, original = take(new, dim, index), take(original, dim, index)
-        at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
-        new = edited(new, original, w["ops"], got, {"positions": at})
-        new = new.to(device=current.device, dtype=current.dtype)
-        for dim, index in w["select"].items():
-            new = whole.index_copy(dim, index.to(current.device), new)
-        new = unowned(current, new, w) if "keys" in w else new
-        keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
-        x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
-    return x.movedim(1, axis), wrote
-
-
-def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict | None, where: dict) -> Tensor:
-    """`new` after a write's bound ops, each on the current value in turn. An `encode` runs the ops its `decode`
-    closes over (`inner`) on the value's coordinates, on the features its `select` keeps, and writes the change
-    back (`Kind.within`); `original` goes in with them, encoded the same way."""
-    for o in bound:
-        args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
-        if o["op"] != "encode":
-            new = call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
-            continue
-        f: Any = args["featurizer"]
-        features = o.get("features")
-        start = f.encode(original)
-        start = start if features is None else start.index_select(-1, features.to(start.device))
-        new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, where), features)
-    return new
-
-
-def live(got: dict | None, operand: dict) -> Tensor:
-    """A write's operand that names a read of its own forward: that read's value, which the engine made before
-    it reached the write."""
-    if operand["live"] not in (got or {}):
-        raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
-                         "reached the write; it reads it at a later site")
-    return (got or {})[operand["live"]]
 
 
 # The ops, in the order the tables (`describe`, FORMAT.md) list them.

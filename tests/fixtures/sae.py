@@ -5,7 +5,7 @@ It is written as clab writes a bundle, its header's keys sorted: the same bytes 
 
 import torch
 
-from clab.output.dump import write
+from clab.output import write
 
 HEADER = {"format": "clab/1", "kind": "sae", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
           "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32",

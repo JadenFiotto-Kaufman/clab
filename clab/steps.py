@@ -20,17 +20,19 @@ from typing import TYPE_CHECKING, Any
 import torch
 from torch import Tensor
 
-from ...plan.model import Plan, Run, coordinate, labelled, points
-from ...registry import registers
-from .preflight import instance, preflight
-from .state import lookup, put
+from .answers import probe_of
+from .batches import apply, batches, bind, bound, home, joined, layers, read, stacked
+from .featurizers.uses import instance
+from .plan import Plan, Run, arguments, dims_of, entries, points
+from .preflight import preflight
+from .sweeps import by_coordinate, coordinate, lookup, put
 
 if TYPE_CHECKING:
-    from ...engines import Parameterized
+    from .engines import Parameterized
 
-KINDS: dict = {}
-kind = registers(KINDS)
 
+if TYPE_CHECKING:
+    from .engines import Parameterized
 
 def begin(engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
@@ -90,21 +92,6 @@ def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def by_coordinate(plan: Plan, by_point: dict) -> Any:
-    """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
-    the point's coordinate as text."""
-    return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
-
-
-def home(engine) -> str:
-    """Where the model is, which is where the run makes featurizers and an engine sends a batch's inputs: where
-    its first parameter is (on an NDIF server, or wherever the engine's `device` put it: the first of several
-    under a device map that spreads it), else, while the model is a meta shell that loads its weights at its
-    first forward, the engine's device."""
-    device = str(next(engine.model.parameters()).device)
-    return (engine.device or "cpu") if device == "meta" else device
-
-
 def made(plan: Plan, widths: dict, device: str) -> dict:
     """The run's state at its start: each declared featurizer used at a site, at each of its points, made
     where the model is (`device`)."""
@@ -145,7 +132,7 @@ def version() -> str:
     commit = url.get("vcs_info", {}).get("commit_id")
     if commit:
         return f"{dist.version}+{commit[:12]}"
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if not os.path.exists(os.path.join(root, ".git")):         # not a checkout (never a git repo above one)
         return dist.version
     try:
@@ -156,5 +143,53 @@ def version() -> str:
     return f"{dist.version}+{described}"
 
 
-# The kinds register in this order.
-from . import forward, generate, op, fit  # noqa: E402,F401
+
+
+def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+    """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
+    rows.
+
+    An entry whose `layers` are a slice or picks is one read per layer, the ops after its last edit run on
+    each, stacked layer-first; a ragged one is gathered at the batch's widest row and kept as
+    `{values, row, tok}`: one entry per token, its row and its token index."""
+    parts = []
+    gathered = {k: r for k, r in entries(step).items() if r.gathered}
+    for chunk, batch, pads in batches(engine, step, found, batch_size):
+        sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
+        got = engine.forward(batch, records)
+        parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
+                                                 pads, state, step.at, found["answers"])
+                                            for layer in layers(engine, record)])
+                      for key, record in gathered.items()})
+    joined(state, name, step, parts)
+
+
+def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
+    """The op over the whole value `of` names, given each of its rows' dataset row (a ragged value's own,
+    with its token positions). `top_k`'s value also holds its tokens, decoded."""
+    of = lookup(state, step.of, step.at)
+    producer = points(plan.steps[step.of.partition(".")[0]])[0]
+    vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims_of(plan, step.of) \
+        else None
+    dims = dims_of(plan, step.of)
+    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else \
+        torch.arange(len(plan.data[step.dataset].rows or [])) if "entries" in dims and step.dataset else None
+    value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
+                                             vocabulary, dims=dims, answers=found["answers"]),
+                  dims, generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
+    if step.op == "top_k":
+        value["tokens"] = decoded(engine.tokenizer, value["ids"])
+    put(state, name, step.at, value)
+
+
+def decoded(tokenizer, ids: Tensor) -> list:
+    """Each token id as the text it decodes to, nested as the ids are; None for a missing one (-1)."""
+    if ids.dim() > 1:
+        return [decoded(tokenizer, x) for x in ids]
+    return [tokenizer.decode([i]) if i >= 0 else None for i in ids.tolist()]
+
+
+from . import fit, generate  # noqa: E402
+
+# The step kinds, each run as `(engine, plan, name, step, state, batch_size, found)`.
+KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}

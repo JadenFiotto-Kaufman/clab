@@ -6,9 +6,9 @@ import pytest
 import torch
 
 from clab import Plan
-from clab.plan.model import PlanError
-from clab.runtime import data
-from clab.runtime.steps.state import answered
+from clab.plan import PlanError
+from clab import answers
+from clab.answers import answered
 from conftest import BATCH_SIZE, plan_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -96,7 +96,7 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
         saves=["clean.logits", "p", "any", "nll", "hit"]).compile()
     filled = run(engines, plan, kind)
     tokenizer = engines(kind, plan.model).tokenizer
-    spelled = data.spellings(tokenizer, True, True)["yes"]
+    spelled = answers.spellings(tokenizer, True, True)["yes"]
     assert sorted(tokenizer.convert_ids_to_tokens(spelled)) == \
         sorted(["▁Yes", "▁yes", "▁YES", "Yes", "yes", "YES"])
     probs = filled.results["clean.logits"][0, 0].softmax(-1)
@@ -268,7 +268,7 @@ def test_strip_and_lower_at_the_point_of_use(engines, kind):
     filled = run(engines, plan, kind)
     assert record(filled).positions["read.logits"] == [[8, 9]]
     tokenizer = engines(kind, plan.model).tokenizer
-    classes = [data.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
+    classes = [answers.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
     probs = filled.results["read.logits"]["values"].softmax(-1)
     torch.testing.assert_close(filled.results["p"]["values"], torch.stack([probs[i, c].sum() for i, c in
                                                                            enumerate(classes)]))
@@ -288,13 +288,13 @@ def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
 
 
 def test_the_minimum_over_every_entry_of_a_value_with_none_is_missing():
-    from clab.runtime.steps.batches import apply
+    from clab.batches import apply
     empty = {"values": torch.zeros(0), "row": torch.tensor([], dtype=torch.long), "tok": torch.tensor([])}
     assert apply(None, "min", empty, {"over": ["rows", "pos"]}, ["entries"]).isnan().all()
 
 
 def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
     tokenizer = engines("nnterp", plan_of("gpt2_reach").model).tokenizer
-    parts = [i for i, text in enumerate(data.vocabulary(tokenizer)) if "�" in text]
+    parts = [i for i, text in enumerate(answers.vocabulary(tokenizer)) if "�" in text]
     assert len(parts) > 1
-    assert all(data.spelled(tokenizer, i, True, True) == [i] for i in parts)
+    assert all(answers.spelled(tokenizer, i, True, True) == [i] for i in parts)

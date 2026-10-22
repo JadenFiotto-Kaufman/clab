@@ -7,7 +7,7 @@ from typing import Any, Callable
 import torch
 from torch import Tensor
 
-from ...registry import Featurizer, Value
+from ..registry import Featurizer, Value
 from .. import featurizers
 from . import op
 

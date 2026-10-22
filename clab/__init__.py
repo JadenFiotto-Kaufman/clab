@@ -7,8 +7,8 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 import os
 from typing import TYPE_CHECKING
 
-from .cli import describe
-from .plan.model import Plan, name
+from .docs import describe
+from .plan import Plan, name
 
 if TYPE_CHECKING:
     from .engines import Engine

@@ -9,9 +9,11 @@ row's keys, on an attention pattern's `key` axis, are its prompt's positions, nu
 """
 
 import re
-import sys
 
-from . import data
+from . import data, selectors
+from .plan import fail
+from .selectors import covers, every, fixed, from_end, probed, select
+
 
 MISSING = "alignment_missing"
 TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
@@ -19,11 +21,7 @@ UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded
 
 
 class Unaligned(ValueError):
-    """A row the record does not reach: its marker, and why, which in the prefill is a refusal."""
-
-    def __init__(self, marker: str, why: str):
-        super().__init__(why)
-        self.marker = marker
+    """A row the record does not reach, and why: `alignment_missing` beyond the prefill, a refusal in it."""
 
 
 def parse(pos) -> dict:
@@ -35,104 +33,6 @@ def parse(pos) -> dict:
 
 
 # -- selectors ----------------------------------------------------------------------------------------
-
-# A slice string: each part an int or empty, no `-0`, no step 0.
-SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
-FORMS = "an int (2, -1), a slice in Python notation ('2:5', '-3:', ':') or a list of picks ([1, 3, 7])"
-
-
-def checked(selector):
-    """A selector as written, refused unless it is an int, a slice string or a list of distinct int picks, and
-    unless it can pick something: a slice whose static width is 0 (`"0:0"`, `"5:2"`) picks nothing ever."""
-    if isinstance(selector, bool) or not isinstance(selector, (int, str, list)):
-        raise ValueError(f"{selector!r} is not a selector: {FORMS}")
-    if isinstance(selector, str) and not re.match(SLICE, selector):
-        raise ValueError(f"{selector!r} is not a selector: {FORMS}")
-    if isinstance(selector, list):
-        if not selector or not all(isinstance(i, int) and not isinstance(i, bool) for i in selector):
-            raise ValueError(f"{selector!r} is not a selector: {FORMS}; a list of picks names at least one int")
-        if len(set(selector)) < len(selector):
-            raise ValueError(f"picks {selector} name {next(i for i in selector if selector.count(i) > 1)} twice")
-    if fixed(selector) == 0:
-        raise ValueError(f"{selector!r} picks nothing, however many things there are")
-    return selector
-
-
-def select(selector, n: int) -> list[int]:
-    """The indices a selector picks among `n` things, the one place a selector is read: an int, the one it
-    counts (negative from the end), if there is one; a slice string, its range by Python's rules; a list of
-    picks, each one there is, in the order written. Two picks that count the same thing (`[0, -2]` of two)
-    are refused. The order matters where the picked things are listed (layers, forward calls, tokens); an
-    occurrence's picks make a scope, which is a set of positions, so there the order does not."""
-    if isinstance(selector, str):
-        parts = [int(x) if x else None for x in (selector.split(":") + [""])[:3]]
-        return list(range(n)[slice(*parts)])
-    picks = [selector] if isinstance(selector, int) else selector
-    got = [i + n if i < 0 else i for i in picks if -n <= i < n]
-    if len(set(got)) < len(got):
-        raise Unaligned(MISSING, f"picks {selector} count one of these {n} twice")
-    return got
-
-
-def kept(selects: dict | None, sizes: dict[str, int]) -> dict[str, list[int]]:
-    """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
-    and on `key` its `keys`."""
-    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
-
-
-def keys(selector) -> list[int]:
-    """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
-    number counted from the start (`keyed` says so), so no row's length changes them."""
-    return select(selector, sys.maxsize)
-
-
-def keyed(selector) -> bool:
-    """Whether a selector picks the same keys of every row long enough to hold them: a fixed number, counted
-    from the start (`3`, `[0, 2]`, `"1:4"`; not `-1`, `"2:"`)."""
-    return fixed(selector) is not None and not from_end(selector)
-
-
-def probed(selector) -> tuple[int, list[int], list[int]]:
-    """A number `n` past every number a selector is written with, and what it picks among `n` and `2n` things:
-    where the two agree, what it picks does not depend on how many things there are."""
-    numbers = [abs(int(x)) for x in re.findall(r"-?[0-9]+", str(selector))]
-    n = 2 * (1 + max(numbers, default=0))
-    return n, select(selector, n), select(selector, 2 * n)
-
-
-def widths(selector) -> list[int]:
-    """How many things a selector picks among 0, 1, ... up to `2n` of them (`n` as `probed` has it)."""
-    n, _, _ = probed(selector)
-    return [len(select(selector, k)) for k in range(2 * n + 1)]
-
-
-def fixed(selector) -> int | None:
-    """A selector's static width: how many things it picks whatever their number (once there are enough), or
-    None when that grows with the number. An int is 1, a list of picks its length; a slice has one when its
-    two ends count from the same side (`"2:5"`, `":3"`, `"-4:-1"`, `"-3:"`, `"3::-1"`), not `":"`, `"2:"`
-    or `"-2:3"` (which picks fewer of more things): it picks no fewer of more things and, past every number
-    it is written with, the same number.
-    Where there are fewer things than a static width needs, the record does not fit that row: a refusal in
-    the prefill, `alignment_missing` beyond it."""
-    if not isinstance(selector, str):
-        return 1 if isinstance(selector, int) else len(selector)
-    counts = widths(selector)
-    static = all(a <= b for a, b in zip(counts, counts[1:])) and counts[len(counts) // 2] == counts[-1]
-    return counts[-1] if static else None
-
-
-def from_end(selector) -> bool:
-    """Whether a selector counts from the end: among more things it picks other ones of the first `n` than
-    among `n` (`-1`, `[0, -1]`, `"-3:"`, `":-1"`), so what it picks of the first `n` is not decided by them."""
-    n, few, many = probed(selector)
-    return few != [i for i in many if i < n]
-
-
-def every(selector) -> bool:
-    """Whether a selector picks every one of however many things there are, in order (`":"`)."""
-    n, few, many = probed(selector)
-    return few == list(range(n)) and many == list(range(2 * n))
-
 
 # -- what the run needs to know before it starts ------------------------------------------------------
 
@@ -197,12 +97,6 @@ def decode_calls(frame, horizon: int | None) -> list[int] | None:
     return sorted(k for k in select(frame, horizon) if k)
 
 
-def covers(frame) -> bool:
-    """Whether a frame names every decode call (`":"`, `"1:"`)."""
-    n, few, many = probed(frame)
-    return set(range(1, n)) <= set(few) and set(range(1, 2 * n)) <= set(many)
-
-
 def named(pos: dict, k: int) -> list[int]:
     """The decode calls an unscoped record whose frame holds no prompt names on a row that makes `k` calls: its
     index's picks among the frame's calls, each holding one position."""
@@ -263,12 +157,12 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -
     key = next(k for k in ("column", "text", "turn") if k in scope)
     what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
     if not found:
-        raise Unaligned(MISSING, f"the row has no {scope['turn']!r} message" if "turn" in scope else
+        raise Unaligned(f"the row has no {scope['turn']!r} message" if "turn" in scope else
                         f"{what} is not in its input")
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise Unaligned(MISSING, f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
+        raise Unaligned(f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
     if scope.get("before") and any(0 in found[i] for i in picked):
-        raise Unaligned(MISSING, f"{what} begins the row, at position 0, which no position comes before")
+        raise Unaligned(f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in found[i] for i in picked)]
 
 
@@ -277,7 +171,7 @@ def indexed(index, tokens: list[int], width: int | None) -> list[int]:
     be there."""
     got = [tokens[i] for i in select(index, len(tokens))]
     if width is not None and len(got) != width:
-        raise Unaligned(MISSING, f"tokens {index} do not fit its {len(tokens)} scope tokens")
+        raise Unaligned(f"tokens {index} do not fit its {len(tokens)} scope tokens")
     return got
 
 
@@ -296,10 +190,10 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
             tokens.append(prompt + len(said) - 1)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
         got = [t - 1 for t in got] if before else got
-    except Unaligned as e:
+    except ValueError as e:
         if prefill(pos):
             raise ValueError(str(e)) from None
-        return e.marker
+        return MISSING
     return got if got or prefill(pos) else MISSING
 
 
@@ -426,3 +320,100 @@ def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
         spans.append((start, max(start, end)))
         start = max(start, end)
     return text, spans
+
+
+def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict],
+            tokenizer) -> list[list[int]]:
+    """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
+    doubled, or a rectangular index that does not fit, is refused by name, and so is a write whose positions
+    hold no token of a row."""
+    pos = parse(record.pos)
+    found = []
+    for i, (row, enc) in enumerate(zip(rows, encoded)):
+        try:
+            got = place(pos, row, enc, [], tokenizer, head(step, record))
+        except ValueError as e:
+            why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
+                "that is all call 0 holds of it" if head(step, record) else ""
+            raise ValueError(f"{where}: row {i}: {e}{why}") from None
+        if write and not got:
+            raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
+                             "one to write")
+        found.append(list(got))
+    return found
+
+
+def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
+          head_only: bool) -> list[int] | str:
+    """`resolve` for one row (its dataset row and its encoding), with what that needs: where the
+    scope's text occurs."""
+    found = occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
+    got = resolve(pos, len(encoded["ids"]), said, found, head_only)
+    if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
+            any(p < len(encoded["ids"]) - 1 for p in got):
+        return MISSING            # before a prompt token, where this prefill computes no head
+    return got
+
+
+def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
+    """The texts a record's scope names in one row, each `(text, strip, lower)`: its columns' (each member of
+    a set), compared as each reference says, or the literals, as the scope says; a single one is the
+    one-element case."""
+    scope = pos["scope"] or {}
+    if "column" in scope:
+        out = []
+        for ref in scope["column"] if isinstance(scope["column"], list) else [scope["column"]]:
+            column, strip, lower = data.column_of(ref) or ("", False, False)
+            value = data.lookup(row, column.partition(".")[2])
+            out += [(str(v), strip, lower) for v in (value if isinstance(value, list) else [value])]
+        return out
+    given = scope.get("text")
+    given = [] if given is None else given if isinstance(given, list) else [given]
+    return [(t, bool(scope.get("strip")), bool(scope.get("lower"))) for t in given]
+
+
+def head(step, record) -> bool:
+    """Whether the record reads the head in a generation, whose prefill computes it at its last position only."""
+    return step.kind == "generate" and record.site.component in ("lm_head_output", "logits")
+
+
+def decided(path: str, pos: dict, most: int | None) -> None:
+    """A generation's write beyond the prefill lands at each call it selects as that call runs, so what it
+    selects must be known by then. Without a scope its calls must be known before the run, up to the step's
+    `max_new_tokens` (`most`) when it gives one (`reach`). With a text scope it is found online,
+    call by call, in the inputs fed so far, and lands at the call fed the first occurrence's last token: so
+    its frame is decode calls only, and its index -1, since the occurrence's earlier tokens were fed before
+    the text was there to find; and which occurrences it means count from the first."""
+    frame, index = pos["frame"], pos["index"]
+    if pos["scope"] is not None:
+        if reach({**pos, "index": ":"})[0]:
+            fail(f"{path}.frame", f"frame {frame!r}: a scoped write beyond the prefill is found call by call in the "
+                 "generated inputs, so its frame names decode calls only, not counted from the row's last call "
+                 "(a call, picks, or a slice from 1 such as '1:')")
+        if index != -1:
+            fail(f"{path}.index", f"index {index!r}: a scoped write lands at the call fed its text's last token, the "
+                 "first call that can know the text is there; earlier tokens were already fed, so its index is -1")
+        which = pos["scope"].get("occurrence", 0)
+        if selectors.from_end(which):
+            fail(f"{path}.scope.occurrence", f"occurrence {which!r} counts from the last occurrence, which is known "
+                 "only when the row ends; a write lands as its call runs, so it counts from the first")
+        return
+    if reach(pos, most)[2]:
+        return
+    holds = not selectors.from_end(frame) and 0 in selectors.select(frame, 1)
+    if holds and selectors.covers(frame) and selectors.from_end(index):
+        fail(path, f"frame {frame!r} with index {index!r} counts back from the row's last position, known only when "
+             "the row stops, and a write lands as each call runs; for the prompt's last positions and every decode "
+             f"call, write two entries: {{'frame': 0, 'index': {index!r}}} and {{'frame': '1:'}}")
+    if holds:
+        fail(path, f"frame {frame!r} with index {index!r}: over a frame that holds the prompt a write's index is "
+             "':', since any other counts on through the prompt, whose length differs by row, into the decode "
+             "calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
+             "frame 0 and the decode calls you mean as another at their own frame ('1:' is every one)")
+    if most is None and reach(pos, enough(pos))[2]:
+        fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
+             "listed before the run, so the step gives max_new_tokens, which bounds them")
+    fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
+         "lands as its call runs, so its frame is not counted from the row's last call, and its index "
+         "names the same calls on a row that stops early as on one that runs on: ':' over the prompt, and not "
+         "counted from the end over several decode calls; or it takes a text scope")

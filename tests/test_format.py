@@ -2,7 +2,7 @@
 
 import os
 
-from clab.cli import describe, markdown
+from clab.docs import describe, markdown
 from conftest import ROOT
 
 
@@ -30,7 +30,7 @@ def test_describe_lists_the_engines_and_spells_literals_as_json():
 
 def test_every_engine_option_says_what_it_takes():
     """`describe engines` reads what each option takes off the docstring of the method that declares it."""
-    from clab.cli import run_options
+    from clab.docs import run_options
     from clab.engines import ENGINES
 
     for name in ENGINES:

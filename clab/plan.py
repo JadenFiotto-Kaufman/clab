@@ -16,13 +16,14 @@ import os
 import types
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
-from pydantic import (BaseModel, BeforeValidator, ConfigDict, Discriminator, Field, Tag, ValidationError,
+from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError,
                       field_serializer, field_validator, model_serializer, model_validator)
 from pydantic_core import core_schema
 from torch import Tensor
 
-from .. import address
-from ..runtime import data, featurizers, ops, positions
+from . import address, data, featurizers, ops, selectors
+from .selectors import Selector
+from .sweeps import agreeing, find_sweeps, points
 
 
 class PlanError(ValueError):
@@ -117,9 +118,6 @@ def shaped(member: Any, value: Any) -> bool:
 T = TypeVar("T")
 Swept = Annotated[Union[T, Sweep], ByShape()]
 
-# Which of a number of things (layers, forward calls, occurrences, tokens) a range picks: an int, a slice
-# string in Python notation, or a list of distinct picks; `pos` documents it, `positions.select` resolves it.
-Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(positions.checked)]
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 
@@ -174,7 +172,7 @@ class Site(Record):
         for axis, index in (self.select or {}).items():
             if axis not in valid:
                 raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
-            if axis == "key" and not isinstance(index, Sweep) and not positions.keyed(index):
+            if axis == "key" and not isinstance(index, Sweep) and not selectors.keyed(index):
                 raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
                                  "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\")")
         return self
@@ -274,7 +272,7 @@ class Pos(Record):
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     ```
 
-    Each stage is a selector over what the stage before it left (`positions.select`): an int counts one
+    Each stage is a selector over what the stage before it left (`selectors.select`): an int counts one
     (negative from the last), a slice string is a range in Python notation, half-open, each part optional
     (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
     that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
@@ -333,7 +331,7 @@ class Pos(Record):
     A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
     number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
     static width (an int, picks, or
-    a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `positions.fixed`),
+    a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `selectors.fixed`),
     and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
     one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
     a row does not have, or a rectangular index that does not fit, is refused by name before any forward:
@@ -352,9 +350,9 @@ class Pos(Record):
             raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
         frame, index = self.frame, self.index
         if self.scope is None and not isinstance(frame, Sweep) and not isinstance(index, Sweep) and \
-                positions.bounded(frame) and not positions.from_end(frame) and 0 not in positions.select(frame, 1):
-            calls = positions.fixed(frame)
-            if not positions.select(index, calls or 0):
+                selectors.fixed(frame) is not None and not selectors.from_end(frame) and 0 not in selectors.select(frame, 1):
+            calls = selectors.fixed(frame)
+            if not selectors.select(index, calls or 0):
                 raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
                                  "calls, one each")
         return self
@@ -466,50 +464,6 @@ def gathers(entry: Intervention) -> list[Op]:
     return entry.ops[last + 1:]
 
 
-class Unbracketed(ValueError):
-    """A `decode` its entry has no encode open for, at index `at` among the entry's ops."""
-
-    def __init__(self, at: int, message: str):
-        super().__init__(message)
-        self.at = at
-
-
-def bracketed(listed: list[Op]) -> list[dict]:
-    """An entry's ops as their brackets nest, the one place a bracket is read: each op `{"at": <its index>,
-    "op": <the op>}` in turn, and an `encode` also with the ops after it as `inner`, nested the same way, up to
-    the `decode` that closes it (`closed`, that decode's index; the decode is not a node of its own) or, when
-    none does, to the end. A `decode` closes the most recent `encode` not yet closed; one with none open, or of
-    another featurizer than the open one, is refused (`Unbracketed`)."""
-    top: list[dict] = []
-    opened: list[dict] = []
-    for i, o in enumerate(listed):
-        ref = arguments(o).get("featurizer")
-        if o.op == "decode":
-            if not opened:
-                raise Unbracketed(i, f"decode of {ref!r} closes no encode: none is open in this entry here; put the "
-                                     f"encode of {ref!r} before it, the edits of its coordinates between them")
-            theirs = arguments(opened[-1]["op"])["featurizer"]
-            if theirs != ref:
-                raise Unbracketed(i, f"decode of {ref!r}, and the open encode is of {theirs!r} "
-                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most recent encode not yet closed")
-            opened.pop()["closed"] = i
-            continue
-        node = {"at": i, "op": o}
-        (opened[-1]["inner"] if opened else top).append(node)
-        if o.op == "encode":
-            node.update(inner=[], closed=None)
-            opened.append(node)
-    return top
-
-
-def visited(nodes: list[dict], around: tuple = ()):
-    """`bracketed` nodes in the order their ops run, each `(node, around)`, `around` the encode nodes open
-    around it, outermost first."""
-    for node in nodes:
-        yield node, around
-        yield from visited(node.get("inner", []), around + (node,))
-
-
 class TextPart(Record):
     """`{"text": "<literal>"}`: literal text in a list `input`."""
     text: str
@@ -586,12 +540,6 @@ class Generate(Forward):
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
-
-
-def horizon(step) -> int | None:
-    """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
-    most = (step.model_extra or {}).get("max_new_tokens") if step.kind == "generate" else None
-    return most if isinstance(most, int) else None
 
 
 class OpStep(Record):
@@ -743,7 +691,7 @@ class Run(Record):
     read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt
     tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept
     step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
-    `layers` axis's labels are `positions.select(site.layers, num_layers)`."""
+    `layers` axis's labels are `selectors.select(site.layers, num_layers)`."""
     engine: str
     batch_size: int
     device: str | None
@@ -848,13 +796,13 @@ class Plan(Record):
 
     def dump(self, out: str) -> None:
         """A run's output directory: one file per save and `manifest.json`."""
-        from ..output import dump
+        from .output import dump
         dump(self, out)
 
     @classmethod
     def load(cls, out: str) -> "Plan":
         """The filled plan an output directory holds: the inverse of `dump`."""
-        from ..output import load
+        from .output import load
         return load(out)
 
     def write(self, path: str) -> None:
@@ -865,7 +813,7 @@ class Plan(Record):
 
     def table(self, *names: str, columns: list[str] | None = None) -> list[dict]:
         """The saved values `names` as rows, joined wide on their shared axes (see `output.table`)."""
-        from ..output import table
+        from .table import table
         return table(self, names, columns)
 
 
@@ -902,29 +850,6 @@ def message(error: Any) -> str:
     return f"{path}: {text}" if path else text
 
 
-def points(entry: Any) -> list:
-    """A plan entry as its list of points; `[entry]` when it is not swept."""
-    return entry if isinstance(entry, list) else [entry]
-
-
-def agreeing(entry: Any, at: dict) -> Any:
-    """The point of `entry` that agrees with the point `at` on the entry's own axes."""
-    return next(p for p in points(entry) if all(at.get(k) == i for k, i in p.at.items()))
-
-
-def coordinate(plan: Plan, at: dict) -> Any:
-    """A point's key in a swept result: its axis's value (a list as a tuple), or the tuple of its axes' values
-    in axis order."""
-    values = [tuple(v) if isinstance(v := plan.sweeps[label].values[i], list) else v for label, i in at.items()]
-    return values[0] if len(values) == 1 else tuple(values)
-
-
-def labelled(plan: Plan, at: dict, labels: bool = True) -> str:
-    """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`; without its labels, `-1`, `0,-1`."""
-    parts = [json.dumps(plan.sweeps[label].values[i], separators=(",", ":")) for label, i in at.items()]
-    return ",".join(f"{label}={part}" for label, part in zip(at, parts)) if labels else ",".join(parts)
-
-
 def dims_of(plan: Plan, name: str) -> list[str]:
     """The axes of the value `name`: a step's value, a step's read, or a fit's member (a trained featurizer,
     saved as its bundle, has none; `history.<op>` is per epoch)."""
@@ -956,48 +881,9 @@ def declared(plan: Plan, ref: str) -> str:
     return ref if ref in plan.featurizers else ref.partition(".")[2]
 
 
-def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = None) -> Plan:
-    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
-    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
-    dataset a substitution `swap` maps read under the body's name for it."""
-    entry = plan.steps[fit]
-    fits = [agreeing(entry, at)] if at is not None else points(entry)
-    one = at is not None or not isinstance(entry, list)
-    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
-    swap = swap or {}
-    return plan.model_copy(update={"steps": {**plan.steps, **steps},
-                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
-
-
-def probe_of(plan: Plan, name: str) -> str:
-    """The probe whose `encode` made value `name`'s `classes` axis, as referenced where it was encoded."""
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    if step.kind == "op":
-        return probe_of(plan, step.of)
-    if step.kind == "fit":
-        return probe_of(body_view(plan, thing), member.partition(".")[2])
-    return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")
-
-
 def kind_of(plan: Plan, ref: str) -> str:
     """The kind of the featurizer a reference names."""
     return points(plan.featurizers[declared(plan, ref)])[0].kind
-
-
-def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
-    """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
-    step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
-    applied to."""
-    found: dict[str, list] = {}
-    for name, step in walk(plan.steps):
-        for key, entry in entries(step).items():
-            for node, around in visited(bracketed(entry.ops)):
-                ref = arguments(node["op"]).get("featurizer")
-                if ref is not None:
-                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at,
-                                                                      node["op"], [a["op"] for a in around]))
-    return found
 
 
 def entry_of(steps: dict, ref: str, at: dict) -> tuple[Any, Any]:
@@ -1018,42 +904,21 @@ def scope(plan: Plan, where: str) -> dict:
 
 # -- sweeps ---------------------------------------------------------------------
 
-UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows",
-           "split", "file_path", "of", "hf", "revision", "saves")
+
+def horizon(step) -> int | None:
+    """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
+    most = (step.model_extra or {}).get("max_new_tokens") if step.kind == "generate" else None
+    return most if isinstance(most, int) else None
 
 
-def find_sweeps(document: dict) -> dict[tuple, str]:
-    """Every `{"sweep": [...]}` standing for a value, by document path, labelled by the last key of its path.
-
-    A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-    source, or a `file_path`. Two sweeps with one label are refused; one sweep reached from two places (a swept site
-    two steps use) is one axis, so its points zip rather than cross. A step that uses a swept thing, or
-    references a value that varies, becomes a list of points, one per combination of its axes, each a whole
-    step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
-    swept step is a dict keyed by coordinate: the axis's value, or a tuple of them in axis order.
-    """
-    found: dict[tuple, str] = {}
-
-    def walk(value: Any, path: tuple) -> None:
-        if isinstance(value, dict) and set(value) == {"sweep"}:
-            where = ".".join(map(str, path))
-            label = next(k for k in reversed(path) if isinstance(k, str))
-            if path[0] in ("description", "model") or label in UNSWEPT:
-                raise ValueError(f"{where}: a sweep cannot stand for {label!r}")
-            for other, other_label in found.items():
-                if other_label == label:
-                    raise ValueError(f"{where}: label {label!r} is also the sweep at {'.'.join(map(str, other))}; a "
-                                     "sweep's label is the name of the field it stands for, so two sweeps of one "
-                                     "field name cannot cross: sweep one of them and put each value of the other in "
-                                     "a step of its own (or have both use one swept site or step, which zips them)")
-            found[path] = label
-        elif isinstance(value, dict):
-            for k, v in value.items():
-                if k not in ("results", "run", "sweeps"):
-                    walk(v, path + (k,))
-        elif isinstance(value, list):
-            for i, v in enumerate(value):
-                walk(v, path + (i,))
-
-    walk(document, ())
-    return found
+def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = None) -> Plan:
+    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
+    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
+    dataset a substitution `swap` maps read under the body's name for it."""
+    entry = plan.steps[fit]
+    fits = [agreeing(entry, at)] if at is not None else points(entry)
+    one = at is not None or not isinstance(entry, list)
+    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
+    swap = swap or {}
+    return plan.model_copy(update={"steps": {**plan.steps, **steps},
+                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
