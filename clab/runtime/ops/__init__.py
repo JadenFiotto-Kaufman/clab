@@ -28,10 +28,10 @@ token text). Reductions skip it: `mean` is the mean over the rows that have a va
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
-**reductions** remove axes, by default every one but the feature axes (`over` names them; over `pos`, one
-value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`,
-`decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are
-what writes back; **transforms** turn each example's value into another of a different layout (logits from
+**reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
+over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`,
+`project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
+an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
@@ -189,8 +189,11 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
         return axes["layout"](dims, args, kind)
     for axis in axes["needs"]:
         if not set(axis if isinstance(axis, tuple) else (axis,)) & set(dims):
+            ranks = "; it ranks a vocabulary's tokens, and over another axis (an sae's features, a probe's classes) " \
+                "it is not an op yet: save the value and rank it after the run" if axis == "vocab_size" and \
+                name in ("argmax", "top_k") else ""
             raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, axis)) if isinstance(axis, tuple) else repr(axis)} "
-                             f"axis; this one is {dims}")
+                             f"axis; this one is {dims}{ranks}")
     removes = axes["removes"]
     if isinstance(removes, str):
         removes = args.get(removes)

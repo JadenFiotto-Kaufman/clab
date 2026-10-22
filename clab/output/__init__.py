@@ -5,7 +5,8 @@ bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors 
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
-fit's trained featurizer) carries the header that featurizer checks.
+fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
+after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the

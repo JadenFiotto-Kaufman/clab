@@ -121,7 +121,8 @@ def cross_site(root: str, steps: dict, saves: list[str], train: bool = False,
         save_file({"A": torch.randn(16, 2, generator=G), "B": torch.randn(2, 16, generator=G)},
                   os.path.join(root, "documents", "artifacts", "oproj.safetensors"),
                   metadata=bundle_header(kind="lora", rank="2", alpha="4", component="attention_output",
-                                         document="oproj"))
+                                         document="oproj", **{"with.component": "attention_premix",
+                                                              "with.layer": "0"}))
     doc = {"model": TINY, "data": {"train": {"path": "weekdays/data", "split": "train"}},
            "featurizers": {"oproj": spec}, "interventions": interventions or {}, "steps": steps, "saves": saves}
     with open(os.path.join(root, "documents", "oproj.json"), "w") as f:

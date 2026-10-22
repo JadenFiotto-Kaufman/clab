@@ -90,9 +90,10 @@ class Compiling:
 
     Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
     document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document
-    order: each name produced so far, `{dims, data, kind}` (`names`), each entry's sweep axes (`axes_of`),
-    the names the entry being compiled references (`refs`), which decide the axes it inherits, and every value
-    any entry references (`used`), which decides what the run gathers. A fit's body compiles in a copy whose
+    order: each name produced so far, `{dims, data, kind}` and, for a value, what `value_of` records of it
+    (`names`), each entry's sweep axes (`axes_of`), the names the entry being compiled references (`refs`),
+    which decide the axes it inherits, and every value any entry references (`used`), which decides what the run
+    gathers. A fit's body compiles in a copy whose
     `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
     `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
     `rot` is `<fit>.rot`, the instance being trained)."""
@@ -223,20 +224,30 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     own = {f"{name}.{k}" for k in keys}
     records: dict[str, dict] = {}
     live: dict[str, tuple[dict, Intervention]] = {}
+    made = {}
     for p, k, e in given:
         records[k] = entry(cx, p, e, plan, spec, dataset, live, own)
-        named = {"dims": records[k]["dims"], "data": dataset, "kind": "value", "space": records[k].get("space", [])}
+        made[k] = value_of(records[k], e, dataset)
         # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":
-            cx.names[f"{name}.{k}"] = named
+            cx.names[f"{name}.{k}"] = made[k]
             live[f"{name}.{k}"] = (records[k], e)
-    cx.names.update({f"{name}.{k}": {"dims": r["dims"], "data": dataset, "kind": "value", "space": r.get("space", [])}
-                     for k, r in records.items()})
+    cx.names.update({f"{name}.{k}": v for k, v in made.items()})
     if spec.kind == "generate":
         cx.names[name] = {"dims": ["rows", "new"], "data": dataset, "kind": "value"}
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), "interventions": records,
             "dataset": dataset}
+
+
+def value_of(record: dict, spec: Intervention, dataset: str) -> dict:
+    """What a name records of an entry's value: its layout, its dataset, its coordinates (`space`), its site's
+    `select` on the axes it still has, and how many positions it holds on every row (`width`, None when
+    ragged)."""
+    dims = record["dims"]
+    return {"dims": dims, "data": dataset, "kind": "value", "space": record.get("space", []),
+            "select": {a: v for a, v in (record["site"].get("select") or {}).items() if a in dims},
+            "width": positions.width(positions.parse(spec.pos)) if "pos" in dims else None}
 
 
 def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
@@ -325,6 +336,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
     if write and frame != 0 and step.kind == "generate":
         decided(f"{path}.pos", pos, horizon(step))
+    if "turn" in scope and not all(isinstance(data.field(r, step.input), list) for r in cx.rows[dataset]):
+        fail(f"{path}.pos.scope.turn", f"the input {data.input_name(step.input)} is text, not a chat: a turn scope "
+             "names a chat's messages (a column of {'role', 'content'} lists, rendered through the template), and "
+             "text has none; locate the message's words with a {'text': ...} or {'column': ...} scope")
     if "column" in scope:
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
@@ -345,6 +360,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         outer = around[closes[i]["at"]] if i in closes else around[i]
         if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
             fail(at, f"readout projects a residual-stream value; {site.component} is not one")
+        if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
+            fail(at, narrowed_readout(f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
         if edits(o) and changed is not None:
             fail(at, f"{o.op!r} is an edit, which writes back, and it follows {changed!r}, which turned the value "
                  f"into {dims}: there is no live value to write; an edit comes before it, or put the transform in "
@@ -363,7 +380,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
                      "entry")
         found = references(cx, plan, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
-        paired(at, o.op, dims, found)
+        paired(at, o.op, dims, positions.width(pos), found)
         if i <= last:
             chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
             operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, chosen)
@@ -384,6 +401,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
     return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
+
+
+def narrowed_readout(what: str) -> str:
+    return (f"readout projects the whole residual stream through the model's final norm and head, and {what} keeps "
+            "only some of hidden_size, which the norm cannot take; read the site whole, readout, and narrow what "
+            "the logits give")
 
 
 def space_of(cx: Compiling, encodes: list[Op]) -> list[dict]:
@@ -441,11 +464,15 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     kind = called(cx, plan, path, spec.op, arguments(spec))
     found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
-    paired(path, spec.op, of["dims"], found)
+    paired(path, spec.op, of["dims"], of.get("width"), found)
+    if spec.op == "readout" and "hidden_size" in of.get("select", {}):
+        fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
                       "text": spec.op == "detokenize" and not arguments(spec).get("tokens"),
-                      "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else []}
+                      "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else [],
+                      "select": {a: v for a, v in of.get("select", {}).items() if a in dims},
+                      "width": of.get("width") if "pos" in dims else None}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
 
@@ -474,7 +501,7 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
     it), of its operands with a rows axis, and of its columns."""
     datasets = {of[0]: of[1]} if of[0] else {}
     for info in found.values():
-        if info["data"] is not None and info["dims"][:1] in (["rows"], ["entries"], ["layers"]):
+        if info["data"] is not None and {"rows", "entries"} & set(info["dims"]):
             datasets.setdefault(info["data"], repr(info["name"]))
     if len(datasets) > 1:
         (a, x), (b, y) = list(datasets.items())[:2]
@@ -482,16 +509,27 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
     return next(iter(datasets), None)
 
 
-def paired(path: str, name: str, dims: list[str], found: dict) -> None:
-    """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, or is one
-    vector of its features, the same for every example; a ragged one's entries line up with nothing."""
+def paired(path: str, name: str, dims: list[str], width: int | None, found: dict) -> None:
+    """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, as many
+    positions wide (`width`) when it has positions, or is one vector of its features, the same for every
+    example; a ragged one's entries line up with nothing."""
     if ops.DECLARED[name]["group"] != "metrics":
         return
     one = [a for a in dims if a not in address.EXAMPLE_AXES]
     for key, info in found.items():
-        if info["kind"] == "value" and (info["dims"] not in (dims, one) or "entries" in info["dims"]):
+        if info["kind"] != "value":
+            continue
+        if "entries" in info["dims"]:
+            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
+                 f"{dims}, and a ragged value's entries are its rows' positions, which pair with no other value's; "
+                 "read both at a static index (pos -1, or {'index': '-3:'}), which makes them rectangular")
+        if info["dims"] not in (dims, one):
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
+        if "pos" in dims and info["dims"] == dims and info.get("width") != width:
+            fail(f"{path}.{key}", f"{info['name']!r} holds {info.get('width')} position(s) per row and the value "
+                 f"{name!r} scores holds {width}; position i scores against position i, so both are read at as "
+                 "many (a pos axis broadcasts no more than a layers axis does)")
 
 
 def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: bool, live: dict, chosen: set) -> None:
@@ -526,6 +564,13 @@ def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: 
             fail(f"{path}.{key}", f"{info['name']!r} is in {said(info.get('space', []))}; this "
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
+        if info["dims"] == own and not whole:
+            fail(f"{path}.{key}", f"{info['name']!r} and this write are both ragged, {own}; what differs is that its "
+                 "entries are another forward's positions, which need not pair with this one's: read both at a "
+                 "static index (pos -1, {'index': '-3:'}), or reduce the operand to one vector")
+        if "layers" in info["dims"] and "layers" not in own:
+            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}: it keeps a layers axis, and this "
+                 "write lands at one layer, so its operand has none; read the operand at the write's own layer")
         if info["dims"] not in allowed:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's value is {own} here, "
                  f"so an operand is {' or '.join(map(str, allowed))}")
@@ -607,7 +652,8 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
         if len(set(counts.values())) > 1:
             fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
-                 + "; it runs over minibatches of the same rows of each, so they have as many")
+                 + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
+                 "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
         for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:
@@ -629,6 +675,10 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
 def value_ref(cx: Compiling, value, path: str) -> dict:
     """A named value produced before this point."""
     info = cx.names.get(value) if isinstance(value, str) else None
+    if info is not None and info["kind"] == "featurizer":
+        fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
+             f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
+             "binds is an operand")
     if info is None or info["kind"] != "value":
         known = sorted(k for k, v in cx.names.items() if v["kind"] == "value")
         fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
@@ -689,6 +739,9 @@ def decided(path: str, pos: dict, most: int | None) -> None:
         return
     if positions.reach(pos, most)[2]:
         return
+    if 0 in positions.select(frame, 1) and positions.covers(frame) and positions.from_end(index):
+        fail(path, f"frame {frame!r} with index {index!r} is known only when the row stops; write two entries: "
+             f"{{'frame': 0, 'index': {index!r}}} and {{'frame': '1:'}}")
     if most is None and positions.reach(pos, positions.enough(pos))[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
              "listed before the run, so the step gives max_new_tokens, which bounds them")
@@ -743,11 +796,23 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     fields = f.model_extra or {}
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
+        try:
+            featurizers.labels(cx.rows, fields["classes"])
+        except ValueError as e:
+            fail(f"{path}.classes", str(e))
     missing = [k for k in featurizers.KINDS[f.kind].drawn if fields.get(k) is None]
     if fields.get("file_path") is None and missing:
         fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
              "load one with 'file_path'")
     record = f.model_dump(exclude_defaults=True)
+    if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
+        if fields["site"] not in plan.sites:
+            fail(f"{path}.site", f"no site {fields['site']!r}; declared: {', '.join(plan.sites) or 'none'}")
+        named = plan.sites[fields["site"]]
+        if not isinstance(named.layers, int) or named.select:
+            fail(f"{path}.site", f"site {fields['site']!r} is {named.model_dump(exclude_defaults=True)}; the site a "
+                 "featurizer was trained at is a component at one layer, {'component', 'layers': <int>}")
+        record["site"] = fields["site"] = {"component": named.component, "layers": named.layers}
     if fields.get("file_path") is None:
         return record
     try:

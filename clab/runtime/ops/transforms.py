@@ -10,7 +10,7 @@ from torch import Tensor
 from ...registry import Featurizer
 from .. import featurizers, positions
 from . import op
-from .metrics import missing
+from .metrics import missing, ranked
 
 
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))
@@ -69,13 +69,16 @@ def detokenize(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) ->
 @op("transforms", needs=("vocab_size",), removes=("vocab_size",), adds=("k",))
 def top_k(of: Tensor, k: int) -> dict:
     """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
-    `tokens`, decoded."""
-    probs, ids = of.softmax(-1).topk(k, dim=-1)
+    `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so
+    `top_k`'s first is `argmax`'s token."""
+    ids = ranked(of, k)
+    probs = of.softmax(-1).gather(-1, ids)
     gone = missing(of)[..., None]
     return {"ids": ids.masked_fill(gone, -1), "probs": probs.masked_fill(gone, float("nan"))}
 
 
 @op("transforms", needs=("vocab_size",), removes=("vocab_size",))
 def argmax(of: Tensor) -> Tensor:
-    """The id of the most likely token (-1 where the value is missing)."""
-    return of.argmax(-1).masked_fill(missing(of), -1)
+    """The id of the most likely token (-1 where the value is missing), ranked by its logit; an exact tie goes to
+    the lower id, as in `top_k`."""
+    return ranked(of, 1)[..., 0].masked_fill(missing(of), -1)

@@ -23,8 +23,10 @@ BASIS = torch.linalg.qr(torch.randn(16, 4, generator=G))[0]
 TENSORS = {"W_enc": torch.randn(16, 32, generator=G), "b_enc": torch.randn(32, generator=G),
            "W_dec": torch.randn(32, 16, generator=G), "b_dec": torch.randn(16, generator=G)}
 THRESHOLD = torch.rand(32, generator=G)
-# What a document loading a published sae states, since the file does not say it.
-STATED = {"activation": "relu", "centered": True}
+# What a document loading a published sae states, since the file does not say it: how it encodes, and the site
+# it was trained at.
+WHERE = {"site": "target"}
+STATED = {"activation": "relu", "centered": True, **WHERE}
 
 
 def every_kind() -> dict[str, featurizers.Kind]:
@@ -155,18 +157,21 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
      r"published\.safetensors: b_enc is \[31\]; with W_enc \[16, 32\] it is \[latents 32\]"),
     ({**TENSORS, "W_dec": torch.zeros(32, 15)}, STATED,
      r"W_dec is \[32, 15\]; with W_enc \[16, 32\] it is \[latents 32, width 16\]"),
-    (TENSORS, {"activation": "jumprelu", "centered": False},
+    (TENSORS, {"activation": "jumprelu", "centered": False, **WHERE},
      r"published\.safetensors holds no threshold; a 'jumprelu' sae needs one"),
     ({**TENSORS, "threshold": THRESHOLD}, STATED,
      r"published\.safetensors holds a JumpReLU threshold; its activation is 'jumprelu', not 'relu'"),
-    ({**TENSORS, "threshold": THRESHOLD}, {"activation": "topk", "k": 4, "centered": True},
+    ({**TENSORS, "threshold": THRESHOLD}, {"activation": "topk", "k": 4, "centered": True, **WHERE},
      r"holds a JumpReLU threshold; its activation is 'jumprelu', not 'topk'"),
     (TENSORS, {**STATED, "latents": 64}, r"published\.safetensors has 32 latents; this document says 64"),
-    (TENSORS, {"activation": "topk", "k": 33, "centered": True}, r"has 32 latents; 'topk' keeps k = 33 of them"),
     ({**TENSORS, "threshold": THRESHOLD}, {},
-     r"published\.safetensors is a published sae, which does not say how it encodes; state 'activation' and "
-     r"'centered'"),
-    (TENSORS, {"activation": "relu"}, r"does not say how it encodes; state 'centered'"),
+     r"published\.safetensors is a published sae, which says neither how it encodes nor where it was trained; "
+     r"state 'activation', 'centered', 'site'"),
+    (TENSORS, {"activation": "relu", **WHERE}, r"says neither how it encodes nor where it was trained; state "
+                                               r"'centered', as"),
+    (TENSORS, {"activation": "relu", "centered": True}, r"state 'site', as its release names them"),
+    (TENSORS, {"activation": "topk", "k": 33, "centered": True, **WHERE}, r"has 32 latents; 'topk' keeps k = 33 of "
+                                                                          r"them"),
 ])
 def test_a_published_file_with_other_tensors_or_shapes_is_refused_at_compile(tmp_path, tensors, featurizer, message):
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):
@@ -188,7 +193,8 @@ def test_an_activation_and_its_k_are_checked_on_the_declaration(featurizer, mess
 
 
 def test_a_published_file_as_wide_as_another_site_is_refused_before_any_forward(engines, tmp_path):
-    plan = published(tmp_path, {**TENSORS, "threshold": THRESHOLD}, {"activation": "jumprelu", "centered": False},
+    plan = published(tmp_path, {**TENSORS, "threshold": THRESHOLD}, {"activation": "jumprelu", "centered": False,
+                                                                       **WHERE},
                      {"component": "mlp_activation", "layers": 0}).compile()
     with pytest.raises(ValueError, match=r"base\.latents: documents/artifacts/published\.safetensors has no clab "
                                          r"header and is 16 wide; this document uses 'dictionary' at mlp_activation, "
@@ -254,7 +260,8 @@ def test_a_clab_bundles_activation_and_centering_are_its_headers():
     with safe_open(os.path.join(DOCUMENTS, "artifacts", "sae.safetensors"), "pt") as f:
         assert {k: (f.metadata() or {})[k] for k in ("activation", "centered")} == {"activation": "relu",
                                                                                     "centered": "true"}
-    edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(STATED)).compile()
+    edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(activation="relu",
+                                                                                   centered=True)).compile()
     with pytest.raises(PlanError, match=r"sae\.safetensors: header 'centered' is 'true'; this document expects "
                                         r"'false'"):
         edited("sae_feature_ablation", lambda d: d["featurizers"]["dictionary"].update(centered=False)).compile()
@@ -268,7 +275,7 @@ def test_a_clab_bundles_activation_and_centering_are_its_headers():
      r"published\.safetensors carries clab header keys \(kind, model\.key, layer\) but its format is None, not "
      r"'clab/1'; a clab bundle's header is whole, a published file carries none of them"),
     # Unrelated metadata: a published file, read as one.
-    ({"format": "pt"}, {}, r"published\.safetensors is a published sae, which does not say how it encodes"),
+    ({"format": "pt"}, {}, r"published\.safetensors is a published sae, which says neither how it encodes nor where"),
 ])
 def test_a_files_format_decides_whether_it_is_clabs_or_published(tmp_path, metadata, featurizer, message):
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):

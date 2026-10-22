@@ -68,6 +68,16 @@ class Sweep(Record):
     def _flat(cls, values: list) -> list:
         if '"sweep"' in json.dumps(values):
             raise ValueError("a sweep's values hold no sweep")
+        # A point is keyed by its value, so each value is one a key can hold: a scalar, or a list of them.
+        for value in values:
+            if isinstance(value, dict):
+                field, first = next(iter(value.items()), ("<field>", "..."))
+                raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "
+                                 f"keyed by its value; {value!r} is an object: sweep a scalar field inside it, "
+                                 f"{{{field!r}: {{'sweep': [{first!r}, ...]}}}}")
+            if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
+                raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "
+                                 f"keyed by its value; {value!r} holds a list or an object")
         return values
 
 
@@ -147,8 +157,12 @@ class Data(Record):
             raise ValueError("a dataset is a 'path', inline 'rows' or a hub dataset 'hf'")
         if self.hf is not None and self.revision is None:
             raise ValueError("a hub dataset is pinned: give its 'revision'")
-        if self.hf is None and (self.revision is not None or self.take is not None):
-            raise ValueError("'revision' and 'take' belong to a hub dataset ('hf')")
+        if self.hf is None and self.take is not None:
+            raise ValueError("'take' keeps the first rows of a hub dataset ('hf'), which lands later; of a file or "
+                             "inline rows, keep the rows you want in the file itself, or mark them with a 'split' "
+                             "column and give 'split'")
+        if self.hf is None and self.revision is not None:
+            raise ValueError("'revision' pins a hub dataset ('hf'); a file or inline rows are pinned by their digest")
         if not sources and self.split is not None:
             raise ValueError("'split' keeps rows of a file or a hub dataset; inline 'rows' are the rows")
         return self
@@ -211,7 +225,9 @@ class Scope(Record):
     member of a set; `{"text": "<literal>"}`: that text; or `{"turn": "<role>"}`: that role's messages of a
     chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
-    scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first), and `before`,
+    scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
+    occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
+    side, and no letter or digit adjoining a word it cuts); and `before`,
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
@@ -292,9 +308,15 @@ class Pos(Record):
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where
-    they end, then where they start: where an occurrence becomes known and where index -1 lands, so a write
-    found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
+    prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+    token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
+    the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
+    after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
+    occur in ` Sarah`, ` Ann` not in ` Annabel`, `:` not in `):` (a write found online sees nothing past the
+    token it is fed, so it takes an end there as a word's, whatever follows). A list of columns or texts locates every occurrence of each. Occurrences
+    are ordered by where they end, then where they start: where an occurrence becomes known and where index -1
+    lands, so a write found online, a read and the run record count them alike (`b` inside `a b c` comes before
+    it). `occurrence`
     (default 0, the first of any) picks which of those occurrences among the tokens the
     scope is; the scope is the tokens of the picked ones, in order
     (their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a
@@ -406,7 +428,13 @@ class Intervention(Record):
     name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
     at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
     positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
-    meets (`space`). A bundle at the root is a dict of entries
+    meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
+    i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
+    before any forward: each pair sits at one distance from the start within the tokens both prompts begin with
+    alike, or from the end within those they end with alike (the first token past either counted in); any other
+    is refused, and a scope names the token in each row. An operand holds the indices of every axis a site
+    narrows (`num_heads`, ...) that the value it meets holds, in the same order. A bundle at the root is a dict
+    of entries
     pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
     one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
     and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -600,6 +628,14 @@ class Optimizer(Record):
     lr: Swept[float]
     weight_decay: Swept[float] = 0.0
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _named(cls, given: Any) -> Any:
+        if isinstance(given, dict) and "sweep" in given:
+            raise ValueError("a sweep cannot stand on a name, and the optimizer's name is one: a fit makes one "
+                             "optimizer; write one fit per optimizer")
+        return given
+
 
 class EarlyStop(Record):
     """End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
@@ -625,7 +661,9 @@ class Fit(Record):
     is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
     the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
     "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-    body's forwards run in batches of `batch_size`, whatever the run's batch size.
+    body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
+    the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
+    history is empty, `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
     name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
@@ -647,6 +685,14 @@ class Fit(Record):
     """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
     it trained on"""
     at: dict[str, int] = derived({}, AT)
+
+    @model_validator(mode="after")
+    def _counts(self):
+        if isinstance(self.epochs, int) and self.epochs < 0:
+            raise ValueError(f"epochs {self.epochs}: a fit runs 0 or more epochs (0 scores the untrained draw)")
+        if isinstance(self.batch_size, int) and self.batch_size < 1:
+            raise ValueError(f"batch_size {self.batch_size}: a minibatch holds at least one row")
+        return self
 
 
 KINDS = {"forward": Forward, "generate": Generate, "op": OpStep, "fit": Fit}
@@ -779,13 +825,15 @@ class Plan(Record):
     @model_validator(mode="after")
     def _bundles(self):
         # A bundle's file is its source of truth, and tensors never go in a document: a compiled plan read back
-        # without its bundles loads them again from their `file_path`.
+        # without its bundles loads them again from their `file_path`. A manifest holds no rows a dataset read from
+        # a file, so a probe's classes are then its bundle's header's, which the run checked.
         for entry in self.featurizers.values() if self.compiled else []:
             for f in points(entry):
                 fields = f.model_extra or {}
                 if fields.get("file_path") is not None and f.bundle is None:
+                    held = "classes" in fields and self.data[fields["classes"].partition(".")[0]].rows is not None
                     classes = featurizers.labels({n: d.rows or [] for n, d in self.data.items()}, fields["classes"]) \
-                        if "classes" in fields else None
+                        if held else None
                     f.bundle, f.header = featurizers.bundles.load(corpus_root(self), f.kind, fields, self.model,
                                                                   classes)
         return self
@@ -964,6 +1012,22 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
     return found
 
 
+def entry_of(steps: dict, ref: str, at: dict) -> tuple[Any, Any]:
+    """The step point and the entry `<step>.<entry>` names among `steps`, at the step's point that agrees with
+    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
+    thing, _, member = ref.partition(".")
+    step = agreeing(steps[thing], at)
+    return step, entries(step)[member]
+
+
+def scope(plan: Plan, where: str) -> dict:
+    """The steps an entry `where` (`[<fit>.]<step>.<entry>`, as `uses` names it) sees by name: the root's, and
+    a fit's body steps beside them when it stands in one."""
+    if where.count(".") < 2:
+        return plan.steps
+    return {**plan.steps, **points(plan.steps[where.partition(".")[0]])[0].steps}
+
+
 # -- sweeps ---------------------------------------------------------------------
 
 UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows",
@@ -990,8 +1054,10 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
                 raise ValueError(f"{where}: a sweep cannot stand for {label!r}")
             for other, other_label in found.items():
                 if other_label == label:
-                    raise ValueError(f"{where}: label {label!r} is also the sweep at "
-                                     f"{'.'.join(map(str, other))}; rename one")
+                    raise ValueError(f"{where}: label {label!r} is also the sweep at {'.'.join(map(str, other))}; a "
+                                     "sweep's label is the name of the field it stands for, so two sweeps of one "
+                                     "field name cannot cross: sweep one of them and put each value of the other in "
+                                     "a step of its own (or have both use one swept site or step, which zips them)")
             found[path] = label
         elif isinstance(value, dict):
             for k, v in value.items():

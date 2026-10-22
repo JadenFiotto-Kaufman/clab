@@ -7,8 +7,8 @@ from typing import Any
 from safetensors.torch import save
 from torch import Tensor
 
-from ..plan.model import (Plan, arguments, coordinate, dims_of, entries, kind_of, labelled, name as named, points,
-                          uses)
+from ..plan.model import (Plan, agreeing, arguments, coordinate, dims_of, entry_of, kind_of, labelled, name as named,
+                          points, scope, uses)
 from ..runtime import featurizers, ops, positions
 from .table import materialized, provenance
 
@@ -26,8 +26,7 @@ def dump(plan: Plan, out: str) -> None:
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
             write(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
-                  header(plan, name, plan.results[name] if not isinstance(entry, list) else
-                         next(iter(plan.results[name].values()))))
+                  headed(plan, name, entry))
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
@@ -77,24 +76,47 @@ def describe(value: Any, what: str) -> Any:
     return [len(value)] if isinstance(value, list) and what == "shape" else None
 
 
-def header(plan: Plan, name: str, value: Any) -> dict[str, str] | None:
-    """A bundle's header, when the value is one (`value`, one point's): an op step's whose op declares the
-    featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's trained
-    featurizer, made at the first site it is used at."""
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
+def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
+    """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
+    coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
+    if not isinstance(entry, list):
+        return header(plan, name, plan.results[name], entry)
+    found: dict[str, str] = {}
+    for p in entry:
+        point = header(plan, name, plan.results[name][coordinate(plan, p.at)], p)
+        if point is None:
+            return None
+        found["format"] = point.pop("format")
+        found.update({f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
+    return found
+
+
+def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | None:
+    """A bundle's header, when the value is one (`value`, at `step`, the point that made it): an op step's whose op
+    declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
+    trained featurizer, made at the first site it is used at."""
+    member = name.partition(".")[2]
     if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        source = provenance(plan, name)[0] or ""
-        site = entries(points(plan.steps[source.partition(".")[0]])[0])[source.partition(".")[2]].site
+        site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
+        reads = None
     elif step.kind == "fit" and member in step.train:
-        kind, fields = kind_of(plan, member), points(plan.featurizers[member])[0].model_extra or {}
-        site = uses(plan)[member][0][1]
+        kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
+        used = uses(plan)[member]
+        where, site, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
+        given = arguments(o).get("with")
+        reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
     else:
         return None
     classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
         if "classes" in fields else None
-    if isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
-        site = site.model_copy(update={"layers": positions.select(site.layers, plan.run.num_layers)[0]})
+    site, reads = (counted(plan, s) for s in (site, reads))
     return featurizers.bundles.header(kind, fields, plan.model, classes, site, featurizers.KINDS[kind].width(value),
-                                      named(plan))
+                                      named(plan), reads)
+
+
+def counted(plan: Plan, site: Any) -> Any:
+    """A site whose one layer is counted from the first, as a header records it."""
+    if site is not None and isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
+        return site.model_copy(update={"layers": positions.select(site.layers, plan.run.num_layers)[0]})
+    return site

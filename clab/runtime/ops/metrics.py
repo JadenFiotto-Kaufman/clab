@@ -16,6 +16,20 @@ def missing(of: Tensor) -> Tensor:
     return of.isnan().any(-1)
 
 
+def ranked(of: Tensor, k: int) -> Tensor:
+    """The ids of the `k` largest values of the last axis, the largest first, an exact tie to the lower id: the
+    one tie rule `match`, `argmax` and `top_k` share. A top-k finds them; where the k-th value ties with one it
+    left out, which set it kept is the kernel's choice, so only those vectors are sorted whole, stably."""
+    values, ids = of.topk(k, dim=-1)
+    ids, order = ids.sort(dim=-1)                                   # by id, then stably by value, largest first
+    ids = ids.gather(-1, values.gather(-1, order).sort(dim=-1, descending=True, stable=True).indices)
+    kth = values[..., -1:]
+    tied = (of == kth).sum(-1) > (values == kth).sum(-1)
+    if tied.any():
+        ids[tied] = of[tied].sort(dim=-1, descending=True, stable=True).indices[..., :k]
+    return ids
+
+
 # The metrics that read one id's logit, which a class or a set of several ids does not have.
 ONE_ID = ("logit_diff", "token_logit")
 
@@ -44,8 +58,9 @@ def _one(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
-    """1 where the most likely token is `expected` (any of its class or set), else 0."""
-    hit = (of.argmax(-1, keepdim=True) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
+    """1 where the most likely token is `expected` (any of its class or set), else 0; the most likely token is
+    `argmax`'s, an exact tie to the lower id."""
+    hit = (ranked(of, 1) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
     return hit.masked_fill(missing(of), float("nan"))
 
 
@@ -76,14 +91,22 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     return -(logp.squeeze(-1) if logp.shape[-1] == 1 else logp.masked_fill(~real, -math.inf).logsumexp(-1))
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+def distribution(args: dict) -> None:
+    """`kl`'s and `js`'s `against` is a distribution: a named value, never a number or a flag."""
+    against = args.get("against")
+    if "against" in args and not isinstance(against, str):
+        raise ValueError(f"against {against!r} is not a name, and only a named value is a distribution; 'against' "
+                         "names a value with the same vocabulary axis (another read's logits)")
+
+
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
 def kl(of: Tensor, against: Value) -> Tensor:
     """KL(of ‖ against) between the two next-token distributions, in nats."""
     p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)
     return (p.exp() * (p - q)).sum(-1)
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
 def js(of: Tensor, against: Value) -> Tensor:
     """The Jensen–Shannon divergence between the two distributions, in nats (at most log 2)."""
     p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)

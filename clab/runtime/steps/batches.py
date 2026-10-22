@@ -119,14 +119,17 @@ def stacked(record, values: list) -> Any:
 
 def joined(state: dict, name: str, step, parts: list[dict]) -> None:
     """Each gathered entry's per-batch values joined along rows (a ragged one's entries, after the layer
-    axis)."""
+    axis), on the first batch's device, as `stacked` joins layers: a batch whose rows all stopped before the
+    calls a read names made its blank on the CPU, and under a device map batches can come back apart."""
+    def cat(values: list[Tensor], axis: int) -> Tensor:
+        return torch.cat([v.to(values[0].device) for v in values], axis)
     for key, record in entries(step).items():
         if not record.gathered:
             continue
         axis = 1 if address.stacks(record.site.layers) else 0
         values = [p[key] for p in parts]
-        put(state, f"{name}.{key}", step.at, torch.cat(values, axis) if isinstance(values[0], Tensor) else
-            {k: torch.cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})
+        put(state, f"{name}.{key}", step.at, cat(values, axis) if isinstance(values[0], Tensor) else
+            {k: cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})
 
 
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
@@ -183,6 +186,8 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
         args = {**args, "over": [a for a in over if a not in ("rows", "pos")] + ["entries"]}
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, value["row"], value["tok"])
-        kind = ops.kind(name, args)
-        return {**value, "values": got} if "entries" in ops.out_dims(name, dims, args, kind) else got
+        if "entries" not in ops.out_dims(name, dims, args, ops.kind(name, args)):
+            return got
+        # An op whose value is a dict (`top_k`'s ids and probs) keeps its keys beside the entries' rows and tokens.
+        return {"row": value["row"], "tok": value["tok"], **got} if isinstance(got, dict) else {**value, "values": got}
     return ops.call(name, value, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)

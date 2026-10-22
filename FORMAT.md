@@ -104,7 +104,13 @@ compose there in order, each on what the one before it left. A name binds once p
 name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
 at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
 positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
-meets (`space`). A bundle at the root is a dict of entries
+meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
+i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
+before any forward: each pair sits at one distance from the start within the tokens both prompts begin with
+alike, or from the end within those they end with alike (the first token past either counted in); any other
+is refused, and a scope names the token in each row. An operand holds the indices of every axis a site
+narrows (`num_heads`, ...) that the value it meets holds, in the same order. A bundle at the root is a dict
+of entries
 pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
 one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
 and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -159,9 +165,15 @@ call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes. A list of columns or texts locates every occurrence of each. Occurrences are ordered by where
-they end, then where they start: where an occurrence becomes known and where index -1 lands, so a write
-found online, a read and the run record count them alike (`b` inside `abc` comes before it). `occurrence`
+prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
+the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
+after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
+occur in ` Sarah`, ` Ann` not in ` Annabel`, `:` not in `):` (a write found online sees nothing past the
+token it is fed, so it takes an end there as a word's, whatever follows). A list of columns or texts locates every occurrence of each. Occurrences
+are ordered by where they end, then where they start: where an occurrence becomes known and where index -1
+lands, so a write found online, a read and the run record count them alike (`b` inside `a b c` comes before
+it). `occurrence`
 (default 0, the first of any) picks which of those occurrences among the tokens the
 scope is; the scope is the tokens of the picked ones, in order
 (their union where occurrences of different texts overlap); `strip` and `lower` (a text's, or on a
@@ -290,7 +302,9 @@ that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scal
 is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
 the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
 "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-body's forwards run in batches of `batch_size`, whatever the run's batch size.
+body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
+the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
+history is empty, `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
@@ -349,10 +363,10 @@ token text). Reductions skip it: `mean` is the mean over the rows that have a va
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
-**reductions** remove axes, by default every one but the feature axes (`over` names them; over `pos`, one
-value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`,
-`decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are
-what writes back; **transforms** turn each example's value into another of a different layout (logits from
+**reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
+over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`,
+`project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
+an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
@@ -402,7 +416,7 @@ stays missing: NaN, or no entries.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `match` | `expected: Tokens` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected` (any of its class or set), else 0. |
+| `match` | `expected: Tokens` | needs vocab_size or classes; removes its vocabulary axis | 1 where the most likely token is `expected` (any of its class or set), else 0; the most likely token is `argmax`'s, an exact tie to the lower id. |
 | `logit_diff` | `a: Tokens`, `b: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `a` less the logit of `b`. |
 | `token_prob` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The probability of `token` (of a class or a set, its members' summed). |
 | `token_logit` | `token: Tokens` | needs vocab_size or classes; removes its vocabulary axis | The logit of `token`. |
@@ -416,9 +430,9 @@ stays missing: NaN, or no entries.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The mean over the axes `over` names (a ragged value's `pos`: each row's entries), of the values that are there (a missing one is NaN); by default over every axis but the feature axes. |
-| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
-| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default every axis but the feature axes. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The mean over the axes `over` names (a ragged value's `pos`: each row's entries), of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
+| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
+| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, entries, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits
@@ -443,8 +457,8 @@ stays missing: NaN, or no entries.
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
-| `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. |
-| `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing). |
+| `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so `top_k`'s first is `argmax`'s token. |
+| `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing), ranked by its logit; an exact tie goes to the lower id, as in `top_k`. |
 | `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
 ## Components
@@ -521,16 +535,18 @@ saved as one. A document that loads one is checked against it key by key: the te
 fields and the model when the plan compiles, the site at every use, and `width` against the model's size
 before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
 keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
-`sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
-width: nothing says what model or site it was made at, so neither is checked.
+`sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each other and the site's width:
+nothing in it says what model or site it was made at, so the document states the layer, which every use is
+checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`) and the scalars a fit's objective may name (`scalars`); its constructor makes an instance. The ops
-it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode`
-when it has both) and `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind`
-declares, with a default for what a kind need not have.
+(`drawn`), the scalars a fit's objective may name (`scalars`) and the fields that count directions of the
+value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
+methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
+`apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
+what a kind need not have.
 
 ### `subspace`
 
@@ -575,6 +591,7 @@ Ops: `encode` gives its coordinates, the last axis becoming features; `decode` w
 - `activation: one of "relu", "jumprelu", "topk" = "relu"`
 - `k: int or null = null`
 - `centered: bool = true`
+- `site: str or {component: str, layers: int} or null = null`
 
 A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
 dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
@@ -585,8 +602,11 @@ both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec)
 published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
 zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
 `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-are checked against each other and the site's width, nothing says what model it was trained on, and the
-document states its `activation` and `centered`, which have no default for it. Its
+are checked against each other and the site's width, and nothing in it says what model it was trained on, so
+the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
+the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
+site it is used at is, component and layer (`layers: -1` counting as the layer it is). A `site` given for any
+sae is checked so. Its
 scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
 mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
@@ -724,7 +744,8 @@ bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors 
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
-fit's trained featurizer) carries the header that featurizer checks.
+fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
+after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the

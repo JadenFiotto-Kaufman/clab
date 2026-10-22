@@ -1,5 +1,5 @@
 {
- "description": "A published TopK sparse autoencoder, spliced in. `documents/artifacts/sae_saelens.safetensors` is laid out as SAELens publishes one: `W_enc`, `W_dec`, `b_enc` and `b_dec`, and no clab header, so nothing says what model it was trained on and only its shapes are checked. Nothing in it says how it encodes, so the document states it: with `activation: topk` and `k: 4` a vector's latents are the relu of its four largest pre-activations (its encoder subtracts `b_dec` first, `centered: true`), every other latent zero, so `base.latents`, the latents of layer 0's output at the last position, has at most four nonzero entries per row. `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `p_answer` scores the counterfactual answer's probability there. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
+ "description": "A published TopK sparse autoencoder, spliced in. `documents/artifacts/sae_saelens.safetensors` is laid out as SAELens publishes one: `W_enc`, `W_dec`, `b_enc` and `b_dec`, and no clab header, so nothing in it says what model or layer it was trained at, or how it encodes, and the document states what the file cannot: it was trained at the `target` site, layer 0's output (`site: \"target\"`, checked against every site it is used at), and with `activation: topk` and `k: 4` a vector's latents are the relu of its four largest pre-activations (its encoder subtracts `b_dec` first, `centered: true`), every other latent zero, so `base.latents`, the latents of layer 0's output at the last position, has at most four nonzero entries per row. `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `p_answer` scores the counterfactual answer's probability there. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -17,7 +17,11 @@
    "file_path": "documents/artifacts/sae_saelens.safetensors",
    "activation": "topk",
    "k": 4,
-   "centered": true
+   "centered": true,
+   "site": {
+    "component": "layer_output",
+    "layers": 0
+   }
   }
  },
  "steps": {

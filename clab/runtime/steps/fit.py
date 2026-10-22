@@ -80,9 +80,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     for f, inst in trained.items():
         inst.seen = None
         put(state, f"{name}.{f}", step.at, inst)
-    for key, values in history.items():
-        if values:
-            put(state, f"{name}.history.{key}", step.at, torch.stack(values))
+    for key, values in history.items():         # `epochs: 0` scores the untrained draw: an empty history
+        put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
 
 
 def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple, index: list[int] | None) -> dict:

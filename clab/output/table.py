@@ -159,13 +159,15 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
 
 def ragged(value: dict, dims: list[str], place: dict | None) -> list[dict]:
     """A ragged value's rows: one per entry (per layer on a `layers` axis), labelled with its row and the
-    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach."""
-    stack = value["values"] if "layers" in dims else value["values"][None]
+    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach. A value
+    whose op made a dict of its own (`top_k`'s `ids`, `probs` and `tokens`) gives each entry's as a dict."""
+    parts = {k: v if "layers" in dims else [v] for k, v in value.items() if k not in ("row", "tok")}
     out = []
-    for k in range(stack.shape[0]):
+    for k in range(len(next(iter(parts.values())))):
         for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist())):
             row = {"layer": layer(place, k)} if "layers" in dims else {}
-            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": stack[k, i].tolist()})
+            got = {key: part(v[k], (i,)) for key, v in parts.items()}
+            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": got.get("values", got)})
     marks = [{"row": r, **unreached(place, r)} for r in range(len(place["positions"]))
              if unreached(place, r)] if place else []
     return sorted(out + marks, key=lambda row: row["row"]) if marks else out
