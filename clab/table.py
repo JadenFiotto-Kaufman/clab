@@ -23,9 +23,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     `pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
     with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
     numbered the same way, the row's own keys only), the dataset columns the step used
-    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
-    value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
-    `alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices."""
+    (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
+    beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
+    past its own are left out. A value with no rows axis gives a row per element with its axis indices."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -91,16 +91,12 @@ def own_keys(name: str, value: Any, dims: list[str], place: dict | None) -> None
     """Refuses a value whose unselected `key` axis is not each row's own keys, NaN past them: one a clab wrote whose
     key axis was the padded batch's (a shorter row's padding first), which the table would label with the wrong
     tokens."""
-    if place is None or place["keys"] is not None or "key" not in dims:
+    if place is None or place["keys"] is not None or "key" not in dims or not isinstance(value, Tensor):
         return
-    values = value["values"] if isinstance(value, dict) else value
-    if not isinstance(values, Tensor):
-        return
-    each = values.movedim((dims.index("rows" if "rows" in dims else "entries"), dims.index("key")), (0, -1))
-    rows = value["row"].tolist() if isinstance(value, dict) else range(each.shape[0])
-    for i, r in enumerate(rows):
+    each = value.movedim((dims.index("rows"), dims.index("key")), (0, -1))
+    for r in range(each.shape[0]):
         n = len(place["prompt"][r])
-        if not each[i, ..., n:].isnan().all():
+        if not each[r, ..., n:].isnan().all():
             raise ValueError(f"{name}: row {r} holds values past its own {n} keys: it was written by a clab whose key "
                              "axis was the padded batch's; rerun the document")
 
@@ -108,7 +104,7 @@ def own_keys(name: str, value: Any, dims: list[str], place: dict | None) -> None
 def dataset_of(plan: Plan, name: str) -> str | None:
     """The dataset a saved value has a row per example of, if any: its step's, or for a member of a fit's named
     eval the one its body's step read under that eval."""
-    if not {"rows", "entries"} & set(dims_of(plan, name)):
+    if "rows" not in dims_of(plan, name):
         return None
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
@@ -138,8 +134,6 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
 
 def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
-    if isinstance(value, dict) and "tok" in value:
-        return ragged(value, dims, place)
     if isinstance(value, dict) and "rows" not in dims:
         raise ValueError("a bundle has no rows to table; read it from plan.results")
     first = next(iter(value.values())) if isinstance(value, dict) else value
@@ -160,28 +154,12 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
         for i, k in at.items():
             if dims[i] in ("pos", "key"):
                 row.update(token(place, at[dims.index("rows")], dims[i], k))
-        if row.get("key", 0) is None:
-            continue                                    # past the row's own keys
+        if row.get("key", 0) is None or row.get("pos", 0) is None:
+            continue                                    # past the row's own keys or positions
         pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
         row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
         out.append(row)
     return out
-
-
-def ragged(value: dict, dims: list[str], place: dict | None) -> list[dict]:
-    """A ragged value's rows: one per entry (per layer on a `layers` axis), labelled with its row and the
-    token it is (`tok`, its position); then one row for each row a read beyond the prefill did not reach. A value
-    whose op made a dict of its own (`top_k`'s `ids`, `probs` and `tokens`) gives each entry's as a dict."""
-    parts = {k: v if "layers" in dims else [v] for k, v in value.items() if k not in ("row", "tok")}
-    out = []
-    for k in range(len(next(iter(parts.values())))):
-        for i, (r, t) in enumerate(zip(value["row"].tolist(), value["tok"].tolist())):
-            row = {"layer": layer(place, k)} if "layers" in dims else {}
-            got = {key: part(v[k], (i,)) for key, v in parts.items()}
-            out.append({**row, "row": r, **label(place, r, t, "pos"), "value": got.get("values", got)})
-    marks = [{"row": r, **unreached(place, r)} for r in range(len(place["positions"]))
-             if unreached(place, r)] if place else []
-    return sorted(out + marks, key=lambda row: row["row"]) if marks else out
 
 
 def layer(place: dict | None, k: int) -> int:
@@ -198,11 +176,11 @@ def unreached(place: dict | None, row: int | None) -> dict:
 def token(place: dict | None, row: int, axis: str, k: int) -> dict:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
-    None past the row's own keys."""
+    None past the row's own positions or keys."""
     if place is None:
         return {axis: k}
     if axis == "pos":
-        return label(place, row, place["positions"][row][k], axis)
+        return label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) else {axis: None}
     index = place["keys"][k] if place["keys"] is not None else k
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 

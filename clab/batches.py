@@ -1,14 +1,14 @@
 """A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
 with, its value with the ops after its last edit applied."""
 
-from typing import Any, cast
+from typing import Any
 
 import torch
 from torch import Tensor
 
 from . import address, data, ops, positions, selectors
 from .address import pos_axis
-from .answers import answered, column_texts, indexed, refkey, within_row
+from .answers import answered, column_texts, indexed, refkey
 from .interventions import bracketed, made_at
 from .plan import Plan, arguments, dims_of, entries, gathers, parameters, writes
 from .positions import head
@@ -17,15 +17,16 @@ from .sweeps import lookup, put
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
-    its token indices into the padded batch (`positions`, `[rows, n]`; a ragged row repeats its last index to the
-    batch's widest, `keep` marking its own, `tok` the unpadded indices), the part of the feature axes it keeps
+    its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
+    batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
+    own), the part of the feature axes it keeps
     (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys
     (`keys`). Where the value holds the last position alone (`last_only`: a generation's head in the prefill)
     every index is -1."""
     n = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(rows, pads)]
-    tok = [[i - pad for i in row] for row, pad in zip(index, pads)]
+    tok = [row + [-1] * (n - len(row)) for row in rows]
     index = [[-1] * n for _ in rows] if last_only else index
     return {"component": record.site.component, "positions": torch.tensor(index),
             "select": selection(record, picks), **keys(record, pads, width),
@@ -45,7 +46,7 @@ def keys(record, pads: list[int], width: int) -> dict:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, width]`) each row's keys in the
     padded batch, in order, then its padding's, and `own` which of those are the row's (`ops.owned`). Nothing
     on a component with no key axis."""
-    layout = address.dims(record.site.component, None, False)
+    layout = address.dims(record.site.component)
     if "key" not in layout:
         return {}
     index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) for pad in pads]
@@ -56,7 +57,7 @@ def keys(record, pads: list[int], width: int) -> dict:
 def selection(record, picks: dict) -> dict:
     """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps
     (`picks`, by axis): on `key`, among the row's own keys, which `keys` puts first, in order."""
-    layout = address.dims(record.site.component, None, False)
+    layout = address.dims(record.site.component)
     return {layout.index(axis): torch.tensor(v) for axis, v in picks.items()}
 
 
@@ -81,7 +82,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
                     out[-1]["features"] = torch.tensor(selectors.select(select["features"], f.size()))
                 out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
         return out
-    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component, None, False))
+    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component))
 
 
 def batches(engine, step, found: dict, batch_size: int):
@@ -129,32 +130,44 @@ def stacked(record, values: list) -> Any:
     # the first's. (Not tested: this host has one GPU.)
     if isinstance(values[0], Tensor):
         return torch.stack([v.to(values[0].device) for v in values])
-    return {**values[0], "values": torch.stack([v["values"].to(values[0]["values"].device) for v in values])}
+    return {k: torch.stack([v[k].to(values[0][k].device) for v in values]) for k in values[0]}
 
 
 def joined(state: dict, name: str, step, parts: list[dict]) -> None:
-    """Each gathered entry's per-batch values joined along rows (a ragged one's entries, after the layer
-    axis), on the first batch's device, as `stacked` joins layers: a batch whose rows all stopped before the
-    calls a read names made its blank on the CPU, and under a device map batches can come back apart."""
-    def cat(values: list[Tensor], axis: int) -> Tensor:
-        return torch.cat([v.to(values[0].device) for v in values], axis)
+    """Each gathered entry's per-batch values joined along rows, on the first batch's device, as `stacked`
+    joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
+    under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
+    to it first (`padded`)."""
     for key, record in entries(step).items():
         if not record.gathered:
             continue
-        axis = 1 if address.stacks(record.site.layers) else 0
+        dims = record.dims or []
         values = [p[key] for p in parts]
-        put(state, f"{name}.{key}", step.at, cat(values, axis) if isinstance(values[0], Tensor) else
-            {k: cat([v[k] for v in values], axis if k == "values" else 0) for k in values[0]})
+
+        def cat(parts: list[Tensor]) -> Tensor:
+            if "pos" in dims:
+                parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
+            return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
+        put(state, f"{name}.{key}", step.at, cat(values) if isinstance(values[0], Tensor) else
+            {k: cat([v[k] for v in values]) for k in values[0]})
+
+
+def padded(value: Tensor, dim: int, n: int) -> Tensor:
+    """`value` padded along `dim` to `n` with what marks a missing position: NaN, or -1 in ids."""
+    shape = list(value.shape)
+    shape[dim] = n - shape[dim]
+    missing = float("nan") if value.is_floating_point() else -1
+    return value if shape[dim] == 0 else torch.cat([value, torch.full(shape, missing, dtype=value.dtype,
+                                                                       device=value.device)], dim)
 
 
 def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
          at: dict, answers: dict) -> Any:
-    """One layer of an entry's value taken off the model in the prefill, in one batch: its entries when it is
-    ragged, then the ops after its last edit (`answers` as preflight resolved them)."""
-    if positions.width(positions.parse(record.pos)) is None:
-        keep = site["keep"]
-        value = {"values": value[keep.to(value.device)],
-                 "row": torch.arange(rows.start, rows.stop)[:, None].expand(keep.shape)[keep], "tok": site["tok"][keep]}
+    """One layer of an entry's value taken off the model in the prefill, in one batch, NaN past a row's own
+    positions (`keep`), then the ops after its last edit (`answers` as preflight resolved them)."""
+    keep = site["keep"].to(value.device)
+    if not keep.all():
+        value = value.masked_fill(~keep.reshape(*keep.shape, *[1] * (value.dim() - 2)), float("nan"))
     return with_ops(engine, plan, record, value, state, at, rows, site["tok"], answers)
 
 
@@ -162,50 +175,17 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
              places: Tensor | None, answers: dict) -> Any:
     """An entry's value taken off the model with the ops after its last edit applied in turn. Past a probe's
     `encode` a column names its classes. An op is given each row's dataset row and each position's token
-    position (`places`, `[rows, width]`; a ragged value's own `row` and `tok`)."""
-    dims = address.dims(record.site.component, None, positions.width(positions.parse(record.pos)) is None)
+    position (`places`, `[rows, width]`, -1 past a row's own)."""
+    dims = address.dims(record.site.component)
     vocabulary = None
     for o in gathers(record):
         args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
-        value = apply(engine, o.op, value, args, dims, rows=torch.arange(rows.start, rows.stop), places=places)
+        value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.arange(rows.start, rows.stop),
+                         positions=places)
         dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
         if o.op == "encode":
             vocabulary = getattr(args["featurizer"], "classes", None)
     return value
-
-
-def dense(value: dict, dims: list[str], rows: Tensor) -> tuple[Tensor, list[str]]:
-    """A ragged value over the dataset rows `rows` as a rectangular one, `entries` become `rows, pos`: each
-    row's entries in order, NaN past its last (a row with none is missing all the way)."""
-    axis = dims.index("entries")
-    values = value["values"].movedim(axis, 0)
-    row = value["row"] - rows[0]
-    j = within_row(value["row"])
-    width = int(j.max()) + 1 if len(j) else 1
-    out = torch.full((len(rows), width, *values.shape[1:]), float("nan"), dtype=values.dtype, device=values.device)
-    out[row.to(values.device), j.to(values.device)] = values
-    return out.movedim((0, 1), (axis, axis + 1)), dims[:axis] + ["rows", "pos"] + dims[axis + 1:]
-
-
-def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[int] | None = None,
-          rows: Tensor | None = None, places: Tensor | None = None) -> Any:
-    """Op `name` on a value; on a ragged value, on its entries, which stay ragged while the op keeps them.
-    `rows` and `places` say which dataset row and token position each of the value's rows and positions
-    is, where the run knows them; a ragged value's are its `row` and `tok`."""
-    over = args.get("over") if ops.DECLARED[name]["group"] == "reductions" else None
-    if isinstance(value, dict) and "tok" in value and over is not None and "pos" in over:
-        if "rows" not in over:          # each row's entries are its positions: one value per row
-            assert rows is not None
-            value, dims = dense(value, dims, rows)
-            return apply(engine, name, value, args, dims, eos, rows=rows)
-        args = {**args, "over": [a for a in over if a not in ("rows", "pos")] + ["entries"]}
-    if isinstance(value, dict) and "tok" in value:
-        got = apply(engine, name, value["values"], args, dims, eos, value["row"], value["tok"])
-        if "entries" not in ops.out_dims(name, dims, args, ops.kind(name, args)):
-            return got
-        # An op whose value is a dict (`top_k`'s ids and probs) keeps its keys beside the entries' rows and tokens.
-        return {"row": value["row"], "tok": value["tok"], **got} if isinstance(got, dict) else {**value, "values": got}
-    return ops.call(name, value, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)
 
 
 def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
@@ -214,8 +194,7 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
     forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
-    the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`. On a ragged
-    value `of`, an argument with a row per example is taken at each entry's row."""
+    the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`."""
     params, out = parameters(plan, name, args), {}
     for key, value in args.items():
         annotation, per_row = params[key].annotation, False
@@ -239,8 +218,6 @@ def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows
             continue
         elif annotation == ops.Featurizer:
             value = lookup(state, value, at)
-        if per_row and isinstance(of, dict) and "tok" in of:
-            value = value[(of["row"] - (rows.start if rows is not None else 0)).to(cast(Tensor, value).device)]
         out[key] = value
     return out
 

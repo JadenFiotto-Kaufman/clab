@@ -92,7 +92,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     sizes, out = engine.sizes(), {}
     for name, used in uses(plan).items():
         for where, site, at, o, around in used:
-            last = address.dims(site.component, None, False)[-1]
+            last = address.dims(site.component)[-1]
             kept = selectors.kept(site.select, sizes)
             width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:

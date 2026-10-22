@@ -176,7 +176,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
     inner = within.names
     for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and {"rows", "entries"} & set(cx.names[ref]["dims"]):
+        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref]["dims"]:
             fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
                  "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]

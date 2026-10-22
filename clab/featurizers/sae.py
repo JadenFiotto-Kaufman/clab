@@ -113,11 +113,14 @@ class Sae(Kind):
         self.W_dec.div_(self.W_dec.norm(dim=1, keepdim=True))
 
     def seen_vectors(self) -> tuple[Tensor, Tensor]:
-        """The vectors (`[n, width]`) and latents the body's encodes saw in this run of the body."""
+        """The vectors (`[n, width]`) and latents the body's encodes saw in this run of the body, the missing
+        ones (NaN) left out."""
         if not self.seen:
             raise ValueError("an sae's scalars are over what the body's encodes of it saw; this body has none")
-        return (torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in self.seen]),
-                torch.cat([z.reshape(-1, z.shape[-1]) for _, z in self.seen]))
+        h = torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in self.seen])
+        z = torch.cat([z.reshape(-1, z.shape[-1]) for _, z in self.seen])
+        there = ~h.isnan().any(-1)
+        return h[there], z[there]
 
     def scalar(self, name: str) -> Tensor:
         if name not in self.scalars:

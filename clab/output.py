@@ -1,7 +1,7 @@
 """A run's output directory and back.
 
 One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
-bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
+bundle, `top_k`'s ids and probabilities), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a

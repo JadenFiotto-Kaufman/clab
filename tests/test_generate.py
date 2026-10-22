@@ -79,7 +79,7 @@ def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
     assert plan.run.positions["answer.at_said"] == [[12], [12], "alignment_missing", "alignment_missing"]
     assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
     p = plan.results["p_answer"]
-    assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 12] and p["values"].shape == (2,)
+    assert p.shape == (4, 1) and not p[:2].isnan().any() and p[2:].isnan().all()
     said = plan.run.tokens["answer"]
     assert [said[0][1], said[1][3]] == ["▁substr", "calc"]
 
@@ -125,7 +125,7 @@ def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engin
         == [(0, 12, "▁substr", 2, None), (1, 12, "calc", 4, None), (2, None, None, None, True),
             (3, None, None, None, True)]
     assert all(r["text"] == text[0] for r in rows) and [r["said"] for r in rows][2:] == ["Friday", "Saturday"]
-    assert "p_answer" not in rows[2] and rows[0]["p_answer"] == plan.results["p_answer"]["values"][0].item()
+    assert "p_answer" not in rows[2] and rows[0]["p_answer"] == plan.results["p_answer"][0, 0].item()
 
 
 def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
@@ -532,17 +532,16 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     assert found({**every, "frame": "1:"}) == [3]
 
 
-def test_a_span_of_calls_with_every_position_is_ragged(engines):
+def test_a_span_of_calls_with_every_position_is_as_wide_as_the_widest_row(engines):
     """`{"frame": "1:4"}` reads calls 1 to 3 of each row: the Thursday row stopped after call 1, so it has
-    one entry and the others three."""
+    one position and the others three, NaN past its own."""
     plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
         d["steps"]["answer"]["interventions"].update(span={"site": "head", "pos": {"frame": "1:4"}}),
         d["saves"].append("answer.span")))
     assert plan.run.positions["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
     value = plan.results["answer.span"]
-    assert value["row"].tolist() == [0, 1, 1, 1, 2, 2, 2, 3, 3, 3]
-    assert value["tok"].tolist() == [11, 9, 10, 11, 9, 10, 11, 9, 10, 11] and value["values"].shape == (10, 32000)
-    assert torch.equal(value["values"][[0, 1]], plan.results["answer.at1"][:2, 0])     # call 1 of rows 0 and 1
+    assert value.shape == (4, 3, 32000) and value[0, 1:].isnan().all() and not value[1:].isnan().any()
+    assert torch.equal(value[:2, 0], plan.results["answer.at1"][:2, 0])               # call 1 of rows 0 and 1
 
 
 def test_picked_calls_and_picked_tokens_keep_the_order_written(engines):
@@ -748,8 +747,8 @@ def doubled(d, scope: dict, index):
     (0, -1, [0]), (1, -1, [1]), (-1, -1, [1]), (":", ":", [0, 1]), ("0:2", ":", [0, 1]), ([1, 0], ":", [0, 1])])
 def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurrence, index, picks):
     """Each row says `Friday` twice: `occurrence` picks which, the same selector `frame` and `index` use; an
-    int keeps the read rectangular, a slice or picks make it ragged (the picked occurrences' tokens, in
-    order). Positions and values on both engines, to the bit, are those of the read of every position there."""
+    int keeps the read one position wide, a slice or picks make it the picked occurrences' tokens, in order.
+    Positions and values on both engines, to the bit, are those of the read of every position there."""
     scope = {"text": "Friday", "occurrence": occurrence}
     plan = edited("patching", lambda d: doubled(d, scope, index)).compile()
     runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
@@ -759,10 +758,9 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
         assert all(len(f) == 2 for f in fridays)
         assert filled.run.positions["look.there"] == [[f[i] for i in picks] for f in fridays], kind
         there, every = filled.results["look.there"], filled.results["look.every"]
-        entries = list(zip(every["row"].tolist(), every["tok"].tolist()))
-        want = [every["values"][entries.index((r, f[i]))] for r, f in enumerate(fridays) for i in picks]
-        got = there["values"] if isinstance(there, dict) else there[:, 0]
-        assert torch.equal(got, torch.stack(want)), kind
+        at = filled.run.positions["look.every"]
+        want = [every[r, at[r].index(f[i])] for r, f in enumerate(fridays) for i in picks]
+        assert torch.equal(there.reshape(-1, there.shape[-1]), torch.stack(want)), kind
     assert same(runs["nnterp"].results, runs["hooks"].results)
 
 
@@ -781,7 +779,7 @@ def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
         filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
         assert filled.run.positions["answer.second"] == [[p + 3] for p in PROMPT]
         assert filled.run.positions["answer.both"] == [[p, p + 2, p + 3] for p in PROMPT]    # the occurrences' only
-        assert filled.results["answer.both"]["values"].shape == (12, 32000)
+        assert filled.results["answer.both"].shape == (4, 3, 32000) and not filled.results["answer.both"].isnan().any()
 
 
 @pytest.mark.parametrize("strip, found", [(False, False), (True, True)])

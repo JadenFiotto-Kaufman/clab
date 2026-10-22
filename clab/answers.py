@@ -89,7 +89,7 @@ def check_tokens(engine, plan: Plan, found: dict, where: str, name: str, args: d
                 raise ValueError(f"{where}: {column} row {r}: {value!r} stands for {max(map(len, row))} ids (a set, "
                                  f"or a class under strip or lower), which have no one logit for {name}; "
                                  "token_prob scores them together")
-            if aligned and dims is not None and not {"pos", "entries"} & set(dims):
+            if aligned and dims is not None and "pos" not in dims:
                 raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
                                  f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
             if aligned and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
@@ -190,33 +190,34 @@ def answered(values: list, sets: list, column: str, of: Any, dims: list[str], ro
              aligned: bool) -> Tensor:
     """Each row's answer laid against the value `of` a metric scores, as the ids each position may be, padded
     with -1 (`metrics._aligned`). A column whose every row is one token scores it at every position of its row
-    (`[rows, m]`, or `[entries, m]` on a ragged value); one with an answer of several tokens is `aligned`:
-    token i of each row's at the row's position i (`[rows, pos, m]`, or `[entries, m]`), which needs every row
-    to have as many positions as its answer has tokens."""
+    (`[rows, m]`); one with an answer of several tokens is `aligned`: token i of each row's at the row's
+    position i (`[rows, pos, m]`), which needs every row the value reaches to have as many positions as its
+    answer has tokens (`present`)."""
     start = rows.start if rows is not None else 0
     most = max(len(ids) for row in sets for ids in row)
     sets = [[ids + [-1] * (most - len(ids)) for ids in row] for row in sets]
-    ragged = isinstance(of, dict) and "tok" in of
     if not aligned:
-        ids = torch.tensor([row[0] for row in sets])
-        return ids[of["row"] - start] if ragged else ids
-    if ragged:
-        row, j = of["row"] - start, within_row(of["row"])
-        lined(values, sets, torch.bincount(row, minlength=len(sets)).tolist(), column, start, True)
-        return torch.tensor([sets[r][int(i)] for r, i in zip(row.tolist(), j)], dtype=torch.long).reshape(-1, most)
+        return torch.tensor([row[0] for row in sets])
     if "pos" not in dims:
         raise ValueError(f"{column}: an answer of several tokens scores a position each, and the value has no pos "
                          f"axis ({dims})")
     width = cast(Tensor, of).shape[dims.index("pos")]
-    lined(values, sets, [width] * len(sets), column, start, False)
-    return torch.tensor([[row[i] for i in range(width)] for row in sets])
+    lined(values, sets, present(cast(Tensor, of), dims), column, start)
+    return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 
-def lined(values: list, sets: list, widths: list[int], column: str, start: int, ragged: bool) -> None:
-    """Refuses a row that does not have one of the read's positions per token of its answer; a ragged row with
-    none is missing, not refused."""
+def present(of: Tensor, dims: list[str]) -> list[int]:
+    """How many positions each row of `of` holds: those not NaN all the way (a row the value does not reach,
+    or a position past a row's own, is NaN)."""
+    x = of.movedim((dims.index("rows"), dims.index("pos")), (0, 1))
+    return (~x.reshape(*x.shape[:2], -1).isnan().all(-1)).sum(1).tolist()
+
+
+def lined(values: list, sets: list, widths: list[int], column: str, start: int) -> None:
+    """Refuses a row that does not have one of the read's positions per token of its answer; a row with none is
+    missing, not refused."""
     for r, (value, k, n) in enumerate(zip(values, (len(s) for s in sets), widths)):
-        if n != k and not (ragged and n == 0):
+        if n != k and n != 0:
             raise ValueError(unaligned(column, start + r, value, k, n))
 
 
@@ -284,8 +285,3 @@ def spellings(tokenizer, strip: bool, lower: bool) -> dict[str, list[int]]:
         if "\ufffd" not in text:
             found.setdefault(data.compared(text, strip, lower), []).append(i)
     return found
-
-
-def within_row(row: Tensor) -> Tensor:
-    """Each of a ragged value's entries' index among its own row's, the entries in row order."""
-    return torch.arange(len(row)) - torch.searchsorted(row, row)

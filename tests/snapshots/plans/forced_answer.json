@@ -32,7 +32,8 @@
       }
      },
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "vocab_size"
      ],
      "gathered": true
@@ -46,7 +47,8 @@
    "of": "forced.logits",
    "dataset": "days",
    "dims": [
-    "entries"
+    "rows",
+    "pos"
    ],
    "target": "days.base_answer"
   },
@@ -68,7 +70,8 @@
    "of": "forced.logits",
    "dataset": "days",
    "dims": [
-    "entries"
+    "rows",
+    "pos"
    ],
    "expected": "days.base_answer"
   },

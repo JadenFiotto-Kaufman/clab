@@ -194,10 +194,13 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
         plan = edited(name, lambda d: pure(d, step, frame)).compile()
         runs = [engines(kind, plan.model).execute(plan, batch_size=b) for kind in ("nnterp", "hooks") for b in (1, 4)]
         assert all(same(r.results, runs[0].results) for r in runs)
-        got = runs[0].results[f"{step}.n"]
-        expected = torch.stack([torch.randn(16, generator=edits.seeded(7, r, t))
-                                for r, t in zip(got["row"].tolist(), got["tok"].tolist())])
-        assert torch.equal(got["values"], expected) and len({tuple(v.tolist()) for v in expected}) == len(expected)
+        got, where = runs[0].results[f"{step}.n"], runs[0].run.positions[f"{step}.n"]
+        drawn = []
+        for r, places in enumerate(where):
+            expected = torch.stack([torch.randn(16, generator=edits.seeded(7, r, t)) for t in places])
+            assert torch.equal(got[r, :len(places)], expected) and got[r, len(places):].isnan().all()
+            drawn += [tuple(v.tolist()) for v in expected]
+        assert len(set(drawn)) == len(drawn)
 
 
 @pytest.mark.parametrize("name", list(PLANS))
@@ -246,17 +249,19 @@ def test_a_column_scope_is_the_rows_own_text(filled):
     assert cf == ["▁Saturday", "▁Sunday", "day", "▁Friday"]
 
 
-def test_a_ragged_read_is_one_entry_per_token(engines, filled):
-    """entity_mean_ablation.json's harvest: every token of each row's entity, three for Thursday, one otherwise;
-    the mean is over those six vectors, and pca_harvest.json's is over the 34 tokens after BOS (`"1:"`)."""
+def test_a_read_of_every_token_of_a_scope_is_as_wide_as_the_widest_row(engines, filled):
+    """entity_mean_ablation.json's harvest: every token of each row's entity, three for Thursday, one otherwise,
+    NaN past a row's own; the mean is over those six vectors, and pca_harvest.json's is over the 34 tokens
+    after BOS (`"1:"`)."""
     def change(d):
         d["saves"] = ["harvest.acts", "mean"]
     plan = edited("entity_mean_ablation", change).compile()
-    values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
-    acts = values["harvest.acts"]
-    assert acts["values"].shape == (6, 16) and acts["row"].tolist() == [0, 0, 0, 1, 2, 3]
-    assert acts["tok"].tolist() == [4, 5, 6, 4, 4, 4]
-    assert torch.equal(values["mean"], acts["values"].mean(0))
+    done = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    values, acts = done.results, done.results["harvest.acts"]
+    assert done.run.positions["harvest.acts"] == [[4, 5, 6], [4], [4], [4]]
+    assert acts.shape == (4, 3, 16) and not acts[0].isnan().any() and not acts[1:, 0].isnan().any()
+    assert acts[1:, 1:].isnan().all()
+    assert torch.equal(values["mean"], acts.nanmean(dim=(0, 1)))
     harvested = filled["pca_harvest", "nnterp"].run.positions["harvest.acts"]
     assert sum(map(len, harvested)) == 34 and all(0 not in row for row in harvested)
     basis = filled["pca_harvest", "nnterp"].results["basis"]
@@ -381,11 +386,13 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
         d["saves"] = ["patched.whole"]
     written, clean = (edited("patching", lambda d, w=w: change(d, w)).compile() for w in (True, False))
     engine = engines(kind, written.model)
-    after = engine.execute(written, batch_size=BATCH_SIZE).results["patched.whole"]
+    done = engine.execute(written, batch_size=BATCH_SIZE)
+    after, where = done.results["patched.whole"], done.run.positions["patched.whole"]
     before = engine.execute(clean, batch_size=BATCH_SIZE).results["patched.whole"]
-    zeroed = (after["values"] == 0).all(-1)
-    assert after["tok"][zeroed].tolist() == [6, 7, 8, 9, 6, 7, 6, 7, 6, 7]       # positions 6 to -1
-    assert torch.equal(after["values"][~zeroed], before["values"][~zeroed])
+    zeroed = (after == 0).all(-1)
+    assert [p for r, row in enumerate(where) for j, p in enumerate(row) if zeroed[r, j]] == \
+        [6, 7, 8, 9, 6, 7, 6, 7, 6, 7]                                           # positions 6 to -1
+    assert torch.equal(after.nan_to_num(7.0)[~zeroed], before.nan_to_num(7.0)[~zeroed])
 
 
 def test_a_swept_value_joins_an_unswept_one_beside_each_point(engines):
@@ -468,14 +475,15 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
         d["steps"]["clean"]["interventions"]["other"] = {"site": operand_site, "pos": pos}
         d["steps"]["similarity"] = {"kind": "op", "op": op, "of": "patched.resid", "with": "clean.other"}
     stacked = {"component": "layer_output", "layers": [0, 2]}
-    for site, pos, message in ((stacked, {"index": "-2:"}, r"\['layers', 'rows', 'pos', 'hidden_size'\]"),
+    for site, pos, message in ((stacked, {"index": "-2:"}, r"is laid out \['layers', 'rows', 'pos', 'hidden_size'\]; "
+                                                            r"'cosine' scores a value laid out \['rows', 'pos', 'hidden_size'\]"),
                                ({"component": "layer_output", "layers": 0}, {"index": ":"},
-                                r"\['entries', 'hidden_size'\]")):
+                                r"holds a different number of positions on each row, which pair with no other "
+                                r"value's; read both at a static index")):
         def one(d, site=site, pos=pos):
             d["sites"]["stream"]["layers"] = 2
             change(d, "cosine", site, pos)
-        with pytest.raises(PlanError, match=r"steps\.similarity\.with: 'clean\.other' is laid out " + message
-                           + r"; 'cosine' scores a value laid out \['rows', 'pos', 'hidden_size'\]"):
+        with pytest.raises(PlanError, match=r"steps\.similarity\.with: 'clean\.other' " + message):
             edited("cosine_metric", one).compile()
 
 

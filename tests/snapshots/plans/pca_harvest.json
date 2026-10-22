@@ -25,7 +25,8 @@
       "index": "1:"
      },
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "hidden_size"
      ],
      "gathered": true

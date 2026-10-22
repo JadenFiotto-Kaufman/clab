@@ -158,7 +158,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
                      dataset)
     ragged = positions.width(pos) is None
-    dims = address.dims(site.component, site.layers, ragged)
+    dims = address.dims(site.component, site.layers)
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
     try:
         tree = bracketed(spec.ops)
@@ -291,7 +291,7 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
     it), of its operands with a rows axis, and of its columns."""
     datasets = {of[0]: of[1]} if of[0] else {}
     for info in found.values():
-        if info["data"] is not None and {"rows", "entries"} & set(info["dims"]):
+        if info["data"] is not None and "rows" in info["dims"]:
             datasets.setdefault(info["data"], repr(info["name"]))
     if len(datasets) > 1:
         (a, x), (b, y) = list(datasets.items())[:2]
@@ -302,17 +302,16 @@ def aligned(path: str, of: tuple[str | None, str], found: dict) -> str | None:
 def paired(path: str, name: str, dims: list[str], width: int | None, found: dict) -> None:
     """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, as many
     positions wide (`width`) when it has positions, or is one vector of its features, the same for every
-    example; a ragged one's entries line up with nothing."""
+    example; one as wide as its widest row (no static width) lines up with nothing."""
     if ops.DECLARED[name]["group"] != "metrics":
         return
     one = [a for a in dims if a not in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info["kind"] != "value":
             continue
-        if "entries" in info["dims"]:
-            fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
-                 f"{dims}, and a ragged value's entries are its rows' positions, which pair with no other value's; "
-                 "read both at a static index (pos -1, or {'index': '-3:'}), which makes them rectangular")
+        if "pos" in info["dims"] and info.get("width") is None:
+            fail(f"{path}.{key}", f"{info['name']!r} holds a different number of positions on each row, which pair "
+                 f"with no other value's; read both at a static index (pos -1, or {{'index': '-3:'}})")
         if info["dims"] not in (dims, one):
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; {name!r} scores a value laid out "
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
@@ -354,10 +353,10 @@ def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: 
             fail(f"{path}.{key}", f"{info['name']!r} is in {said(info.get('space', []))}; this "
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
-        if info["dims"] == own and not whole:
-            fail(f"{path}.{key}", f"{info['name']!r} and this write are both ragged, {own}; what differs is that its "
-                 "entries are another forward's positions, which need not pair with this one's: read both at a "
-                 "static index (pos -1, {'index': '-3:'}), or reduce the operand to one vector")
+        if info["dims"] == own and not whole and info.get("width") is None:
+            fail(f"{path}.{key}", f"{info['name']!r} and this write both hold a different number of positions on each "
+                 "row, and another forward's positions need not pair with this one's: read both at a static index "
+                 "(pos -1, {'index': '-3:'}), or reduce the operand to one vector")
         if "layers" in info["dims"] and "layers" not in own:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}: it keeps a layers axis, and this "
                  "write lands at one layer, so its operand has none; read the operand at the write's own layer")
@@ -376,7 +375,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
-    if where != "step" and {"rows", "entries"} & (set(dims) - set(out)):
+    if where != "step" and "rows" in dims and "rows" not in out:
         fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; "
              "make it a step after the forward")
     return out
@@ -456,7 +455,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                              f"layer {site.layers}; an operand from the write's own forward is an earlier entry at "
                              "this site, or at a site the forward reaches first")
         if key in chosen:
-            per, own = (math.prod(kept.get(a) or sizes[a] for a in address.dims(s.component, None, False)[2:])
+            per, own = (math.prod(kept.get(a) or sizes[a] for a in address.dims(s.component)[2:])
                         for s, kept in ((read, theirs[1]), (site, shape[1])))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "

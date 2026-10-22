@@ -138,7 +138,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved = indices(where, write, record, step, rows, encoded, tokenizer)
                     put(found["positions"], where, step.at, resolved)
-                    shape = (len(resolved[0]), select)
+                    shape = (max(map(len, resolved)), select)
                 else:               # resolved in the run, from what each row generates; one position a call
                     shape = (positions.width(pos) or 1, select)
                 probe = None                        # past a probe's encode, a column names its classes
@@ -158,5 +158,5 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                 where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
                 for i, o in enumerate(record.ops):
                     check_labels(plan, where, o, step.at, held(plan, where, step.at, sizes),
-                                 address.dims(record.site.component, None, False), sizes, i < edits)
+                                 address.dims(record.site.component), sizes, i < edits)
     return found

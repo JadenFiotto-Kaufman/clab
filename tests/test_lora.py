@@ -152,7 +152,7 @@ def test_a_cross_site_adapter_adds_its_update_to_the_live_value_on_both_engines(
     values = got[0]
     bundle = points(plan.featurizers["oproj"])[0].bundle
     assert bundle is not None
-    unwrap = (lambda v: v["values"]) if isinstance(pos, dict) else (lambda v: v)
+    unwrap = (lambda v: v.nan_to_num(0.0)) if isinstance(pos, dict) else (lambda v: v)     # NaN past a row's own
     premix = unwrap(values["patched.premix"])
     expected = unwrap(values["clean.out"]) + 2.0 * ((premix.flatten(-2) @ bundle["A"]) @ bundle["B"])
     torch.testing.assert_close(unwrap(values["patched.out"]), expected, atol=1e-6, rtol=0)

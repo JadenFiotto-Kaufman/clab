@@ -21,7 +21,8 @@ import torch
 from torch import Tensor
 
 from .answers import probe_of
-from .batches import apply, batches, bind, bound, home, joined, layers, read, stacked
+from . import ops
+from .batches import batches, bind, bound, home, joined, layers, read, stacked
 from .featurizers.uses import instance
 from .plan import Plan, Run, arguments, dims_of, entries, points
 from .preflight import preflight
@@ -150,8 +151,8 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     rows.
 
     An entry whose `layers` are a slice or picks is one read per layer, the ops after its last edit run on
-    each, stacked layer-first; a ragged one is gathered at the batch's widest row and kept as
-    `{values, row, tok}`: one entry per token, its row and its token index."""
+    each, stacked layer-first; one whose rows hold different numbers of positions is as wide as the widest,
+    NaN past a row's own."""
     parts = []
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
     for chunk, batch, pads in batches(engine, step, found, batch_size):
@@ -165,18 +166,17 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
 
 
 def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: dict) -> None:
-    """The op over the whole value `of` names, given each of its rows' dataset row (a ragged value's own,
-    with its token positions). `top_k`'s value also holds its tokens, decoded."""
+    """The op over the whole value `of` names, given each of its rows' dataset row. `top_k`'s value also holds
+    its tokens, decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
     vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims_of(plan, step.of) \
         else None
     dims = dims_of(plan, step.of)
-    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else \
-        torch.arange(len(plan.data[step.dataset].rows or [])) if "entries" in dims and step.dataset else None
-    value = apply(engine, step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of,
-                                             vocabulary, dims=dims, answers=found["answers"]),
-                  dims, generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
+    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    value = ops.call(step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of, vocabulary,
+                                        dims=dims, answers=found["answers"]), engine=engine, dims=dims,
+                     eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)

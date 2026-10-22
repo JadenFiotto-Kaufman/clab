@@ -35,11 +35,11 @@ ONE_ID = ("logit_diff", "token_logit")
 
 
 def _aligned(ids: Tensor, x: Tensor, dims: list[str]) -> Tensor:
-    """A token argument, on `x`'s device and expanded against `x`'s axes but its last: the ids each row (or
-    entry) may be, `[rows, m]` or `[entries, m]` for the same answer at every position, or `[rows, pos, m]`
-    for token i of the answer at position i; `m` is the most a row's set or class holds, padded with -1."""
+    """A token argument, on `x`'s device and expanded against `x`'s axes but its last: the ids each row may
+    be, `[rows, m]` for the same answer at every position, or `[rows, pos, m]` for token i of the answer at
+    position i; `m` is the most a row's set or class holds, padded with -1."""
     shape = [1] * (x.dim() - 1) + [ids.shape[-1]]
-    shape[next(i for i, a in enumerate(dims) if a in ("rows", "entries"))] = ids.shape[0]
+    shape[dims.index("rows")] = ids.shape[0]
     if ids.dim() == 3:
         shape[dims.index("pos")] = ids.shape[1]
     return ids.to(x.device).reshape(shape).expand(*x.shape[:-1], ids.shape[-1])
@@ -120,7 +120,7 @@ def cosine(of: Tensor, with_: Value) -> Tensor:
     return torch.nn.functional.cosine_similarity(of, torch.as_tensor(with_, dtype=of.dtype, device=of.device), dim=-1)
 
 
-@op("metrics", needs=(("rows",),), removes=())
+@op("metrics", needs=("rows",), removes=())
 def contains(of: list, text: Text, dims: list[str]) -> Tensor:
     """1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set),
     compared as its reference says, else 0. Every row generated something, so none is missing."""

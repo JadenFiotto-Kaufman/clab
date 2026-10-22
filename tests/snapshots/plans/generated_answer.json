@@ -28,7 +28,8 @@
       "index": -1
      },
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "vocab_size"
      ],
      "gathered": true
@@ -41,7 +42,8 @@
       "frame": -1
      },
      "dims": [
-      "entries",
+      "rows",
+      "pos",
       "vocab_size"
      ]
     }
@@ -57,7 +59,8 @@
    "of": "answer.at_said",
    "dataset": "prompts",
    "dims": [
-    "entries"
+    "rows",
+    "pos"
    ],
    "token": "prompts.cf_answer"
   }

@@ -319,19 +319,21 @@ def test_b12_a_message_that_says_its_role_header_is_found_in_its_own_text(engine
     assert [tokens[p] for p in filled.run.positions["f.u"][0]] == ["▁IN", "ST"]
 
 
-def test_b13_top_k_over_a_ragged_read_keeps_its_entries(engines, tmp_path):
-    """trial-11 e33: the value is the entries' ids, probabilities and tokens beside their rows and positions,
-    and it saves, reads back and tables."""
+def test_b13_top_k_over_a_read_of_every_token_keeps_each_rows_own(engines, tmp_path):
+    """trial-11 e33: the value is each row's ids, probabilities and tokens at each of its positions, -1, NaN
+    and no token past its own, and it saves, reads back and tables."""
     compiled = plan(data={"d": {"rows": [{"input": "If today is Monday, tomorrow is"}, {"input": "Hello"}]}}, steps={
         "f": forward({"l": {"site": HEAD, "pos": {"index": ":"}}}),
         "k": {"kind": "op", "op": "top_k", "of": "f.l", "k": 3}}, saves=["k", "f.l"]).compile()
     filled = run(engines, compiled)
-    k, read = filled.results["k"], filled.results["f.l"]
-    assert set(k) == {"ids", "probs", "tokens", "row", "tok"}
-    assert torch.equal(k["row"], read["row"]) and torch.equal(k["tok"], read["tok"])
-    assert torch.equal(k["ids"][:, 0], read["values"].argmax(-1)) and len(k["tokens"]) == len(k["row"])
+    k, read, where = filled.results["k"], filled.results["f.l"], filled.run.positions["f.l"]
+    assert set(k) == {"ids", "probs", "tokens"} and k["ids"].shape == (2, len(where[0]), 3)
+    for r, p in enumerate(where):
+        assert torch.equal(k["ids"][r, :len(p), 0], read[r, :len(p)].argmax(-1))
+        assert (k["ids"][r, len(p):] == -1).all() and k["probs"][r, len(p):].isnan().all()
+    assert [len(t) for t in k["tokens"]] == [len(where[0])] * 2 and k["tokens"][1][-1] == [None] * 3
     rows = filled.table("k")
-    assert len(rows) == len(k["row"]) and set(rows[0]["value"]) == {"ids", "probs", "tokens"}
+    assert len(rows) == sum(map(len, where)) and set(rows[0]["value"]) == {"ids", "probs", "tokens"}
     filled.dump(str(tmp_path))
     assert Plan.load(str(tmp_path)).table("k") == rows
 
@@ -469,7 +471,7 @@ def test_s12_a_mean_without_over_keeps_a_layers_axis(engines):
         "all": {"kind": "op", "op": "mean", "of": "f.h", "over": ["layers", "rows", "pos"]}},
         saves=["f.h", "m", "all"]).compile()
     assert dims_of(compiled, "m") == ["layers", "hidden_size"] and dims_of(compiled, "all") == ["hidden_size"]
-    assert reductions.reduced(["layers", "entries", "hidden_size"], {}) == ["layers", "hidden_size"]
+    assert reductions.reduced(["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "hidden_size"]
     filled = run(engines, compiled)
     assert torch.equal(filled.results["m"], filled.results["f.h"].mean(dim=[1, 2]))
     with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.w\.ops\[0\]\.with: 'm' is laid out "
@@ -585,11 +587,9 @@ def test_m1_two_sweeps_of_one_field_say_how_to_vary_both():
                                                                  "y": {"site": "b", "pos": -1}})}).compile()
 
 
-def test_m2_a_metric_over_two_ragged_reads_says_to_read_at_a_static_index():
-    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' is laid out \['entries', 'vocab_size'\]; "
-                                        r"'kl' scores a value laid out \['entries', 'vocab_size'\], and a ragged "
-                                        r"value's entries are its rows' positions, which pair with no other value's; "
-                                        r"read both at a static index"):
+def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():
+    with pytest.raises(PlanError, match=r"steps\.kl\.against: 'f\.logits' holds a different number of positions on each "
+                                        r"row, which pair with no other value's; read both at a static index"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"lens": {"site": {"component": "layer_output", "layers": -1}, "pos": {"index": ":"},
                                    "ops": [{"op": "readout"}]}, "logits": {"site": HEAD, "pos": {"index": ":"}}}),
@@ -609,13 +609,12 @@ def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone
     assert torch.equal(one.results["f.z"], every.results["f.z"][..., [2]])
 
 
-def test_m4_a_ragged_operand_into_a_ragged_write_says_what_differs():
+def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs():
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
-    entries come from."""
-    with pytest.raises(PlanError, match=r"with: 'abc\.v' and this write are both ragged, \['entries', "
-                                        r"'hidden_size'\]; what differs is that its entries are another forward's "
-                                        r"positions, which need not pair with this one's: read both at a static "
-                                        r"index"):
+    positions come from."""
+    with pytest.raises(PlanError, match=r"with: 'abc\.v' and this write both hold a different number of positions on "
+                                        r"each row, and another forward's positions need not pair with this one's: "
+                                        r"read both at a static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},

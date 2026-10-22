@@ -81,7 +81,8 @@ def test_the_tiny_qwens_template_renders_a_chat_as_qwen3_8bs():
 
 def test_every_token_of_a_chat_is_a_position(engines):
     """S7: `{"index": ":"}` covers the template's markers, and a write at `{"frame": ":"}` lands on every token,
-    `<|im_end|>` and `<|im_start|>` included; a ragged read's `tok` is the run record's positions."""
+    `<|im_end|>` and `<|im_start|>` included; a read of every token is as wide as the longest row, NaN past a
+    row's own."""
     rows = chats()
     plan = doc(QWEN, rows, {"f": forward({
         "every": {"site": LAYER0, "pos": {"index": ":"}},
@@ -94,7 +95,8 @@ def test_every_token_of_a_chat_is_a_position(engines):
         markers = [p for p, t in enumerate(row) if t in ("<|im_start|>", "<|im_end|>")]
         assert len(markers) == 2 * len(CHATS[r]) + 1 and set(markers) <= set(where["f.write"][r])
     every = filled.results["f.every"]
-    assert every["tok"].tolist() == [p for row in where["f.every"] for p in row]
+    for r, row in enumerate(where["f.every"]):
+        assert not every[r, :len(row)].isnan().any() and every[r, len(row):].isnan().all()
 
 
 def test_a_window_from_the_end_of_a_chat_is_the_templates_tokens(engines):
@@ -135,7 +137,7 @@ def test_a_chats_last_position_is_its_templates_last_token(engines):
 def test_a_text_scope_takes_the_marker_it_spans_and_before_reaches_one(engines):
     """A `text` scope is the tokens covering its characters: `<|im_start|>assistant` is both its tokens (trial
     5's e05 got `assistant` alone). A `before` scope on a marker is the position before it, as on any token, and
-    one before the word after a marker is the marker; the values there are the ragged every-token read's."""
+    one before the word after a marker is the marker; the values there are the every-token read's."""
     def read(scope: dict) -> dict:
         return {"site": LAYER0, "pos": {"scope": scope}}
     plan = doc(QWEN, chats(), {"f": forward({
@@ -152,9 +154,7 @@ def test_a_text_scope_takes_the_marker_it_spans_and_before_reaches_one(engines):
         (end,), (marker,) = where["f.before_end"][r], where["f.before_word"][r]
         assert end + 1 == max(p for p, t in enumerate(row) if t == "<|im_end|>") and row[marker] == "<|im_start|>"
         for name, p in (("f.before_end", end), ("f.before_word", marker)):
-            value = filled.results[name]
-            assert torch.equal(value["values"][value["row"] == r], every["values"][(every["row"] == r) &
-                                                                                 (every["tok"] == p)])
+            assert torch.equal(filled.results[name][r, 0], every[r, p])      # every's position p is its index p
 
 
 @pytest.mark.parametrize("model, bos", [(TINY, True), (GPT2, False)])
@@ -174,8 +174,8 @@ def test_position_0_is_bos_where_the_tokenizer_adds_one_and_the_first_word_where
 
 def test_the_table_and_the_run_record_number_positions_and_keys_as_the_document_does(engines, tmp_path):
     """D7, D17: a read at `pos: 3`, at `-1` and at every token, and a pattern's keys selected and not: the run
-    record's positions, a ragged value's `tok`, and the table's `pos` and `key` (before and after `Plan.load`)
-    are each the document's own numbers, BOS 0."""
+    record's positions and the table's `pos` and `key` (before and after `Plan.load`) are each the document's
+    own numbers, BOS 0."""
     plan = doc(EAGER, DAYS, {"f": forward({
         "third": {"site": LOGITS, "pos": 3}, "last": {"site": LOGITS, "pos": -1},
         "every": {"site": LAYER0, "pos": {"index": ":"}},
@@ -185,7 +185,6 @@ def test_the_table_and_the_run_record_number_positions_and_keys_as_the_document_
     where, tokens = filled.run.positions, filled.run.tokens["d.input"]
     assert where["f.third"] == [[3]] * 4 and where["f.last"] == [[len(row) - 1] for row in tokens]
     assert where["f.every"] == [list(range(len(row))) for row in tokens]
-    assert filled.results["f.every"]["tok"].tolist() == [p for row in where["f.every"] for p in row]
     filled.dump(str(tmp_path))
     loaded: Any = Plan.load(str(tmp_path))
     for got in (filled, loaded):
@@ -210,10 +209,10 @@ def test_clab_table_prints_the_documents_positions(engines, tmp_path, capsys):
         [[str(r), "3", row[3]] for r, row in enumerate(filled.run.tokens["d.input"])]
 
 
-def test_a_ragged_key_read_is_each_rows_own_pattern(engines):
+def test_an_unselected_key_read_is_each_rows_own_pattern(engines):
     """S4: unselected, a pattern's key axis is each row's own keys, its positions in order: on rows padded to the
     longest, row r's keys `[:n]` are the pattern the row has run alone (no padding at all), and its keys past
-    its own are NaN; at one query and at every query (ragged) alike."""
+    its own are NaN; at one query and at every query alike."""
     entries = {"last": {"site": PATTERN, "pos": -1}, "every": {"site": PATTERN, "pos": {"index": ":"}}}
     batched = run(engines, doc(EAGER, DAYS, {"f": forward(entries)}, ["f.last", "f.every"]))
     lengths = [len(row) for row in batched.run.tokens["d.input"]]
@@ -224,9 +223,9 @@ def test_a_ragged_key_read_is_each_rows_own_pattern(engines):
         assert alone["f.last"].shape == (1, 1, 4, n)
         torch.testing.assert_close(batched.results["f.last"][r, ..., :n], alone["f.last"][0], atol=1e-6, rtol=0)
         assert batched.results["f.last"][r, ..., n:].isnan().all()
-        mine = every["values"][every["row"] == r]
-        assert every["tok"][every["row"] == r].tolist() == list(range(n))
-        torch.testing.assert_close(mine[..., :n], alone["f.every"]["values"], atol=1e-6, rtol=0)
+        mine = every[r, :n]
+        assert batched.run.positions["f.every"][r] == list(range(n)) and every[r, n:].isnan().all()
+        torch.testing.assert_close(mine[..., :n], alone["f.every"][0], atol=1e-6, rtol=0)
         assert mine[..., n:].isnan().all()
 
 

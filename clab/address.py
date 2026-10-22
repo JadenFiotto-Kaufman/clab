@@ -15,8 +15,8 @@ shorter row's own keys a read is NaN and a write changes nothing (its padding's 
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers` that are a slice or a list of picks, and ragged positions
-give `entries` (one per token) in place of `rows` and `pos`. How an engine reaches a component is that
+first under `layers` that are a slice or a list of picks. A read whose rows hold different numbers of
+positions is as wide as its widest row, NaN past a row's own. How an engine reaches a component is that
 engine's business; the name says only what the value is.
 """
 
@@ -78,7 +78,7 @@ COMPONENTS: dict[str, dict] = {
 
 
 # The axes that index examples and positions rather than features.
-EXAMPLE_AXES = ("layers", "rows", "entries", "pos")
+EXAMPLE_AXES = ("layers", "rows", "pos")
 
 
 def selectable(component: str) -> list[str]:
@@ -92,15 +92,11 @@ def pos_axis(component: str) -> int:
     return dims.index("query") if "query" in dims else dims.index("seq")
 
 
-def dims(component: str, layers: object, ragged: bool) -> list[str]:
-    """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`.
-
-    `layers` that `stacks` puts a `layers` axis first. A ragged selection holds
-    one entry per token, so `entries` stands for `rows` and `pos` together.
-    """
+def dims(component: str, layers: object = None) -> list[str]:
+    """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`, a `layers` axis
+    first under `layers` that `stacks`."""
     rest = [a for i, a in enumerate(COMPONENTS[component]["dims"]) if a != "batch" and i != pos_axis(component)]
-    lead = ["layers"] if stacks(layers) else []
-    return lead + (["entries"] if ragged else ["rows", "pos"]) + rest
+    return (["layers"] if stacks(layers) else []) + ["rows", "pos"] + rest
 
 
 def stacks(layers: object) -> bool:

@@ -257,9 +257,9 @@ class Pos(Record):
 
     **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
     a chat template's markers, everything but padding, an appended EOS included** (`pos: 0` is BOS where there
-    is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a
-    ragged value's `tok`, the run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
-    `key` axis, and a refusal's token counts.
+    is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: the
+    run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+    refusal's token counts.
 
     ```
     pos      := int                                # shorthand: {"frame": 0, "index": int}
@@ -328,16 +328,14 @@ class Pos(Record):
     in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
     `{"frame": 2, "index": -1}`.
 
-    A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
-    number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
-    static width (an int, picks, or
-    a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `selectors.fixed`),
-    and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
-    one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
-    a row does not have, or a rectangular index that does not fit, is refused by name before any forward:
-    the data decided.
-    Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
-    a rectangular read and absent from a ragged one.
+    A record has a static width (the same number of positions on every row, `(rows, pos, ...)`) when its frame
+    names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
+    index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
+    `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
+    the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
+    row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
+    that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
+    is a call the row never reached: the row is `alignment_missing`, NaN all the way.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None

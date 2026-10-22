@@ -31,9 +31,11 @@ refused there (make it a step after the forward). An entry's edits act on the li
 reaches the site, and the value after its last edit is written back; the ops after that run on the value
 once it is taken off the model (an entry nothing uses is not taken off, so they do not run).
 
-A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
-every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
-token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
+own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
+giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
+missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
 there, so a row's own keys are edited as the row has them, and its tail stays NaN.
@@ -77,8 +79,8 @@ written, without special tokens (`" Friday"` and `"Friday"` are different tokens
 tokens. A column whose every row is one token scores it at every position of its row (a logit lens over
 positions). A column with an answer of several tokens lines every row up, one-token rows included: token i
 scores the row's position i, so the read carries k positions on that row (a scope with `before` reads the
-positions that predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers
-differ in length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and
+positions that predict the answer's tokens), and the metric keeps the `pos` axis, NaN past a row's own where
+rows' answers differ in length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and
 read do not line up is refused by name, before any forward where the read's positions are the prompt's; and
 where the read is a `before` scope on the step's own input (teacher forcing), so is a row whose input's next
 token at a position is not one the answer's token there may be. A token stands for its class under the
@@ -87,14 +89,14 @@ members one width: at each position the ids any member's token (or class) may be
 where the most likely token is any of a position's ids, `token_prob` is their summed probability,
 `cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several ids have
 not, so a class or a set of more than one is refused there. A missing row (a scope the row does not say)
-stays missing: NaN, or no entries.
+stays missing: NaN.
 """
 
 # `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
 # `eos`: the ids the generation `of` came from stops on. `rows`: the dataset row
-# of each of `of`'s rows or entries; `positions`: the token position of each of
-# its positions (`[rows, pos]`) or entries, where the run knows them.
+# of each of `of`'s rows; `positions`: the token position of each of its
+# positions (`[rows, pos]`, -1 past a row's own), where the run knows them.
 SUPPLIED = ("engine", "original", "dims", "eos", "rows", "positions")
 # A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
 VOCABULARY = ("vocab_size", "classes")

@@ -98,7 +98,7 @@ def noise(of: Tensor, scale: float, dims: list[str], seed: int = 0, rows: Tensor
     then moved to the value's device and dtype. So batch size, sweep point and forward call never change it,
     no two rows or positions share one, and a document draws the same bits on any device. A value with no
     rows is one draw from `seed`."""
-    lead = [i for i, a in enumerate(dims) if a in ("rows", "entries", "pos")]
+    lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     if rows is None or not lead:
         return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
     shape = [of.shape[i] for i in lead]

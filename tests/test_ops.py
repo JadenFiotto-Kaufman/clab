@@ -121,16 +121,18 @@ def test_sum_and_min_skip_what_is_missing_and_a_row_with_nothing_stays_missing()
     assert m[[0, 2]].tolist() == [1.0, -1.0] and m[1].isnan()
 
 
-def test_a_ragged_value_reduces_per_row_over_pos_and_over_every_entry_over_rows_and_pos():
-    from clab.batches import apply
-    value = {"values": torch.tensor([1.0, 2.0, 5.0]), "row": torch.tensor([0, 0, 2]), "tok": torch.tensor([3, 4, 1])}
-    assert ops.out_dims("sum", ["entries"], {"over": ["pos"]}) == ["rows"]
-    assert ops.out_dims("sum", ["entries"], {"over": ["rows", "pos"]}) == []
-    with pytest.raises(ValueError, match="a ragged value's rows are reduced with their positions"):
-        ops.out_dims("sum", ["entries"], {"over": ["rows"]})
-    per_row = apply(None, "sum", value, {"over": ["pos"]}, ["entries"], rows=torch.arange(3))
+def test_a_value_with_missing_positions_reduces_over_the_ones_that_are_there():
+    """A row's positions past its own are NaN: over `pos` a row with none is missing, over rows and pos the
+    mean is over every position there is."""
+    nan = float("nan")
+    value = torch.tensor([[1.0, 2.0], [nan, nan], [5.0, nan]])
+    assert ops.out_dims("sum", ["rows", "pos"], {"over": ["pos"]}) == ["rows"]
+    assert ops.out_dims("sum", ["rows", "pos"], {"over": ["rows", "pos"]}) == []
+    with pytest.raises(ValueError, match="a reduction cannot remove 'layers'"):
+        ops.out_dims("sum", ["rows", "pos"], {"over": ["layers"]})
+    per_row = ops.call("sum", value, {"over": ["pos"]}, dims=["rows", "pos"])
     assert per_row[[0, 2]].tolist() == [3.0, 5.0] and per_row[1].isnan()
-    assert apply(None, "mean", value, {"over": ["rows", "pos"]}, ["entries"]).item() == pytest.approx(8 / 3)
+    assert ops.call("mean", value, {"over": ["rows", "pos"]}, dims=["rows", "pos"]).item() == pytest.approx(8 / 3)
 
 
 def test_contains_finds_the_answer_in_each_rows_text():
@@ -140,10 +142,10 @@ def test_contains_finds_the_answer_in_each_rows_text():
     assert metrics.contains(said, [(["friday"], False, False)] * 3, ["rows"]).tolist() == [0.0, 0.0, 0.0]
 
 
-def test_metrics_on_ragged_entries_take_each_entrys_own_token():
-    entries = LOGITS[:, 0]                                # entries, vocab: one entry per row here
-    assert torch.equal(metrics.token_logit(entries, ONE, ["entries", "vocab_size"]), entries[torch.arange(3), IDS])
-    assert torch.equal(metrics.match(entries, entries.argmax(-1)[:, None], ["entries", "vocab_size"]), torch.ones(3))
+def test_metrics_on_a_value_without_positions_take_each_rows_own_token():
+    rows = LOGITS[:, 0]                                   # rows, vocab
+    assert torch.equal(metrics.token_logit(rows, ONE, ["rows", "vocab_size"]), rows[torch.arange(3), IDS])
+    assert torch.equal(metrics.match(rows, rows.argmax(-1)[:, None], ["rows", "vocab_size"]), torch.ones(3))
 
 
 def test_metrics_broadcast_over_a_leading_layer_axis():
@@ -166,7 +168,7 @@ def test_kl_and_js():
 
 def test_out_dims_follows_each_ops_declaration():
     assert ops.out_dims("match", ["rows", "pos", "vocab_size"], {}) == ["rows", "pos"]
-    assert ops.out_dims("mean", ["entries", "hidden_size"], {"over": None}) == ["hidden_size"]
+    assert ops.out_dims("mean", ["rows", "pos", "hidden_size"], {"over": None}) == ["hidden_size"]
     assert ops.out_dims("readout", ["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "rows", "pos", "vocab_size"]
     with pytest.raises(ValueError, match="needs a value with a 'vocab_size' or 'classes' axis"):
         ops.out_dims("match", ["rows", "pos", "hidden_size"], {})
@@ -301,8 +303,8 @@ def test_a_missing_row_is_missing_all_the_way_down():
 
 def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
     """The draw at a row's position is a CPU generator's seeded by (seed, row, position): the same whichever
-    rows share the value, the same for a ragged value's entry there, never the same at two rows or two
-    positions, cast to the value's dtype."""
+    rows share the value, the same for a value without a pos axis at its row's one position, never the same
+    at two rows or two positions, cast to the value's dtype."""
     rows, places = torch.tensor([4, 5, 6]), torch.tensor([[7, 8], [7, 8], [2, 9]])
     drawn = torch.stack([torch.stack([torch.randn(5, generator=edits.seeded(3, int(rows[i]), int(places[i, j])))
                                       for j in range(2)]) for i in range(3)])
@@ -314,8 +316,8 @@ def test_noise_is_drawn_per_row_and_position_from_the_seed_alone():
     half = X.to(torch.bfloat16)
     assert torch.equal(edits.noise(half, 0.25, DIMS, seed=3, rows=rows, positions=places),
                        half + 0.25 * drawn.to(torch.bfloat16))
-    entries = edits.noise(X[:, 0], 0.5, ["entries", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
-    assert torch.equal(entries, X[:, 0] + 0.5 * drawn[:, 0])
+    first = edits.noise(X[:, 0], 0.5, ["rows", "hidden_size"], seed=3, rows=rows, positions=places[:, 0])
+    assert torch.equal(first, X[:, 0] + 0.5 * drawn[:, 0])
     assert torch.equal(edits.noise(X, 1.0, DIMS), X + torch.randn(X.shape, generator=edits.seeded(0)))  # no rows
 
 

@@ -131,9 +131,9 @@ An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops).
 
 **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
 a chat template's markers, everything but padding, an appended EOS included** (`pos: 0` is BOS where there
-is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a
-ragged value's `tok`, the run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
-`key` axis, and a refusal's token counts.
+is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: the
+run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+refusal's token counts.
 
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
@@ -202,16 +202,14 @@ the prefill lands as its call runs, before the token it would predict is chosen,
 in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
 `{"frame": 2, "index": -1}`.
 
-A record is rectangular (the same width on every row, `(rows, pos, ...)`) when its frame names a static
-number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its index has a
-static width (an int, picks, or
-a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `"2:5"`; see `selectors.fixed`),
-and a `column`/`text` scope, if it has one, is one occurrence in the prefill; otherwise it is ragged,
-one entry per token, `{values, row, tok}`, `tok` the position. In the prefill (`frame: 0`) an occurrence
-a row does not have, or a rectangular index that does not fit, is refused by name before any forward:
-the data decided.
-Anywhere else it is a result, as is a call the row never reached: the row is `alignment_missing`, NaN in
-a rectangular read and absent from a ragged one.
+A record has a static width (the same number of positions on every row, `(rows, pos, ...)`) when its frame
+names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
+index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
+`"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
+the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
+row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
+that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
+is a call the row never reached: the row is `alignment_missing`, NaN all the way.
 
 ## Step kinds
 
@@ -361,9 +359,11 @@ refused there (make it a step after the forward). An entry's edits act on the li
 reaches the site, and the value after its last edit is written back; the ops after that run on the value
 once it is taken off the model (an entry nothing uses is not taken off, so they do not run).
 
-A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
-every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
-token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
+own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
+giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
+missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
 there, so a row's own keys are edited as the row has them, and its tail stays NaN.
@@ -407,8 +407,8 @@ written, without special tokens (`" Friday"` and `"Friday"` are different tokens
 tokens. A column whose every row is one token scores it at every position of its row (a logit lens over
 positions). A column with an answer of several tokens lines every row up, one-token rows included: token i
 scores the row's position i, so the read carries k positions on that row (a scope with `before` reads the
-positions that predict the answer's tokens), and the metric keeps the `pos` axis, ragged where rows' answers
-differ in length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and
+positions that predict the answer's tokens), and the metric keeps the `pos` axis, NaN past a row's own where
+rows' answers differ in length; a `sum`, `min` or `mean` over `pos` makes one number per row of it. A row whose answer and
 read do not line up is refused by name, before any forward where the read's positions are the prompt's; and
 where the read is a `before` scope on the step's own input (teacher forcing), so is a row whose input's next
 token at a position is not one the answer's token there may be. A token stands for its class under the
@@ -417,7 +417,7 @@ members one width: at each position the ids any member's token (or class) may be
 where the most likely token is any of a position's ids, `token_prob` is their summed probability,
 `cross_entropy` minus its log; `token_logit` and `logit_diff` read one id's logit, which several ids have
 not, so a class or a set of more than one is refused there. A missing row (a scope the row does not say)
-stays missing: NaN, or no entries.
+stays missing: NaN.
 
 ### Metrics
 
@@ -437,10 +437,10 @@ stays missing: NaN, or no entries.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The mean over the axes `over` names (a ragged value's `pos`: each row's entries), of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
-| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
-| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions (a ragged value's entries): a `layers` axis stays unless `over` names it. A ragged value's entries are its rows' positions: over `pos` it gives a value per row, over `rows` and `pos` one over every entry. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
-| `pca` | `k: int` | needs hidden_size; removes layers, rows, entries, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
+| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
+| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
+| `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits
 
@@ -487,8 +487,8 @@ shorter row's own keys a read is NaN and a write changes nothing (its padding's 
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers` that are a slice or a list of picks, and ragged positions
-give `entries` (one per token) in place of `rows` and `pos`. How an engine reaches a component is that
+first under `layers` that are a slice or a list of picks. A read whose rows hold different numbers of
+positions is as wide as its widest row, NaN past a row's own. How an engine reaches a component is that
 engine's business; the name says only what the value is.
 
 | component | dims | narrowed by | meaning |
@@ -738,7 +738,7 @@ swept step is a dict keyed by coordinate: the axis's value, or a tuple of them i
 A run's output directory and back.
 
 One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
-bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors in it as nested lists. A swept
+bundle, `top_k`'s ids and probabilities), `<name>.json` otherwise, tensors in it as nested lists. A swept
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
@@ -761,9 +761,9 @@ layer), the token axes with their tokens (`pos`/`pos_token`, the position a read
 `pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
 with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
 numbered the same way, the row's own keys only), the dataset columns the step used
-(`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
-value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
-`alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices.
+(`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
+beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
+past its own are left out. A value with no rows axis gives a row per element with its axis indices.
 
 ## A worked document
 

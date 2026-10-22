@@ -58,7 +58,8 @@
         }
        ],
        "dims": [
-        "entries",
+        "rows",
+        "pos",
         "hidden_size"
        ]
       },

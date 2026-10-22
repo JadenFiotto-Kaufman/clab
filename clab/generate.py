@@ -134,14 +134,15 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
     `head_only`), a generated input's from its decode call (`values`, one `[rows, 1, ...]` per call the record
-    asked for that the batch made); then the ops after its last edit; `picks` is what its `select` keeps. A
-    rectangular read is `[rows, width, ...]`, NaN on a row it does not reach; a ragged one `{values, row,
-    tok}`, `tok` the position, with no entries for such a row. `most` is the step's `max_new_tokens`, which bounds the calls it asked for."""
+    asked for that the batch made); then the ops after its last edit; `picks` is what its `select` keeps. The
+    value is `[rows, width, ...]`, `width` the record's, or the most positions a row resolved to, NaN past a
+    row's own and on a row it does not reach. `most` is the step's `max_new_tokens`, which bounds the calls it
+    asked for."""
     pos = positions.parse(record.pos)
     _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes = engine.sizes()
-    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
+    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(record.site.component)[2:]]
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
     device = some.device if some is not None else None
@@ -153,18 +154,13 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
             return whole[i, 0 if head_only else p]
         return by_call[call][i, 0]
 
-    if (width := positions.width(pos)) is not None:
-        blank = torch.full((width, *rest), float("nan"), dtype=dtype, device=device)
-        value = torch.stack([blank if isinstance(got, str) else torch.stack([at_position(i, p) for p in got])
-                             for i, got in enumerate(where)])
-        places = torch.tensor([[-1] * width if isinstance(got, str) else got for got in where])
-    else:
-        kept = [(i, p) for i, got in enumerate(where) if not isinstance(got, str) for p in got]
-        value = {"values": torch.stack([at_position(i, p) for i, p in kept]) if kept else
-                 torch.zeros((0, *rest), dtype=dtype, device=device),
-                 "row": torch.tensor([rows.start + i for i, _ in kept], dtype=torch.long),
-                 "tok": torch.tensor([p for _, p in kept], dtype=torch.long)}
-        places = None
+    found = [got if isinstance(got, list) else [] for got in where]      # a marker is a row with none
+    width = positions.width(pos) or max(map(len, found), default=0)
+    value = torch.full((len(where), width, *rest), float("nan"), dtype=dtype, device=device)
+    for i, got in enumerate(found):
+        for j, p in enumerate(got):
+            value[i, j] = at_position(i, p)
+    places = torch.tensor([got + [-1] * (width - len(got)) for got in found], dtype=torch.long).reshape(len(where), width)
     return with_ops(engine, plan, record, value, state, at, rows, places, answers)
 
 
