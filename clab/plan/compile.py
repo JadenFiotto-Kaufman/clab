@@ -8,7 +8,7 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 
 import inspect
 import itertools
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .. import address, registry
@@ -94,7 +94,8 @@ class Compiling:
     the names the entry being compiled references (`refs`), which decide the axes it inherits, and every value
     any entry references (`used`), which decides what the run gathers. A fit's body compiles in a copy whose
     `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
-    `axes_of` and `used`."""
+    `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
+    `rot` is `<fit>.rot`, the instance being trained)."""
     doc: dict
     root: str
     rows: dict
@@ -104,6 +105,7 @@ class Compiling:
     axes_of: dict
     refs: list
     used: set
+    aliases: dict = field(default_factory=dict)
 
 
 def get(doc: dict, path: tuple):
@@ -364,7 +366,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         paired(at, o.op, dims, found)
         if i <= last:
             chosen = set(parameters(plan, o.op, args)) - set(ops.parameters(o.op))
-            operands(at, found, dims, space_of([n["op"] for n in outer]), ragged, live, chosen)
+            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, chosen)
         if i in closes:
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
@@ -381,13 +383,15 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
-    return {**record, "dims": dims, **({"space": space_of([n["op"] for n in unclosed])} if unclosed else {})}
+    return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
 
 
-def space_of(encodes: list[Op]) -> list[dict]:
-    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer and the
+def space_of(cx: Compiling, encodes: list[Op]) -> list[dict]:
+    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer, by the
+    name it resolves to here (inside a fit's body `rot` and `<fit>.rot` are the one being trained), and the
     `select` it keeps; none for the site's own layout."""
-    return [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in encodes]
+    return [{k: cx.aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
+             if k in ("featurizer", "select")} for o in encodes]
 
 
 def said(space: list[dict]) -> str:
@@ -557,7 +561,7 @@ def fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
             fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
                  "it draws")
-    within = replace(cx, names=dict(cx.names))
+    within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
     for f in spec.train:
         within.names[f"{name}.{f}"] = {"dims": [], "data": None, "kind": "featurizer"}
     before = len(cx.refs)

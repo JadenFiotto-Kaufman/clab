@@ -586,3 +586,14 @@ def test_a_trained_gate_loads_from_its_bundle(engines, tmp_path):
                 document=os.path.join(root, "documents", "dbm.json")).compile()
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
                 {k: filled.results[f"fit.train.{k}"] for k in ("iia", "ce")})
+
+
+def test_inside_the_body_a_trained_featurizers_two_names_are_one_space(engines):
+    """In das's body `rot` and `fit.rot` both name the rotation being trained: the counterfactual encoded as
+    `rot` is an operand of the bracket written `fit.rot`, and the fit runs to the bit as das does."""
+    def change(d):
+        d["interventions"]["cf_read"]["v_cf"]["ops"][0]["featurizer"] = "rot"
+    plan = edited("das", change).compile()
+    engine = engines("hooks", plan.model)
+    assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
+                engine.execute(edited("das", lambda d: None).compile(), batch_size=BATCH_SIZE).results)
