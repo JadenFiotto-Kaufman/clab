@@ -252,8 +252,8 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
     padded to one width; only the positions its `keep` marks are written. A `key` axis a record does not select
-    is each row's own keys in order (`owned`): a read's are NaN past them, and a write writes those alone. Every index, mask and result moves
-    to the value's device, and a result to its dtype, where it meets the value.
+    is each row's own keys in order (`owned`): a read's are NaN past them, and a write writes those alone. Every
+    index, mask and result moves to the value's device, and a result to its dtype, where it meets the value.
     """
     axis = pos_axis(component)
     before = x = value.movedim(axis, 1)

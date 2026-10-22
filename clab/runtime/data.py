@@ -83,16 +83,17 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 
-    A chat is rendered through the checkpoint's own template without a generation prompt, and the rendered
-    text tokenized without adding special tokens, since the template writes its own. A message's text is
+    Text is tokenized as the tokenizer does by default, BOS added where it adds one. A chat is rendered through
+    the checkpoint's own template without a generation prompt, and the rendered text tokenized adding nothing,
+    since the template writes its own BOS and markers. Every token either way is a position. A message's text is
     searched for from where its own content begins, which the template rendered with that content held by a
     marker shows, so a message that says its role's name (`user`) is not found in its role's header.
     """
     turns = []
     if isinstance(value, str):
-        text, special = value, True
+        text, adds = value, True
     else:
-        text, special, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
+        text, adds, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
         for i, message in enumerate(value):
             held = [{**m, "content": MARKER} if j == i else m for j, m in enumerate(value)]
             own = tokenizer.apply_chat_template(held, tokenize=False).find(MARKER, cursor)
@@ -102,7 +103,7 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
                                  "template put the messages before it")
             cursor = start + len(message["content"])
             turns.append((message["role"], start, cursor))
-    got = tokenizer(text, add_special_tokens=special, return_offsets_mapping=tokenizer.is_fast)
+    got = tokenizer(text, add_special_tokens=adds, return_offsets_mapping=tokenizer.is_fast)
     return {"ids": got["input_ids"], "offsets": got.get("offset_mapping"), "text": text, "turns": turns}
 
 

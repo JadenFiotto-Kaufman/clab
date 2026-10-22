@@ -42,7 +42,7 @@ def keys(record, picks: dict, pads: list[int], width: int) -> dict:
     """A `key` axis the record does not select as each row's own keys, its positions (`positions.prompted`), as
     a key selector counts them: `keys` is the axis's dimension in the selection's layout, `index` (`[rows,
     width]`) each row's keys in the padded batch, in order, then its padding's, and `own` which of those are the
-    row's. A read's keys past a row's own are NaN; a write leaves them as they are. None on another record."""
+    row's. A read's keys past a row's own are NaN; a write leaves them as they are. Nothing on another record."""
     layout = address.dims(record.site.component, None, False)
     if "key" not in layout or "key" in picks:
         return {}

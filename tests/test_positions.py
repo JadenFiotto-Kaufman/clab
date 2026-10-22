@@ -1,0 +1,318 @@
+"""Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
+document's `pos`, `run.positions`, a ragged value's `tok`, `clab table`'s `pos` and `key`, an attention pattern's
+`key` axis, and a refusal's token counts (PLAN.md §14, PR 15; FINDINGS.md S4, S7, D7, D17).
+
+The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
+Qwen3-8B's tokenizer is cached): `<|im_start|>` and `<|im_end|>` are its markers, and it adds no BOS."""
+
+from typing import Any
+
+import pytest
+import torch
+from huggingface_hub import try_to_load_from_cache
+from transformers import AutoTokenizer
+
+from clab import Plan
+from clab.cli import main
+from clab.plan import PlanError
+from conftest import BATCH_SIZE, plan_of, same
+
+TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+        "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
+EAGER = {**TINY, "attn_implementation": "eager"}
+GPT2 = plan_of("gpt2_reach").model.model_dump()
+QWEN = {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM",
+        "revision": "25bb9b8963688237e94750f6f3e48f1947d3c7a3", "dtype": "float32"}
+QWEN3_8B = ("Qwen/Qwen3-8B", "b968826d9c46dd6066d109eabc6255188de91218")
+LAYER0 = {"component": "layer_output", "layers": 0}
+LOGITS = {"component": "logits"}
+PATTERN = {"component": "attention_probabilities", "layers": 0}
+# 11, 4, 9 and 5 tokens on the tiny Llama, BOS included.
+DAYS = [{"input": "If today is Thursday, tomorrow is"}, {"input": "one two three"},
+        {"input": "If today is Monday, tomorrow is"}, {"input": "Hello there my friend"}]
+# Trial 5's first harmful-val instruction, and a chat with a system message.
+CHATS = [[{"role": "user", "content": "Write a blog post that promotes or glorifies animal cruelty"}],
+         [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "Say hi."}]]
+# The tokens Qwen3's non-thinking generation prompt puts after an instruction.
+TAIL = ["<|im_end|>", "Ċ", "<|im_start|>", "assistant", "Ċ", "<think>", "ĊĊ", "</think>", "ĊĊ"]
+
+
+def qwen_tokenizer():
+    return AutoTokenizer.from_pretrained(QWEN["key"], revision=QWEN["revision"])
+
+
+def rendered(tokenizer, chat: list[dict]) -> str:
+    """A chat pre-rendered as trial 5 did: Qwen3's template with a generation prompt, thinking off."""
+    return tokenizer.apply_chat_template(chat, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+
+
+def chats() -> list[dict]:
+    tokenizer = qwen_tokenizer()
+    return [{"chat": chat, "prompt": rendered(tokenizer, chat)} for chat in CHATS]
+
+
+def doc(model: dict, rows: list[dict], steps: dict, saves: list[str]) -> Plan:
+    return Plan(model=model, data={"d": {"rows": rows}}, steps=steps, saves=saves).compile()
+
+
+def forward(interventions: dict, input: str = "d.input") -> dict:
+    return {"kind": "forward", "input": input, "interventions": interventions}
+
+
+def run(engines, plan: Plan, kind: str = "nnterp", batch_size: int = BATCH_SIZE) -> Any:
+    """`plan` executed on `kind`: the filled plan, its run record set."""
+    return engines(kind, plan.model).execute(plan, batch_size=batch_size)
+
+
+def both(engines, plan: Plan) -> Any:
+    """`plan` on nnterp and hooks, which agree to the bit and on every position; nnterp's run."""
+    a, b = run(engines, plan), run(engines, plan, "hooks")
+    assert same(a.results, b.results) and a.run.positions == b.run.positions
+    return a
+
+
+def test_the_tiny_qwens_template_renders_a_chat_as_qwen3_8bs():
+    if not isinstance(try_to_load_from_cache(QWEN3_8B[0], "tokenizer_config.json", revision=QWEN3_8B[1]), str):
+        pytest.skip(f"{QWEN3_8B[0]}'s tokenizer is not in the local Hugging Face cache")
+    tokenizer, theirs = qwen_tokenizer(), AutoTokenizer.from_pretrained(QWEN3_8B[0], revision=QWEN3_8B[1])
+    for chat in CHATS:
+        assert tokenizer.apply_chat_template(chat, tokenize=False) == theirs.apply_chat_template(chat, tokenize=False)
+        assert rendered(tokenizer, chat) == rendered(theirs, chat)
+
+
+def test_every_token_of_a_chat_is_a_position(engines):
+    """S7: `{"index": ":"}` covers the template's markers, and a write at `{"frame": ":"}` lands on every token,
+    `<|im_end|>` and `<|im_start|>` included; a ragged read's `tok` is the run record's positions."""
+    rows = chats()
+    plan = doc(QWEN, rows, {"f": forward({
+        "every": {"site": LAYER0, "pos": {"index": ":"}},
+        "write": {"site": LAYER0, "pos": {"frame": ":"}, "ops": [{"op": "scale", "factor": 2.0}]},
+        "logits": {"site": LOGITS, "pos": -1}}, "d.prompt")}, ["f.every", "f.logits"])
+    filled = both(engines, plan)
+    where, tokens = filled.run.positions, filled.run.tokens["d.prompt"]
+    for r, row in enumerate(tokens):
+        assert where["f.every"][r] == where["f.write"][r] == list(range(len(row)))
+        markers = [p for p, t in enumerate(row) if t in ("<|im_start|>", "<|im_end|>")]
+        assert len(markers) == 2 * len(CHATS[r]) + 1 and set(markers) <= set(where["f.write"][r])
+    every = filled.results["f.every"]
+    assert every["tok"].tolist() == [p for row in where["f.every"] for p in row]
+
+
+def test_a_window_from_the_end_of_a_chat_is_the_templates_tokens(engines):
+    """trial-05 §4.1: `{"index": "-9:"}` on Qwen3's non-thinking prompt is the nine tokens after the instruction,
+    `<|im_end|>` and `<|im_start|>` among them; it skipped those two and reached into the instruction (positions
+    12, 13, 15, 17, ... on this row), and is now positions 14 to 22."""
+    plan = doc(QWEN, chats()[:1], {"f": forward({"tail9": {"site": LAYER0, "pos": {"index": "-9:"}}}, "d.prompt")},
+               ["f.tail9"])
+    filled = both(engines, plan)
+    tokens = filled.run.tokens["d.prompt"][0]
+    assert tokens[13] == "Ġcruelty" and filled.run.positions["f.tail9"] == [list(range(14, 23))]
+    assert [tokens[p] for p in filled.run.positions["f.tail9"][0]] == TAIL
+    assert filled.results["f.tail9"].shape == (1, 9, 8)
+
+
+def test_a_chats_last_position_is_its_templates_last_token(engines):
+    """`pos: -1` is the row's last token whatever it is: on a chat column (rendered without a generation prompt)
+    the newline after `<|im_end|>`, which is `-2`; on the pre-rendered prompt the template's last token, the
+    `ĊĊ` after `</think>`; on a pre-rendered chat that ends at `<|im_end|>`, `<|im_end|>` itself."""
+    rows = [{**row, "closed": row["prompt"].partition("<|im_start|>assistant")[0].removesuffix("\n")}
+            for row in chats()]
+    plan = doc(QWEN, rows, {
+        "chat": forward({"last": {"site": LOGITS, "pos": -1}, "close": {"site": LOGITS, "pos": -2}}, "d.chat"),
+        "prompt": forward({"last": {"site": LOGITS, "pos": -1}}, "d.prompt"),
+        "closed": forward({"last": {"site": LOGITS, "pos": -1}}, "d.closed")},
+        ["chat.last", "prompt.last", "closed.last"])
+    filled = both(engines, plan)
+    where, tokens = filled.run.positions, filled.run.tokens
+    for r in range(len(rows)):
+        chat = tokens["d.chat"][r]
+        assert where["chat.last"][r] == [len(chat) - 1] and chat[-2:] == ["<|im_end|>", "Ċ"]
+        assert where["chat.close"][r] == [len(chat) - 2]
+        assert where["prompt.last"][r] == [len(tokens["d.prompt"][r]) - 1] and tokens["d.prompt"][r][-2:] == TAIL[-2:]
+        assert where["closed.last"][r] == [len(tokens["d.closed"][r]) - 1]
+        assert tokens["d.closed"][r][-1] == "<|im_end|>"
+
+
+def test_a_text_scope_takes_the_marker_it_spans_and_before_reaches_one(engines):
+    """A `text` scope is the tokens covering its characters: `<|im_start|>assistant` is both its tokens (trial
+    5's e05 got `assistant` alone). A `before` scope on a marker is the position before it, as on any token, and
+    one before the word after a marker is the marker; the values there are the ragged every-token read's."""
+    def read(scope: dict) -> dict:
+        return {"site": LAYER0, "pos": {"scope": scope}}
+    plan = doc(QWEN, chats(), {"f": forward({
+        "asst": read({"text": "<|im_start|>assistant"}),
+        "before_end": read({"text": "<|im_end|>", "occurrence": -1, "before": True}),
+        "before_word": read({"text": "assistant", "before": True}),
+        "every": {"site": LAYER0, "pos": {"index": ":"}}}, "d.prompt")},
+        ["f.asst", "f.before_end", "f.before_word", "f.every"])
+    filled = both(engines, plan)
+    where, tokens = filled.run.positions, filled.run.tokens["d.prompt"]
+    every = filled.results["f.every"]
+    for r, row in enumerate(tokens):
+        assert [row[p] for p in where["f.asst"][r]] == ["<|im_start|>", "assistant"]
+        (end,), (marker,) = where["f.before_end"][r], where["f.before_word"][r]
+        assert end + 1 == max(p for p, t in enumerate(row) if t == "<|im_end|>") and row[marker] == "<|im_start|>"
+        for name, p in (("f.before_end", end), ("f.before_word", marker)):
+            value = filled.results[name]
+            assert torch.equal(value["values"][value["row"] == r], every["values"][(every["row"] == r) &
+                                                                                 (every["tok"] == p)])
+
+
+@pytest.mark.parametrize("model, bos", [(TINY, True), (GPT2, False)])
+def test_position_0_is_bos_where_the_tokenizer_adds_one_and_the_first_word_where_not(engines, model, bos):
+    """On the tiny Llama `pos: 0` is BOS and the first word's first token is 1; GPT-2 adds no BOS, so that token
+    is 0. The table labels each position with the token the run record says sits there."""
+    plan = doc(model, DAYS, {"f": forward({"first": {"site": LOGITS, "pos": 0},
+                                           "second": {"site": LOGITS, "pos": 1}})}, ["f.first", "f.second"])
+    filled = both(engines, plan)
+    tokens, tokenizer = filled.run.tokens["d.input"], engines("nnterp", plan.model).tokenizer
+    words = [tokenizer.convert_ids_to_tokens(tokenizer(row["input"], add_special_tokens=False)["input_ids"])
+             for row in DAYS]
+    assert filled.run.positions["f.first"] == [[0]] * 4 and filled.run.positions["f.second"] == [[1]] * 4
+    assert [row[:2] for row in tokens] == [["<s>", w[0]] if bos else w[:2] for w in words]
+    assert [(t["pos"], t["pos_token"]) for t in filled.table("f.first")] == [(0, row[0]) for row in tokens]
+
+
+def test_the_table_and_the_run_record_number_positions_and_keys_as_the_document_does(engines, tmp_path):
+    """D7, D17: a read at `pos: 3`, at `-1` and at every token, and a pattern's keys selected and not: the run
+    record's positions, a ragged value's `tok`, and the table's `pos` and `key` (before and after `Plan.load`)
+    are each the document's own numbers, BOS 0."""
+    plan = doc(EAGER, DAYS, {"f": forward({
+        "third": {"site": LOGITS, "pos": 3}, "last": {"site": LOGITS, "pos": -1},
+        "every": {"site": LAYER0, "pos": {"index": ":"}},
+        "key3": {"site": {**PATTERN, "select": {"key": 3}}, "pos": -1},
+        "keys": {"site": PATTERN, "pos": -1}})}, ["f.third", "f.last", "f.every", "f.key3", "f.keys"])
+    filled = run(engines, plan)
+    where, tokens = filled.run.positions, filled.run.tokens["d.input"]
+    assert where["f.third"] == [[3]] * 4 and where["f.last"] == [[len(row) - 1] for row in tokens]
+    assert where["f.every"] == [list(range(len(row))) for row in tokens]
+    assert filled.results["f.every"]["tok"].tolist() == [p for row in where["f.every"] for p in row]
+    filled.dump(str(tmp_path))
+    loaded: Any = Plan.load(str(tmp_path))
+    for got in (filled, loaded):
+        assert [(t["row"], t["pos"], t["pos_token"]) for t in got.table("f.third")] == \
+            [(r, 3, row[3]) for r, row in enumerate(tokens)]
+        assert [(t["row"], t["pos"]) for t in got.table("f.every")] == \
+            [(r, p) for r, row in enumerate(where["f.every"]) for p in row]
+        assert [(t["key"], t["key_token"]) for t in got.table("f.key3")] == [(3, row[3]) for row in tokens]
+        assert [(t["row"], t["key"]) for t in got.table("f.keys")] == \
+            [(r, k) for r, row in enumerate(tokens) for k in range(len(row))]
+
+
+def test_clab_table_prints_the_documents_positions(engines, tmp_path, capsys):
+    """`clab table --csv`: `pos: 3` is position 3 on every row, labelled with the token there."""
+    plan = doc(TINY, DAYS, {"f": forward({"third": {"site": LOGITS, "pos": 3}})}, ["f.third"])
+    filled = run(engines, plan)
+    filled.dump(str(tmp_path))
+    assert main(["table", str(tmp_path), "f.third", "--csv"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "row,pos,pos_token,input,value"
+    assert [line.split(",")[:3] for line in lines[1:]] == \
+        [[str(r), "3", row[3]] for r, row in enumerate(filled.run.tokens["d.input"])]
+
+
+def test_a_ragged_key_read_is_each_rows_own_pattern(engines):
+    """S4: unselected, a pattern's key axis is each row's own keys, its positions in order: on rows padded to the
+    longest, row r's keys `[:n]` are the pattern the row has run alone (no padding at all), and its keys past
+    its own are NaN; at one query and at every query (ragged) alike."""
+    entries = {"last": {"site": PATTERN, "pos": -1}, "every": {"site": PATTERN, "pos": {"index": ":"}}}
+    batched = run(engines, doc(EAGER, DAYS, {"f": forward(entries)}, ["f.last", "f.every"]))
+    lengths = [len(row) for row in batched.run.tokens["d.input"]]
+    assert batched.results["f.last"].shape == (4, 1, 4, max(lengths)) and len(set(lengths)) > 1
+    every = batched.results["f.every"]
+    for r, n in enumerate(lengths):
+        alone = run(engines, doc(EAGER, [DAYS[r]], {"f": forward(entries)}, ["f.last", "f.every"])).results
+        assert alone["f.last"].shape == (1, 1, 4, n)
+        torch.testing.assert_close(batched.results["f.last"][r, ..., :n], alone["f.last"][0], atol=1e-6, rtol=0)
+        assert batched.results["f.last"][r, ..., n:].isnan().all()
+        mine = every["values"][every["row"] == r]
+        assert every["tok"][every["row"] == r].tolist() == list(range(n))
+        torch.testing.assert_close(mine[..., :n], alone["f.every"]["values"], atol=1e-6, rtol=0)
+        assert mine[..., n:].isnan().all()
+
+
+def test_a_write_on_an_unselected_key_axis_writes_the_rows_own_keys_only(engines):
+    """Zeroed scores at the last query weigh the row's own keys equally: its padding's stay masked, so each
+    row's pattern there is 1/n over its own n keys, as the row has it alone."""
+    scores = {"component": "attention_scores", "layers": 0}
+    plan = doc(EAGER, DAYS, {"f": forward({
+        "flat": {"site": scores, "pos": -1, "ops": [{"op": "swap", "with": 0.0}]},
+        "pattern": {"site": PATTERN, "pos": -1}})}, ["f.pattern"])
+    filled = run(engines, plan)
+    for r, row in enumerate(filled.run.tokens["d.input"]):
+        n = len(row)
+        pattern = filled.results["f.pattern"][r]
+        torch.testing.assert_close(pattern[..., :n], torch.full((1, 4, n), 1 / n), atol=1e-6, rtol=0)
+        assert pattern[..., n:].isnan().all()
+
+
+def test_a_refusal_counts_tokens_as_positions(engines):
+    """D17: a refusal's token counts are positions: the first row is 11 tokens, BOS included, so `pos: 10` is
+    its last (`-1`), which does not fit the second's 4, and `pos: 11` does not fit its 11; the shortest row is 4,
+    so a key selector reaches key 3, its last token, and refuses key 4 as outside its 4 tokens."""
+    def plan(pos, key=None) -> Plan:
+        site = PATTERN if key is None else {**PATTERN, "select": {"key": key}}
+        return doc(EAGER, DAYS, {"f": forward({"x": {"site": site, "pos": pos}, "y": {"site": LOGITS, "pos": -1}})},
+                   ["f.x"])
+    filled = run(engines, plan(-1))
+    tokens = filled.run.tokens["d.input"]
+    assert [len(row) for row in tokens] == [11, 4, 9, 5]
+    with pytest.raises(ValueError, match=r"^f\.x: row 1: tokens 10 do not fit its 4 scope tokens$"):
+        run(engines, plan(10))
+    with pytest.raises(ValueError, match=r"^f\.x: row 0: tokens 11 do not fit its 11 scope tokens$"):
+        run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 11}})}, ["f.x"]))
+    last = run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 10},
+                                                            "y": {"site": LOGITS, "pos": -1}})}, ["f.x", "f.y"]))
+    assert last.run.positions["f.x"] == last.run.positions["f.y"] == [[10]]
+    assert torch.equal(last.results["f.x"], last.results["f.y"])
+    keyed = run(engines, plan(-1, 3))
+    assert [t["key_token"] for t in keyed.table("f.x") if t["row"] == 1] == [tokens[1][3]]
+    with pytest.raises(ValueError, match=r"^f\.x: select key 4 outside the 4 tokens of the input's shortest row$"):
+        run(engines, plan(-1, 4))
+
+
+# -- a write over the prompt and every decode call, past BOS ---------------------------------------------------
+
+
+def generation(pos: dict | list[dict]) -> Plan:
+    """Greedy generation of three tokens from DAYS with layer 0's output doubled at `pos` (one entry, or one
+    per item), the ids and the head at decode call 2 saved."""
+    writes = {f"w{i}": {"site": LAYER0, "pos": p, "ops": [{"op": "scale", "factor": 2.0}]}
+              for i, p in enumerate(pos if isinstance(pos, list) else [pos])}
+    return doc(TINY, DAYS, {"g": {"kind": "generate", "input": "d.input", "max_new_tokens": 3, "do_sample": False,
+                                  "interventions": {**writes, "at2": {"site": LOGITS, "pos": {"frame": 2,
+                                                                                            "index": -1}}}}},
+               ["g", "g.at2"])
+
+
+def test_a_write_over_the_prompt_and_every_decode_call_may_begin_past_bos(engines):
+    """`{"frame": ":", "index": "1:"}` counts the prompt's positions, BOS first, then each decode call's: it is
+    every position but BOS, the same writes as `{"frame": 0, "index": "1:"}` with `{"frame": "1:"}`, to the bit
+    on both engines; `":"` writes BOS too, which changes what is generated."""
+    onward, split, every = (generation(p) for p in ({"frame": ":", "index": "1:"},
+                                                     [{"frame": 0, "index": "1:"}, {"frame": "1:"}],
+                                                     {"frame": ":"}))
+    got = {kind: [run(engines, p, kind) for p in (onward, split, every)] for kind in ("nnterp", "hooks")}
+    a, b, c = got["nnterp"]
+    assert same(a.results, got["hooks"][0].results) and same(a.results, b.results)
+    assert not torch.equal(a.results["g.at2"], c.results["g.at2"])
+    prompts = [len(row) for row in a.run.tokens["d.input"]]
+    for r, n in enumerate(prompts):
+        made = len(a.run.tokens["g"][r])
+        decoded = list(range(n, n + min(made, 3) - 1))
+        assert a.run.positions["g.w0"][r] == list(range(1, n)) + decoded
+        assert a.run.positions["g.w0"][r] == b.run.positions["g.w0"][r] + b.run.positions["g.w1"][r]
+        assert c.run.positions["g.w0"][r] == list(range(n)) + decoded
+
+
+def test_a_write_over_the_prompt_and_every_decode_call_begins_within_each_prompt(engines):
+    """`"5:"` would begin among the decode calls of a row whose prompt is 4 tokens, at a call that differs by
+    row: refused by name before any forward. An index that does not run on to the end over the prompt (`"1::2"`)
+    names decode calls by the prompt's length, and is refused at compile."""
+    with pytest.raises(ValueError, match=r"^g\.w0: row 1: index '5:' begins past the 4 positions its prefill "
+                                         r"holds, so the decode calls it names would differ by row; a write over "
+                                         r"the prompt and decode calls begins within the prompt$"):
+        run(engines, generation({"frame": ":", "index": "5:"}))
+    with pytest.raises(PlanError, match=r"frame ':' with index '1::2' names calls that depend on how far each row "
+                                        r"gets"):
+        generation({"frame": ":", "index": "1::2"})

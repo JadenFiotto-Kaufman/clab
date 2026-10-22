@@ -96,6 +96,14 @@ document in these places:
   an answer's token its class of spellings; a row's answer may be a set; a scope may be `before` (the
   positions before its tokens); a step's `input` may be a list, joined per row; `sum`, `min` and `contains`
   join the ops.
+- PR 15 (PLAN.md §14), §4 and §5: every input token is a position, BOS and a chat template's markers included,
+  so "What a scope's tokens are"'s no-scope rule (no id in `tokenizer.all_special_ids`) is gone:
+  `positions.prompted` decides a row's positions, all its tokens but padding, and a document's `pos`,
+  `run.positions`, a ragged value's `tok`, the table's `pos` and `key` and a refusal's token counts number
+  them one way. An unselected `key` axis is each row's own keys, its positions (key j its token j), as wide as
+  the input's longest row: a read is NaN past a shorter row's keys, a write leaves the padding's keys as they
+  are, and neither is the padded batch's axis any more. A write over the prompt and every decode call may
+  begin past BOS (`{"frame": ":", "index": "1:"}`, `positions.onward`), within every row's prompt.
 
 For ratification before any code is written. Present tense throughout: this is
 what the code will do. Every claim is either **verified** (with how, against the

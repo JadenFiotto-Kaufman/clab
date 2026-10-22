@@ -247,7 +247,7 @@ def test_a_column_scope_is_the_rows_own_text(filled):
 
 def test_a_ragged_read_is_one_entry_per_token(engines, filled):
     """entity_mean_ablation.json's harvest: every token of each row's entity, three for Thursday, one otherwise;
-    the mean is over those six vectors, and pca_harvest.json's is over the 34 prompt tokens, BOS not among them."""
+    the mean is over those six vectors, and pca_harvest.json's is over the 34 tokens after BOS (`"1:"`)."""
     def change(d):
         d["saves"] = ["harvest.acts", "mean"]
     plan = edited("entity_mean_ablation", change).compile()

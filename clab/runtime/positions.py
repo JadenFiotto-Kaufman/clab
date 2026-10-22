@@ -222,9 +222,9 @@ def enough(pos: dict) -> int:
 
 
 def started(pos: dict, prompt: int, head_only: bool = False) -> bool:
-    """Whether a row whose prompt is `prompt` tokens holds the position an `onward` index over a frame holding
-    the prompt starts at (`"1:"` needs a prompt of one token), so that it names every decode call of the frame:
-    on a shorter prompt it would start among them. Any other record is not asked."""
+    """Whether a row whose prompt is `prompt` tokens reaches the position an `onward` index over a frame holding
+    the prompt starts at (`"1:"` any prompt of a token), so that it names every decode call of the frame: on a
+    shorter prompt it would start among them. Any other record is not asked."""
     start = onward(pos["index"])
     return pos["scope"] is not None or start is None or start <= len(prompted(prompt, head_only))
 
