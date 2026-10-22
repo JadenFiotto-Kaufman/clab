@@ -209,13 +209,21 @@ def taken(x: Tensor, record: dict) -> Tensor:
 
     `record["positions"]` is `[rows, width]` token indices; `record["select"]`
     maps a dimension of that layout to the indices kept along it: one list for
-    every row, or (`[rows, n]`, on the `key` axis) each row's own. The indices, built where the plan runs,
-    move to the value's device.
+    every row, or (`[rows, n]`, on the `key` axis) each row's own. A `key` axis it does not select is each row's
+    own keys (`record["keys"]`), NaN past them. The indices, built where the plan runs, move to the value's device.
     """
-    x = x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)]
+    x = owned(x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)], record)
+    if "keys" in record:
+        x = x.masked_fill(~per_row(x, record["keys"]["dim"], record["keys"]["own"].to(x.device)), float("nan"))
     for dim, index in record["select"].items():
         x = take(x, dim, index)
     return x
+
+
+def owned(x: Tensor, record: dict) -> Tensor:
+    """A selection's `key` axis in each row's own order, its keys and then its padding's, where the record does
+    not select keys (`record["keys"]`); else as it is."""
+    return take(x, record["keys"]["dim"], record["keys"]["index"]) if "keys" in record else x
 
 
 def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
@@ -243,7 +251,8 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
     each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
-    padded to one width; only the positions its `keep` marks are written. Every index, mask and result moves
+    padded to one width; only the positions its `keep` marks are written. A `key` axis a record does not select
+    is each row's own keys in order (`owned`): a read's are NaN past them, and a write writes those alone. Every index, mask and result moves
     to the value's device, and a result to its dtype, where it meets the value.
     """
     axis = pos_axis(component)
@@ -260,7 +269,7 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
         if not wrote:
             x, wrote = before.clone(), True
         pos = w["positions"].to(x.device)
-        current, original = x[rows, pos], before[rows, pos]
+        current, original = owned(x[rows, pos], w), owned(before[rows, pos], w)
         new = current
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
@@ -270,6 +279,11 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
             new, index = new.to(device=current.device, dtype=current.dtype), index.to(current.device)
             new = current.index_copy(dim, index, new) if index.dim() == 1 else \
                 current.scatter(dim, per_row(new, dim, index), new)
+        if "keys" in w:                 # a row's own keys written, its padding's as they were, in the batch's order
+            dim, index = w["keys"]["dim"], w["keys"]["index"].to(x.device)
+            new = torch.where(per_row(current, dim, w["keys"]["own"].to(x.device)),
+                              new.to(device=current.device, dtype=current.dtype), current)
+            new = x[rows, pos].scatter(dim, per_row(new, dim, index), new)
         keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
     return x.movedim(1, axis), wrote

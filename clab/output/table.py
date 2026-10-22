@@ -19,9 +19,10 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 
     A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
     not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
-    layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into
-    the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it for a
-    read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step used
+    layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to, as a document's
+    `pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
+    with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
+    numbered the same way, the row's own keys only), the dataset columns the step used
     (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
     value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
     `alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices."""
@@ -150,7 +151,7 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
             if dims[i] in ("pos", "key"):
                 row.update(token(place, at[dims.index("rows")], dims[i], k))
         if row.get("key", 0) is None:
-            continue                                    # a padding key
+            continue                                    # past the row's own keys
         pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
         row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
         out.append(row)
@@ -186,14 +187,14 @@ def unreached(place: dict | None, row: int | None) -> dict:
 
 def token(place: dict | None, row: int, axis: str, k: int) -> dict:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
-    through its `select` (the row's own token indices) or, unselected, the padded batch's keys less the row's
-    padding; None on a padding key."""
+    through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
+    None past the row's own keys."""
     if place is None:
         return {axis: k}
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis)
-    index = place["keys"][k] if place["keys"] is not None else k - (place["width"] - len(place["prompt"][row]))
-    return {axis: None} if index < 0 else label(place, row, index, axis)
+    index = place["keys"][k] if place["keys"] is not None else k
+    return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 
 
 def label(place: dict | None, row: int, index: int, axis: str) -> dict:
@@ -253,7 +254,7 @@ def located(plan: Plan, source: str, at: dict) -> dict:
     keys = positions.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
-            "width": max(map(len, prompt)), "keys": keys,
+            "keys": keys,
             "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
             "layers": positions.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
             else None}

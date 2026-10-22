@@ -41,12 +41,12 @@ def mixed_lengths(rows: list[dict]) -> Plan:
 
 
 def from_the_start() -> Plan:
-    """patching.json at prompt token 3, counted from the start (BOS and padding are not prompt tokens): the
-    first token of the day's name, on prompts 11 and 9 tokens long. Tokens 0 to 2 are "If today is" on
-    every row, so a count that included BOS or padding would land on a token both prompts share."""
+    """patching.json at position 4, counted from the row's start (BOS is position 0; padding is never a
+    position): the first token of the day's name, on prompts 11 and 9 tokens long. Positions 1 to 3 are "If
+    today is" on every row, so a count that started in the padding, or after BOS, would land on another token."""
     def change(d):
-        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = 3
-        d["steps"]["patched"]["interventions"]["patch"]["pos"] = 3
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = 4
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = 4
     return edited("patching", change).compile()
 
 
@@ -370,11 +370,11 @@ def test_every_point_has_at():
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
-    """A window from prompt token 5 to the end is four tokens on the 10-token row and two on the others: zeros
-    land there, and every other position (padding and BOS included) keeps its value."""
+    """A window from position 6 to the last is four tokens on the 11-token row and two on the others: zeros
+    land there, and every other position (BOS included) keeps its value."""
     def change(d, write):
         entries = d["steps"]["patched"]["interventions"]
-        zero = {"zero": {"site": "target", "pos": {"index": "5:-1"}, "ops": [{"op": "swap", "with": 0.0}]}}
+        zero = {"zero": {"site": "target", "pos": {"index": "6:-1"}, "ops": [{"op": "swap", "with": 0.0}]}}
         d["steps"]["patched"]["interventions"] = {**(zero if write else {}), "logits": entries["logits"],
                                                   "whole": {"site": "target", "pos": {"index": ":"}}}
         d["saves"] = ["patched.whole"]
@@ -383,7 +383,7 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
     after = engine.execute(written, batch_size=BATCH_SIZE).results["patched.whole"]
     before = engine.execute(clean, batch_size=BATCH_SIZE).results["patched.whole"]
     zeroed = (after["values"] == 0).all(-1)
-    assert after["tok"][zeroed].tolist() == [6, 7, 8, 9, 6, 7, 6, 7, 6, 7]       # prompt tokens 5.. -1, after BOS
+    assert after["tok"][zeroed].tolist() == [6, 7, 8, 9, 6, 7, 6, 7, 6, 7]       # positions 6 to -1
     assert torch.equal(after["values"][~zeroed], before["values"][~zeroed])
 
 
@@ -479,10 +479,12 @@ def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
 
 
 def test_select_on_key_counts_each_rows_own_tokens(engines):
-    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) `select: {key: "0:2"}`
-    is each row's own first two keys (BOS and the first prompt token), as the picks `[0, 1]` are, and a write
-    at `{key: 0}` zeroes exactly the first, wherever each row's padding puts it; a table labels the keys a read
-    selected with their tokens."""
+    """On attention_knockout.json's rows (11, 9, 9 and 9 tokens, so padded by 0, 2, 2, 2) the key axis is each
+    row's own keys: unselected, key k is the row's position k (BOS key 0) and a shorter row's keys past its own
+    are NaN, never its padding's; `select: {key: "0:2"}` is the same first two keys (BOS and the first prompt
+    token), as the picks `[0, 1]` are; and a write at `{key: 0}` zeroes exactly the first, wherever each row's
+    padding puts it, the rest of the row as it was. A table labels the keys a read selected, and the ones it did
+    not, with their tokens, and has no key past a row's own."""
     def change(d):
         pattern = {"component": "attention_probabilities", "layers": 0}
         d["steps"] = {
@@ -498,12 +500,18 @@ def test_select_on_key_counts_each_rows_own_tokens(engines):
     plan = engines("nnterp", plan_of("attention_knockout").model).execute(
         edited("attention_knockout", change).compile(), batch_size=BATCH_SIZE)
     values, tokens = plan.results, plan.run.tokens["pairs.input"]
-    width = max(map(len, tokens))
-    pads = [width - len(t) for t in tokens]
-    assert pads == [0, 2, 2, 2] and torch.equal(values["clean.first"], values["clean.picks"])
-    for r, pad in enumerate(pads):
-        assert torch.equal(values["clean.first"][r], values["clean.whole"][r][..., pad:pad + 2])
-        zeroed, clean = values["zeroed.whole"][r], values["clean.whole"][r]
-        assert zeroed[..., pad].eq(0).all() and not clean[..., pad].eq(0).all()
-        assert torch.equal(zeroed[..., :pad], clean[..., :pad])
+    lengths = [len(t) for t in tokens]
+    assert lengths == [11, 9, 9, 9] and values["clean.whole"].shape == (4, 1, 4, 11)
+    assert torch.equal(values["clean.first"], values["clean.picks"])
+    for r, n in enumerate(lengths):
+        whole, zeroed = values["clean.whole"][r], values["zeroed.whole"][r]
+        assert not whole[..., :n].isnan().any() and whole[..., n:].isnan().all()
+        torch.testing.assert_close(whole[..., :n].sum(-1), torch.ones(1, 4))        # the row's keys hold it all
+        assert torch.equal(values["clean.first"][r], whole[..., :2])
+        assert zeroed[..., 0].eq(0).all() and not whole[..., 0].eq(0).all()
+        assert torch.equal(zeroed[..., 1:n], whole[..., 1:n]) and zeroed[..., n:].isnan().all()
     assert [r["key_token"] for r in plan.table("clean.first") if r["row"] == 1] == ["<s>", "▁If"]
+    table = plan.table("clean.whole")
+    for r, n in enumerate(lengths):
+        own = [(t["key"], t["key_token"]) for t in table if t["row"] == r]
+        assert own == [(k, tokens[r][k]) for k in range(n)]

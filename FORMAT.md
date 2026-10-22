@@ -79,7 +79,7 @@ is the token alone. A row's value may be a list of strings: a set, any of which 
 - `ops: list of op = []`
 
 An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the
-positions `pos` names there (default every prompt token, `{"frame": 0, "index": ":"}`), and the `ops` it
+positions `pos` names there (default every token of the prompt, `{"frame": 0, "index": ":"}`), and the `ops` it
 runs on that selection, in the order written.
 
 ```
@@ -132,6 +132,12 @@ An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops).
 `pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,
 `index` picks positions within that.
 
+**A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
+a chat template's markers, everything but padding** (`pos: 0` is BOS where there is one, `-1` the last
+token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a ragged value's `tok`, the
+run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+refusal's token counts.
+
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
           | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
@@ -158,14 +164,14 @@ whichever step names it). A
 position is where an input token sits, in a forward and in a generation alike: the prefill holds every
 prompt token, its last position the distribution over generated token 0; under the cache decode call k
 holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
-row's calls end with the one that chose its last token, so the token it stopped on is never an input. The
-prompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a
+row's calls end with the one that chose its last token, so the token it stopped on is never an input. A
 generation's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there
 call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+prefixes: the tokens covering its characters, a chat template's marker among them where the text spans one
+(BOS covers none). An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
 token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
 the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
 after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
@@ -248,7 +254,8 @@ prefill, and the decode calls, each at its one position. A write at decode call 
 generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
 selects is known by then: its frame not counted from the row's last call, and with an
 index that names the same calls on a row that stops early as on one that runs on (not one counted from
-the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
+the end over several calls, and over the prompt one that picks every position from one counted from the
+start on, `":"` or `"1:"`, which begins within each row's prompt); a frame to the row's last call other than
 every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
 gives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the
 first. A scoped write is found
@@ -472,9 +479,11 @@ its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the ta
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
 in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
-int `layers` drops its axis. `key` is as long as each row, so a selector there picks a fixed number of keys
-counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream` marks the residual-stream values `readout` may
-project.
+int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
+where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
+`"0:3"`); unselected, the axis is as wide as the input's longest row, and a shorter row's keys past its own
+are NaN in a read and left as they are by a write (never its padding's). `stream` marks the residual-stream
+values `readout` may project.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
@@ -751,17 +760,18 @@ after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
 The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
-position (an index into the row's prompt tokens, then its generated ones) every read and write resolved to
-per row, which
+position (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones)
+every read and write resolved to per row, which
 `table` uses to label positions. Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
 A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
 not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
-layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to: the index into
-the row's prompt tokens, then in a generation its generated ones, with the forward `call` holding it for a
-read in a generation; `key`/`key_token` on an attention pattern), the dataset columns the step used
+layer), the token axes with their tokens (`pos`/`pos_token`, the position a read resolved to, as a document's
+`pos` counts them: the index into the row's prompt tokens, BOS first, then in a generation its generated ones,
+with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
+numbered the same way, the row's own keys only), the dataset columns the step used
 (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A ragged
 value gives a row per entry. A row a read beyond the prefill did not reach gives one row,
 `alignment_missing` true, with no value. A value with no rows axis gives a row per element with its axis indices.

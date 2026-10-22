@@ -46,7 +46,7 @@ uv run clab table out/das_apply iia                                            #
 ```
 
 `pca_control.json` loads what `pca_harvest.json` writes the same way, and `sae_train_ablation.json` the
-sparse autoencoder `sae_train.json` trains on every token of the weekday prompts:
+sparse autoencoder `sae_train.json` trains on every token of the weekday prompts after BOS:
 
 ```
 uv run clab run documents/sae_train.json --batch-size 2 --out documents/artifacts   # fit.dictionary.safetensors
@@ -202,12 +202,18 @@ one dict in execution order, each marked `gathered` when the run takes its value
 links back to what computed it. `run.tokens` holds each input's tokens per row and `run.positions` the token
 every entry resolved to, which is how `table` labels `pos_token`.
 
+A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
+`pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding. A
+document's `pos`, `run.positions`, a ragged value's `tok`, `table`'s `pos` and `key`, an attention pattern's
+`key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
+the same way.
+
 ## The format
 
 `FORMAT.md` is the one-page reference: root keys, every record and its fields, step kinds, every op with its
 arguments and axis behaviour (grouped as metrics, reductions and edits), every component, featurizer kinds,
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
-within their tokens, `index` positions within that), names and scoping, sweeps and the output. It is generated from the code (`clab describe
+within their tokens, `index` positions within that, every input token a position), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
 `documents/` holds the corpus: the 31 original documents and the example documents added since (44 in all),
 and under `documents/real/` the five on a real checkpoint; `data/` their datasets.

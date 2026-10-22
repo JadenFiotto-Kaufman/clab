@@ -13,20 +13,21 @@ from .preflight import head, made_at
 from .state import bound, lookup, put, within_row
 
 
-def site(record, picks: dict, rows: list[list[int]], pads: list[int], last_only: bool = False) -> dict:
-    """What the engine needs to reach a record's selection in this batch: its component, its token indices
-    into the padded batch (`positions`, `[rows, width]`; a ragged row repeats its last index to the batch's
-    widest, `keep` marking its own, `tok` the unpadded indices), and the part of the feature axes it keeps
-    (`select`: `picks`, the indices preflight resolved its `select` to). Where the value
-    holds the last position alone (`last_only`: a generation's head in the prefill) every index is -1."""
-    width = max(1, *map(len, rows))
-    index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (width - len(row))
+def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
+    """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
+    its token indices into the padded batch (`positions`, `[rows, n]`; a ragged row repeats its last index to the
+    batch's widest, `keep` marking its own, `tok` the unpadded indices), the part of the feature axes it keeps
+    (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis it does not select,
+    each row's own keys (`keys`). Where the value holds the last position alone (`last_only`: a generation's head
+    in the prefill) every index is -1."""
+    n = max(1, *map(len, rows))
+    index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(rows, pads)]
     tok = [[i - pad for i in row] for row, pad in zip(index, pads)]
-    index = [[-1] * width for _ in rows] if last_only else index
+    index = [[-1] * n for _ in rows] if last_only else index
     return {"component": record.site.component, "positions": torch.tensor(index),
-            "select": selection(record, picks, pads),
-            "keep": torch.tensor([[j < len(row) for j in range(width)] for row in rows]), "tok": torch.tensor(tok)}
+            "select": selection(record, picks, pads), **keys(record, picks, pads, width),
+            "keep": torch.tensor([[j < len(row) for j in range(n)] for row in rows]), "tok": torch.tensor(tok)}
 
 
 def decoding(record, picks: dict, prompts: list[int], pads: list[int]) -> dict:
@@ -35,6 +36,19 @@ def decoding(record, picks: dict, prompts: list[int], pads: list[int]) -> dict:
     number is the input's."""
     return {"component": record.site.component, "positions": torch.full((len(prompts), 1), -1),
             "select": selection(record, picks, pads), "tok": torch.tensor([[p - 1] for p in prompts])}
+
+
+def keys(record, picks: dict, pads: list[int], width: int) -> dict:
+    """A `key` axis the record does not select as each row's own keys, its positions (`positions.prompted`), as
+    a key selector counts them: `keys` is the axis's dimension in the selection's layout, `index` (`[rows,
+    width]`) each row's keys in the padded batch, in order, then its padding's, and `own` which of those are the
+    row's. A read's keys past a row's own are NaN; a write leaves them as they are. None on another record."""
+    layout = address.dims(record.site.component, None, False)
+    if "key" not in layout or "key" in picks:
+        return {}
+    index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) for pad in pads]
+    own = [[j < width - pad for j in range(width)] for pad in pads]
+    return {"keys": {"dim": layout.index("key"), "index": torch.tensor(index), "own": torch.tensor(own)}}
 
 
 def selection(record, picks: dict, pads: list[int]) -> dict:
@@ -87,8 +101,9 @@ def bind(engine, plan: Plan, name: str, step, state: dict, found: dict, rows: sl
     an entry that writes as a write with its ops, then, when it is gathered, its reads, one per layer
     (`<entry>@<layer>`). An entry that does neither is left out."""
     chosen = {k: r for k, r in entries(step).items() if writes(r) or r.gathered}
+    width = found["inputs"][data.input_name(step.input)]["width"]
     sites = {key: site(record, lookup(found["selects"], f"{name}.{key}", step.at),
-                       lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, head(step, record))
+                       lookup(found["positions"], f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
              for key, record in chosen.items()}
     live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in chosen.items() if record.gathered}
     records = []

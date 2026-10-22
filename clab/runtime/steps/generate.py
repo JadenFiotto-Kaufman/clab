@@ -10,7 +10,7 @@ from ...plan.model import Plan, entries, horizon, writes
 from .. import data, positions
 from . import kind
 from .batches import batches, decoding, edit, joined, layers, read, site, stacked, with_ops
-from .preflight import head, place, prompted, texts
+from .preflight import head, place, texts
 from .state import lookup, put
 
 
@@ -26,8 +26,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     its options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
     An entry in the prefill (`frame: 0`) is a forward's. One beyond it goes to the engine in two parts: its
-    prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
-    what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
+    prefill positions (for a write, those its index picks there, `positions.in_prompt`; for a read, the whole
+    prefill, since which of its positions it means can depend on what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
     or None for every decode call); an entry that writes and is gathered goes as its write, then its read.
     A write with a text scope is found online: it goes to every decode call with each row's text (`online`),
     lands where `positions.landing` says, and is recorded at the calls it says so of afterwards. Every other
@@ -37,7 +37,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     continuation, as token strings, in `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes
     fewer calls; its ids are filled after their EOS to the longest batch's."""
     eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
-    encoded = found["inputs"][data.input_name(step.input)]["rows"]
+    encoded, padded = (found["inputs"][data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k: r for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
@@ -52,7 +52,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if key in first:
                 if writes(record) or record.gathered:
                     sites[key] = site(record, picks[key], lookup(found["positions"], f"{name}.{key}", step.at)[chunk],
-                                      pads, head(step, record))
+                                      pads, padded, head(step, record))
                 if writes(record):
                     records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
                                     "ops": edit(engine, plan, record, state, step.at, chunk, answers=found["answers"])})
@@ -64,8 +64,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             if writes(record):
                 edits = edit(engine, plan, record, state, step.at, chunk, answers=found["answers"])
                 if holds:
-                    where = [prompted(e, engine.tokenizer, head(step, record)) for e in encoded[chunk]]
-                    records.append({**site(record, picks[key], where, pads, head(step, record)), "name": f"{key}#0",
+                    where = [positions.in_prompt(pos, len(e["ids"]), head(step, record)) for e in encoded[chunk]]
+                    records.append({**site(record, picks[key], where, pads, padded, head(step, record)), "name": f"{key}#0",
                                     "layer": layers(engine, record)[0], "ops": edits})
                 online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
                                      "eos": sorted(eos)}} if pos["scope"] else {}
@@ -74,8 +74,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                                 **online})
             for layer in layers(engine, record) if record.gathered else []:
                 if holds:
-                    whole = [list(range(len(e["ids"]))) for e in encoded[chunk]]
-                    records.append({**site(record, picks[key], whole, pads, head(step, record)),
+                    whole = [positions.prompted(len(e["ids"])) for e in encoded[chunk]]
+                    records.append({**site(record, picks[key], whole, pads, padded, head(step, record)),
                                     "name": f"{key}@{layer}#0", "layer": layer})
                 records.append({**decoding(record, picks[key], prompts, pads), "name": f"{key}@{layer}",
                                 "layer": layer, "calls": calls})

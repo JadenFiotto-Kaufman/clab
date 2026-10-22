@@ -396,19 +396,19 @@ def window(index, read=None) -> Plan:
 
 
 def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engines):
-    """trial-02: `0:14`, and the one position 3, pair the two prompts' tokens by index from the start, which
+    """trial-02: `1:15`, and the one position 4, pair the two prompts' tokens by index from the start, which
     after the names (` John` one token, ` Quentavious` several) are different tokens: refused by name before any
     forward. Positions within the tokens both share at the same distance from their side run (`-4:-1`, ` gave
-    a ring`; `0:3`, up to the names' first tokens), and so do positions written differently on the two sides,
+    a ring`; `1:4`, up to the names' first tokens), and so do positions written differently on the two sides,
     which pair what they say. (`window_patch` and `multi_position_patch` stay bit-equal: test_documents.)"""
-    for index in ("0:14", 3):
+    for index in ("1:15", 4):
         refused_before_any_forward(engines, window(index), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 "
                                    r"of which is \d+ tokens; d\.input has \d+, so position \d+ pairs '.*' with '.*'; "
                                    r"use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
     assert filled.run.positions["patched.w"] != filled.run.positions["abc.v"]      # the same tokens, from the end
-    run(engines, window("0:3"))
-    run(engines, window(3, read=-1))
+    run(engines, window("1:4"))
+    run(engines, window(4, read=-1))
 
 
 def test_s8_a_metric_refuses_an_operand_of_another_pos_width():

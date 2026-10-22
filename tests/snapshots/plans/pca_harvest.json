@@ -1,5 +1,5 @@
 {
- "description": "The first half of a PCA control: read the residual stream at EVERY token of the training prompts — a ragged read, 34 vectors from 4 rows, the tokenizer's own BOS not among them because it is not a token of the prompt — and the `pca` op reduces it to its top-4 principal directions, an orthonormal (16, 4) basis, saved as a bundle a later document (pca_control.json) loads as a `pca` featurizer. Nothing is trained; the basis is what the data says. (One position per row would be 4 vectors, and four vectors have no rank-4 PCA; the run refuses it before any forward.)",
+ "description": "The first half of a PCA control: read the residual stream at EVERY token of the training prompts after BOS (`{'index': '1:'}`: position 0 is the tokenizer's BOS) — a ragged read, 34 vectors from 4 rows — and the `pca` op reduces it to its top-4 principal directions, an orthonormal (16, 4) basis, saved as a bundle a later document (pca_control.json) loads as a `pca` featurizer. Nothing is trained; the basis is what the data says. (One position per row would be 4 vectors, and four vectors have no rank-4 PCA; the run refuses it before any forward.)",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -20,6 +20,9 @@
      "site": {
       "component": "layer_output",
       "layers": 0
+     },
+     "pos": {
+      "index": "1:"
      },
      "dims": [
       "entries",

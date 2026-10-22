@@ -1,10 +1,11 @@
 """Positions: a `pos` as three stages of narrowing (frame, scope, index), resolved row by row inside the run,
 where the tokenizer is, to the positions the record names.
 
-A row's positions are its token indices in one sequence: the prompt's tokens (`0 .. P-1`, as encoded,
-special ones included), then what it generated (`P + j` for generated token `j`). The prefill, call 0, holds
-the prompt; decode call `k >= 1` holds generated token `k - 1`, its input. A row's calls run to the one that
-chose its last token, so that token is never an input.
+A row's positions are its input tokens, all of them, in order (`prompted`): the prompt's as encoded (`0 ..
+P-1`, BOS and a chat template's markers included; padding is never one), then what it generated (`P + j` for
+generated token `j`). The prefill, call 0, holds the prompt; decode call `k >= 1` holds generated token `k -
+1`, its input. A row's calls run to the one that chose its last token, so that token is never an input. A
+row's keys, on an attention pattern's `key` axis, are its prompt's positions, numbered the same way.
 """
 
 import re
@@ -127,10 +128,12 @@ def from_end(selector) -> bool:
     return few != [i for i in many if i < n]
 
 
-def every(selector) -> bool:
-    """Whether a selector picks every one of however many things there are, in order (`":"`)."""
+def onward(selector) -> int | None:
+    """Where a selector, counting from the start, begins picking every one of however many things there are, in
+    order: `":"` at 0, `"1:"` at 1; None for any other (`"-3:"`, `"2:5"`, `"::2"`, picks)."""
     n, few, many = probed(selector)
-    return few == list(range(n)) and many == list(range(2 * n))
+    start = few[0] if few else n
+    return start if few == list(range(start, n)) and many == list(range(start, 2 * n)) else None
 
 
 # -- what the run needs to know before it starts ------------------------------------------------------
@@ -158,23 +161,25 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     at most (a generation's `max_new_tokens`), when known.
 
     A frame counted from the end depends on how far each row gets. Any other frame names call `k`
-    on every row that makes it, as `k in select(frame, k + 1)` says. An index other than `":"` must not
-    depend on how far the row gets either: over a frame holding the prompt it does (the prompt's length
-    differs by row); over decode calls, each holding one position, the record is exact when a row that stops
-    after `k` calls names exactly the calls below `k` that a row running to the horizon names (an index
-    counted from the end over several calls does not). Without a horizon, a frame to the row's last call
-    other than every decode call names calls only the run will know. A scope's index counts its text's
-    tokens, which any of the frame's calls may hold, so a scoped record can name every call of its frame."""
+    on every row that makes it, as `k in select(frame, k + 1)` says. The index must not depend on how far the
+    row gets either. Over a frame holding the prompt, whose length differs by row, an index that picks every
+    position from one counted from the start on (`onward`: `":"`, `"1:"`) names every decode call of the frame
+    on a row whose prompt reaches that position (`started` checks the rows); any other does depend on it. Over
+    decode calls, each holding one position, the record is exact when a row that stops after `k` calls names
+    exactly the calls below `k` that a row running to the horizon names (an index counted from the end over
+    several calls does not). Without a horizon, a frame to the row's last call other than every decode call
+    names calls only the run will know. A scope's index counts its text's tokens, which any of the frame's
+    calls may hold, so a scoped record can name every call of its frame."""
     frame, index = pos["frame"], ":" if pos["scope"] else pos["index"]
     if pos["scope"] and pos["scope"].get("before") and select(frame, 2) != [0]:
         return True, None, False        # the position before a token may be any call's, the prefill's included
     if from_end(frame):
         return True, None, False
     holds = 0 in select(frame, 1)
-    if holds or every(index):
+    if holds or onward(index) == 0:
         calls = decode_calls(frame, horizon)
         known = calls is not None or covers(frame)
-        return holds, calls, known and (every(index) or calls == [])
+        return holds, calls, known and (onward(index) is not None or calls == [])
     pos = {**pos, "index": index}
     if horizon is None:
         k = enough(pos)
@@ -216,6 +221,14 @@ def enough(pos: dict) -> int:
     return (2 + max(numbers, default=0)) ** 2
 
 
+def started(pos: dict, prompt: int, head_only: bool = False) -> bool:
+    """Whether a row whose prompt is `prompt` tokens holds the position an `onward` index over a frame holding
+    the prompt starts at (`"1:"` needs a prompt of one token), so that it names every decode call of the frame:
+    on a shorter prompt it would start among them. Any other record is not asked."""
+    start = onward(pos["index"])
+    return pos["scope"] is not None or start is None or start <= len(prompted(prompt, head_only))
+
+
 def prefill(pos: dict) -> bool:
     """Whether the record names prefill positions only, so the data alone decides it before any forward."""
     holds, calls, _ = reach(pos)
@@ -231,10 +244,25 @@ def framed(frame, n: int) -> list[int]:
     return select(frame, n)
 
 
-def held(called: list[int], prompted: list[int], prompt: int) -> list[int]:
-    """The positions the calls hold: the prefill's (`prompted`), and each decode call's input, in a row whose
-    prompt is `prompt` tokens."""
-    return [p for call in called for p in (prompted if call == 0 else [prompt + call - 1])]
+def prompted(prompt: int, head_only: bool = False) -> list[int]:
+    """The positions the prefill of a row whose prompt is `prompt` tokens holds, the one place a row's positions
+    are decided: every token of its prompt, in order, BOS and a chat template's markers included (a row's ids are
+    its own, never padding), or its last token alone (`head_only`) where the prefill computes only that (a
+    generation's head)."""
+    return [prompt - 1] if head_only else list(range(prompt))
+
+
+def held(called: list[int], prompt: int, head_only: bool = False) -> list[int]:
+    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompted`), and
+    each decode call's input."""
+    return [p for call in called for p in (prompted(prompt, head_only) if call == 0 else [prompt + call - 1])]
+
+
+def in_prompt(pos: dict, prompt: int, head_only: bool = False) -> list[int]:
+    """The prefill positions an unscoped record whose frame holds the prompt and runs on into decode calls names:
+    its index's picks among the prefill's, which an `onward` index counts first."""
+    held = prompted(prompt, head_only)
+    return [held[i] for i in select(pos["index"], len(held))]
 
 
 def call_of(position: int, prompt: int) -> int:
@@ -272,17 +300,17 @@ def indexed(index, tokens: list[int], width: int | None) -> list[int]:
     return got
 
 
-def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
-            occurrences: list[set[int]]) -> list[int] | str:
-    """The positions a record names in one row, given its prompt's length, the positions its prefill holds
-    (`prompted`), what it generated up to its first EOS (`said`), and where its scope's text occurs
-    (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided. A
-    scope that is `before` picks its tokens as any scope does, the row's last generated token among them when
-    the frame names its last call, and the record is the position before each."""
+def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]],
+            head_only: bool = False) -> list[int] | str:
+    """The positions a record names in one row, given its prompt's length, what it generated up to its first
+    EOS (`said`), where its scope's text occurs (`occurrences`), and whether its prefill holds the last position
+    alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill that is a refusal: the data
+    decided. A scope that is `before` picks its tokens as any scope does, the row's last generated token among
+    them when the frame names its last call, and the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = framed(pos["frame"], max(len(said), 1))
-        tokens = held(calls, prompted, prompt)
+        tokens = held(calls, prompt, head_only)
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
@@ -387,7 +415,7 @@ def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tok
     is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
     said = continuation([*inputs, -1], eos)
     found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts, online=True)
-    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, found)
+    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, said, found)
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 
 

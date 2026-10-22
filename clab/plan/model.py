@@ -275,6 +275,12 @@ class Pos(Record):
     """`pos` is three stages of narrowing: `frame` picks forward calls, `scope` picks text within their tokens,
     `index` picks positions within that.
 
+    **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
+    a chat template's markers, everything but padding** (`pos: 0` is BOS where there is one, `-1` the last
+    token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a ragged value's `tok`, the
+    run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+    refusal's token counts.
+
     ```
     pos      := int                                # shorthand: {"frame": 0, "index": int}
               | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
@@ -301,14 +307,14 @@ class Pos(Record):
     position is where an input token sits, in a forward and in a generation alike: the prefill holds every
     prompt token, its last position the distribution over generated token 0; under the cache decode call k
     holds one position, generated token k-1 (its input), and its logits are the distribution over token k. A
-    row's calls end with the one that chose its last token, so the token it stopped on is never an input. The
-    prompt's tokens are the row's tokens that are not special (BOS is never one) and not padding; a
+    row's calls end with the one that chose its last token, so the token it stopped on is never an input. A
     generation's prefill computes the head (`lm_head_output`, `logits`) at its last position only, so there
     call 0 holds that one position.
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+    prefixes: the tokens covering its characters, a chat template's marker among them where the text spans one
+    (BOS covers none). An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
     token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
     the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
     after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
@@ -403,7 +409,7 @@ SIDED = ("a step's reads and writes are one 'interventions' value, and a bundle 
 
 class Intervention(Record):
     """An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the
-    positions `pos` names there (default every prompt token, `{"frame": 0, "index": ":"}`), and the `ops` it
+    positions `pos` names there (default every token of the prompt, `{"frame": 0, "index": ":"}`), and the `ops` it
     runs on that selection, in the order written.
 
     ```
@@ -576,7 +582,8 @@ class Generate(Forward):
     generated token k on, through the cache. A write lands as its call runs, so beyond the prefill what it
     selects is known by then: its frame not counted from the row's last call, and with an
     index that names the same calls on a row that stops early as on one that runs on (not one counted from
-    the end over several calls, nor any but `":"` over the prompt); a frame to the row's last call other than
+    the end over several calls, and over the prompt one that picks every position from one counted from the
+    start on, `":"` or `"1:"`, which begins within each row's prompt); a frame to the row's last call other than
     every decode call (`"2:"`, `"1::2"`) lands at the calls up to the step's `max_new_tokens`, which it then
     gives. With a `column` or `text` scope, decode calls only, index -1 and an occurrence counted from the
     first. A scoped write is found
@@ -751,8 +758,8 @@ class Run(Record):
     distinct dtypes and devices of the model's parameters there, in the order first met. `tokens` and
     `positions` describe values without holding any: how each dataset input tokenized and what each generate
     step's rows generated (token strings per row, under the input or the step's name), and the position every
-    read and write resolved to, per row (an index into the row's prompt tokens, then its generated ones;
-    `alignment_missing` for a row it does not reach). A swept step's are keyed by coordinate. `num_layers` is
+    read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt
+    tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept step's are keyed by coordinate. `num_layers` is
     the model's, which a site's `layers` select among: a `layers` axis's labels are
     `positions.select(site.layers, num_layers)`."""
     engine: str

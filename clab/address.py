@@ -7,9 +7,11 @@ its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the ta
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
 in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
-int `layers` drops its axis. `key` is as long as each row, so a selector there picks a fixed number of keys
-counted from the start (`0`, `[0, 2]`, `"0:3"`). `stream` marks the residual-stream values `readout` may
-project.
+int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
+where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
+`"0:3"`); unselected, the axis is as wide as the input's longest row, and a shorter row's keys past its own
+are NaN in a read and left as they are by a write (never its padding's). `stream` marks the residual-stream
+values `readout` may project.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes

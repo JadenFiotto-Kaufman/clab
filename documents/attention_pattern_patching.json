@@ -1,5 +1,5 @@
 {
-  "description": "Attention-pattern patching: make one head attend, at the last position, the way it did on the COUNTERFACTUAL prompt, and leave its values alone — so the question is 'does where this head looks carry the answer', separately from what it moves. `attention_probabilities` needs eager attention, and its last axis is the keys of the padded batch, so the two prompts must tokenize to the same length row by row; the run checks that before any forward (data/weekdays_aligned is the subset of pairs that do, under this tokenizer).",
+  "description": "Attention-pattern patching: make one head attend, at the last position, the way it did on the COUNTERFACTUAL prompt, and leave its values alone — so the question is 'does where this head looks carry the answer', separately from what it moves. `attention_probabilities` needs eager attention, and its last axis is each row's own keys, its tokens in order, so a pattern swapped from one prompt into another lines key k up with key k: the two must tokenize to the same length row by row; the run checks that before any forward (data/weekdays_aligned is the subset of pairs that do, under this tokenizer).",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",

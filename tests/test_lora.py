@@ -255,7 +255,7 @@ def one_head(step: dict) -> None:
 
 
 def at_the_first_token(step: dict) -> None:
-    step["interventions"]["premix"]["pos"] = 0
+    step["interventions"]["premix"]["pos"] = 1         # position 0 is BOS
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

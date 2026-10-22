@@ -747,8 +747,9 @@ def decided(path: str, pos: dict, most: int | None) -> None:
              "listed before the run, so the step gives max_new_tokens, which bounds them")
     fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "
          "lands as its call runs, so its frame is not counted from the row's last call, and its index "
-         "names the same calls on a row that stops early as on one that runs on: ':' over the prompt, and not "
-         "counted from the end over several decode calls; or it takes a text scope")
+         "names the same calls on a row that stops early as on one that runs on: over the prompt, every position "
+         "from one counted from the start on (':', '1:'), and not counted from the end over several decode "
+         "calls; or it takes a text scope")
 
 
 def text_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
