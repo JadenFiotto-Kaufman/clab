@@ -16,7 +16,6 @@ from .selectors import covers, every, fixed, from_end, probed, select
 
 
 MISSING = "alignment_missing"
-TEXTUAL = ("column", "text")        # the scopes that locate text, which a row may or may not say
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
@@ -31,8 +30,6 @@ def parse(pos) -> dict:
     scope = None if pos.scope is None else pos.scope.model_dump(exclude_none=True)
     return {"frame": pos.frame, "scope": scope, "index": pos.index}
 
-
-# -- selectors ----------------------------------------------------------------------------------------
 
 # -- what the run needs to know before it starts ------------------------------------------------------
 
@@ -167,8 +164,8 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -
 
 
 def indexed(index, tokens: list[int], width: int | None) -> list[int]:
-    """Stage three: the positions `index` picks among the scope's tokens; a rectangular record's must all
-    be there."""
+    """Stage three: the positions `index` picks among the scope's tokens; a record with a static width must
+    hold all of them."""
     got = [tokens[i] for i in select(index, len(tokens))]
     if width is not None and len(got) != width:
         raise Unaligned(f"tokens {index} do not fit its {len(tokens)} scope tokens")
@@ -325,7 +322,7 @@ def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
 def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict],
             tokenizer) -> list[list[int]]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
-    doubled, or a rectangular index that does not fit, is refused by name, and so is a write whose positions
+    doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row."""
     pos = parse(record.pos)
     found = []

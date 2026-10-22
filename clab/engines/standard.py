@@ -53,7 +53,7 @@ COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
 
 
 def inputs(batch: dict, keys: tuple, device: str) -> dict:
-    """The batch's `keys` on `device`: where the model's first parameter is (`steps.home`), which is where a
+    """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
     computed device map puts the model's input."""
     return {k: batch[k].to(device) for k in keys}
 

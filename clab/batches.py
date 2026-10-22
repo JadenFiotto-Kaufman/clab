@@ -9,8 +9,9 @@ from torch import Tensor
 from . import address, data, ops, positions, selectors
 from .address import pos_axis
 from .answers import answered, column_texts, indexed, refkey
-from .interventions import bracketed, made_at
+from .interventions import bracketed
 from .plan import Plan, arguments, dims_of, entries, gathers, writes
+from .selectors import made_at
 from .positions import head
 from .sweeps import lookup, put
 
@@ -36,7 +37,7 @@ def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int
             "keep": torch.tensor([[j < len(row) for j in range(n)] for row in rows]), "tok": torch.tensor(tok)}
 
 
-def decoding(record, picks: dict, prompts: list[int], pads: list[int]) -> dict:
+def decoding(record, picks: dict, prompts: list[int]) -> dict:
     """What the engine needs to reach a record at a decode call: the call's one position, the last; and, in
     `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
     number is the input's."""
@@ -47,7 +48,7 @@ def decoding(record, picks: dict, prompts: list[int], pads: list[int]) -> dict:
 def keys(record, pads: list[int], width: int) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompted`), which a key selector counts:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, width]`) each row's keys in the
-    padded batch, in order, then its padding's, and `own` which of those are the row's (`ops.owned`). Nothing
+    padded batch, in order, then its padding's, and `own` which of those are the row's (`owned`). Nothing
     on a component with no key axis."""
     layout = address.dims(record.site.component)
     if "key" not in layout:
@@ -77,7 +78,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
         out = []
         for node in nodes:
             o = node["op"]
-            args = bound(engine, plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
+            args = bound(plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
             out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -164,8 +165,8 @@ def padded(value: Tensor, dim: int, n: int) -> Tensor:
                                                                        device=value.device)], dim)
 
 
-def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, pads: list[int], state: dict,
-         at: dict, answers: dict) -> Any:
+def read(engine, plan: Plan, record, value: Any, site: dict, rows: slice, state: dict, at: dict,
+         answers: dict) -> Any:
     """One layer of an entry's value taken off the model in the prefill, in one batch, NaN past a row's own
     positions (`keep`), then the ops after its last edit (`answers` as preflight resolved them)."""
     keep = site["keep"].to(value.device)
@@ -182,7 +183,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     dims = address.dims(record.site.component)
     vocabulary = None
     for o in gathers(record):
-        args = bound(engine, plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
+        args = bound(plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
         value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.arange(rows.start, rows.stop),
                          positions=places)
         dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
@@ -191,30 +192,28 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     return value
 
 
-def bound(engine, plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None,
-          of: Any = None, vocabulary: list | None = None, live: dict | None = None,
-          dims: list[str] | None = None, answers: dict | None = None) -> dict:
+def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None, of: Any = None,
+          vocabulary: list | None = None, live: dict | None = None, dims: list[str] | None = None,
+          answers: dict | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
     forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
     the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`."""
     params, out = ops.parameters(name), {}
     for key, value in args.items():
-        annotation, per_row = params[key].annotation, False
+        annotation = params[key].annotation
         if annotation == ops.Value and isinstance(value, str) and value in (live or {}):
             out[key] = {"live": (live or {})[value]}
             continue
         if annotation == ops.Value and isinstance(value, str):
             given, value = value, lookup(state, value, at)
-            per_row = dims_of(plan, given)[:1] == ["rows"]
-            value = value[rows] if rows is not None and per_row else value
+            value = value[rows] if rows is not None and dims_of(plan, given)[:1] == ["rows"] else value
         elif annotation == ops.Tokens:
             if vocabulary is None:
-                got, part = (answers or {})[refkey(value)], rows or slice(None)
-                out[key] = answered(got["values"][part], got["sets"][part], got["column"], of, dims or [], rows,
-                                    got["aligned"])
+                got = (answers or {})[refkey(value)].rows(rows or slice(None))
+                out[key] = answered(got.values, got.sets, got.column, of, dims or [], rows, got.aligned)
                 continue
-            value, per_row = indexed(plan, value, vocabulary, rows)[:, None], True
+            value = indexed(plan, value, vocabulary, rows)[:, None]
         elif annotation == ops.Text:
             column, strip, lower = data.column_of(value) or ("", False, False)
             out[key] = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, rows)]

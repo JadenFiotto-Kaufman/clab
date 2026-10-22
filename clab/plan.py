@@ -803,7 +803,7 @@ class Plan(Record):
             f.write("\n")
 
     def table(self, *names: str, columns: list[str] | None = None) -> list[dict]:
-        """The saved values `names` as rows, joined wide on their shared axes (see `output.table`)."""
+        """The saved values `names` as rows, joined wide on their shared axes (see `table.table`)."""
         from .table import table
         return table(self, names, columns)
 

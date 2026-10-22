@@ -4,14 +4,11 @@ bundle carries."""
 
 from typing import Any
 
-from .. import address, ops, selectors
-from ..answers import column_ref
-from ..interventions import bracketed, selected, visited
-from ..plan import Compiling, Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, kind_of, scope, walk
-from ..plan import name as named
-from ..sweeps import coordinate, labelled
-from ..table import materialized, provenance
-from . import KINDS, Kind, bundles, labels, make
+from .. import address, selectors
+from ..interventions import bracketed, visited
+from ..plan import Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, scope, walk
+from ..selectors import selected
+from . import KINDS, Kind, labels, make
 
 
 
@@ -43,42 +40,6 @@ def bundled_sites(plan: Plan) -> None:
                     fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
                          f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
                          f"{site.layers} ({where})")
-
-
-def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
-    """A declared featurizer at one point, with the bundle its `file_path` names, checked key by key against
-    the document."""
-    f, path = plan.featurizers[name], f"featurizers.{name}"
-    assert not isinstance(f, list)
-    fields = f.model_extra or {}
-    if fields.get("classes") is not None:
-        column_ref(cx, fields["classes"], f"{path}.classes", None)
-        try:
-            labels(cx.rows, fields["classes"])
-        except ValueError as e:
-            fail(f"{path}.classes", str(e))
-    missing = [k for k in KINDS[f.kind].drawn if fields.get(k) is None]
-    if fields.get("file_path") is None and missing:
-        fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
-             "load one with 'file_path'")
-    record = f.model_dump(exclude_defaults=True)
-    if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
-        if fields["site"] not in plan.sites:
-            fail(f"{path}.site", f"no site {fields['site']!r}; declared: {', '.join(plan.sites) or 'none'}")
-        named = plan.sites[fields["site"]]
-        if not isinstance(named.layers, int) or named.select:
-            fail(f"{path}.site", f"site {fields['site']!r} is {named.model_dump(exclude_defaults=True)}; the site a "
-                 "featurizer was trained at is a component at one layer, {'component', 'layers': <int>}")
-        record["site"] = fields["site"] = {"component": named.component, "layers": named.layers}
-    if fields.get("file_path") is None:
-        return record
-    try:
-        tensors, header = bundles.load(cx.root, f.kind, fields, plan.model,
-                                                   labels(cx.rows, fields["classes"]) if "classes" in fields
-                                                   else None)
-    except ValueError as e:
-        fail(f"{path}.file_path", str(e))
-    return {**record, "bundle": tensors, "header": header}
 
 
 def widths(engine, plan: Plan) -> dict[str, int]:
@@ -172,49 +133,3 @@ def instance(plan: Plan, spec, width: int, seed: int | None, device: str = "cpu"
     classes = labels({n: d.rows or [] for n, d in plan.data.items()}, fields["classes"]) \
         if "classes" in fields else None
     return make(spec.kind, fields, width, spec.bundle, seed, classes, spec.header, device)
-
-
-def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
-    """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
-    coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
-    if not isinstance(entry, list):
-        return header(plan, name, plan.results[name], entry)
-    found: dict[str, str] = {}
-    for p in entry:
-        point = header(plan, name, plan.results[name][coordinate(plan, p.at)], p)
-        if point is None:
-            return None
-        found["format"] = point.pop("format")
-        found.update({f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
-    return found
-
-
-def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | None:
-    """A bundle's header, when the value is one (`value`, at `step`, the point that made it): an op step's whose op
-    declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
-    trained featurizer, made at the first site it is used at."""
-    member = name.partition(".")[2]
-    if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
-        kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
-        reads = None
-    elif step.kind == "fit" and member in step.train:
-        kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
-        used = uses(plan)[member]
-        where, site, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
-        given = arguments(o).get("with")
-        reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
-    else:
-        return None
-    classes = labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
-        if "classes" in fields else None
-    site, reads = (counted(plan, s) for s in (site, reads))
-    return bundles.header(kind, fields, plan.model, classes, site, KINDS[kind].width(value),
-                                      named(plan), reads)
-
-
-def counted(plan: Plan, site: Any) -> Any:
-    """A site whose one layer is counted from the first, as a header records it."""
-    if site is not None and isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
-        return site.model_copy(update={"layers": selectors.select(site.layers, plan.run.num_layers)[0]})
-    return site

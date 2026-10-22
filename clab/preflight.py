@@ -7,9 +7,10 @@ from . import address, data, featurizers, ops, positions, selectors
 from .answers import check_classes, check_tokens, placed, probe_of
 from .featurizers.uses import widths
 from .generate import generation_options
-from .interventions import check_labels, check_operands, held, picked, refuse, selected
+from .interventions import check_labels, check_operands, held, refuse
 from .plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 from .positions import indices
+from .selectors import picked, selected
 from .sweeps import lookup, put
 
 
@@ -44,7 +45,7 @@ def preflight(engine, plan: Plan) -> Found:
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
     option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
-    row's scope, or whose scope is not in a row a write or a rectangular read needs; a token column that is not
+    row's scope, or whose scope is not in a row a write or a read of static width needs; a token column that is not
     one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
     indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
     write to a component with a `key` axis (the attention pattern, the scores) whose operand was read on another

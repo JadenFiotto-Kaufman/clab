@@ -3,6 +3,7 @@ classes), each row's answer tokenized as written and lined up with the read it s
 
 import functools
 import json
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -82,7 +83,7 @@ def check_tokens(engine, plan: Plan, found: "Found", where: str, name: str, args
         if p.annotation != ops.Tokens or key not in args:
             continue
         got = answer(engine, plan, found, args[key], where)
-        values, sets, column, aligned = got["values"], got["sets"], got["column"], got["aligned"]
+        values, sets, column, aligned = got.values, got.sets, got.column, got.aligned
         for r, (value, row) in enumerate(zip(values, sets)):
             if name in ONE_ID and any(len(ids) > 1 for ids in row):
                 raise ValueError(f"{where}: {column} row {r}: {value!r} stands for {max(map(len, row))} ids (a set, "
@@ -106,18 +107,29 @@ def check_tokens(engine, plan: Plan, found: "Found", where: str, name: str, args
                                      "it tokenizes, so the input says it the same way")
 
 
-def answer(engine, plan: Plan, found: "Found", ref, where: str) -> dict:
-    """A column reference's answers, resolved once per findings (`state.tokens`): each row's `values`, per
-    token the ids it may be (`sets`), the `column`, and whether its rows line up with the read (`aligned`:
-    some row is several tokens; else every row is one, which scores every position of its row)."""
+@dataclass
+class Answer:
+    """A column reference's answers, resolved once per findings: each row's `values`, per token the ids it may
+    be (`sets`), the `column`, and whether its rows line up with the read (`aligned`: some row is several
+    tokens; else every row is one, which scores every position of its row)."""
+    values: list
+    sets: list
+    column: str
+    aligned: bool
+
+    def rows(self, part: slice) -> "Answer":
+        return replace(self, values=self.values[part], sets=self.sets[part])
+
+
+def answer(engine, plan: Plan, found: "Found", ref, where: str) -> Answer:
+    """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
     key = refkey(ref)
     if key not in found.answers:
         try:
             values, sets, column = tokens(engine, plan, ref, None)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
-        found.answers[key] = {"values": values, "sets": sets, "column": column,
-                                 "aligned": any(len(row) > 1 for row in sets)}
+        found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets))
     return found.answers[key]
 
 
@@ -179,7 +191,7 @@ def refkey(ref) -> str:
 
 def tokens(engine, plan: Plan, ref, rows: slice | None) -> tuple[list, list, str]:
     """A column reference's answer on each row, sliced to `rows`: its value, and per token the ids it may be
-    (`data.answers`), and the column's name."""
+    (`answers`), and the column's name."""
     column, strip, lower = data.column_of(ref) or ("", False, False)
     values = column_texts(plan, column, rows)
     return values, answers(engine.tokenizer, values, column, strip, lower), column

@@ -2,19 +2,22 @@
 
 Compile knows the document and the files; the run knows the model. Anything decided from the document, the
 data files and bundle headers is checked here; anything that needs the tokenizer or a size of the model is
-checked by `steps.preflight`, inside the run. The records' own shape (fields, types, the pos grammar, a
+checked by `preflight.preflight`, inside the run. The records' own shape (fields, types, the pos grammar, a
 site's narrowing) is the models' to check, when the plan is built. How names resolve is `step`'s docstring.
 """
 
 import itertools
 from typing import Any
 
+from dataclasses import replace
+
 from . import data, featurizers, positions
 from .answers import column_ref
-from .featurizers.uses import bundled_sites, featurizer
-from .fit import compile_fit
-from .interventions import aligned, called, entry, items, layout, narrowed_readout, paired, references, value_ref
-from .plan import Compiling, Intervention, Known, Plan, arguments, corpus_root, fail, kind_of
+from .arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
+from .featurizers import KINDS, bundles, labels
+from .featurizers.uses import bundled_sites
+from .interventions import entry, items
+from .plan import Compiling, Intervention, Known, Plan, arguments, corpus_root, fail, gathers, kind_of, points
 from .sweeps import find_sweeps
 
 
@@ -211,7 +214,7 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     if spec.op == "contains" and not of.text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, arguments(spec))
-    found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of.dims)
+    found = references(cx, path, spec.op, arguments(spec), "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
     paired(path, spec.op, of.dims, of.width, found)
     if spec.op == "readout" and "hidden_size" in of.select:
@@ -243,4 +246,114 @@ def gathered(steps: dict, used: set) -> None:
                 e["gathered"] = f"{name}.{k}" in used
 
 
-# -- featurizers -------------------------------------------------------------------------------------
+def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
+    """A declared featurizer at one point, with the bundle its `file_path` names, checked key by key against
+    the document."""
+    f, path = plan.featurizers[name], f"featurizers.{name}"
+    assert not isinstance(f, list)
+    fields = f.model_extra or {}
+    if fields.get("classes") is not None:
+        column_ref(cx, fields["classes"], f"{path}.classes", None)
+        try:
+            labels(cx.rows, fields["classes"])
+        except ValueError as e:
+            fail(f"{path}.classes", str(e))
+    missing = [k for k in KINDS[f.kind].drawn if fields.get(k) is None]
+    if fields.get("file_path") is None and missing:
+        fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
+             "load one with 'file_path'")
+    record = f.model_dump(exclude_defaults=True)
+    if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
+        if fields["site"] not in plan.sites:
+            fail(f"{path}.site", f"no site {fields['site']!r}; declared: {', '.join(plan.sites) or 'none'}")
+        named = plan.sites[fields["site"]]
+        if not isinstance(named.layers, int) or named.select:
+            fail(f"{path}.site", f"site {fields['site']!r} is {named.model_dump(exclude_defaults=True)}; the site a "
+                 "featurizer was trained at is a component at one layer, {'component', 'layers': <int>}")
+        record["site"] = fields["site"] = {"component": named.component, "layers": named.layers}
+    if fields.get("file_path") is None:
+        return record
+    try:
+        tensors, header = bundles.load(cx.root, f.kind, fields, plan.model,
+                                                   labels(cx.rows, fields["classes"]) if "classes" in fields
+                                                   else None)
+    except ValueError as e:
+        fail(f"{path}.file_path", str(e))
+    return {**record, "bundle": tensors, "header": header}
+
+
+def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+    """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
+    as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
+    is one the body makes. It trains featurizers that have something to train, and holds no fit."""
+    for i, f in enumerate(spec.train):
+        if f not in plan.featurizers:
+            fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
+        trainable = [k for k, c in featurizers.KINDS.items() if c.trains]
+        if kind_of(plan, f) not in trainable:
+            fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
+                 f"train (trainable kinds: {', '.join(trainable)})")
+        if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
+            fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
+                 "it draws")
+    within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
+    for f in spec.train:
+        within.names[f"{name}.{f}"] = Known(kind="featurizer")
+    before = len(cx.refs)
+    body = {}
+    for n, s in spec.steps.items():
+        if s.kind == "fit":
+            fail(f"{path}.steps.{n}", "a fit's body holds no fit")
+        if n in plan.data or n in plan.featurizers or "." in n:
+            fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
+                 "a root's")
+        body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
+    inner = within.names
+    for ref in cx.refs[before:]:
+        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref].dims:
+            fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
+                 "body runs over minibatches of its rows, so such a value is one it makes")
+    body_ops = [n for n, s in body.items() if s["kind"] == "op"]
+    for term in spec.objective:
+        thing, _, scalar = term.partition(".")
+        if term not in body_ops and not (thing in spec.train and scalar in featurizers.KINDS[
+                kind_of(plan, thing)].scalars):
+            fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
+                 f"{', '.join(body_ops)}")
+        if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
+            for n, s in body.items():
+                for k, e in s.get("interventions", {}).items():
+                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
+                           for o in gathers(Intervention(**e))):
+                        cx.used.add(f"{n}.{k}")
+    if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
+        fail(f"{path}.early_stop.metric",
+             f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
+    for label, swap in spec.eval.items():
+        where = f"{path}.eval.{label}"
+        if label == "history" or label in spec.train or "." in label:
+            fail(where, f"{label!r} names the fit's history or a featurizer it trains, or has a dot; an eval's name "
+                 "is its own")
+        for a, b in swap.items():
+            for d in (a, b):
+                if d not in cx.rows:
+                    fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
+    for label, side in {"": {}, **spec.eval}.items():
+        counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
+        if len(set(counts.values())) > 1:
+            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
+                 + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
+                 "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
+    for f in spec.train:
+        cx.names[f"{name}.{f}"] = Known(kind="featurizer")
+        for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:
+            cx.names[f"{name}.history.{f}.{scalar}"] = Known(["epochs"])
+    for n, s in body.items():
+        if s["kind"] == "op":
+            cx.names[f"{name}.history.{n}"] = Known(["epochs"])
+        members = ([n] if s["kind"] == "op" else []) + [f"{n}.{k}" for k in s.get("interventions", {})]
+        for label, swap in spec.eval.items():
+            for member in members:
+                info = inner[member]
+                cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap.get(info.data, info.data))
+    return {**spec.model_dump(exclude_defaults=True), "steps": body}

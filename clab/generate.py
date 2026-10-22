@@ -69,7 +69,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                                     "name": f"{key}#0", "layer": layers(engine, record)[0], "ops": edits})
                 online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
                                      "eos": sorted(eos)}} if pos["scope"] else {}
-                records.append({**decoding(record, picks[key], prompts, pads), "name": key,
+                records.append({**decoding(record, picks[key], prompts), "name": key,
                                 "layer": layers(engine, record)[0], "ops": edits, "calls": None if online else calls,
                                 **online})
             for layer in layers(engine, record) if record.gathered else []:
@@ -77,7 +77,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                     whole = [positions.prompted(len(e["ids"])) for e in encoded[chunk]]
                     records.append({**site(record, picks[key], whole, pads, padded, head(step, record)),
                                     "name": f"{key}@{layer}#0", "layer": layer})
-                records.append({**decoding(record, picks[key], prompts, pads), "name": f"{key}@{layer}",
+                records.append({**decoding(record, picks[key], prompts), "name": f"{key}@{layer}",
                                 "layer": layer, "calls": calls})
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
         for record in records:
@@ -87,8 +87,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
                 if len(got[record["name"]]) != len(made):
                     raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
                                        f"{len(made)} decode calls it made; a read out of forward order shifts calls")
-        out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, pads,
-                                          state, step.at, found.answers) for layer in layers(engine, record)])
+        out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, state,
+                                          step.at, found.answers) for layer in layers(engine, record)])
                for key, record in first.items() if record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in after.items():
@@ -103,8 +103,8 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
             resolved[f"{name}.{key}"] += where
             if record.gathered:
                 out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(f"{key}@{layer}#0"),
-                                                     got[f"{key}@{layer}"], where, encoded[chunk], pads, chunk,
-                                                     state, step.at, head(step, record), most, found.answers)
+                                                     got[f"{key}@{layer}"], where, encoded[chunk], chunk, state,
+                                                     step.at, head(step, record), most, found.answers)
                                             for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
@@ -131,8 +131,8 @@ def generated(engine, name: str, batch: dict, records: list[dict], options: dict
 
 
 def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
-             encoded: list[dict], pads: list[int], rows: slice, state: dict, at: dict, head_only: bool,
-             most: int | None, answers: dict) -> Any:
+             encoded: list[dict], rows: slice, state: dict, at: dict, head_only: bool, most: int | None,
+             answers: dict) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under

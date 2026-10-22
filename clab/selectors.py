@@ -117,3 +117,36 @@ def covers(frame) -> bool:
 
 # Which of a number of things a range picks, as a document writes it: `pos` documents it, `select` resolves it.
 Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(checked)]
+
+
+def made_at(site, n: int) -> list:
+    """The layers a site is made at among the model's `n`, or `[None]` for a model's own value."""
+    return [None] if site.layers is None else select(site.layers, n)
+
+
+def picked(where: str, layers, n: int) -> list[int]:
+    """The layers a site's `layers` select among the model's `n`; a layer outside them, or a slice that picks
+    none, is refused by name."""
+    for i in [layers] if isinstance(layers, int) else layers if isinstance(layers, list) else []:
+        if not -n <= i < n:
+            raise ValueError(f"{where}: layer {i}; the model has {n} layers")
+    try:
+        got = select(layers, n)
+    except ValueError as e:
+        raise ValueError(f"{where}: {e}") from None
+    if not got:
+        raise ValueError(f"{where}: layers {layers!r} pick none of the model's {n} layers")
+    return got
+
+
+def selected(where: str, axis: str, selector, n: int, what: str) -> None:
+    """Refuses a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps none."""
+    written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
+    try:
+        got = kept({axis: selector}, {axis: n})[axis]
+    except ValueError as e:
+        raise ValueError(f"{where}: select {axis}: {e}") from None
+    if any(not -n <= i < n for i in written) or any(i >= n for i in got):
+        raise ValueError(f"{where}: select {axis} {selector!r} outside {what}")
+    if not got:
+        raise ValueError(f"{where}: select {axis} {selector!r} keeps none of {what}")

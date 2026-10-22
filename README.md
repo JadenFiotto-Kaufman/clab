@@ -220,7 +220,7 @@ every entry resolved to, which is how `table` labels `pos_token`.
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
 `pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an
 appended EOS included. A
-document's `pos`, `run.positions`, a ragged value's `tok`, `table`'s `pos` and `key`, an attention pattern's
+document's `pos`, `run.positions`, `table`'s `pos` and `key`, an attention pattern's
 `key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
 the same way.
 

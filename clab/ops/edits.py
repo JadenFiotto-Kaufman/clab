@@ -53,8 +53,8 @@ def decode(of: Tensor, featurizer: Featurizer) -> Tensor:
     """Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before
     that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them
     that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as
-    one, the ops between on the coordinates (`ops.edited`)."""
-    raise ValueError("'decode' runs as the close of its encode, with the ops between (ops.edited), never alone")
+    one, the ops between on the coordinates (`batches.edited`)."""
+    raise ValueError("'decode' runs as the close of its encode, with the ops between (batches.edited), never alone")
 
 
 def present(x: Tensor) -> Tensor:

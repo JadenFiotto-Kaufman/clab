@@ -238,16 +238,16 @@ def test_a_pattern_is_selected_along_its_query_axis():
 def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
     torch.manual_seed(1)
     x = torch.randn(40, 5) * torch.tensor([5.0, 3.0, 1.0, 0.5, 0.1]) + 2.0
-    got = reductions.pca(x, k=3, dims=["entries", "hidden_size"])
+    got = reductions.pca(x, k=3, dims=["rows", "hidden_size"])
     basis, mean = got["basis"], got["mean"]
     assert basis.shape == (5, 3) and mean.shape == (5,)
     torch.testing.assert_close(basis.T @ basis, torch.eye(3), atol=1e-5, rtol=0)
     torch.testing.assert_close(mean, x.mean(0))
     variance = ((x - mean) @ basis).var(0)
     assert bool((variance[:-1] >= variance[1:]).all())
-    assert torch.equal(reductions.pca(x, k=3, dims=["entries", "hidden_size"])["basis"], basis)     # deterministic signs
+    assert torch.equal(reductions.pca(x, k=3, dims=["rows", "hidden_size"])["basis"], basis)     # deterministic signs
     with pytest.raises(ValueError, match="pca of 3 vectors has no rank-3 basis"):
-        reductions.pca(x[:3], k=3, dims=["entries", "hidden_size"])
+        reductions.pca(x[:3], k=3, dims=["rows", "hidden_size"])
 
 
 def test_top_k_and_argmax():

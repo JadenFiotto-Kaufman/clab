@@ -5,11 +5,10 @@ from dataclasses import replace
 import torch
 from torch import Tensor
 
-from . import featurizers
-from .featurizers.uses import instance
-from .preflight import Found
-from .plan import Compiling, Intervention, Known, Plan, agreeing, arguments, entries, fail, gathers, kind_of, points
 from .batches import home
+from .featurizers.uses import instance
+from .plan import Plan, agreeing, entries
+from .preflight import Found
 from .sweeps import lookup, put
 
 
@@ -120,8 +119,8 @@ def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tu
         inputs={k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found.inputs.items()},
         positions={w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found.positions.items()},
         selects=found.selects, widths=found.widths,
-        answers={k: {**a, "values": [a["values"][i] for i in index], "sets": [a["sets"][i] for i in index]}
-                 if a["column"].partition(".")[0] in names else a for k, a in found.answers.items()})
+        answers={k: replace(a, values=[a.values[i] for i in index], sets=[a.sets[i] for i in index])
+                 if a.column.partition(".")[0] in names else a for k, a in found.answers.items()})
 
 
 def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:
@@ -141,81 +140,3 @@ def snapshot(trained: dict) -> dict:
     """Each trained featurizer as it is now, its tensors detached copies: what restoring the epoch puts back."""
     return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in vars(inst).items() if k != "seen"}
             for f, inst in trained.items()}
-
-
-def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
-    """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
-    is one the body makes. It trains featurizers that have something to train, and holds no fit."""
-    for i, f in enumerate(spec.train):
-        if f not in plan.featurizers:
-            fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
-        trainable = [k for k, c in featurizers.KINDS.items() if c.trains]
-        if kind_of(plan, f) not in trainable:
-            fail(f"{path}.train[{i}]", f"{f!r} is a {kind_of(plan, f)}, which a bundle fixes; it has nothing to "
-                 f"train (trainable kinds: {', '.join(trainable)})")
-        if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
-            fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
-                 "it draws")
-    within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
-    for f in spec.train:
-        within.names[f"{name}.{f}"] = Known(kind="featurizer")
-    before = len(cx.refs)
-    body = {}
-    for n, s in spec.steps.items():
-        if s.kind == "fit":
-            fail(f"{path}.steps.{n}", "a fit's body holds no fit")
-        if n in plan.data or n in plan.featurizers or "." in n:
-            fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
-                 "a root's")
-        from .compile import step
-        body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
-    inner = within.names
-    for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref].dims:
-            fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
-                 "body runs over minibatches of its rows, so such a value is one it makes")
-    body_ops = [n for n, s in body.items() if s["kind"] == "op"]
-    for term in spec.objective:
-        thing, _, scalar = term.partition(".")
-        if term not in body_ops and not (thing in spec.train and scalar in featurizers.KINDS[
-                kind_of(plan, thing)].scalars):
-            fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
-                 f"{', '.join(body_ops)}")
-        if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            for n, s in body.items():
-                for k, e in s.get("interventions", {}).items():
-                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
-                           for o in gathers(Intervention(**e))):
-                        cx.used.add(f"{n}.{k}")
-    if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
-        fail(f"{path}.early_stop.metric",
-             f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
-    for label, swap in spec.eval.items():
-        where = f"{path}.eval.{label}"
-        if label == "history" or label in spec.train or "." in label:
-            fail(where, f"{label!r} names the fit's history or a featurizer it trains, or has a dot; an eval's name "
-                 "is its own")
-        for a, b in swap.items():
-            for d in (a, b):
-                if d not in cx.rows:
-                    fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
-    for label, side in {"": {}, **spec.eval}.items():
-        counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
-        if len(set(counts.values())) > 1:
-            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
-                 + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
-                 "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
-    for f in spec.train:
-        cx.names[f"{name}.{f}"] = Known(kind="featurizer")
-        for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:
-            cx.names[f"{name}.history.{f}.{scalar}"] = Known(["epochs"])
-    for n, s in body.items():
-        if s["kind"] == "op":
-            cx.names[f"{name}.history.{n}"] = Known(["epochs"])
-        members = ([n] if s["kind"] == "op" else []) + [f"{n}.{k}" for k in s.get("interventions", {})]
-        for label, swap in spec.eval.items():
-            for member in members:
-                info = inner[member]
-                cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap.get(info.data, info.data))
-    return {**spec.model_dump(exclude_defaults=True), "steps": body}

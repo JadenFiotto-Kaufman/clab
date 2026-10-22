@@ -31,10 +31,6 @@ from .sweeps import by_coordinate, coordinate, lookup, put
 if TYPE_CHECKING:
     from .engines import Parameterized
 
-
-if TYPE_CHECKING:
-    from .engines import Parameterized
-
 def begin(engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
     the device and the options it loaded with; returns the start time."""
@@ -159,7 +155,7 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
         parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
-                                                 pads, state, step.at, found.answers)
+                                                 state, step.at, found.answers)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
     joined(state, name, step, parts)
@@ -174,7 +170,7 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
         else None
     dims = dims_of(plan, step.of)
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
-    value = ops.call(step.op, of, bound(engine, plan, step.op, arguments(step), state, step.at, None, of, vocabulary,
+    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, of, vocabulary,
                                         dims=dims, answers=found.answers), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":

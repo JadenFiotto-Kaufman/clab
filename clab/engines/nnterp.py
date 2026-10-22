@@ -96,7 +96,7 @@ class NnterpEngine:
         call's `input_ids`, read first). It is bounded by the steps the reads ask for, or open when a read asks
         for every step;
         either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
-        read out of forward order shows up instead as a missing step, which `steps.generate` refuses), so the
+        read out of forward order shows up instead as a missing step, which `generate.generate` refuses), so the
         ids are read in an invoke of their own, which the loop's end does not cut short."""
         model = self.model
         sites = by_site(records)

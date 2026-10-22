@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows",
-           "split", "file_path", "of", "hf", "revision", "saves")
+           "split", "file_path", "of", "saves")
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:

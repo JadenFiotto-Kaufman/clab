@@ -109,7 +109,7 @@ def served(kind: str) -> list[str]:
     for name in cls.ops():
         fn = cls.method(name)
         own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
-               for k, p in featurizers.registry.spelled(fn, ("self", "h", "z", "new")).items()]
+               for k, p in registry.spelled(fn, ("self", "h", "z", "new")).items()]
         produces = featurizers.OPS[name]["produces"].format(axis=cls.axis)
         out.append(f"`{name}`" + (f"({', '.join(own)})" if own else "") + f" {produces}"
                    + (f": {summary(fn)}" if doc(fn) else ""))
@@ -157,7 +157,7 @@ def describe(what: str | None = None) -> str:
         lines = ["featurizer kinds:"]
         for name, cls in featurizers.KINDS.items():
             params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
-                      for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
+                      for k, p in registry.spelled(cls, featurizers.SUPPLIED).items()]
             lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
                       f"      ops: {'; '.join(m.replace('`', '') for m in served(name))}"]
         sections.append("\n".join(lines))
@@ -218,7 +218,7 @@ def markdown() -> str:
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, cls in featurizers.KINDS.items():
         params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {as_json(p.default)}`")
-                  for k, p in featurizers.registry.spelled(cls, featurizers.SUPPLIED).items()]
+                  for k, p in registry.spelled(cls, featurizers.SUPPLIED).items()]
         listed = "; ".join(served(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Ops: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]

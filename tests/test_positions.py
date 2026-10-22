@@ -1,5 +1,5 @@
 """Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
-document's `pos`, `run.positions`, a ragged value's `tok`, `clab table`'s `pos` and `key`, an attention pattern's
+document's `pos`, `run.positions`, `clab table`'s `pos` and `key`, an attention pattern's
 `key` axis, and a refusal's token counts (PR 15; FINDINGS.md S4, S7, D7, D17).
 
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
