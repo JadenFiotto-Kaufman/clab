@@ -1,15 +1,17 @@
 # clab — design (M0)
 
-**Amended by PLAN.md §10 to §13 ("Ratified after M4" ends with M5: one `featurizer` op with per-kind
-modes, and LoRA as a featurizer kind; §13 is M6), which win wherever they and this document disagree.** `FORMAT.md` and
+**Amended by PLAN.md §10 to §14 (§13 is M6, LoRA a featurizer kind; §14's PR 13, `proposals/interventions.md`,
+makes a step's reads and writes one `interventions` value and reaches featurizers by `encode`, `decode` and
+`apply`), which win wherever they and this document disagree.** `FORMAT.md` and
 `schema.json` (generated from the code) are the user-facing reference; the code now differs from this
 document in these places:
 
 - §1: the plan is one pydantic model, `Plan` (`clab/plan/model.py`), which is also the document: `Plan(path)` reads
-  one, `compile()` returns it compiled (`compiled: true`). The records (sites, reads and writes, ops, `pos`,
-  steps, datasets, featurizers) are the same models in both states; compile fills a few derived fields (a
-  step's `at`, `dataset` and `dims`, a read's `dims`, a dataset's `sha256`). Sites and named interventions
-  are inlined into the steps; featurizers stay at the root, by name. Steps carry no result slots: results
+  one, `compile()` returns it compiled (`compiled: true`). The records (sites, interventions entries and their
+  ops, `pos`, steps, datasets, featurizers) are the same models in both states; compile fills a few derived
+  fields (a step's `at`, `dataset` and `dims`, an entry's `dims`, `space` and `gathered`, a dataset's
+  `sha256`). Sites and named bundles of entries are inlined into the steps, one dict of entries each, in the
+  order they run; featurizers stay at the root, by name. Steps carry no result slots: results
   are `plan.results`, one dict at the root keyed by the names in `saves`, a swept one a dict keyed by
   coordinate. `saves` is a root key and a list of names. A forward's `input` stays the string
   `"<dataset>.<column>[i]"`; `pos` stays as written and becomes a slice in the run.
@@ -39,8 +41,8 @@ document in these places:
   the `ndif` engine (the nnterp engine over a meta shell, `dispatch=False`) opens the session with its
   `remote` option (`True`, or `"local"` for tests), and `execute(plan, batch_size=)` is the entry point of
   all three engines; `device` and each engine's own options are its constructor's (PLAN.md §13).
-- §11 proposal 3: the inline `interventions: {writes, reads}` spelling is gone (writes and reads sit on the
-  step).
+- §11 proposal 3, and PR 13: a step's reads and writes are one `interventions` value (a bundle's name, a dict
+  of entries, or a list of either), and an entry writes back when its ops hold an edit.
 - M3, §3: `generate`'s options are not three: the step forwards every key it does not own to the engine's
   `generate` as it is, which validates them when the step runs (clab refuses, before anything runs, only
   `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache` at other than their
@@ -189,29 +191,24 @@ as 5,635,429 bytes with view slots and 515,365 bytes with cloned ones.
     "counterfactual": {
       "kind": "forward", "at": {}, "data": "pairs",
       "input": {"column": "counterfactual_inputs", "index": 0, "variables": None},
-      "writes": [],
-      "reads": [
+      "interventions": [
         {"name": "v_cf", "component": "block_output", "layer": 0, "select": {},
          "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
-         "featurizer": None, "view": None,
-         "dims": ["rows", "pos", "hidden_size"]},
+         "view": None, "dims": ["rows", "pos", "hidden_size"], "gathered": True},
       ],
       "result": {},
     },
     "patched": {
       "kind": "forward", "at": {}, "data": "pairs",
       "input": {"column": "input", "index": None, "variables": None},
-      "writes": [
+      "interventions": [
         {"name": "patch", "component": "block_output", "layer": 0, "select": {},
          "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
          "mechanism": "swap", "operand": "counterfactual.v_cf", "params": {},
-         "featurizer": None, "features": None},
-      ],
-      "reads": [
+         "dims": ["rows", "pos", "hidden_size"]},
         {"name": "logits", "component": "lm_head", "layer": None, "select": {},
          "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
-         "featurizer": None, "view": None,
-         "dims": ["rows", "pos", "vocab_size"]},
+         "view": None, "dims": ["rows", "pos", "vocab_size"], "gathered": True},
       ],
       "result": {},
     },
@@ -261,18 +258,17 @@ each becomes a list of points (§7 has the dependency rule).
 
 ```python
 "sweeps": {
-  "pos": {"path": "steps.patched.interventions.writes.patch.pos", "values": [-1, -2, -3]},
+  "pos": {"path": "steps.patched.interventions.patch.pos", "values": [-1, -2, -3]},
 },
 "steps": {
   "counterfactual": { …exactly as in patching, "at": {} … },
   "patched": [
     {"at": {"pos": 0},
      "kind": "forward", "data": "pairs", "input": {"column": "input", "index": None, "variables": None},
-     "writes": [{"name": "patch", "component": "block_output", "layer": 0, "select": {},
-                 "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
-                 "mechanism": "swap", "operand": "counterfactual.v_cf", "params": {},
-                 "featurizer": None, "features": None}],
-     "reads": [ …logits at -1, as in patching… ],
+     "interventions": [{"name": "patch", "component": "block_output", "layer": 0, "select": {},
+                        "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
+                        "mechanism": "swap", "operand": "counterfactual.v_cf", "params": {}},
+                       …logits at -1, as in patching…],
      "result": {}},
     {"at": {"pos": 1},
      … "pos": {"frame": "prompt", "scope": None, "start": -2, "stop": -1} … },
@@ -322,14 +318,13 @@ head *h*" mean what `attention_pattern_patching.json` needs.
   "kind": "generate", "at": {}, "data": "prompts",
   "input": {"column": "input", "index": None, "variables": {"column": None, "index": None}},
   "options": {"max_new_tokens": 6, "min_new_tokens": 6, "do_sample": False},
-  "writes": [],
-  "reads": [
+  "interventions": [
     {"name": "at_said", "component": "lm_head", "layer": None, "select": {},
      "pos": {"frame": "generated", "scope": {"variable": "said"}, "start": -1, "stop": None},
-     "featurizer": None, "view": None, "dims": ["entries", "pos", "vocab_size"]},
+     "view": None, "dims": ["entries", "pos", "vocab_size"]},
     {"name": "at_stop", "component": "lm_head", "layer": None, "select": {},
      "pos": {"frame": "generated", "scope": {"segment": "eos"}, "start": -1, "stop": None},
-     "featurizer": None, "view": None, "dims": ["entries", "pos", "vocab_size"]},
+     "view": None, "dims": ["entries", "pos", "vocab_size"]},
   ],
   "result": {},
 },
@@ -362,13 +357,13 @@ the thing that owns those members:
     "steps": {
       "counterfactual": {"kind": "forward", "at": {}, "data": "train",
                          "input": {"column": "counterfactual_inputs", "index": 0, "variables": None},
-                         "writes": [],
-                         "reads": [{"name": "v_cf", "component": "block_output", "layer": 0, "select": {},
-                                    "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
-                                    "featurizer": "fit.rot", "view": None,
-                                    "dims": ["rows", "pos", "features"]}],
+                         "interventions": [{"name": "v_cf", "component": "block_output", "layer": 0,
+                                            "select": {},
+                                            "pos": {"frame": "prompt", "scope": None, "start": -1, "stop": None},
+                                            "ops": [{"op": "encode", "featurizer": "fit.rot"}],
+                                            "dims": ["rows", "pos", "features"]}],
                          "result": {}},
-      "patched": { …the `das` intervention inlined: the swap with "featurizer": "fit.rot", the logits read… },
+      "patched": { …the `das` bundle inlined: the patch `[encode fit.rot, swap, decode fit.rot]`, then logits… },
       "iia": {"kind": "metric", "at": {}, "metric": "logit_diff", "of": "patched.logits",
               "args": {"a": "train.cf_answer", "b": "train.base_answer"}, "token_form": "spaced",
               "dims": ["rows", "pos"], "result": {}},
@@ -500,8 +495,7 @@ Changes from PLAN §5, one reason each:
 
 | signature | contract |
 |---|---|
-| `gather(value: Tensor, component: str, read: dict) -> Tensor \| dict` | The read's selection of `value`, laid out `(rows, pos, …)`, through its featurizer when it has one. Pure torch. |
-| `edit(value: Tensor, component: str, writes: list[dict]) -> Tensor` | `value` with `writes` applied in listed order, out of place; the original is what `renormalize` restores to. Pure torch. |
+| `visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]` | A site's records in the order written: a write's ops on its selection, out of place (an `encode` runs the ops its `decode` closes over on the coordinates), a read's selection, laid out `(rows, pos, …)`, into `got`; the original is what `renormalize` restores to. Pure torch. |
 | `MECHANISMS: dict[str, Callable]` | `swap`, `add_scaled`, `renormalize`. |
 
 `metrics.py`
@@ -561,9 +555,8 @@ meta-path finder).
 ```python
 class Engine(Protocol):
     def execute(self, plan: dict, *, batch_size: int = 8) -> dict: ...
-    def forward(self, batch: dict, writes: list[dict], reads: list[dict]) -> dict[str, Tensor]: ...
-    def generate(self, batch: dict, writes: list[dict], reads: list[dict],
-                 options: dict) -> tuple[Tensor, dict[str, Tensor]]: ...
+    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]: ...
+    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Tensor]]: ...
     def readout(self, hidden: Tensor) -> Tensor: ...
     def sizes(self) -> dict[str, int]: ...
     @property
@@ -572,11 +565,12 @@ class Engine(Protocol):
 
 - **`execute`** is the single entry point and the only method an engine that
   ignores `steps.py` must have. It returns the filled plan.
-- **`forward(batch, writes, reads)`** runs one batch through the model once,
-  applies `writes` where they land, and returns each read by name, laid out
+- **`forward(batch, records)`** runs one batch through the model once, doing
+  each site's records (writes and reads, one list in the order the step's
+  entries run) where they land, and returns each read by name, laid out
   `(rows_in_batch, pos, …)` (or ragged, §5). It takes no `batch_size`: it is
   given one batch.
-- **`generate(batch, writes, reads, options)`** runs `generate` with
+- **`generate(batch, records, options)`** runs `generate` with
   `options = {"max_new_tokens", "min_new_tokens", "do_sample"}`, applies
   prompt-frame writes on the prompt call only, and returns the new token ids
   `[rows, n]` and each read as `(steps, rows, 1, …)` over the decode steps it
@@ -597,9 +591,13 @@ class Engine(Protocol):
 
 ### The records the engine receives
 
-The engine receives the plan's own write and read records (§1), each extended
-by `steps.py` with the run-time binding, as a new dict (the plan is not
-mutated):
+The engine receives one list of records built from the step's entries (§1), in
+the order they run: an entry that writes as a write record with its ops, then,
+when it is gathered (something uses its value), its read records. Each is
+extended by `steps.py` with the run-time binding, as a new dict (the plan is not
+mutated). The sketch below is M0's; the fields are now `component`, `layer`,
+`positions`, `select`, `ops` (each bound, an `encode` holding its inner ops) and
+`name`:
 
 ```python
 write = {**plan_write,                          # component, layer, select, pos, mechanism, params, features
@@ -653,13 +651,12 @@ def forward(engine, plan, name, step, state, run, rows=None, grad=False):
     for lo in range(0, len(rows), run.batch_size):
         chunk = rows[lo:lo + run.batch_size]
         batch = data.encode(engine.tokenizer, [data.field(r, step["input"]) for r in chunk], width)
-        writes = [bind(plan, w, batch, chunk, lo, state, step) for w in step["writes"]]
-        reads = [bind(plan, r, batch, chunk, lo, state, step) for r in per_layer(step["reads"], engine.sizes())]
+        records = bind(plan, step["interventions"], batch, chunk, lo, state, step)  # writes, then gathered reads
         with torch.set_grad_enabled(grad):        # only the fit's training pass sets grad=True
-            got = engine.forward(batch, writes, reads)
-        parts.append(viewed(engine, got, step["reads"]))   # view: logits -> engine.readout
-    for read in step["reads"]:
-        state[(name + "." + read["name"], coords(step["at"]))] = joined(parts, read)
+            got = engine.forward(batch, records)
+        parts.append(after_ops(engine, got, step["interventions"]))   # the ops after each entry's last edit
+    for entry in gathered(step["interventions"]):
+        state[(name + "." + entry["name"], coords(step["at"]))] = joined(parts, entry)
 ```
 
 `coords(at)` is `tuple(sorted(at.items()))`; `lookup` restricts the
@@ -767,9 +764,9 @@ plain PyTorch.
   values of the types and `dims` §1 lists, as CPU tensors, and changes nothing
   else in the plan; `output.write` then serves it unchanged.
 - The semantics in §§4–9: what each component is, how a position resolves,
-  that a sweep point equals a whole run with that value, that a write lands
-  before a read at the same site observes it, that `alignment_missing` is a
-  result.
+  that a sweep point equals a whole run with that value, that entries at one
+  site run in the order written, each on the value the ones before it left,
+  that `alignment_missing` is a result.
 - Refuse by name, before running anything, what it cannot serve.
 
 ---
@@ -851,8 +848,8 @@ Notes the table cannot carry:
 - The nnterp engine sorts every site of a forward by `model.rank(name, layer)`
   before touching any (verified necessary: reading `attention_premix` after
   `attention_output` in one trace raises `OutOfOrderError`). At one site it
-  applies the writes and then gathers the reads from the edited tensor it
-  holds, so a read at a written site observes the write, on both engines.
+  does the site's records in the order written, a write on the value the
+  records before it left and a read taking that value, on both engines.
 - A future family whose nnterp value is not a plain module boundary (a
   sandwich-norm `attention_output` keyed `../post_attention_layernorm.output`)
   is reached by hooks at whatever module its nnterp key names; a key with a
@@ -1053,7 +1050,7 @@ treats any `{"sweep": [...]}` standing for a value as an axis. An axis is
 named by its **label**, the last key of its document path that is not a list
 index (`sites.target.heads` → `heads`, `featurizers.rot.seed` → `seed`,
 `steps.fit.objective[1][0]` → `objective`,
-`steps.patched.reads.logits.pos.index` → `index`); `plan["sweeps"]` keeps the
+`steps.patched.interventions.logits.pos.index` → `index`); `plan["sweeps"]` keeps the
 path beside the values for the manifest. Two different sweeps with one label
 are refused at compile, naming both paths: the corpus has at most one sweep
 per document, and a rename is cheaper than a naming scheme. A sweep may sit
