@@ -71,7 +71,7 @@ def top_k(of: Tensor, k: int) -> dict:
     """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
     `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so
     `top_k`'s first is `argmax`'s token."""
-    ids = ranked(of)[..., :k]
+    ids = ranked(of, k)
     probs = of.softmax(-1).gather(-1, ids)
     gone = missing(of)[..., None]
     return {"ids": ids.masked_fill(gone, -1), "probs": probs.masked_fill(gone, float("nan"))}
@@ -81,4 +81,4 @@ def top_k(of: Tensor, k: int) -> dict:
 def argmax(of: Tensor) -> Tensor:
     """The id of the most likely token (-1 where the value is missing), ranked by its logit; an exact tie goes to
     the lower id, as in `top_k`."""
-    return of.argmax(-1).masked_fill(missing(of), -1)
+    return ranked(of, 1)[..., 0].masked_fill(missing(of), -1)

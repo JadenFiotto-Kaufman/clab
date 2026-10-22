@@ -7,8 +7,8 @@ from typing import Any
 from safetensors.torch import save
 from torch import Tensor
 
-from ..plan.model import (Plan, agreeing, arguments, coordinate, dims_of, entries, kind_of, labelled, name as named,
-                          operand_site, points, uses)
+from ..plan.model import (Plan, agreeing, arguments, coordinate, dims_of, entry_of, kind_of, labelled, name as named,
+                          points, scope, uses)
 from ..runtime import featurizers, ops, positions
 from .table import materialized, provenance
 
@@ -98,14 +98,14 @@ def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | Non
     member = name.partition(".")[2]
     if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        source = provenance(plan, name)[0] or ""
-        site = entries(agreeing(plan.steps[source.partition(".")[0]], step.at))[source.partition(".")[2]].site
+        site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
         reads = None
     elif step.kind == "fit" and member in step.train:
         kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
         used = uses(plan)[member]
         where, site, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
-        reads = operand_site(plan, where, arguments(o)["with"]) if arguments(o).get("with") else None
+        given = arguments(o).get("with")
+        reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
     else:
         return None
     classes = featurizers.labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \

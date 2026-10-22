@@ -51,11 +51,9 @@ def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = N
         with safe_open(file, "pt") as f:
             found = dict(sorted((f.metadata() or {}).items()))
             tensors = {k: f.get_tensor(k) for k in f.keys()}
-    except Exception as e:      # safetensors' own error is not a ValueError, and says nothing of what to do
-        raise ValueError(f"{fields['file_path']} is not a safetensors file ({e}); a featurizer's file_path is read as "
-                         "safetensors: a clab bundle, or a published sae's W_enc, W_dec, b_enc and b_dec (and "
-                         "threshold). Gemma Scope's params.npz needs converting first: load it with numpy.load and "
-                         "write its arrays with safetensors.torch.save_file") from None
+    except Exception:           # safetensors' own error is not a ValueError, and says nothing of what to do
+        raise ValueError(f"{fields['file_path']} is not a safetensors file, which a file_path is read as; convert "
+                         "it first (Gemma Scope's params.npz: numpy.load, then safetensors.torch.save_file)") from None
     points = sorted({k.rpartition("/")[0] for k in tensors if "/" in k})
     if points:
         raise ValueError(f"{fields['file_path']} holds one bundle per point of a sweep ({', '.join(points)}); a "

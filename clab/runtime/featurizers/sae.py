@@ -1,12 +1,18 @@
 """The `sae` kind: a sparse autoencoder, trained, loaded from a bundle, or published, whose writes keep its
 error term."""
 
-from typing import Literal
+from typing import Literal, TypedDict
 
 import torch
 from torch import Tensor
 
 from . import Kind, unautocast
+
+class TrainedAt(TypedDict):
+    """The site a dictionary was trained at: a component and one layer."""
+    component: str
+    layers: int
+
 
 # A published SAE's tensors (SAELens, Gemma Scope) and their shapes, for `width` and `latents`.
 PUBLISHED = {"W_enc": ("width", "latents"), "W_dec": ("latents", "width"), "b_enc": ("latents",),
@@ -24,9 +30,10 @@ class Sae(Kind):
     zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
     `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
     are checked against each other and the site's width, and nothing in it says what model it was trained on, so
-    the document states what the file cannot: its `activation` and `centered`, which have no default for it, the
-    `layer` it was trained at, which every site it is used at is (`layers: -1` counts as the layer it is), and its
-    number of `latents`, which its tensors are. A `layer` given for any sae is checked so. Its
+    the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
+    the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
+    site it is used at is, component and layer (`layers: -1` counting as the layer it is). A `site` given for any
+    sae is checked so. Its
     scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
     mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
@@ -40,7 +47,7 @@ class Sae(Kind):
 
     def __init__(self, width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
                  activation: Literal["relu", "jumprelu", "topk"] = "relu", k: int | None = None,
-                 centered: bool = True, layer: int | None = None, bundle: dict | None = None):
+                 centered: bool = True, site: str | TrainedAt | None = None, bundle: dict | None = None):
         self.activation, self.k, self.centered = activation, k, centered
         if bundle is not None:
             for name, tensor in bundle.items():
@@ -74,13 +81,12 @@ class Sae(Kind):
         """A published SAE's tensors: exactly `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`,
         shaped for one width and one number of latents (and the document's `latents`, `k` and `activation`).
         Nothing in the file says how it encodes or where it was trained, so the document states `activation`,
-        `centered`, `layer` and `latents`; a `threshold` is a JumpReLU's, and only a `jumprelu` loads one."""
+        `centered` and `site`; a `threshold` is a JumpReLU's, and only a `jumprelu` loads one."""
         file = fields["file_path"]
-        unstated = [k for k in ("activation", "centered", "layer", "latents") if fields.get(k) is None]
+        unstated = [k for k in ("activation", "centered", "site") if fields.get(k) is None]
         if unstated:
-            raise ValueError(f"{file} is a published sae, which does not say how it encodes or where it was trained; "
-                             f"state {', '.join(map(repr, unstated))} (a published release names them: Gemma "
-                             "Scope's layer_20/width_16k is layer 20, 16384 latents, jumprelu, not centered)")
+            raise ValueError(f"{file} is a published sae, which says neither how it encodes nor where it was trained; "
+                             f"state {', '.join(map(repr, unstated))}, as its release names them")
         expected = set(cls.saves) | ({"threshold"} & set(tensors))
         if set(tensors) != expected:
             raise ValueError(f"{file} has no clab header and holds {', '.join(sorted(tensors))}; a published sae "
@@ -92,8 +98,11 @@ class Sae(Kind):
             if list(tensor.shape) != [size[a] for a in PUBLISHED[name]]:
                 raise ValueError(f"{file}: {name} is {list(tensor.shape)}; with W_enc {list(tensors['W_enc'].shape)} "
                                  f"it is [{', '.join(f'{a} {size[a]}' for a in PUBLISHED[name])}]")
-        if fields["latents"] != size["latents"]:          # and `check` held a topk's k within the latents stated
-            raise ValueError(f"{file} has {size['latents']} latents; this document says {fields['latents']}")
+        latents, k = fields.get("latents"), fields.get("k")
+        if latents is not None and latents != size["latents"]:
+            raise ValueError(f"{file} has {size['latents']} latents; this document says {latents}")
+        if k is not None and not 0 < k <= size["latents"]:
+            raise ValueError(f"{file} has {size['latents']} latents; 'topk' keeps k = {k} of them")
         if (fields["activation"] == "jumprelu") != ("threshold" in tensors):
             raise ValueError(f"{file} holds no threshold; a 'jumprelu' sae needs one" if "threshold" not in tensors
                              else f"{file} holds a JumpReLU threshold; its activation is 'jumprelu', not "

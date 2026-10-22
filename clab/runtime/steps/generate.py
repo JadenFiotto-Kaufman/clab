@@ -8,7 +8,7 @@ from torch import Tensor
 from ... import address
 from ...plan.model import Plan, entries, horizon, writes
 from .. import data, positions
-from . import home, kind
+from . import kind
 from .batches import batches, decoding, edit, joined, layers, read, site, stacked, with_ops
 from .preflight import head, place, prompted, texts
 from .state import lookup, put
@@ -145,11 +145,9 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes = engine.sizes()
     rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(record.site.component, None, False)[2:]]
-    # A batch whose rows all stopped before every call the record names has no value to take a place from: its
-    # blank is made where the model is, so it joins the other batches' values there.
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
-    device = some.device if some is not None else home(engine)
+    device = some.device if some is not None else None
 
     def at_position(i: int, p: int) -> Tensor:
         call = positions.call_of(p, len(encoded[i]["ids"]))

@@ -297,13 +297,15 @@ def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
 # -- where a scope's text occurs ----------------------------------------------------------------------
 
 
-def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[tuple]) -> list[set[int]]:
+def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[tuple],
+                online: bool = False) -> list[set[int]]:
     """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
     occurrence of any of its texts (`texts`: `(text, strip, lower)`, the columns' or the literals) in the
     prompt, by the tokenizer's offsets, then in the generated inputs (under `before`, every generated token,
     the last included: the tokens the calls chose), by decoding growing prefixes; each part's in order of
     position (end, then start). A token with an empty span (part of a split character) covers the character
-    it begins."""
+    it begins. `online`, a write's search as each call is fed, sees nothing past a generated token, so there an
+    occurrence's end is not checked against the character after it (`located`)."""
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
@@ -313,39 +315,62 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        found += [covering(chars, a, b, prompt) for a, b in located(texts, words, chars)]
+        found += [covering(chars, a, b, prompt) for a, b in located(texts, words, chars, not online)]
     return found
 
 
-def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None) -> list[tuple[int, int]]:
-    """Every character span in `words` where one of `texts` occurs at token boundaries, each `(text, strip,
-    lower)` compared as its flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own);
-    in order of end, then start: where an occurrence becomes known, so a write found online, a read and the run
-    record count them alike. An occurrence starts where a token starts and ends where a token ends (`bounds`,
-    over the tokens' character spans `tokens`): ` Sara` is not in ` Sarah`, and `:` is not inside `):`. Without
-    the spans (a tokenizer with no offsets, which `occurrences` then refuses) every character is a boundary."""
-    edges = bounds(words, tokens) if tokens is not None else set(range(len(words) + 1))
+def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None,
+            ahead: bool = True) -> list[tuple[int, int]]:
+    """Every character span in `words` where one of `texts` occurs on token and word boundaries, each `(text,
+    strip, lower)` compared as its flags say (`data.compared`; `words` lowercased too under `lower`, its spans
+    its own); in order of end, then start: where an occurrence becomes known, so a write found online, a read and
+    the run record count them alike. An occurrence starts where a token starts and ends where a token ends
+    (`bounds`, over the tokens' character spans `tokens`), and where its own first or last character is a letter
+    or a digit, none adjoins it: ` Sara` is not in ` Sarah`, ` Ann` not in ` Annabel` (`ĠAnn abel`), `:` not in
+    `):`. Without `ahead` the character after an occurrence is not looked at, as a write found online cannot.
+    Without the spans (a tokenizer with no offsets, which `occurrences` then refuses) every character is a token
+    boundary."""
+    starts, ends = bounds(words, tokens) if tokens is not None else ({i: i for i in range(len(words) + 1)},) * 2
     spans = []
     for text, strip, lower in texts:
         text = data.compared(text, strip, lower)
         found = re.finditer(f"(?=({re.escape(text)}))", data.compared(words, False, lower)) if text else []
-        end = 0                     # a text's occurrences do not overlap each other: each starts after the last
+        last = 0                    # a text's occurrences do not overlap each other: each starts after the last
         for m in found:
-            if m.start(1) >= end and m.start(1) in edges and m.end(1) in edges:
-                spans.append(m.span(1))
-                end = m.end(1)
+            a, b = m.span(1)
+            if a >= last and a in starts and b in ends and not word(words, a - 1, a) and \
+                    not (ahead and word(words, b, b - 1)):
+                spans.append((starts[a], ends[b]))
+                last = b
     return sorted(spans, key=lambda span: (span[1], span[0]))
 
 
-def bounds(words: str, tokens: list[tuple[int, int]]) -> set[int]:
-    """The character offsets in `words` where a token starts or ends: each token's span's ends, and those ends
-    without the token's own surrounding whitespace, so a text begins at a token's ` Paris` with or without its
-    space, whichever way the tokenizer's offsets count it."""
-    edges = set()
+def word(words: str, outside: int, inside: int) -> bool:
+    """Whether an occurrence's character at `inside` and the one just outside it, at `outside`, are both letters
+    or digits: one word, which the occurrence would cut."""
+    return 0 <= outside < len(words) and words[outside].isalnum() and words[inside].isalnum()
+
+
+def bounds(words: str, tokens: list[tuple[int, int]]) -> tuple[dict[int, int], dict[int, int]]:
+    """Where an occurrence may start and end among the tokens' character spans in `words`, each mapped to where
+    its span then starts or ends: at a token's start or end, or within the whitespace a token begins or ends with
+    (a text begins at ` Paris`'s `P` whichever way the tokenizer's offsets count the space). An occurrence that
+    ends inside the next token's leading whitespace ends where that token starts, and one that starts inside the
+    last token's trailing whitespace starts where that token ends, so neither covers that token (`Paris. ` does
+    not cover the ` Paris` after it)."""
+    starts: dict[int, int] = {}
+    ends: dict[int, int] = {}
+    for x, y in tokens:
+        starts.update({x: x, y: y})
+        ends.update({x: x, y: y})
     for x, y in tokens:
         piece = words[x:y]
-        edges |= {x, y, x + len(piece) - len(piece.lstrip()), y - len(piece) + len(piece.rstrip())}
-    return edges
+        lead, trail = x + len(piece) - len(piece.lstrip()), y - len(piece) + len(piece.rstrip())
+        starts.setdefault(lead, lead)
+        ends.setdefault(lead, x)
+        starts.setdefault(trail, y)
+        ends.setdefault(trail, trail)
+    return starts, ends
 
 
 def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:
@@ -361,7 +386,7 @@ def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tok
     last token, as it appears. The prefix is the row's calls so far (the last is the one being fed, whose token
     is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
     said = continuation([*inputs, -1], eos)
-    found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts)
+    found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts, online=True)
     return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, found)
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 

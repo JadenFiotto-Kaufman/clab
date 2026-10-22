@@ -241,12 +241,12 @@ def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
 
 
 def value_of(record: dict, spec: Intervention, dataset: str) -> dict:
-    """What a name records of an entry's value: its layout, its dataset, its coordinates (`space`), the axes its
-    site's `select` narrowed that it still has (`narrowed`), and how many positions it holds on every row
-    (`width`, None when ragged)."""
+    """What a name records of an entry's value: its layout, its dataset, its coordinates (`space`), its site's
+    `select` on the axes it still has, and how many positions it holds on every row (`width`, None when
+    ragged)."""
     dims = record["dims"]
-    narrowed = [a for a in record["site"].get("select") or {} if a in dims]
-    return {"dims": dims, "data": dataset, "kind": "value", "space": record.get("space", []), "narrowed": narrowed,
+    return {"dims": dims, "data": dataset, "kind": "value", "space": record.get("space", []),
+            "select": {a: v for a, v in (record["site"].get("select") or {}).items() if a in dims},
             "width": positions.width(positions.parse(spec.pos)) if "pos" in dims else None}
 
 
@@ -465,13 +465,13 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     found = references(cx, plan, path, spec.op, arguments(spec), "classes" in of["dims"])
     dataset = aligned(path, (of["data"], repr(spec.of)), found)
     paired(path, spec.op, of["dims"], of.get("width"), found)
-    if spec.op == "readout" and "hidden_size" in of.get("narrowed", []):
+    if spec.op == "readout" and "hidden_size" in of.get("select", {}):
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, arguments(spec), of["dims"], "step", kind)
     cx.names[name] = {"dims": dims, "data": dataset, "kind": "value",
                       "text": spec.op == "detokenize" and not arguments(spec).get("tokens"),
                       "space": of.get("space", []) if dims[-1:] == of["dims"][-1:] else [],
-                      "narrowed": [a for a in of.get("narrowed", []) if a in dims],
+                      "select": {a: v for a, v in of.get("select", {}).items() if a in dims},
                       "width": of.get("width") if "pos" in dims else None}
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
 
@@ -565,14 +565,12 @@ def operands(path: str, found: dict, own: list[str], space: list[dict], ragged: 
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
         if info["dims"] == own and not whole:
-            fail(f"{path}.{key}", f"{info['name']!r} and this write are both ragged, {own}, and what differs is where "
-                 "their entries come from: a ragged write's entries are this forward's own positions, which another "
-                 "forward's need not pair with, row for row and token for token; read both at a static index "
-                 "(pos -1, {'index': '-3:'}), or one position per step, or reduce the operand to one vector")
+            fail(f"{path}.{key}", f"{info['name']!r} and this write are both ragged, {own}; what differs is that its "
+                 "entries are another forward's positions, which need not pair with this one's: read both at a "
+                 "static index (pos -1, {'index': '-3:'}), or reduce the operand to one vector")
         if "layers" in info["dims"] and "layers" not in own:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}: it keeps a layers axis, and this "
-                 f"write lands at one layer, so its operand has none ({' or '.join(map(str, allowed))}); read the "
-                 "operand at the write's own layer, one site per layer")
+                 "write lands at one layer, so its operand has none; read the operand at the write's own layer")
         if info["dims"] not in allowed:
             fail(f"{path}.{key}", f"{info['name']!r} is laid out {info['dims']}; this write's value is {own} here, "
                  f"so an operand is {' or '.join(map(str, allowed))}")
@@ -678,9 +676,9 @@ def value_ref(cx: Compiling, value, path: str) -> dict:
     """A named value produced before this point."""
     info = cx.names.get(value) if isinstance(value, str) else None
     if info is not None and info["kind"] == "featurizer":
-        fail(path, f"{value!r} is a featurizer, not a value: its tensors are no operand. An entry reaches it by op: "
-             f"{{'op': 'encode', 'featurizer': {value!r}}} gives a value's coordinates in it, {{'op': 'apply', "
-             f"'featurizer': {value!r}}} its version of the value; a value such an entry binds is an operand")
+        fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
+             f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
+             "binds is an operand")
     if info is None or info["kind"] != "value":
         known = sorted(k for k, v in cx.names.items() if v["kind"] == "value")
         fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
@@ -742,11 +740,8 @@ def decided(path: str, pos: dict, most: int | None) -> None:
     if positions.reach(pos, most)[2]:
         return
     if 0 in positions.select(frame, 1) and positions.covers(frame) and positions.from_end(index):
-        fail(path, f"frame {frame!r} with index {index!r}: an index counts the tokens of every call the frame names "
-             "together, the prompt's and then one per decode call, so counted from the end it names the row's last "
-             "calls, known only when the row stops; for the prompt's last tokens and every decode call, write two "
-             f"entries: {{'frame': 0, 'index': {index!r}}} in the prefill, and {{'frame': '1:'}}, each decode call "
-             "holding one position")
+        fail(path, f"frame {frame!r} with index {index!r} is known only when the row stops; write two entries: "
+             f"{{'frame': 0, 'index': {index!r}}} and {{'frame': '1:'}}")
     if most is None and positions.reach(pos, positions.enough(pos))[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
              "listed before the run, so the step gives max_new_tokens, which bounds them")
@@ -810,6 +805,14 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
         fail(path, f"a {f.kind!r} featurizer drawn without a bundle needs {' and '.join(map(repr, missing))}; or "
              "load one with 'file_path'")
     record = f.model_dump(exclude_defaults=True)
+    if isinstance(fields.get("site"), str):         # the site it was trained at, inlined as an entry's is
+        if fields["site"] not in plan.sites:
+            fail(f"{path}.site", f"no site {fields['site']!r}; declared: {', '.join(plan.sites) or 'none'}")
+        named = plan.sites[fields["site"]]
+        if not isinstance(named.layers, int) or named.select:
+            fail(f"{path}.site", f"site {fields['site']!r} is {named.model_dump(exclude_defaults=True)}; the site a "
+                 "featurizer was trained at is a component at one layer, {'component', 'layers': <int>}")
+        record["site"] = fields["site"] = {"component": named.component, "layers": named.layers}
     if fields.get("file_path") is None:
         return record
     try:

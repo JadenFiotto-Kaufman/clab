@@ -8,7 +8,7 @@ from . import Kind
 class Pca(Kind):
     """The top-`k` principal directions (`basis`) and the `mean` a `pca` op saved, loaded from its bundle; its
     coordinates are centred on the mean."""
-    saves, header = ("basis", "mean"), ("k",)
+    saves, header, counts = ("basis", "mean"), ("k",), ("k",)
 
     def __init__(self, width: int, file_path: str, k: int | None = None, bundle: dict | None = None):
         assert bundle is not None

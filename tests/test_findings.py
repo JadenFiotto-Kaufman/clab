@@ -3,6 +3,7 @@ name, each silent behaviour a refusal or a check, and each refusal that did not 
 is named after its finding's tag."""
 
 import os
+import json
 import shutil
 from typing import Any
 
@@ -80,33 +81,32 @@ def test_b1_readout_of_a_narrowed_hidden_size_is_refused_at_compile():
                                       "lens": {"kind": "op", "op": "readout", "of": "f.h"}}).compile()
 
 
-def test_b2_kl_against_a_number_is_refused():
-    with pytest.raises(PlanError, match=r"steps\.h: against 0 is a number, and a number is not a distribution; "
-                                        r"'against' names a value with the same vocabulary axis"):
-        plan(data={"d": DAYS}, steps={"f": forward({"logits": {"site": HEAD, "pos": -1}}),
-                                      "h": {"kind": "op", "op": "kl", "of": "f.logits", "against": 0}})
-    with pytest.raises(PlanError, match=r"against 1\.5 is a number"):
-        plan(data={"d": DAYS}, steps={"f": forward({"logits": {"site": HEAD, "pos": -1}}),
-                                      "h": {"kind": "op", "op": "js", "of": "f.logits", "against": 1.5}})
+def test_b2_kl_against_anything_but_a_name_is_refused():
+    """A number, or a flag, is not a distribution."""
+    for op, against in (("kl", 0), ("js", 1.5), ("kl", True)):
+        with pytest.raises(PlanError, match=rf"steps\.h: against {against!r} is not a name, and only a named value is "
+                                            r"a distribution"):
+            plan(data={"d": DAYS}, steps={"f": forward({"logits": {"site": HEAD, "pos": -1}}),
+                                          "h": {"kind": "op", "op": op, "of": "f.logits", "against": against}})
 
 
 def test_b3_a_file_that_is_not_safetensors_is_refused_by_name_before_the_model_loads(tmp_path):
     root = corpus(tmp_path)
     numpy.savez(os.path.join(root, "documents", "artifacts", "params.npz"), W_enc=numpy.zeros((16, 32)))
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: documents/artifacts/params\.npz is not "
-                                        r"a safetensors file \(.*\); a featurizer's file_path is read as safetensors.*"
-                                        r"Gemma Scope's params\.npz needs converting first: load it with numpy\.load "
-                                        r"and write its arrays with safetensors\.torch\.save_file"):
+                                        r"a safetensors file, which a file_path is read as; convert it first \(Gemma "
+                                        r"Scope's params\.npz: numpy\.load, then safetensors\.torch\.save_file\)$"):
         plan(root, data={"d": DAYS}, featurizers={"dictionary": {
             "kind": "sae", "file_path": "documents/artifacts/params.npz", "activation": "jumprelu",
-            "centered": False, "layer": 0, "latents": 32}},
+            "centered": False, "site": "target"}}, sites={"target": LAYER0},
             steps={"f": forward({"z": {"site": LAYER0, "pos": -1, "ops": [{"op": "encode",
                                                                          "featurizer": "dictionary"}]}})}).compile()
 
 
 def test_b4_argmax_top_k_and_match_break_an_exact_tie_the_same_way():
     """Ids 1 and 3 tie exactly: every op picks id 1, the lower. In bfloat16 two logits one step apart round to
-    the same probability; `top_k` ranks by the logits, so its first is still `argmax`'s."""
+    the same probability; `top_k` ranks by the logits, so its first is still `argmax`'s. A tie at the k-th place
+    with an id the top-k left out keeps the lower ids, and ties inside the top-k are in id order."""
     tied = torch.tensor([[[0.0, 2.0, -1.0, 2.0, 1.0]]])
     assert transforms.argmax(tied).item() == 1
     assert transforms.top_k(tied, 2)["ids"].tolist() == [[[1, 3]]]
@@ -118,6 +118,9 @@ def test_b4_argmax_top_k_and_match_break_an_exact_tie_the_same_way():
     assert probs[0, 0, 5] == probs[0, 0, 2]                     # the probabilities tie; the logits do not
     assert probs.topk(1).indices.item() == 5                    # which a top-k of the probabilities ranks first
     assert transforms.argmax(close).item() == 2 == transforms.top_k(close, 1)["ids"].item()
+    many = torch.tensor([[9.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0], [3.0, 3.0, 3.0, 5.0, 0.0, 0.0, 0.0]])
+    assert metrics.ranked(many, 3).tolist() == [[0, 1, 2], [3, 0, 1]]
+    assert metrics.ranked(many, 1).tolist() == [[0], [3]]
     for name in ("argmax", "top_k"):
         assert "an exact tie goes to the lower id" in " ".join((ops.OPS[name].__doc__ or "").split()), name
 
@@ -156,19 +159,18 @@ def test_b6_a_call_a_whole_batch_never_reaches_is_missing(engines, kind):
     assert filled.results["top"][:, 0].tolist()[:2] == [-1, -1]
 
 
-def test_b6_a_batch_with_no_call_makes_its_blank_where_the_model_is(engines, monkeypatch):
-    """The blank of a batch that made no call the read names is made where the model is (`home`), so it joins
-    the other batches' values on their device; a CPU blank beside CUDA values was the crash."""
-    from clab.runtime.steps import generate
+def test_b6_batches_join_on_the_first_ones_device():
+    """A batch that made no call a read names makes its blank where no value says otherwise; batches join on
+    the first one's device, as a `layers` read's layers do, so a CPU blank beside CUDA values (the crash) joins.
+    Two devices without a GPU: a meta batch first, then a CPU one."""
+    from clab.runtime.steps.batches import joined
 
     compiled = generate_at(3)
-    engine = engines("nnterp", compiled.model)
     step: Any = compiled.steps["g"]
-    record = step.interventions["at"]
-    monkeypatch.setattr(generate, "home", lambda engine: "meta")
-    value = generate.at_calls(engine, compiled, record, {}, None, [], ["alignment_missing"] * 2,
-                              [{"ids": [0] * 9}] * 2, [0, 0], slice(0, 2), {}, {}, False, 5, {})
-    assert value.device.type == "meta" and value.shape == (2, 1, 32000)
+    state: dict = {}
+    joined(state, "g", step, [{"at": torch.zeros(2, 1, 4, device="meta")}, {"at": torch.zeros(2, 1, 4)}])
+    value = state["g.at"][()]
+    assert value.device.type == "meta" and value.shape == (4, 1, 4)
 
 
 def test_b7_a_gate_inside_a_pca_encode_trains_on_the_pca_coordinates(engines, tmp_path):
@@ -293,7 +295,8 @@ def test_b11_a_class_column_of_mixed_types_is_refused_by_name():
 
 def test_b12_a_message_that_says_its_role_header_is_found_in_its_own_text(engines):
     """trial-11 e34 on the tiny Llama's `[INST]` template: a user message `INST`, and an assistant one after a
-    `[/INST]`, are their own tokens, not the header's."""
+    `[/INST]`, are their own tokens, not the header's, and so is one after a message that holds the marker the
+    search places."""
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(TINY["key"], revision=TINY["revision"])
@@ -303,6 +306,11 @@ def test_b12_a_message_that_says_its_role_header_is_found_in_its_own_text(engine
         encoded = data.encode(tokenizer, chat)
         (_, a, b), = [t for t in encoded["turns"] if t[0] == role]
         assert encoded["text"][a:b] == "INST" and encoded["text"][a - 1] == " " and encoded["text"][b] == " "
+    marked = [{"role": "user", "content": data.MARKER}, {"role": "assistant", "content": "ok"},
+              {"role": "user", "content": "INST"}]          # an earlier message holds the marker itself
+    encoded = data.encode(tokenizer, marked)
+    (_, a, b) = encoded["turns"][2]
+    assert encoded["text"][a:b] == "INST" and encoded["text"][a - 7:a] == "[INST] "
     compiled = plan(data={"c": {"rows": [{"chat": [{"role": "user", "content": "INST"}]}]}}, steps={
         "f": {"kind": "forward", "input": "c.chat", "interventions": {"u": {
             "site": LAYER0, "pos": {"scope": {"turn": "user"}}}}}}, saves=["f.u"]).compile()
@@ -333,9 +341,13 @@ def test_b13_top_k_over_a_ragged_read_keeps_its_entries(engines, tmp_path):
 SARA = {"rows": [{"input": "Then, Sara and Sarah went. Sara gave", "s": " Sara"}]}
 
 
-def test_s3_an_occurrence_starts_and_ends_at_token_boundaries(engines):
+def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     """trial-02 07: ` Sara` is not found inside ` Sarah`, so its occurrence 1 is the second ` Sara` (▁S ara)
-    and `":"` takes two occurrences, not three; `:` inside `():` is no occurrence of `:`."""
+    and `":"` takes two occurrences, not three; ` Ann` is not in ` Annabel` though GPT-2 splits it `ĠAnn abel`;
+    `Paris. ` ends where the next ` Paris` starts; `:` inside `():` is no occurrence of `:`. Online, a write sees
+    no further than its token, and takes an end there as a word's."""
+    from transformers import AutoTokenizer
+
     def at(occurrence):
         return {"site": LAYER0, "pos": {"scope": {"column": "d.s", "occurrence": occurrence}}}
     compiled = plan(data={"d": SARA}, steps={"f": forward({"first": at(0), "second": at(1), "every": at(":")})},
@@ -345,34 +357,58 @@ def test_s3_an_occurrence_starts_and_ends_at_token_boundaries(engines):
     assert tokens == ["<s>", "▁Then", ",", "▁S", "ara", "▁and", "▁Sarah", "▁went", ".", "▁S", "ara", "▁gave"]
     assert filled.run.positions["f.first"] == [[3, 4]] and filled.run.positions["f.second"] == [[9, 10]]
     assert filled.run.positions["f.every"] == [[3, 4, 9, 10]]
+    gpt2 = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-gpt2",
+                                         revision=plan_gpt2_revision())
+    for tokenizer in (gpt2, engines("nnterp", compiled.model).tokenizer):
+        for text, find, count in (("Then Ann and Annabel met. Ann left", " Ann", 2),
+                                  ("I love Paris. Paris is big", "Paris", 2)):
+            row = data.encode(tokenizer, text)
+            assert len(positions.located([(find, False, False)], row["text"], row["offsets"])) == count
+        row = data.encode(tokenizer, "I love Paris. Paris is big")
+        (a, b), = positions.located([("Paris. ", False, False)], row["text"], row["offsets"])
+        covered = [t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a]
+        assert "Paris" not in tokenizer.decode([row["ids"][covered[-1]]])
     words, letters = "f(): a: b", [(0, 1), (1, 4), (4, 6), (6, 7), (7, 9)]       # `():` is one token
     assert positions.located([(":", False, False)], words, letters) == [(6, 7)]
     assert positions.located([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
+    assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
+    assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
     from clab.plan.model import Pos, Scope
     assert "starts where a token starts and ends where a token" in " ".join((Pos.__doc__ or "").split())
-    assert "starts at a token's start and ends at a token's end" in " ".join((Scope.__doc__ or "").split())
+    assert "lies on token and word boundaries" in " ".join((Scope.__doc__ or "").split())
+
+
+def plan_gpt2_revision() -> str:
+    with open(os.path.join(DOCUMENTS, "gpt2_reach.json")) as f:
+        return json.load(f)["model"]["revision"]
 
 
 PAIR = {"rows": [{"input": "Then, John and Mary went to the store. John gave a ring to",
                   "abc": "Then, Quentavious and Kate went to the store. Lucy gave a ring to"}]}
 
 
-def window(index: str) -> Plan:
+def window(index, read=None) -> Plan:
     return plan(data={"d": PAIR}, steps={
-        "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": index}}}},
+        "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {
+            "index": index if read is None else read}}}},
         "patched": forward({"w": {"site": LAYER0, "pos": {"index": index}, "ops": [{"op": "swap", "with": "abc.v"}]},
                             "logits": {"site": HEAD, "pos": -1}})}, saves=["patched.logits"]).compile()
 
 
-def test_s5_a_window_past_where_two_prompts_differ_in_length_is_refused(engines):
-    """trial-02: `0:14` pairs the two prompts' tokens by index from the start, which after the names (` John`
-    one token, ` Quentavious` several) are different tokens: refused by name before any forward. A window
-    within the tokens both share at the same distance from its side (`-4:-1`, ` gave a ring`) runs."""
-    refused_before_any_forward(engines, window("0:14"), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 of "
-                               r"which is \d+ tokens; d\.input has \d+ there, so the window's position \d+ pairs "
-                               r"'.*' with '.*', past the tokens the two prompts share; read and write at a scope")
+def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engines):
+    """trial-02: `0:14`, and the one position 3, pair the two prompts' tokens by index from the start, which
+    after the names (` John` one token, ` Quentavious` several) are different tokens: refused by name before any
+    forward. Positions within the tokens both share at the same distance from their side run (`-4:-1`, ` gave
+    a ring`; `0:3`, up to the names' first tokens), and so do positions written differently on the two sides,
+    which pair what they say. (`window_patch` and `multi_position_patch` stay bit-equal: test_documents.)"""
+    for index in ("0:14", 3):
+        refused_before_any_forward(engines, window(index), r"patched\.w: operand 'abc\.v' was read on d\.abc, row 0 "
+                                   r"of which is \d+ tokens; d\.input has \d+, so position \d+ pairs '.*' with '.*'; "
+                                   r"use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
-    assert filled.run.positions["patched.w"] != filled.run.positions["abc.v"]      # the same tokens, counted from the end
+    assert filled.run.positions["patched.w"] != filled.run.positions["abc.v"]      # the same tokens, from the end
+    run(engines, window("0:3"))
+    run(engines, window(3, read=-1))
 
 
 def test_s8_a_metric_refuses_an_operand_of_another_pos_width():
@@ -397,21 +433,31 @@ def heads(read, written) -> Plan:
 
 
 def test_s10_an_operands_heads_in_another_order_are_refused(engines):
-    """trial-07 E3: a mean read at heads `[1, 3]` swapped into a write at `[3, 1]` would trade them; read in the
-    write's order it lands head for head."""
-    refused_before_any_forward(engines, heads([1, 3], [3, 1]), r"patched\.w: operand 'm' holds num_heads \[1, 3\] "
-                               r"and this write's selection holds \[3, 1\]; a select list is positional")
+    """trial-07 E3: a mean read at heads `[1, 3]` swapped into a write at `[3, 1]` would trade them, and so would
+    an op step or a metric over two reads in different orders; read in one order it lands head for head."""
+    refused_before_any_forward(engines, heads([1, 3], [3, 1]), r"patched\.w: operand 'm' holds num_heads \[1, 3\], "
+                               r"and this write's selection holds \[3, 1\]; a select list is positional, so they "
+                               r"would trade places: select num_heads \[3, 1\] at the read$")
     filled = run(engines, heads([1, 3], [1, 3]))
     assert torch.equal(filled.results["patched.back"][:, :, [1, 3]], filled.results["m"].expand(4, 1, 2, 4))
+    for site, axis, op in (({"component": "attention_premix", "layers": 1}, "num_heads", "sub"),
+                           (LAYER0, "hidden_size", "cosine")):
+        two = forward({"a": {"site": {**site, "select": {axis: [1, 3]}}, "pos": -1},
+                       "b": {"site": {**site, "select": {axis: [3, 1]}}, "pos": -1}})
+        refused_before_any_forward(engines, plan(data={"d": DAYS}, steps={
+            "f": two, "d2": {"kind": "op", "op": op, "of": "f.a", "with": "f.b"}}).compile(),
+            rf"d2: operand 'f\.b' holds {axis} \[3, 1\], and the value it acts on holds \[1, 3\]; a select list "
+            rf"is positional, so they would trade places: select one {axis} list at both reads$")
 
 
 def test_s11_one_heads_operand_into_several_heads_is_refused(engines):
     """trial-07 E5: an operand broadcasts over rows and positions only, never over heads."""
-    refused_before_any_forward(engines, heads([0], [0, 1, 3]), r"patched\.w: operand 'm' holds num_heads \[0\] and "
-                               r"this write's selection holds \[0, 1, 3\]; one num_heads's value would be written "
-                               r"into each of this write's, but an operand broadcasts over rows and positions only")
-    refused_before_any_forward(engines, heads(":", [2]), r"operand 'm' holds num_heads \[0, 1, 2, 3\] and this "
-                               r"write's selection holds \[2\]")
+    refused_before_any_forward(engines, heads([0], [0, 1, 3]), r"patched\.w: operand 'm' holds num_heads \[0\], and "
+                               r"this write's selection holds \[0, 1, 3\]; an operand broadcasts over rows and "
+                               r"positions only: select num_heads \[0, 1, 3\] at the read$")
+    refused_before_any_forward(engines, heads(":", [2]), r"operand 'm' holds num_heads \[0, 1, 2, 3\], and this "
+                               r"write's selection holds \[2\]; an operand holds the same ones: select num_heads "
+                               r"\[2\] at the read$")
 
 
 def test_s12_a_mean_without_over_keeps_a_layers_axis(engines):
@@ -442,6 +488,8 @@ def test_s13_a_subspace_wider_than_its_site_is_refused_before_any_forward(engine
     refused_before_any_forward(engines, edited("das", change).compile(),
                                r"featurizer 'rot' has k 32, and it is used at width 16 \(layer_output\), which has no "
                                r"more than 16 directions; k is at most 16")
+    refused_before_any_forward(engines, edited("pca_harvest", lambda d: d["steps"]["basis"].update(k=17)).compile(),
+                               r"basis: pca k 17 counts directions of a value 16 wide, which has no more than 16")
 
 
 def cross_site(root: str, steps: dict, featurizer: dict, saves: list[str]) -> Plan:
@@ -484,33 +532,44 @@ def test_s20_a_cross_site_adapter_records_its_input_site_and_loads_only_reading_
     refused_before_any_forward(engines, cross_site(root, {"a": adapted("a", "oproj", 0)}, loaded, ["a.logits"]),
                                r"a\.adapt: .* trained reading its input at attention_premix layer 1 \(with\), and "
                                r"this use's with 'a\.premix' is attention_premix layer 0")
+    with safe_open(file, "pt") as f:                    # a bundle written before headers recorded a `with`
+        tensors = {k: f.get_tensor(k) for k in f.keys()}
+    save_file(tensors, file, metadata={k: v for k, v in header.items() if not k.startswith("with.")})
+    refused_before_any_forward(engines, cross_site(root, {"a": adapted("a", "oproj")}, loaded, ["a.logits"]),
+                               r"a\.adapt: documents/artifacts/fit\.oproj\.safetensors's header records no input "
+                               r"site \(with\.component\): it was trained on its own site's value, or before bundles "
+                               r"recorded a 'with'; retrain it with this 'with'$")
 
 
-def published_sae(**stated) -> Plan:
+def published_sae(sites: dict | None = None, **stated) -> Plan:
     def change(d):
         d["featurizers"]["dictionary"] = {"kind": "sae", "file_path": "documents/artifacts/sae_gemma_scope.safetensors",
                                           "activation": "jumprelu", "centered": False, **stated}
+        d["sites"].update(sites or {})
     return edited("sae_published_jumprelu", change)
 
 
-def test_s1_s2_a_published_sae_states_its_layer_and_latents_and_is_checked_against_them(engines):
-    """trial-04 r02, r05: nothing in a published file says where it was trained or how wide its dictionary is,
-    so the document says (`layer`, `latents`, beside `activation` and `centered`); a use at another layer is
-    refused before any forward."""
-    with pytest.raises(PlanError, match=r"is a published sae, which does not say how it encodes or where it was "
-                                        r"trained; state 'layer', 'latents' \(a published release names them"):
+def test_s1_s2_a_published_sae_states_its_site_and_is_checked_against_it(engines):
+    """trial-04 r02, r05: nothing in a published file says where it was trained, so the document says (`site`,
+    a declared site or `{component, layers}` at one layer, beside `activation` and `centered`); a use at another
+    layer, or at another component of the same width (an MLP's output beside the residual stream), is refused
+    before any forward. Its latents are its tensors' to say."""
+    with pytest.raises(PlanError, match=r"is a published sae, which says neither how it encodes nor where it was "
+                                        r"trained; state 'site', as its release names them$"):
         published_sae().compile()
-    def unstated(d):
-        for key in ("centered", "latents"):
-            del d["featurizers"]["dictionary"][key]
-    with pytest.raises(PlanError, match=r"state 'centered', 'latents'"):
-        edited("sae_published_jumprelu", unstated).compile()
+    with pytest.raises(PlanError, match=r"featurizers\.dictionary\.site: no site 'nowhere'; declared: target, head"):
+        published_sae(site="nowhere").compile()
     with pytest.raises(PlanError, match=r"has 32 latents; this document says 16"):
-        published_sae(layer=0, latents=16).compile()
-    refused_before_any_forward(engines, published_sae(layer=1, latents=32).compile(),
-                               r"base\.latents: featurizer 'dictionary' says it was trained at layer 1; this "
-                               r"document uses it at layer_output layers 0, which is layer 0")
-    edited("sae_published_jumprelu", lambda d: d["sites"]["target"].update(layers=-2)).compile()
+        published_sae(site="target", latents=16).compile()
+    elsewhere = {"mlp": {"component": "mlp_output", "layers": 0}, "one": {"component": "layer_output", "layers": 1}}
+    for site, use in (("one", "layer_output layer 0"), ({"component": "mlp_output", "layers": 0}, "layer_output "
+                                                                                                    "layer 0")):
+        refused_before_any_forward(engines, published_sae(elsewhere, site=site).compile(),
+                                   rf"base\.latents: featurizer 'dictionary' was trained at .* \(its site\); this use "
+                                   rf"is {use}$")
+    compiled = published_sae(elsewhere, site="target")
+    compiled.sites["target"] = compiled.sites["target"].model_copy(update={"layers": -2})
+    run(engines, compiled.compile())                    # layer -2 of two is layer 0, the one it was trained at
 
 
 # -- refusals that say what to do ---------------------------------------------------------------------------------
@@ -554,8 +613,9 @@ def test_m4_a_ragged_operand_into_a_ragged_write_says_what_differs():
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     entries come from."""
     with pytest.raises(PlanError, match=r"with: 'abc\.v' and this write are both ragged, \['entries', "
-                                        r"'hidden_size'\], and what differs is where their entries come from: a "
-                                        r"ragged write's entries are this forward's own positions"):
+                                        r"'hidden_size'\]; what differs is that its entries are another forward's "
+                                        r"positions, which need not pair with this one's: read both at a static "
+                                        r"index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
@@ -580,9 +640,10 @@ def test_m6_take_on_a_file_says_what_to_do_instead():
 
 
 def test_m7_a_featurizer_named_as_an_operand_says_it_is_one_and_how_to_reach_it():
-    with pytest.raises(PlanError, match=r"w\.ops\[0\]\.direction: 'pc' is a featurizer, not a value: its tensors are "
-                                        r"no operand\. An entry reaches it by op: \{'op': 'encode', 'featurizer': "
-                                        r"'pc'\} gives a value's coordinates in it"):
+    with pytest.raises(PlanError, match=r"w\.ops\[0\]\.direction: 'pc' is a featurizer, not a value; an op reaches it "
+                                        r"\(\{'op': 'encode', 'featurizer': 'pc'\} gives a value's coordinates, "
+                                        r"'apply' its version of the value\), and the value that entry binds is an "
+                                        r"operand$"):
         plan(data={"d": DAYS}, featurizers={"pc": {"kind": "subspace", "k": 1, "seed": 0}}, steps={
             "abl": forward({"w": {"site": LAYER0, "pos": -1, "ops": [{"op": "project_out", "direction": "pc"}]}})}
              ).compile()
@@ -602,8 +663,8 @@ def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_axis():
     stacked = {"component": "attention_premix", "layers": [0, 1]}
     with pytest.raises(PlanError, match=r"zs\.interventions\.w\.ops\[0\]\.with: 'm' is laid out \['layers', "
                                         r"'num_heads', 'head_dim'\]: it keeps a layers axis, and this write lands at "
-                                        r"one layer, so its operand has none .*; read the operand at the write's "
-                                        r"own layer"):
+                                        r"one layer, so its operand has none; read the operand at the write's own "
+                                        r"layer$"):
         plan(data={"d": DAYS, "t": {"rows": DAYS["rows"][:2]}}, steps={
             "icl": forward({"a": {"site": stacked, "pos": -1}}),
             "m": {"kind": "op", "op": "mean", "of": "icl.a", "over": ["rows", "pos"]},
@@ -613,10 +674,9 @@ def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_axis():
 
 
 def test_m10_a_generate_write_at_the_last_token_of_every_call_names_the_two_writes():
-    with pytest.raises(PlanError, match=r"g\.interventions\.w\.pos: frame ':' with index -1: an index counts the "
-                                        r"tokens of every call the frame names together.*write two entries: "
-                                        r"\{'frame': 0, 'index': -1\} in the prefill, and \{'frame': '1:'\}, each "
-                                        r"decode call holding one position"):
+    with pytest.raises(PlanError, match=r"g\.interventions\.w\.pos: frame ':' with index -1 is known only when the "
+                                        r"row stops; write two entries: \{'frame': 0, 'index': -1\} and "
+                                        r"\{'frame': '1:'\}$"):
         plan(data={"d": DAYS}, steps={"g": {"kind": "generate", "input": "d.input", "max_new_tokens": 3,
                                             "interventions": {"w": {"site": LAYER0, "pos": {"frame": ":", "index": -1},
                                                                     "ops": [{"op": "scale", "factor": 2.0}]}}}}

@@ -104,7 +104,13 @@ compose there in order, each on what the one before it left. A name binds once p
 name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
 at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
 positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
-meets (`space`). A bundle at the root is a dict of entries
+meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
+i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
+before any forward: each pair sits at one distance from the start within the tokens both prompts begin with
+alike, or from the end within those they end with alike (the first token past either counted in); any other
+is refused, and a scope names the token in each row. An operand holds the indices of every axis a site
+narrows (`num_heads`, ...) that the value it meets holds, in the same order. A bundle at the root is a dict
+of entries
 pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
 one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
 and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -159,9 +165,12 @@ call 0 holds that one position.
 
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-prefixes. An occurrence lies on token boundaries: it starts where a token starts and ends where a token
-ends (a token's own leading or trailing whitespace on either side of the boundary), so ` Sara` does not
-occur in ` Sarah`, nor `:` in `):`. A list of columns or texts locates every occurrence of each. Occurrences
+prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
+the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
+after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
+occur in ` Sarah`, ` Ann` not in ` Annabel`, `:` not in `):` (a write found online sees nothing past the
+token it is fed, so it takes an end there as a word's, whatever follows). A list of columns or texts locates every occurrence of each. Occurrences
 are ordered by where they end, then where they start: where an occurrence becomes known and where index -1
 lands, so a write found online, a read and the run record count them alike (`b` inside `a b c` comes before
 it). `occurrence`
@@ -293,7 +302,9 @@ that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scal
 is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
 the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
 "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-body's forwards run in batches of `batch_size`, whatever the run's batch size.
+body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
+the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
+history is empty, `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
@@ -580,7 +591,7 @@ Ops: `encode` gives its coordinates, the last axis becoming features; `decode` w
 - `activation: one of "relu", "jumprelu", "topk" = "relu"`
 - `k: int or null = null`
 - `centered: bool = true`
-- `layer: int or null = null`
+- `site: str or {component: str, layers: int} or null = null`
 
 A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
 dictionary a fit trains: drawn from `seed`, `W_enc` `[width, latents]` standard normal over sqrt(width),
@@ -592,9 +603,10 @@ published file holds) or `topk` (the relu of the `k` largest of `pre` in each ve
 zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
 `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
 are checked against each other and the site's width, and nothing in it says what model it was trained on, so
-the document states what the file cannot: its `activation` and `centered`, which have no default for it, the
-`layer` it was trained at, which every site it is used at is (`layers: -1` counts as the layer it is), and its
-number of `latents`, which its tensors are. A `layer` given for any sae is checked so. Its
+the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
+the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
+site it is used at is, component and layer (`layers: -1` counting as the layer it is). A `site` given for any
+sae is checked so. Its
 scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
 mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
 
@@ -732,7 +744,8 @@ bundle; a ragged read's `{values, row, tok}`), `<name>.json` otherwise, tensors 
 save holds one entry per point, keyed by its coordinate: `pos=-1` in safetensors, `"-1"` in JSON
 (`layers=0,pos=-1` and `"0,-1"` over two axes), a dict's own keys after a `/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
-fit's trained featurizer) carries the header that featurizer checks.
+fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
+after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
 `manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the

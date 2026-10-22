@@ -226,7 +226,8 @@ class Scope(Record):
     chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
     scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
-    occurrence starts at a token's start and ends at a token's end, never inside a token; and `before`,
+    occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
+    side, and no letter or digit adjoining a word it cuts); and `before`,
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
@@ -307,9 +308,12 @@ class Pos(Record):
 
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
-    prefixes. An occurrence lies on token boundaries: it starts where a token starts and ends where a token
-    ends (a token's own leading or trailing whitespace on either side of the boundary), so ` Sara` does not
-    occur in ` Sarah`, nor `:` in `):`. A list of columns or texts locates every occurrence of each. Occurrences
+    prefixes. An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+    token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
+    the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
+    after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
+    occur in ` Sarah`, ` Ann` not in ` Annabel`, `:` not in `):` (a write found online sees nothing past the
+    token it is fed, so it takes an end there as a word's, whatever follows). A list of columns or texts locates every occurrence of each. Occurrences
     are ordered by where they end, then where they start: where an occurrence becomes known and where index -1
     lands, so a write found online, a read and the run record count them alike (`b` inside `a b c` comes before
     it). `occurrence`
@@ -424,7 +428,13 @@ class Intervention(Record):
     name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
     at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
     positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
-    meets (`space`). A bundle at the root is a dict of entries
+    meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
+    i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
+    before any forward: each pair sits at one distance from the start within the tokens both prompts begin with
+    alike, or from the end within those they end with alike (the first token past either counted in); any other
+    is refused, and a scope names the token in each row. An operand holds the indices of every axis a site
+    narrows (`num_heads`, ...) that the value it meets holds, in the same order. A bundle at the root is a dict
+    of entries
     pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
     one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
     and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
@@ -651,7 +661,9 @@ class Fit(Record):
     is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
     the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
     "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-    body's forwards run in batches of `batch_size`, whatever the run's batch size.
+    body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
+    the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
+    history is empty, `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
     name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
@@ -1000,14 +1012,20 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
     return found
 
 
-def operand_site(plan: Plan, where: str, ref: str) -> Any:
-    """The site of the entry `ref` (`<step>.<entry>`) names, read from where entry `where` (`[<fit>.]<step>.<entry>`,
-    as `uses` names it) stands: among a fit's body steps when `where` is in one."""
-    steps = plan.steps
-    if where.count(".") == 2:
-        steps = {**steps, **points(steps[where.partition(".")[0]])[0].steps}
+def entry_of(steps: dict, ref: str, at: dict) -> tuple[Any, Any]:
+    """The step point and the entry `<step>.<entry>` names among `steps`, at the step's point that agrees with
+    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
-    return entries(points(steps[thing])[0])[member].site
+    step = agreeing(steps[thing], at)
+    return step, entries(step)[member]
+
+
+def scope(plan: Plan, where: str) -> dict:
+    """The steps an entry `where` (`[<fit>.]<step>.<entry>`, as `uses` names it) sees by name: the root's, and
+    a fit's body steps beside them when it stands in one."""
+    if where.count(".") < 2:
+        return plan.steps
+    return {**plan.steps, **points(plan.steps[where.partition(".")[0]])[0].steps}
 
 
 # -- sweeps ---------------------------------------------------------------------

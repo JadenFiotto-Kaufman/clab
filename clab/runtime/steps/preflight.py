@@ -6,7 +6,7 @@ from typing import Any
 
 from ... import address
 from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, entries, gathers, kind_of,
-                           operand_site, parameters, points, probe_of, uses, walk, writes)
+                           entry_of, parameters, points, probe_of, scope, uses, walk, writes)
 from .. import data, featurizers, ops, positions
 from ..ops.metrics import ONE_ID
 from .state import lookup, put, refkey, tokens, unaligned
@@ -88,11 +88,19 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
             if step.kind == "fit":
                 continue
             if step.kind == "op":
+                check_labels(plan, name, step, step.at, held(plan, step.of, step.at, sizes), dims_of(plan, step.of),
+                             sizes, False)
                 if "classes" in dims_of(plan, step.of):
                     check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
                 else:
                     check_tokens(engine, plan, found, name, step.op, arguments(step), dims_of(plan, step.of),
                                  *placed(plan, found, step.of, step.at))
+                bundle = ops.DECLARED[step.op]["bundle"]
+                for field in featurizers.KINDS[bundle].counts if bundle else ():
+                    width = (held(plan, step.of, step.at, sizes) or {}).get("hidden_size", range(sizes["hidden_size"]))
+                    if arguments(step)[field] > len(width):
+                        raise ValueError(f"{name}: {step.op} {field} {arguments(step)[field]} counts directions of a "
+                                         f"value {len(width)} wide, which has no more than {len(width)}")
                 if step.op == "pca" and step.of in found["positions"]:
                     n = sum(map(len, lookup(found["positions"], step.of, step.at)))
                     if n <= arguments(step)["k"]:
@@ -144,10 +152,14 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
                         probe = arguments(o)["featurizer"]
                 put(shapes, where, step.at, shape)
-                later += [(where, o, shape, site, kept) for o in record.ops[:len(record.ops) - len(gathers(record))]]
-            for where, o, shape, site, kept in later:
+                later += [(where, o, shape, site) for o in record.ops[:len(record.ops) - len(gathers(record))]]
+            for where, o, shape, site in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)
-                check_labels(plan, where, o, step, site, kept, sizes)
+            for key, record in entries(step).items():
+                where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
+                for i, o in enumerate(record.ops):
+                    check_labels(plan, where, o, step.at, held(plan, where, step.at, sizes),
+                                 address.dims(record.site.component, None, False), sizes, i < edits)
     return found
 
 
@@ -215,19 +227,17 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                                      f"{width} ({site.component}), which has no more than {width} directions; "
                                      f"{field} is at most {width}")
             layer = positions.select(site.layers, sizes["num_layers"]) if isinstance(site.layers, int) else None
-            stated = (f.model_extra or {}).get("layer")
-            if isinstance(stated, int):
-                made = positions.select(site.layers, sizes["num_layers"]) if site.layers is not None else []
-                if made != positions.select(stated, sizes["num_layers"]):
-                    raise ValueError(f"{where}: featurizer {name!r} says it was trained at layer {stated}; this "
-                                     f"document uses it at {site.component} layers {site.layers!r}, which is layer "
-                                     f"{made[0] if len(made) == 1 else made}: a dictionary is its layer's alone")
+            stated = (f.model_extra or {}).get("site")
+            if stated is not None and (stated["component"], at_layer(stated["layers"], sizes["num_layers"])) != \
+                    (site.component, at_layer(site.layers, sizes["num_layers"])):
+                raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
+                                 f"{stated['layers']} (its site); this use is {site.component} layer {site.layers}")
             if f.header is not None and layer and f.header.get("layer") != str(layer[0]):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                  f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                  f"layer {site.layers}, which is layer {layer[0]}")
             if f.header is not None:
-                read_with(plan, where, name, f, o, sizes["num_layers"])
+                read_with(plan, where, at, f, o, sizes["num_layers"])
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
@@ -247,28 +257,29 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     return out
 
 
-def read_with(plan: Plan, where: str, name: str, f, o, n: int) -> None:
+def at_layer(layers, n: int) -> str:
+    """A site's one layer counted from the first, as a header records it; other layers as written."""
+    return str(positions.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
+
+
+def read_with(plan: Plan, where: str, at: dict, f, o, n: int) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
     `with.component` and `with.layer`) is used reading it there, and one made without reads none: the width check
     alone would pass an o_proj adapter fed its own output, whose width can equal the premix's."""
-    given, recorded = arguments(o).get("with"), f.header.get("with.component")
+    given, recorded, layer = arguments(o).get("with"), f.header.get("with.component"), f.header.get("with.layer")
     file = (f.model_extra or {})["file_path"]
     if recorded is None and given is not None:
-        raise ValueError(f"{where}: {file} was trained on the value at its own site, and this use gives with "
-                         f"{given!r}; apply it without 'with'")
+        raise ValueError(f"{where}: {file}'s header records no input site (with.component): it was trained on its "
+                         "own site's value, or before bundles recorded a 'with'; retrain it with this 'with'")
     if recorded is None:
         return
-    layer = f.header.get("with.layer")
     if given is None:
-        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and this "
-                         f"use gives no 'with', so it would read {name!r}'s own site's value; give 'with' an entry of "
-                         f"this forward at {recorded} layer {layer}")
-    site = operand_site(plan, where, given)
-    at = str(positions.select(site.layers, n)[0]) if isinstance(site.layers, int) else str(site.layers)
-    if (site.component, at) != (recorded, layer):
-        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and this "
-                         f"use's with {given!r} is {site.component} layer {at}; give 'with' an entry at "
-                         f"{recorded} layer {layer}")
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and "
+                         f"this use gives no 'with'; give 'with' an entry at {recorded} layer {layer}")
+    site = entry_of(scope(plan, where), given, at)[1].site
+    if (site.component, at_layer(site.layers, n)) != (recorded, layer):
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and "
+                         f"this use's with {given!r} is {site.component} layer {at_layer(site.layers, n)}")
 
 
 def instance(plan: Plan, spec, width: int, seed: int | None, device: str = "cpu") -> featurizers.Kind:
@@ -478,7 +489,8 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
         if p.annotation != ops.Value or not isinstance(value, str) or value not in shapes:
             continue
         theirs = lookup(shapes, value, step.at)
-        read = entries(points(plan.steps[value.partition(".")[0]])[0])[value.partition(".")[2]].site
+        producer, record = entry_of(plan.steps, value, step.at)
+        read = record.site
         same = value.partition(".")[0] == where.partition(".")[0]
         theirs_at, ours_at = ((s.component, made_at(s, sizes["num_layers"])[0]) for s in (read, site))
         if same and theirs_at != ours_at and engine.rank(*theirs_at) >= engine.rank(*ours_at):
@@ -501,30 +513,29 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
         if theirs[0] != shape[0] or (theirs[1] != shape[1] and key not in chosen):
             raise ValueError(f"{where}: operand {value!r} is {theirs[0]} token(s) wide, narrowed to {theirs[1]}; "
                              f"this write's selection is {shape[0]} wide, narrowed to {shape[1]}")
-        producer = data.input_name(points(plan.steps[value.partition(".")[0]])[0].input)
-        consumer = data.input_name(step.input)
+        producer, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer != consumer:
             for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][consumer]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
                                      "key axes do not line up")
-        if shape[0] > 1 and producer != consumer and not any(positions.parse(r.pos)["scope"] for r in (
-                record_of(plan, where), record_of(plan, value))):
+        written = positions.parse(entry_of(plan.steps, where, step.at)[1].pos)
+        if producer != consumer and written["scope"] is None and positions.parse(record.pos) == written:
             windowed(engine, where, value, producer, consumer, found, step.at)
 
 
 def windowed(engine, where: str, value: str, producer: str, consumer: str, found: dict, at: dict) -> None:
-    """A window of several positions with no scope, swapped from one input into another, pairs the operand's
-    i-th position with the write's i-th. On a row whose two prompts are as long, those are the same token's;
-    on one where they are not, only where both sit among the tokens the prompts share, at the same distance
-    from the side the window counts from (the common start counted from the start, the common end from the
-    end). A window that reaches past them, into where the prompts differ in length, pairs different tokens,
-    and is refused by name, as an attention pattern's keys are."""
+    """The same positions with no scope, read on one input and written on another, pair the operand's i-th
+    position with the write's i-th (positions written differently pair what they say). On a row whose two prompts are as long, those count alike. On one where they are not, the
+    check is conservative: each pair is the same distance from the start within the tokens the two prompts
+    begin with alike, or from the end within those they end with alike, the first token past either counted
+    in (both are the first token where the prompts part); any other pair may be two different tokens and is
+    refused by name, as an attention pattern's keys are."""
     try:
         ours, theirs = lookup(found["positions"], where, at), lookup(found["positions"], value, at)
     except KeyError:
-        return                  # beyond the prefill: no window there
+        return                  # beyond the prefill, where positions are calls
     tokens = engine.tokenizer.convert_ids_to_tokens
     for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][consumer]["rows"])):
         x, y = a["ids"], b["ids"]
@@ -533,49 +544,41 @@ def windowed(engine, where: str, value: str, producer: str, consumer: str, found
         start = next((i for i, (p, q) in enumerate(zip(x, y)) if p != q), min(len(x), len(y)))
         end = next((i for i, (p, q) in enumerate(zip(x[::-1], y[::-1])) if p != q), min(len(x), len(y)))
         for i, (p, q) in enumerate(zip(theirs[row], ours[row])):
-            if not (p == q < start or len(x) - p == len(y) - q <= end):
+            if not (p == q <= start or len(x) - p == len(y) - q <= end + 1):
                 raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
-                                 f"{len(x)} tokens; {consumer} has {len(y)} there, so the window's position {i} "
-                                 f"pairs {tokens([x[p]])[0]!r} with {tokens([y[q]])[0]!r}, past the tokens the two "
-                                 "prompts share; read and write at a scope (the text the window means), one entry "
-                                 "per position, or on inputs of one length")
+                                 f"{len(x)} tokens; {consumer} has {len(y)}, so position {i} pairs "
+                                 f"{tokens([x[p]])[0]!r} with {tokens([y[q]])[0]!r}; use a scope to name the token "
+                                 "in each row")
 
 
-def record_of(plan: Plan, name: str):
-    """The entry `<step>.<entry>` names."""
-    thing, _, member = name.partition(".")
-    return entries(points(plan.steps[thing])[0])[member]
-
-
-def check_labels(plan: Plan, where: str, o, step, site, kept: dict, sizes: dict) -> None:
-    """A write's operand holds, on each axis its site narrows (`num_heads`, `hidden_size`, ...), the indices the
-    write's selection does, in its order (`kept`, by axis; every one where it does not narrow): a `select` list is
-    positional, so an operand read at heads `[1, 4]` swapped into a write at `[4, 1]` would trade the heads, and one
-    head's value would broadcast over three. An operand's indices are those of the read it was taken over
-    (`held`); a number, or a value no read made, has none to compare."""
+def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: list[str], sizes: dict,
+                 write: bool) -> None:
+    """An op's operand holds, on each axis a read's site narrows (`num_heads`, `hidden_size`, ...), the indices the
+    value the op acts on holds (`ours`, by axis, laid out `dims`: a write's selection, or what a read or an op
+    step's `of` holds, `held`), in its order. A `select` list is positional: an operand read at heads `[1, 4]`
+    swapped into a write at `[4, 1]`, or subtracted from a value read at `[4, 1]`, would mix the heads, and one
+    head's value would broadcast over three. A number, or a value no read made, holds none to compare."""
     chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
+    whose = "this write's selection" if write else "the value it acts on"
     for key, p in parameters(plan, o.op, arguments(o)).items():
         value = arguments(o).get(key)
         if p.annotation != ops.Value or not isinstance(value, str) or key in chosen:
             continue
-        theirs = held(plan, value, step.at, sizes)
-        dims = dims_of(plan, value)
-        for axis in address.selectable(site.component):
-            if axis == "key" or axis not in dims or theirs is None or axis not in theirs:
+        theirs, their_dims = held(plan, value, at, sizes), dims_of(plan, value)
+        for axis, own in (ours or {}).items():
+            if axis == "key" or axis not in dims or axis not in their_dims or theirs is None or axis not in theirs:
                 continue
-            ours = kept.get(axis, list(range(sizes[axis])))
-            if theirs[axis] == ours:
+            if theirs[axis] == own:
                 continue
-            if sorted(theirs[axis]) == sorted(ours):
-                why = (f"a select list is positional, so its {axis} would land where this write's list puts its "
-                       "own, trading them; select them in one order at both sites")
-            elif len(theirs[axis]) == 1:
-                why = (f"one {axis}'s value would be written into each of this write's, but an operand broadcasts "
-                       f"over rows and positions only; read the {axis} this write selects, or write one per entry")
+            if sorted(theirs[axis]) == sorted(own):
+                why = "a select list is positional, so they would trade places"
+            elif len(theirs[axis]) == 1 and write:
+                why = "an operand broadcasts over rows and positions only"
             else:
-                why = f"an operand holds the {axis} this write selects, in its order"
-            raise ValueError(f"{where}: operand {value!r} holds {axis} {theirs[axis]} and this write's selection "
-                             f"holds {ours}; {why}")
+                why = "an operand holds the same ones"
+            fix = f"select {axis} {own} at the read" if write else f"select one {axis} list at both reads"
+            raise ValueError(f"{where}: operand {value!r} holds {axis} {theirs[axis]}, and {whose} holds "
+                             f"{own}; {why}: {fix}")
 
 
 def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] | None:
@@ -591,7 +594,7 @@ def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] |
         return held(body_view(plan, thing, step.at), rest, step.at, sizes) if label in step.eval and rest else None
     if not member:
         return None
-    site = entries(step)[member].site
+    site = entry_of(plan.steps, name, at)[1].site
     chosen = positions.kept(site.select, sizes)
-    return {a: chosen.get(a, list(range(sizes[a]))) for a in address.selectable(site.component)
+    return {a: chosen[a] if a in chosen else list(range(sizes[a])) for a in address.selectable(site.component)
             if a in chosen or a in sizes}

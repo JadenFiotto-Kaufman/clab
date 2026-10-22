@@ -25,9 +25,9 @@ from clab.runtime import positions
 from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
-# Two texts the model says on every row, at tokens 0 and 2 (`Handler`, `▁energ`): a scope's two occurrences in
-# what it said, each a whole token, since an occurrence starts and ends at token boundaries.
-TWICE = ["Handler", "energ"]
+# Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two
+# occurrences in what it said, each whole words, since an occurrence lies on token and word boundaries.
+TWICE = ["Handler", "energcalc"]
 LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
 
 
@@ -74,14 +74,14 @@ def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
     """The description: two rows score, two are `alignment_missing` under `at_said`, and `at_last` is each
     row's sixth call, 5, since `min_new_tokens` holds EOS off for all six tokens. The read sits at the
     word's last token where it is an input: row 0 said `▁substr` as token 1 (position 12, call 2), row 1
-    `▁energ` as token 2 (position 11, call 3)."""
+    `energcalc` ending on `calc`, token 3 (position 12, call 4)."""
     plan = filled["generated_answer", "nnterp"]
-    assert plan.run.positions["answer.at_said"] == [[12], [11], "alignment_missing", "alignment_missing"]
+    assert plan.run.positions["answer.at_said"] == [[12], [12], "alignment_missing", "alignment_missing"]
     assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
     p = plan.results["p_answer"]
-    assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 11] and p["values"].shape == (2,)
+    assert p["row"].tolist() == [0, 1] and p["tok"].tolist() == [12, 12] and p["values"].shape == (2,)
     said = plan.run.tokens["answer"]
-    assert [said[0][1], said[1][2]] == ["▁substr", "▁energ"]
+    assert [said[0][1], said[1][3]] == ["▁substr", "calc"]
 
 
 def test_call_k_holds_token_k_minus_1_and_its_logits_chose_token_k(engines):
@@ -122,15 +122,15 @@ def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engin
     assert text == ["Handler substr energcalc tossorter"] * 4
     rows = plan.table("p_answer", "text", columns=["said"])
     assert [(r["row"], r.get("pos"), r.get("pos_token"), r.get("call"), r.get("alignment_missing")) for r in rows] \
-        == [(0, 12, "▁substr", 2, None), (1, 11, "▁energ", 3, None), (2, None, None, None, True),
+        == [(0, 12, "▁substr", 2, None), (1, 12, "calc", 4, None), (2, None, None, None, True),
             (3, None, None, None, True)]
     assert all(r["text"] == text[0] for r in rows) and [r["said"] for r in rows][2:] == ["Friday", "Saturday"]
     assert "p_answer" not in rows[2] and rows[0]["p_answer"] == plan.results["p_answer"]["values"][0].item()
 
 
 def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
-    """The set `["Handler", "energ"]` ends twice on an input in what the model said (`Handler`, token 0;
-    `▁energ`, token 2); "substr" once. Occurrence 0 is the first, occurrence 1 the
+    """The set `TWICE` ends twice on an input in what the model said (`Handler`, token 0; `energcalc`, token 3);
+    "substr" once. Occurrence 0 is the first, occurrence 1 the
     second, which a row that says it once does not have."""
     def change(occurrence):
         def changed(d):
@@ -143,7 +143,7 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
     first = run(engines, edited("generated_answer", change(0)).compile())
     assert first.run.positions["answer.at_said"] == [[11], [10]]
     second = run(engines, edited("generated_answer", change(1)).compile())
-    assert second.run.positions["answer.at_said"] == [[13], "alignment_missing"]
+    assert second.run.positions["answer.at_said"] == [[14], "alignment_missing"]
     assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
@@ -640,8 +640,8 @@ def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
 
 
 def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
-    """`TWICE` first ends on token 0 (`Handler`), fed to call 1, and next on token 2 (`▁energ`), fed to call 3:
-    occurrence 0 writes what `{"frame": 1, "index": -1}` does, once, and occurrence 1 what `{"frame": 3,
+    """`TWICE` first ends on token 0 (`Handler`), fed to call 1, and next on token 3 (`energcalc`), fed to call
+    4: occurrence 0 writes what `{"frame": 1, "index": -1}` does, once, and occurrence 1 what `{"frame": 4,
     "index": -1}` does, not at the first."""
     def at(pos):
         def change(d):
@@ -649,7 +649,7 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
             d["steps"]["swapped"]["interventions"]["w"]["pos"] = pos
         return edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
-        for occurrence, call in ((0, 1), (1, 3)):
+        for occurrence, call in ((0, 1), (1, 4)):
             plan = at({"frame": "1:", "scope": {"text": TWICE, "occurrence": occurrence}, "index": -1})
             scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
             fixed = engines(kind, plan.model).execute(at({"frame": call, "index": -1}), batch_size=BATCH_SIZE)
@@ -660,34 +660,35 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
 
 
 def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engines):
-    """`TWICE` ends on token 0 (fed to call 1) and token 2 (fed to call 3): at `{"frame": 3}` occurrence 0 is the
-    one there, so the write lands at call 3, where a read of the same record resolves, and writes what
-    `{"frame": 3, "index": -1}` does; both engines to the bit."""
-    pos = {"frame": 3, "scope": {"text": TWICE}, "index": -1}
+    """`TWICE` ends on token 0 (fed to call 1) and token 3 (fed to call 4): at `{"frame": 4}` occurrence 0 is the
+    one there, so the write lands at call 4, where a read of the same record resolves in the clean generation
+    (in the written one the word may go on, which the write could not see), and writes what `{"frame": 4,
+    "index": -1}` does; both engines to the bit."""
+    pos = {"frame": 4, "scope": {"text": TWICE}, "index": -1}
 
     def at(where, read=False):
         def change(d):
             scoped_write(TWICE, held=True)(d)
             d["steps"]["swapped"]["interventions"]["w"]["pos"] = where
             if read:
-                d["steps"]["swapped"]["interventions"]["r"] = {"site": "head", "pos": pos}
+                d["steps"]["clean"]["interventions"] = {"r": {"site": "head", "pos": pos}}
         return edited("generated_answer", change).compile()
     runs = {kind: (engines(kind, at(pos).model).execute(at(pos, read=True), batch_size=BATCH_SIZE),
-                   engines(kind, at(pos).model).execute(at({"frame": 3, "index": -1}), batch_size=BATCH_SIZE))
+                   engines(kind, at(pos).model).execute(at({"frame": 4, "index": -1}), batch_size=BATCH_SIZE))
             for kind in ("nnterp", "hooks")}
     for kind, (scoped, fixed) in runs.items():
         where = scoped.run.positions
-        assert where["swapped.w"] == where["swapped.r"] == fixed.run.positions["swapped.w"] == \
-            [[p + 2] for p in PROMPT], kind
+        assert where["swapped.w"] == where["clean.r"] == fixed.run.positions["swapped.w"] == \
+            [[p + 3] for p in PROMPT], kind
         assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), kind
     assert torch.equal(runs["nnterp"][0].results["swapped"], runs["hooks"][0].results["swapped"])
 
 
 def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
-    """`occurrence: "0:2"` of `Handler`, `energ` and `sier` lands at call 1 (`Handler`) and, where the row still
-    says one, at the call fed the next: call 3 on rows 0, 1 and 3 (`▁energ`, `▁energ`, `▁sier`), as a write at
-    each of calls 1 and 3 does there; row 2, which the write at call 1 sends elsewhere, has no second; both
-    engines to the bit."""
+    """`occurrence: "0:2"` of `Handler`, `energcalc` and `sier` lands at call 1 (`Handler`) and, where the row
+    still says one, at the call fed the next: call 4 on rows 0 and 1 (`energcalc`), call 3 on row 3 (`▁sier`,
+    which online is a word's end, though the row goes on to `Mill`), as a write at each of those calls does
+    there; row 2, which the write at call 1 sends elsewhere, has no second; both engines to the bit."""
     texts = [*TWICE, "sier"]
 
     def at(where):
@@ -697,13 +698,14 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
             d["steps"]["swapped"]["interventions"] = {k: {**w, "pos": p} for k, p in where.items()}
         return edited("generated_answer", change).compile()
     span = {"w": {"frame": "1:", "scope": {"text": texts, "occurrence": "0:2"}, "index": -1}}
-    calls = {"w1": {"frame": 1, "index": -1}, "w3": {"frame": 3, "index": -1}}
     results = {}
     for kind in ("nnterp", "hooks"):
         scoped = engines(kind, at(span).model).execute(at(span), batch_size=BATCH_SIZE)
-        fixed = engines(kind, at(calls).model).execute(at(calls), batch_size=BATCH_SIZE)
-        assert scoped.run.positions["swapped.w"] == [[11, 13], [9, 11], [9], [9, 11]], kind
-        assert torch.equal(scoped.results["swapped"][[0, 1, 3]], fixed.results["swapped"][[0, 1, 3]]), kind
+        assert scoped.run.positions["swapped.w"] == [[11, 14], [9, 12], [9], [9, 11]], kind
+        for rows, second in (([0, 1], 4), ([3], 3)):
+            calls = {"w1": {"frame": 1, "index": -1}, "w2": {"frame": second, "index": -1}}
+            fixed = engines(kind, at(calls).model).execute(at(calls), batch_size=BATCH_SIZE)
+            assert torch.equal(scoped.results["swapped"][rows], fixed.results["swapped"][rows]), (kind, rows)
         assert torch.equal(scoped.results["swapped"][:, :1], scoped.results["clean"][:, :1]), kind
         results[kind] = scoped.results["swapped"]
     assert torch.equal(results["nnterp"], results["hooks"])
@@ -755,7 +757,8 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
 
 
 def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
-    """`TWICE` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `":"` both."""
+    """`TWICE` ends on inputs 0 and 3 of what every row said: occurrence 1 is the second, `":"` both (`energcalc`
+    is two tokens)."""
     def change(d):
         d["steps"]["answer"]["interventions"] = {
             "second": {"site": "head", "pos": {"frame": "1:", "scope": {"text": TWICE, "occurrence": 1},
@@ -766,9 +769,9 @@ def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
-        assert filled.run.positions["answer.second"] == [[p + 2] for p in PROMPT]
-        assert filled.run.positions["answer.both"] == [[p, p + 2] for p in PROMPT]    # the occurrences' tokens only
-        assert filled.results["answer.both"]["values"].shape == (8, 32000)
+        assert filled.run.positions["answer.second"] == [[p + 3] for p in PROMPT]
+        assert filled.run.positions["answer.both"] == [[p, p + 2, p + 3] for p in PROMPT]    # the occurrences' only
+        assert filled.results["answer.both"]["values"].shape == (12, 32000)
 
 
 @pytest.mark.parametrize("strip, found", [(False, False), (True, True)])
@@ -879,13 +882,13 @@ def as_written(*texts: str) -> list[tuple[str, bool, bool]]:
 
 
 def test_occurrences_are_ordered_by_where_they_end():
-    """`b` inside `abc` ends first, so it is occurrence 0 and `abc` occurrence 1, in the prompt, in the
+    """`b` inside `a b c` ends first, so it is occurrence 0 and `a b c` occurrence 1, in the prompt, in the
     generated inputs and online alike; of two that end together, the one that starts first comes first."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
-    scope = {"text": ["abc", "b"], "occurrence": 0}
-    letters = [(i, i + 1) for i in range(5)]           # a token per letter, so every letter is a boundary
-    assert positions.located(as_written("abc", "b"), "xabcx", letters) == [(2, 3), (1, 4)]
-    assert positions.located(as_written("bc", "abc"), "xabcx", letters) == [(1, 4), (2, 4)]
+    scope = {"text": ["a b c", "b"], "occurrence": 0}
+    letters = [(i, i + 1) for i in range(9)]           # a token per character, so every one is a boundary
+    assert positions.located(as_written("a b c", "b"), "x a b c x", letters) == [(4, 5), (2, 7)]
+    assert positions.located(as_written("b c", "a b c"), "x a b c x", letters) == [(2, 7), (4, 7)]
     ids = tokenizer("x a b c x", add_special_tokens=False)["input_ids"]
     words, chars = positions.char_spans(tokenizer, ids)
     spans = positions.located(as_written("a b c", "b"), words, chars)
@@ -925,10 +928,11 @@ def test_a_list_of_columns_takes_the_first_of_either(engines):
 
 
 def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
-    """Steered, rows say different things: `["energ", "Friday"]` is `▁energ` (token 2, fed to call 3) on the
-    rows that say it and `▁Friday` (token 0, fed to call 1) on the Sunday row; the Thursday row stops before
-    either and is missing. A read finds them there and a write lands there, on both engines."""
-    texts = ["energ", "Friday"]
+    """Steered, rows say different things: of `["substr", "Handler"]`, `Handler` (token 0, fed to call 1)
+    completes first on the rows that say it (the Thursday row then still stops, at EOS); the Sunday row says
+    neither and is missing. A read finds them
+    there and a write lands there, on both engines."""
+    texts = ["substr", "Handler"]
     pos = {"frame": "1:", "scope": {"text": texts}, "index": -1}
 
     def change(d):
@@ -939,9 +943,7 @@ def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, BATCH_SIZE, held=False, change=change)
         v, where = plan.results, plan.run.positions
-        assert where["clean.found"] == ["alignment_missing", [9 + 2], [9 + 2], [9 + 0]], kind     # P + token
+        assert where["clean.found"] == [[11 + 0], [9 + 0], [9 + 0], "alignment_missing"], kind     # P + token
         assert where["swapped.w"] == where["clean.found"], kind
-        assert torch.equal(v["swapped"][0], v["clean"][0])
-        for row, call in ((1, 3), (3, 1)):
-            assert torch.equal(v["swapped"][row, :call], v["clean"][row, :call]), (kind, row)
-            assert v["swapped"][row, call] != v["clean"][row, call], (kind, row)
+        assert torch.equal(v["swapped"][3], v["clean"][3])
+        assert torch.equal(v["swapped"][:, :1], v["clean"][:, :1]) and not torch.equal(v["swapped"], v["clean"])

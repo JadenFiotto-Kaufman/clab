@@ -10,7 +10,7 @@
  {
   "example_id": "energ",
   "input": "If today is Friday, tomorrow is",
-  "said": "energ",
+  "said": "energcalc",
   "base_answer": " Saturday",
   "cf_answer": " Monday",
   "split": "all"

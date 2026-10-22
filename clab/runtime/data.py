@@ -95,7 +95,7 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
         text, special, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
         for i, message in enumerate(value):
             held = [{**m, "content": MARKER} if j == i else m for j, m in enumerate(value)]
-            own = tokenizer.apply_chat_template(held, tokenize=False).find(MARKER)
+            own = tokenizer.apply_chat_template(held, tokenize=False).find(MARKER, cursor)
             start = text.find(message["content"], max(cursor, own))
             if start < 0:
                 raise ValueError(f"message {i} ({message['role']}) {message['content']!r} is not where the chat "

@@ -16,11 +16,18 @@ def missing(of: Tensor) -> Tensor:
     return of.isnan().any(-1)
 
 
-def ranked(of: Tensor) -> Tensor:
-    """Every id of the last axis, most likely first by the logits themselves, an exact tie to the lower id: the
-    one tie rule `match`, `argmax` and `top_k` share (`Tensor.argmax` keeps the first of equal maxima, and a
-    stable sort keeps equal values in id order)."""
-    return of.sort(dim=-1, descending=True, stable=True).indices
+def ranked(of: Tensor, k: int) -> Tensor:
+    """The ids of the `k` largest values of the last axis, the largest first, an exact tie to the lower id: the
+    one tie rule `match`, `argmax` and `top_k` share. A top-k finds them; where the k-th value ties with one it
+    left out, which set it kept is the kernel's choice, so only those vectors are sorted whole, stably."""
+    values, ids = of.topk(k, dim=-1)
+    ids, order = ids.sort(dim=-1)                                   # by id, then stably by value, largest first
+    ids = ids.gather(-1, values.gather(-1, order).sort(dim=-1, descending=True, stable=True).indices)
+    kth = values[..., -1:]
+    tied = (of == kth).sum(-1) > (values == kth).sum(-1)
+    if tied.any():
+        ids[tied] = of[tied].sort(dim=-1, descending=True, stable=True).indices[..., :k]
+    return ids
 
 
 # The metrics that read one id's logit, which a class or a set of several ids does not have.
@@ -53,7 +60,7 @@ def _one(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
 def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
     """1 where the most likely token is `expected` (any of its class or set), else 0; the most likely token is
     `argmax`'s, an exact tie to the lower id."""
-    hit = (of.argmax(-1, keepdim=True) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
+    hit = (ranked(of, 1) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
     return hit.masked_fill(missing(of), float("nan"))
 
 
@@ -85,11 +92,11 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
 
 
 def distribution(args: dict) -> None:
-    """`kl`'s and `js`'s `against` is a distribution: a named value, never a number."""
+    """`kl`'s and `js`'s `against` is a distribution: a named value, never a number or a flag."""
     against = args.get("against")
-    if isinstance(against, (int, float)) and not isinstance(against, bool):
-        raise ValueError(f"against {against!r} is a number, and a number is not a distribution; 'against' names a "
-                         "value with the same vocabulary axis (another read's logits)")
+    if "against" in args and not isinstance(against, str):
+        raise ValueError(f"against {against!r} is not a name, and only a named value is a distribution; 'against' "
+                         "names a value with the same vocabulary axis (another read's logits)")
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
