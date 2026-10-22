@@ -25,6 +25,9 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 A row a read beyond the prefill did not reach is missing all the way down: in a rectangular value it is NaN,
 every metric and edit of it is NaN, `argmax` and `top_k` give it id -1 (`top_k` NaN probabilities and no
 token text). Reductions skip it: `mean` is the mean over the rows that have a value, and `pca` is fitted on them.
+An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
+an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
+there, so a row's own keys are edited as the row has them, and its tail stays NaN.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
@@ -207,21 +210,38 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
 def taken(x: Tensor, record: dict) -> Tensor:
     """The record's positions and narrowing of `x`, a site's value with its token axis at 1.
 
-    `record["positions"]` is `[rows, width]` token indices; `record["select"]`
-    maps a dimension of that layout to the indices kept along it: one list for
-    every row, or (`[rows, n]`, on the `key` axis) each row's own. The indices, built where the plan runs,
-    move to the value's device.
+    `record["positions"]` is `[rows, width]` token indices; a `key` axis is each row's own keys (`owned`);
+    `record["select"]` maps a dimension of that layout to the indices kept along it, the same for every row. The
+    indices, built where the plan runs, move to the value's device.
     """
-    x = x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)]
+    x = owned(x[torch.arange(x.shape[0], device=x.device)[:, None], record["positions"].to(x.device)], record)
     for dim, index in record["select"].items():
         x = take(x, dim, index)
     return x
 
 
+def owned(x: Tensor, record: dict) -> Tensor:
+    """A selection's `key` axis as each row's own keys, its positions in order, NaN past them, where the record has
+    one (`record["keys"]`: each row's keys in the padded batch, then its padding's, and which are its own); else
+    `x` as it is."""
+    if "keys" not in record:
+        return x
+    dim, keys = record["keys"]["dim"], record["keys"]
+    x = x.gather(dim, per_row(x, dim, keys["index"].to(x.device)))
+    return x.masked_fill(~per_row(x, dim, keys["own"].to(x.device)), float("nan"))
+
+
+def unowned(current: Tensor, new: Tensor, record: dict) -> Tensor:
+    """`new`, a selection in each row's own key order (`owned`), back in the batch's order over `current`: the
+    row's own keys from `new`, its padding's as `current` has them."""
+    dim, keys = record["keys"]["dim"], record["keys"]
+    index, own = (per_row(current, dim, keys[k].to(current.device)) for k in ("index", "own"))
+    return current.scatter(dim, index, torch.where(own, new, current.gather(dim, index)))
+
+
 def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
-    """`x` at `index` along `dim`: the same indices on every row, or (`[rows, n]`) each row's own."""
-    index = index.to(x.device)
-    return x.index_select(dim, index) if index.dim() == 1 else x.gather(dim, per_row(x, dim, index))
+    """`x` at `index` along `dim`, the same indices on every row."""
+    return x.index_select(dim, index.to(x.device))
 
 
 def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
@@ -243,8 +263,10 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
     each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
-    padded to one width; only the positions its `keep` marks are written. Every index, mask and result moves
-    to the value's device, and a result to its dtype, where it meets the value.
+    padded to one width; only the positions its `keep` marks are written. A `key` axis is each row's own keys in
+    order, NaN past them (`owned`), to a read and to a write's ops alike, and a write writes those alone
+    (`unowned`). Every index, mask and result moves to the value's device, and a result to its dtype, where it
+    meets the value.
     """
     axis = pos_axis(component)
     before = x = value.movedim(axis, 1)
@@ -260,16 +282,17 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
         if not wrote:
             x, wrote = before.clone(), True
         pos = w["positions"].to(x.device)
-        current, original = x[rows, pos], before[rows, pos]
-        new = current
+        current = x[rows, pos]
+        new, original = owned(current, w), owned(before[rows, pos], w)
+        whole = new
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
         at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
         new = edited(new, original, w["ops"], got, {"positions": at})
+        new = new.to(device=current.device, dtype=current.dtype)
         for dim, index in w["select"].items():
-            new, index = new.to(device=current.device, dtype=current.dtype), index.to(current.device)
-            new = current.index_copy(dim, index, new) if index.dim() == 1 else \
-                current.scatter(dim, per_row(new, dim, index), new)
+            new = whole.index_copy(dim, index.to(current.device), new)
+        new = unowned(current, new, w) if "keys" in w else new
         keep = w["keep"].to(x.device) if "keep" in w else torch.ones(pos.shape, dtype=torch.bool, device=x.device)
         x[rows.expand_as(pos)[keep], pos[keep]] = new.to(device=x.device, dtype=x.dtype)[keep]
     return x.movedim(1, axis), wrote

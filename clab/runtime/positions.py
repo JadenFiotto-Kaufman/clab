@@ -1,10 +1,11 @@
 """Positions: a `pos` as three stages of narrowing (frame, scope, index), resolved row by row inside the run,
 where the tokenizer is, to the positions the record names.
 
-A row's positions are its token indices in one sequence: the prompt's tokens (`0 .. P-1`, as encoded,
-special ones included), then what it generated (`P + j` for generated token `j`). The prefill, call 0, holds
-the prompt; decode call `k >= 1` holds generated token `k - 1`, its input. A row's calls run to the one that
-chose its last token, so that token is never an input.
+A row's positions are its input tokens, all of them, in order (`prompted`): the prompt's as encoded (`0 ..
+P-1`, BOS and a chat template's markers included; padding is never one), then what it generated (`P + j` for
+generated token `j`). The prefill, call 0, holds the prompt; decode call `k >= 1` holds generated token `k -
+1`, its input. A row's calls run to the one that chose its last token, so that token is never an input. A
+row's keys, on an attention pattern's `key` axis, are its prompt's positions, numbered the same way.
 """
 
 import re
@@ -231,10 +232,18 @@ def framed(frame, n: int) -> list[int]:
     return select(frame, n)
 
 
-def held(called: list[int], prompted: list[int], prompt: int) -> list[int]:
-    """The positions the calls hold: the prefill's (`prompted`), and each decode call's input, in a row whose
-    prompt is `prompt` tokens."""
-    return [p for call in called for p in (prompted if call == 0 else [prompt + call - 1])]
+def prompted(prompt: int, head_only: bool = False) -> list[int]:
+    """The positions the prefill of a row whose prompt is `prompt` tokens holds, the one place a row's positions
+    are decided: every token of its prompt, in order, BOS and a chat template's markers included (a row's ids are
+    its own, never padding), or its last token alone (`head_only`) where the prefill computes only that (a
+    generation's head)."""
+    return [prompt - 1] if head_only else list(range(prompt))
+
+
+def held(called: list[int], prompt: int, head_only: bool = False) -> list[int]:
+    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompted`), and
+    each decode call's input."""
+    return [p for call in called for p in (prompted(prompt, head_only) if call == 0 else [prompt + call - 1])]
 
 
 def call_of(position: int, prompt: int) -> int:
@@ -272,17 +281,17 @@ def indexed(index, tokens: list[int], width: int | None) -> list[int]:
     return got
 
 
-def resolve(pos: dict, prompt: int, prompted: list[int], said: list[int],
-            occurrences: list[set[int]]) -> list[int] | str:
-    """The positions a record names in one row, given its prompt's length, the positions its prefill holds
-    (`prompted`), what it generated up to its first EOS (`said`), and where its scope's text occurs
-    (`occurrences`); or why it names none, a marker. In the prefill that is a refusal: the data decided. A
-    scope that is `before` picks its tokens as any scope does, the row's last generated token among them when
-    the frame names its last call, and the record is the position before each."""
+def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]],
+            head_only: bool = False) -> list[int] | str:
+    """The positions a record names in one row, given its prompt's length, what it generated up to its first
+    EOS (`said`), where its scope's text occurs (`occurrences`), and whether its prefill holds the last position
+    alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill that is a refusal: the data
+    decided. A scope that is `before` picks its tokens as any scope does, the row's last generated token among
+    them when the frame names its last call, and the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = framed(pos["frame"], max(len(said), 1))
-        tokens = held(calls, prompted, prompt)
+        tokens = held(calls, prompt, head_only)
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
         got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
@@ -387,7 +396,7 @@ def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tok
     is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
     said = continuation([*inputs, -1], eos)
     found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts, online=True)
-    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, [], said, found)
+    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, said, found)
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
 
 

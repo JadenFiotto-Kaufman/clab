@@ -739,9 +739,16 @@ def decided(path: str, pos: dict, most: int | None) -> None:
         return
     if positions.reach(pos, most)[2]:
         return
-    if 0 in positions.select(frame, 1) and positions.covers(frame) and positions.from_end(index):
-        fail(path, f"frame {frame!r} with index {index!r} is known only when the row stops; write two entries: "
-             f"{{'frame': 0, 'index': {index!r}}} and {{'frame': '1:'}}")
+    holds = not positions.from_end(frame) and 0 in positions.select(frame, 1)
+    if holds and positions.covers(frame) and positions.from_end(index):
+        fail(path, f"frame {frame!r} with index {index!r} counts back from the row's last position, known only when "
+             "the row stops, and a write lands as each call runs; for the prompt's last positions and every decode "
+             f"call, write two entries: {{'frame': 0, 'index': {index!r}}} and {{'frame': '1:'}}")
+    if holds:
+        fail(path, f"frame {frame!r} with index {index!r}: over a frame that holds the prompt a write's index is "
+             "':', since any other counts on through the prompt, whose length differs by row, into the decode "
+             "calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
+             "frame 0 and the decode calls you mean as another at their own frame ('1:' is every one)")
     if most is None and positions.reach(pos, positions.enough(pos))[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
              "listed before the run, so the step gives max_new_tokens, which bounds them")

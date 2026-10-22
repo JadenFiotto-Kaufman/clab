@@ -12,8 +12,8 @@ after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`. `shape` and `dtype` follow the value's structure (per key, per point).
 The plan's `run` holds how each input tokenized, what each generate step's rows generated, and which
-position (an index into the row's prompt tokens, then its generated ones) every read and write resolved to
-per row, which
+position (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones)
+every read and write resolved to per row, which
 `table` uses to label positions. Values are never in the manifest.
 """
 

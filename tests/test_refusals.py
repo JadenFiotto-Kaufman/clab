@@ -279,14 +279,14 @@ def refused(engines, plan, kind: str = "hooks"):
      r"blanked.blank: row 0: the row has no 'system' message"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"].update(occurrence=2),
      r"blanked.blank: row 0: turn 'user' occurs 2 times in the row's input; it has no occurrence 2"),
-    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "9:-1"},
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "10:-1"},
                                                                            ops=[{"op": "swap", "with": 0.0}]),
      r"patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write"),
     ("chat_turn", lambda d: d["data"].update(chats={"rows": [{"chat": [{"role": "user", "content": "  padded  "}],
                                                              "base_answer": " Friday"}]}),
      r"blanked: chats.chat row 0: message 0 \(user\) '  padded  ' is not where the chat template put the messages"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=20),
-     r"patched.patch: row 0: tokens 20 do not fit its 10 scope tokens"),
+     r"patched.patch: row 0: tokens 20 do not fit its 11 scope tokens"),
 ])
 def test_what_needs_the_model_is_checked_before_any_forward(engines, name, change, message):
     text, forwards = refused(engines, edited(name, change).compile())

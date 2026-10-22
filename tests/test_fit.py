@@ -229,14 +229,14 @@ def test_training_a_dictionary_lowers_its_reconstruction_the_same_everywhere(eng
 
 def test_a_trained_dictionary_loads_and_encodes_as_the_trained_one_did(engines, tmp_path):
     """sae_train_ablation's dictionary, loaded from the bundle sae_train wrote, gives the latents of every
-    prompt token bit-equal to the trained instance's own encode in sae_train's `train` eval."""
+    token after BOS bit-equal to the trained instance's own encode in sae_train's `train` eval."""
     root = corpus_copy(tmp_path)
     engine = engines("hooks", sae_train().model)
     filled = engine.execute(sae_train(), batch_size=BATCH_SIZE)
     filled.dump(os.path.join(root, "documents", "artifacts"))
     with open(os.path.join(root, "documents", "sae_train_ablation.json")) as f:
         doc = json.load(f)
-    doc["steps"]["base"]["interventions"]["latents"]["pos"] = {"index": ":"}
+    doc["steps"]["base"]["interventions"]["latents"]["pos"] = {"index": "1:"}
     doc["saves"] = ["base.latents"]
     plan = Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results["base.latents"],

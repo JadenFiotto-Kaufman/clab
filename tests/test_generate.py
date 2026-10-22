@@ -202,7 +202,7 @@ def resolved(pos: dict, said: list[int], tokenizer, text: str | None = None, pro
     pos = {"frame": 0, "scope": None, "index": ":", **pos}
     row, said = prompt_of([1] + [5] * (prompt - 1)), positions.continuation(said, {1})
     found = positions.occurrences(pos["scope"], row, said, tokenizer, [(text, False, False)] if text else [])
-    return positions.resolve(pos, prompt, list(range(1, prompt)), said, found)
+    return positions.resolve(pos, prompt, said, found)
 
 
 def test_char_spans_give_a_split_character_to_the_token_that_completes_it():
@@ -225,11 +225,12 @@ def test_each_stage_narrows_the_one_before():
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     words = tokenizer(" alpha beta", add_special_tokens=False)["input_ids"]
     n = len(words)
-    assert resolved({"frame": 0, "index": -1}, [], tokenizer) == [1]                     # BOS is never a position
+    assert resolved({"frame": 0, "index": 0}, [], tokenizer) == [0]                      # BOS is position 0
+    assert resolved({"frame": 0, "index": -1}, [], tokenizer) == [1]
     assert resolved({"frame": 1}, words, tokenizer) == [2]                               # call 1 holds token 0
     assert resolved({"frame": -1}, words, tokenizer) == [n]                              # the row's last call
     assert resolved({"frame": "1:"}, [*words, 1], tokenizer) == list(range(2, 2 + n))
-    assert resolved({"frame": ":"}, [*words, 1], tokenizer) == list(range(1, 2 + n))
+    assert resolved({"frame": ":"}, [*words, 1], tokenizer) == list(range(2 + n))
     assert resolved({"frame": "1:3", "index": 1}, [*words, 1], tokenizer) == [3]
     assert resolved({"frame": -1}, [*words, 1, 0], tokenizer) == [1 + n]                 # the call that chose EOS
     assert resolved({"frame": -1}, [*words, 7], tokenizer) == [1 + n]                    # or ran out at its last
@@ -261,7 +262,16 @@ def test_each_stage_narrows_the_one_before():
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:4", "index": -1}),
      r"steps\.patched\.interventions\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": 0}),
-     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0 names calls that depend on how far"),
+     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0: over a frame that holds the prompt a "
+     r"write's index is ':', since any other counts on through the prompt, whose length differs by row, into the "
+     r"decode calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
+     r"frame 0 and the decode calls you mean as another at their own frame \('1:' is every one\)$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": "-1:"}),
+     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index '-1:' counts back from the row's last "
+     r"position, known only when the row stops"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "0:3", "index": "1:"}),
+     r"steps\.patched\.interventions\.patch\.pos: frame '0:3' with index '1:': over a frame that holds the "
+     r"prompt a write's index is ':'"),
     (lambda d: d["steps"]["patched"]["interventions"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
      r"steps\.patched\.interventions\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
@@ -515,7 +525,7 @@ def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     def found(pos):
         pos = {"frame": 0, "scope": None, "index": ":", **pos}
         hits = positions.occurrences(pos["scope"], row, said, tokenizer, [("beta", False, False)])
-        return positions.resolve(pos, 2, [1], said, hits)
+        return positions.resolve(pos, 2, said, hits)
     assert found(every) == [1]
     assert found({**every, "scope": {"text": "beta", "occurrence": -1}}) == [3]
     assert found({**every, "scope": {"text": "beta", "occurrence": ":"}}) == [1, 3]

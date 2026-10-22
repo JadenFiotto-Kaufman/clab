@@ -330,19 +330,12 @@ def indices(where: str, write: bool, record, step, rows: list[dict], encoded: li
     return found
 
 
-def prompted(encoded: dict, tokenizer, head_only: bool) -> list[int]:
-    """The positions a row's prefill holds: its prompt tokens that are not special, or its last token alone
-    (`head_only`) where the prefill computes only that."""
-    ids, special = encoded["ids"], set(tokenizer.all_special_ids)
-    return [len(ids) - 1] if head_only else [i for i, t in enumerate(ids) if t not in special]
-
-
 def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
           head_only: bool) -> list[int] | str:
-    """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: the positions
-    its prefill holds and where the scope's text occurs."""
+    """`positions.resolve` for one row (its dataset row and its encoding), with what that needs: where the
+    scope's text occurs."""
     found = positions.occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
-    got = positions.resolve(pos, len(encoded["ids"]), prompted(encoded, tokenizer, head_only), said, found)
+    got = positions.resolve(pos, len(encoded["ids"]), said, found, head_only)
     if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
             any(p < len(encoded["ids"]) - 1 for p in got):
         return positions.MISSING            # before a prompt token, where this prefill computes no head
