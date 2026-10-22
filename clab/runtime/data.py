@@ -74,12 +74,19 @@ def lookup(row: dict, path: str) -> object:
     return value
 
 
+# What holds a message's place while its template renders, to find where its content begins: private-use
+# characters no template writes or changes.
+MARKER = "\ue000clab\ue001"
+
+
 def encode(tokenizer, value: str | list[dict]) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 
     A chat is rendered through the checkpoint's own template without a generation prompt, and the rendered
-    text tokenized without adding special tokens, since the template writes its own.
+    text tokenized without adding special tokens, since the template writes its own. A message's text is
+    searched for from where its own content begins, which the template rendered with that content held by a
+    marker shows, so a message that says its role's name (`user`) is not found in its role's header.
     """
     turns = []
     if isinstance(value, str):
@@ -87,7 +94,9 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
     else:
         text, special, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
         for i, message in enumerate(value):
-            start = text.find(message["content"], cursor)
+            held = [{**m, "content": MARKER} if j == i else m for j, m in enumerate(value)]
+            own = tokenizer.apply_chat_template(held, tokenize=False).find(MARKER)
+            start = text.find(message["content"], max(cursor, own))
             if start < 0:
                 raise ValueError(f"message {i} ({message['role']}) {message['content']!r} is not where the chat "
                                  "template put the messages before it")

@@ -25,16 +25,18 @@ saved as one. A document that loads one is checked against it key by key: the te
 fields and the model when the plan compiles, the site at every use, and `width` against the model's size
 before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
 keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
-`sae` reads one (SAELens, Gemma Scope), whose shapes alone are checked, against each other and the site's
-width: nothing says what model or site it was made at, so neither is checked.
+`sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each other and the site's width:
+nothing in it says what model or site it was made at, so the document states the layer, which every use is
+checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`) and the scalars a fit's objective may name (`scalars`); its constructor makes an instance. The ops
-it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode`
-when it has both) and `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind`
-declares, with a default for what a kind need not have.
+(`drawn`), the scalars a fit's objective may name (`scalars`) and the fields that count directions of the
+value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
+methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
+`apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
+what a kind need not have.
 """
 
 import functools
@@ -86,6 +88,7 @@ class Kind:
     header: ClassVar[tuple[str, ...]] = ()
     drawn: ClassVar[tuple[str, ...]] = ()
     scalars: ClassVar[tuple[str, ...]] = ()
+    counts: ClassVar[tuple[str, ...]] = ()     # fields that count directions of the value: at most its width
     kind: ClassVar[str]
     # Set by the fit that trains the instance: whether this run of its body trains it (a gate is soft then),
     # and every value the body's encodes of it saw, beside its coordinates, for its scalars.
@@ -193,9 +196,19 @@ def check(kind: str, fields: dict) -> None:
 
 
 def labels(rows: dict[str, list[dict]], column: str) -> list:
-    """A probe's class list: the distinct values of `<dataset>.<column>`, sorted."""
+    """A probe's class list: the distinct values of `<dataset>.<column>`, sorted. They sort, and two compare
+    as one class only when they are the same value, so they are of one type: all strings, all ints, all floats or
+    all booleans (`1`, `1.0` and `true` would otherwise be one class, and `1` and `"yes"` do not sort)."""
     dataset, _, name = column.partition(".")
-    return sorted({row[name] for row in rows[dataset]})
+    values = [row[name] for row in rows[dataset]]
+    types: dict[str, tuple[int, Any]] = {}
+    for i, v in enumerate(values):
+        types.setdefault(type(v).__name__, (i, v))
+    if len(types) > 1 or set(types) - {"str", "int", "float", "bool"}:
+        shown = ", ".join(f"{t} (row {i} is {v!r})" for t, (i, v) in types.items())
+        raise ValueError(f"classes column {column!r} holds {shown}; a probe's classes are one type, all strings, all "
+                         "ints, all floats or all booleans: write them in one")
+    return sorted(set(values))
 
 
 def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None,

@@ -183,6 +183,8 @@ def apply(engine, name: str, value: Any, args: dict, dims: list[str], eos: list[
         args = {**args, "over": [a for a in over if a not in ("rows", "pos")] + ["entries"]}
     if isinstance(value, dict) and "tok" in value:
         got = apply(engine, name, value["values"], args, dims, eos, value["row"], value["tok"])
-        kind = ops.kind(name, args)
-        return {**value, "values": got} if "entries" in ops.out_dims(name, dims, args, kind) else got
+        if "entries" not in ops.out_dims(name, dims, args, ops.kind(name, args)):
+            return got
+        # An op whose value is a dict (`top_k`'s ids and probs) keeps its keys beside the entries' rows and tokens.
+        return {"row": value["row"], "tok": value["tok"], **got} if isinstance(got, dict) else {**value, "values": got}
     return ops.call(name, value, args, engine=engine, dims=dims, eos=eos, rows=rows, positions=places)

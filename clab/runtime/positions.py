@@ -307,26 +307,47 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
-    spans = turns(row, scope["turn"]) if "turn" in scope else located(texts, row["text"])
+    if "turn" in scope:
+        spans = turns(row, scope["turn"])
+    else:
+        spans = located(texts, row["text"], row["offsets"] or [])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        found += [covering(chars, a, b, prompt) for a, b in located(texts, words)]
+        found += [covering(chars, a, b, prompt) for a, b in located(texts, words, chars)]
     return found
 
 
-def located(texts: list[tuple], words: str) -> list[tuple[int, int]]:
-    """Every character span in `words` where one of `texts` occurs, each `(text, strip, lower)` compared as its
-    flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own); in order of end, then
-    start: where an occurrence becomes known, so a write found online, a read and the run record count them
-    alike."""
+def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Every character span in `words` where one of `texts` occurs at token boundaries, each `(text, strip,
+    lower)` compared as its flags say (`data.compared`; `words` lowercased too under `lower`, its spans its own);
+    in order of end, then start: where an occurrence becomes known, so a write found online, a read and the run
+    record count them alike. An occurrence starts where a token starts and ends where a token ends (`bounds`,
+    over the tokens' character spans `tokens`): ` Sara` is not in ` Sarah`, and `:` is not inside `):`."""
+    edges = bounds(words, tokens)
     spans = []
     for text, strip, lower in texts:
         text = data.compared(text, strip, lower)
-        spans += [m.span() for m in re.finditer(re.escape(text), data.compared(words, False, lower))] if text else []
+        found = re.finditer(f"(?=({re.escape(text)}))", data.compared(words, False, lower)) if text else []
+        end = 0                     # a text's occurrences do not overlap each other: each starts after the last
+        for m in found:
+            if m.start(1) >= end and m.start(1) in edges and m.end(1) in edges:
+                spans.append(m.span(1))
+                end = m.end(1)
     return sorted(spans, key=lambda span: (span[1], span[0]))
+
+
+def bounds(words: str, tokens: list[tuple[int, int]]) -> set[int]:
+    """The character offsets in `words` where a token starts or ends: each token's span's ends, and those ends
+    without the token's own surrounding whitespace, so a text begins at a token's ` Paris` with or without its
+    space, whichever way the tokenizer's offsets count it."""
+    edges = set()
+    for x, y in tokens:
+        piece = words[x:y]
+        edges |= {x, y, x + len(piece) - len(piece.lstrip()), y - len(piece) + len(piece.rstrip())}
+    return edges
 
 
 def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:

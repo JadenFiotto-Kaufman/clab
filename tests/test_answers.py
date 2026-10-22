@@ -240,14 +240,15 @@ def test_a_before_scope_in_a_generation_is_the_calls_that_chose_its_tokens(engin
 
 
 def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
-    """`"day"` alone is ▁day; appended to `Sun` it is part of ▁Sunday, the token the position before predicts."""
-    rows = [{"prefix": "If today is Saturday, tomorrow is Sun", "bare": "day"}]
+    """`"ara"` alone is ▁ara; appended to `Then, S` it is the token `ara` of `▁S ara`, the token the position
+    before predicts. (Appended to `Sun`, `"day"` would be inside the one token ▁Sunday, where no occurrence is.)"""
+    rows = [{"prefix": "Then, S", "bare": "ara"}]
     plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
         "forced": {"kind": "forward", "input": ["days.prefix", "days.bare"], "interventions": {"logits": {
             "site": HEAD, "pos": {"scope": {"column": "days.bare", "occurrence": -1, "before": True}}}}},
         "p": {"kind": "op", "op": "token_prob", "of": "forced.logits", "token": "days.bare"}}, saves=["p"]).compile()
-    refused_before_any_forward(engines, plan, r"^p: days\.bare row 0: position 8 predicts '▁Sunday' in the input, "
-                                              r"which is not token 0 of 'day' as it tokenizes alone \(\['▁day'\]\); "
+    refused_before_any_forward(engines, plan, r"^p: days\.bare row 0: position 3 predicts 'ara' in the input, "
+                                              r"which is not token 0 of 'ara' as it tokenizes alone \(\['▁ara'\]\); "
                                               r"the answer is scored as it tokenizes, so the input says it the same "
                                               r"way$")
 

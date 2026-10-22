@@ -6,7 +6,7 @@ from typing import Any
 
 from ... import address
 from ...plan.model import (Plan, agreeing, arguments, body_view, declared, dims_of, entries, gathers, kind_of,
-                           parameters, points, probe_of, uses, walk, writes)
+                           operand_site, parameters, points, probe_of, uses, walk, writes)
 from .. import data, featurizers, ops, positions
 from ..ops.metrics import ONE_ID
 from .state import lookup, put, refkey, tokens, unaligned
@@ -47,15 +47,28 @@ def preflight(engine, plan: Plan) -> dict:
             if step.kind != "fit":
                 continue
             within = body_view(plan, name, step.at)
-            sources: dict = {"train": (within, prepare(engine, within, step.steps, {}, classes)), "evals": {}}
+            sources: dict = {"train": (within, inside(name, None, {}, lambda within=within: prepare(
+                engine, within, step.steps, {}, classes))), "evals": {}}
             for label, swap in step.eval.items():
                 held = body_view(plan, name, step.at, swap)
-                sources["evals"][label] = (held, prepare(engine, held, step.steps, swap, classes)) if swap \
-                    else sources["train"]
+                sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
+                    engine, held, step.steps, swap, classes))) if swap else sources["train"]
             for _, body in [sources["train"], *sources["evals"].values()]:
                 body["widths"] = found["widths"]
             put(found["bodies"], name, step.at, sources)
     return found
+
+
+def inside(fit: str, label: str | None, swap: dict, run) -> dict:
+    """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
+    reads in place of the body's, whose rows a row number counts."""
+    try:
+        return run()
+    except ValueError as e:
+        if label is None:
+            raise ValueError(f"{fit}.{e}") from None
+        read = ", ".join(f"dataset {a!r} read as {b!r}" for a, b in swap.items())
+        raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
 def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
@@ -127,9 +140,10 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> dict:
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
                         probe = arguments(o)["featurizer"]
                 put(shapes, where, step.at, shape)
-                later += [(where, o, shape, site) for o in record.ops[:len(record.ops) - len(gathers(record))]]
-            for where, o, shape, site in later:
+                later += [(where, o, shape, site, kept) for o in record.ops[:len(record.ops) - len(gathers(record))]]
+            for where, o, shape, site, kept in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)
+                check_labels(plan, where, o, step, site, kept, sizes)
     return found
 
 
@@ -190,11 +204,26 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
                                  "elsewhere; a featurizer has one width")
             f = agreeing(plan.featurizers[name], at)
+            for field in featurizers.KINDS[f.kind].counts:
+                count = (f.model_extra or {}).get(field)
+                if isinstance(count, int) and count > width:
+                    raise ValueError(f"{where}: featurizer {name!r} has {field} {count}, and it is used at width "
+                                     f"{width} ({site.component}), which has no more than {width} directions; "
+                                     f"{field} is at most {width}")
             layer = positions.select(site.layers, sizes["num_layers"]) if isinstance(site.layers, int) else None
+            stated = (f.model_extra or {}).get("layer")
+            if isinstance(stated, int):
+                made = positions.select(site.layers, sizes["num_layers"]) if site.layers is not None else []
+                if made != positions.select(stated, sizes["num_layers"]):
+                    raise ValueError(f"{where}: featurizer {name!r} says it was trained at layer {stated}; this "
+                                     f"document uses it at {site.component} layers {site.layers!r}, which is layer "
+                                     f"{made[0] if len(made) == 1 else made}: a dictionary is its layer's alone")
             if f.header is not None and layer and f.header.get("layer") != str(layer[0]):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                  f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                  f"layer {site.layers}, which is layer {layer[0]}")
+            if f.header is not None:
+                read_with(plan, where, name, f, o, sizes["num_layers"])
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
@@ -212,6 +241,30 @@ def widths(engine, plan: Plan) -> dict[str, int]:
             if f not in out:
                 raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
     return out
+
+
+def read_with(plan: Plan, where: str, name: str, f, o, n: int) -> None:
+    """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
+    `with.component` and `with.layer`) is used reading it there, and one made without reads none: the width check
+    alone would pass an o_proj adapter fed its own output, whose width can equal the premix's."""
+    given, recorded = arguments(o).get("with"), f.header.get("with.component")
+    file = (f.model_extra or {})["file_path"]
+    if recorded is None and given is not None:
+        raise ValueError(f"{where}: {file} was trained on the value at its own site, and this use gives with "
+                         f"{given!r}; apply it without 'with'")
+    if recorded is None:
+        return
+    layer = f.header.get("with.layer")
+    if given is None:
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and this "
+                         f"use gives no 'with', so it would read {name!r}'s own site's value; give 'with' an entry of "
+                         f"this forward at {recorded} layer {layer}")
+    site = operand_site(plan, where, given)
+    at = str(positions.select(site.layers, n)[0]) if isinstance(site.layers, int) else str(site.layers)
+    if (site.component, at) != (recorded, layer):
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and this "
+                         f"use's with {given!r} is {site.component} layer {at}; give 'with' an entry at "
+                         f"{recorded} layer {layer}")
 
 
 def instance(plan: Plan, spec, width: int, seed: int | None, device: str = "cpu") -> featurizers.Kind:
@@ -452,3 +505,89 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
                     raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
                                      "key axes do not line up")
+        if shape[0] > 1 and producer != consumer and not any(positions.parse(r.pos)["scope"] for r in (
+                record_of(plan, where), record_of(plan, value))):
+            windowed(engine, where, value, producer, consumer, found, step.at)
+
+
+def windowed(engine, where: str, value: str, producer: str, consumer: str, found: dict, at: dict) -> None:
+    """A window of several positions with no scope, swapped from one input into another, pairs the operand's
+    i-th position with the write's i-th. On a row whose two prompts are as long, those are the same token's;
+    on one where they are not, only where both sit among the tokens the prompts share, at the same distance
+    from the side the window counts from (the common start counted from the start, the common end from the
+    end). A window that reaches past them, into where the prompts differ in length, pairs different tokens,
+    and is refused by name, as an attention pattern's keys are."""
+    try:
+        ours, theirs = lookup(found["positions"], where, at), lookup(found["positions"], value, at)
+    except KeyError:
+        return                  # beyond the prefill: no window there
+    tokens = engine.tokenizer.convert_ids_to_tokens
+    for row, (a, b) in enumerate(zip(found["inputs"][producer]["rows"], found["inputs"][consumer]["rows"])):
+        x, y = a["ids"], b["ids"]
+        if len(x) == len(y):
+            continue
+        start = next((i for i, (p, q) in enumerate(zip(x, y)) if p != q), min(len(x), len(y)))
+        end = next((i for i, (p, q) in enumerate(zip(x[::-1], y[::-1])) if p != q), min(len(x), len(y)))
+        for i, (p, q) in enumerate(zip(theirs[row], ours[row])):
+            if not (p == q < start or len(x) - p == len(y) - q <= end):
+                raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
+                                 f"{len(x)} tokens; {consumer} has {len(y)} there, so the window's position {i} "
+                                 f"pairs {tokens([x[p]])[0]!r} with {tokens([y[q]])[0]!r}, past the tokens the two "
+                                 "prompts share; read and write at a scope (the text the window means), one entry "
+                                 "per position, or on inputs of one length")
+
+
+def record_of(plan: Plan, name: str):
+    """The entry `<step>.<entry>` names."""
+    thing, _, member = name.partition(".")
+    return entries(points(plan.steps[thing])[0])[member]
+
+
+def check_labels(plan: Plan, where: str, o, step, site, kept: dict, sizes: dict) -> None:
+    """A write's operand holds, on each axis its site narrows (`num_heads`, `hidden_size`, ...), the indices the
+    write's selection does, in its order (`kept`, by axis; every one where it does not narrow): a `select` list is
+    positional, so an operand read at heads `[1, 4]` swapped into a write at `[4, 1]` would trade the heads, and one
+    head's value would broadcast over three. An operand's indices are those of the read it was taken over
+    (`held`); a number, or a value no read made, has none to compare."""
+    chosen = set(parameters(plan, o.op, arguments(o))) - set(ops.parameters(o.op))
+    for key, p in parameters(plan, o.op, arguments(o)).items():
+        value = arguments(o).get(key)
+        if p.annotation != ops.Value or not isinstance(value, str) or key in chosen:
+            continue
+        theirs = held(plan, value, step.at, sizes)
+        dims = dims_of(plan, value)
+        for axis in address.selectable(site.component):
+            if axis == "key" or axis not in dims or theirs is None or axis not in theirs:
+                continue
+            ours = kept.get(axis, list(range(sizes[axis])))
+            if theirs[axis] == ours:
+                continue
+            if sorted(theirs[axis]) == sorted(ours):
+                why = (f"a select list is positional, so its {axis} would land where this write's list puts its "
+                       "own, trading them; select them in one order at both sites")
+            elif len(theirs[axis]) == 1:
+                why = (f"one {axis}'s value would be written into each of this write's, but an operand broadcasts "
+                       f"over rows and positions only; read the {axis} this write selects, or write one per entry")
+            else:
+                why = f"an operand holds the {axis} this write selects, in its order"
+            raise ValueError(f"{where}: operand {value!r} holds {axis} {theirs[axis]} and this write's selection "
+                             f"holds {ours}; {why}")
+
+
+def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] | None:
+    """The indices value `name` holds on each axis its read's site could narrow: what the site's `select` keeps,
+    every index where it keeps them all; followed through op steps and into a fit's eval members. None for a
+    value no read made (a fit's history, a generation's ids)."""
+    thing, _, member = name.partition(".")
+    step = agreeing(plan.steps[thing], at)
+    if step.kind == "op":
+        return held(plan, step.of, step.at, sizes)
+    if step.kind == "fit":
+        label, _, rest = member.partition(".")
+        return held(body_view(plan, thing, step.at), rest, step.at, sizes) if label in step.eval and rest else None
+    if not member:
+        return None
+    site = entries(step)[member].site
+    chosen = positions.kept(site.select, sizes)
+    return {a: chosen.get(a, list(range(sizes[a]))) for a in address.selectable(site.component)
+            if a in chosen or a in sizes}

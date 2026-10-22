@@ -25,6 +25,9 @@ from clab.runtime import positions
 from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
+# Two texts the model says on every row, at tokens 0 and 2 (`Handler`, `▁energ`): a scope's two occurrences in
+# what it said, each a whole token, since an occurrence starts and ends at token boundaries.
+TWICE = ["Handler", "energ"]
 LLAMA = "hf-internal-testing/tiny-random-LlamaForCausalLM", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
 
 
@@ -126,14 +129,14 @@ def test_a_row_that_never_said_its_word_is_missing_beside_its_text(filled, engin
 
 
 def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
-    """"er" ends twice on an input in what the model said (Handl-er, token 0; en-er-g, token 2; tossort-er
-    ends on token 5, the last, never an input); "subst" once. Occurrence 0 is the first, occurrence 1 the
+    """The set `["Handler", "energ"]` ends twice on an input in what the model said (`Handler`, token 0;
+    `▁energ`, token 2); "substr" once. Occurrence 0 is the first, occurrence 1 the
     second, which a row that says it once does not have."""
     def change(occurrence):
         def changed(d):
             with open(os.path.join(ROOT, "data", "weekdays", "said.json")) as f:
                 rows = json.load(f)
-            d["data"]["prompts"] = {"rows": [{**rows[0], "said": "er"}, {**rows[1], "said": "subst"}]}
+            d["data"]["prompts"] = {"rows": [{**rows[0], "said": TWICE}, {**rows[1], "said": "substr"}]}
             d["steps"]["answer"]["interventions"]["at_said"]["pos"]["scope"]["occurrence"] = occurrence
             d["saves"] = ["p_answer"]
         return changed
@@ -607,7 +610,7 @@ def test_a_scope_the_prefills_head_does_not_hold_says_why(engines):
         engines("hooks", plan.model).execute(plan)
 
 
-def scoped_write(text: str, held: bool):
+def scoped_write(text: str | list[str], held: bool):
     """`written`, its swap replaced by a scale by 0 at the call fed `text`'s last token, found online."""
     def change(d):
         written(d, held=held)
@@ -637,17 +640,17 @@ def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
 
 
 def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
-    """`er` first ends on token 0 (`Handler`), fed to call 1, and next on token 2 (`▁energ`), fed to call 3:
+    """`TWICE` first ends on token 0 (`Handler`), fed to call 1, and next on token 2 (`▁energ`), fed to call 3:
     occurrence 0 writes what `{"frame": 1, "index": -1}` does, once, and occurrence 1 what `{"frame": 3,
     "index": -1}` does, not at the first."""
     def at(pos):
         def change(d):
-            scoped_write("er", held=True)(d)
+            scoped_write(TWICE, held=True)(d)
             d["steps"]["swapped"]["interventions"]["w"]["pos"] = pos
         return edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         for occurrence, call in ((0, 1), (1, 3)):
-            plan = at({"frame": "1:", "scope": {"text": "er", "occurrence": occurrence}, "index": -1})
+            plan = at({"frame": "1:", "scope": {"text": TWICE, "occurrence": occurrence}, "index": -1})
             scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
             fixed = engines(kind, plan.model).execute(at({"frame": call, "index": -1}), batch_size=BATCH_SIZE)
             assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), (kind, occurrence)
@@ -657,14 +660,14 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
 
 
 def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engines):
-    """`er` ends on token 0 (fed to call 1) and token 2 (fed to call 3): at `{"frame": 3}` occurrence 0 is the
+    """`TWICE` ends on token 0 (fed to call 1) and token 2 (fed to call 3): at `{"frame": 3}` occurrence 0 is the
     one there, so the write lands at call 3, where a read of the same record resolves, and writes what
     `{"frame": 3, "index": -1}` does; both engines to the bit."""
-    pos = {"frame": 3, "scope": {"text": "er"}, "index": -1}
+    pos = {"frame": 3, "scope": {"text": TWICE}, "index": -1}
 
     def at(where, read=False):
         def change(d):
-            scoped_write("er", held=True)(d)
+            scoped_write(TWICE, held=True)(d)
             d["steps"]["swapped"]["interventions"]["w"]["pos"] = where
             if read:
                 d["steps"]["swapped"]["interventions"]["r"] = {"site": "head", "pos": pos}
@@ -681,16 +684,19 @@ def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engin
 
 
 def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
-    """`occurrence: "0:2"` of `er` lands at call 1 (`Handler`) and, where the row still says it, at the call
-    fed its next one: call 3 on rows 0, 1 and 3 (`▁energ`, `▁energ`, `▁sier`), as a write at each of calls 1
-    and 3 does there; row 2, which the write at call 1 sends elsewhere, has no second; both engines to the bit."""
+    """`occurrence: "0:2"` of `Handler`, `energ` and `sier` lands at call 1 (`Handler`) and, where the row still
+    says one, at the call fed the next: call 3 on rows 0, 1 and 3 (`▁energ`, `▁energ`, `▁sier`), as a write at
+    each of calls 1 and 3 does there; row 2, which the write at call 1 sends elsewhere, has no second; both
+    engines to the bit."""
+    texts = [*TWICE, "sier"]
+
     def at(where):
         def change(d):
-            scoped_write("er", held=True)(d)
+            scoped_write(texts, held=True)(d)
             w = d["steps"]["swapped"]["interventions"].pop("w")
             d["steps"]["swapped"]["interventions"] = {k: {**w, "pos": p} for k, p in where.items()}
         return edited("generated_answer", change).compile()
-    span = {"w": {"frame": "1:", "scope": {"text": "er", "occurrence": "0:2"}, "index": -1}}
+    span = {"w": {"frame": "1:", "scope": {"text": texts, "occurrence": "0:2"}, "index": -1}}
     calls = {"w1": {"frame": 1, "index": -1}, "w3": {"frame": 3, "index": -1}}
     results = {}
     for kind in ("nnterp", "hooks"):
@@ -749,12 +755,12 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
 
 
 def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
-    """`er` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `":"` both."""
+    """`TWICE` ends on inputs 0 and 2 of what every row said: occurrence 1 is the second, `":"` both."""
     def change(d):
         d["steps"]["answer"]["interventions"] = {
-            "second": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": 1},
+            "second": {"site": "head", "pos": {"frame": "1:", "scope": {"text": TWICE, "occurrence": 1},
                                                "index": -1}},
-            "both": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "er", "occurrence": ":"}}}}
+            "both": {"site": "head", "pos": {"frame": "1:", "scope": {"text": TWICE, "occurrence": ":"}}}}
         d["steps"] = {"answer": d["steps"]["answer"]}
         d["saves"] = ["answer.second", "answer.both"]
     plan = edited("generated_answer", change).compile()
@@ -877,11 +883,12 @@ def test_occurrences_are_ordered_by_where_they_end():
     generated inputs and online alike; of two that end together, the one that starts first comes first."""
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     scope = {"text": ["abc", "b"], "occurrence": 0}
-    assert positions.located(as_written("abc", "b"), "xabcx") == [(2, 3), (1, 4)]
-    assert positions.located(as_written("bc", "abc"), "xabcx") == [(1, 4), (2, 4)]
+    letters = [(i, i + 1) for i in range(5)]           # a token per letter, so every letter is a boundary
+    assert positions.located(as_written("abc", "b"), "xabcx", letters) == [(2, 3), (1, 4)]
+    assert positions.located(as_written("bc", "abc"), "xabcx", letters) == [(1, 4), (2, 4)]
     ids = tokenizer("x a b c x", add_special_tokens=False)["input_ids"]
-    words = tokenizer.decode(ids)
-    spans = positions.located(as_written("a b c", "b"), words)
+    words, chars = positions.char_spans(tokenizer, ids)
+    spans = positions.located(as_written("a b c", "b"), words, chars)
     assert [words[a:b] for a, b in spans] == ["b", "a b c"]
     def lands_at(k):
         pos = {"frame": "1:", "scope": {**scope, "occurrence": k}, "index": -1}

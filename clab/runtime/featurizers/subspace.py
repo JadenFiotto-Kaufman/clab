@@ -13,7 +13,7 @@ class Subspace(Kind):
     Haar-random orthogonal matrix drawn from `seed`, and `theta` (what a fit trains) starts at zero, so an
     untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
     `[width, k]` basis."""
-    saves, trains, header, drawn = ("basis",), ("theta",), ("k", "parametrization"), ("k",)
+    saves, trains, header, drawn, counts = ("basis",), ("theta",), ("k", "parametrization"), ("k",), ("k",)
     basis: Tensor
     origin: Tensor
     theta: Tensor

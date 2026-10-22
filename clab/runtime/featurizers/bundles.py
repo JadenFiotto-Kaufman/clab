@@ -11,13 +11,16 @@ from torch import Tensor
 from . import FORMAT, KINDS
 
 # The keys every clab header holds beside `format` and its kind's own fields (`header`, below, writes them).
-OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "layer", "width", "document")
+OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "layer", "width", "document",
+        "with.component", "with.layer")
 
 
 def header(kind: str, fields: dict, model: Any, labels: list | None = None, site: Any = None,
-           width: int | None = None, document: str | None = None) -> dict[str, str]:
+           width: int | None = None, document: str | None = None, reads: Any = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
-    list), the model, and, when written, the site it was used at, its width and the document's name."""
+    list), the model, and, when written, the site it was used at, its width and the document's name, and the
+    site it read its input at when that was another (`reads`, a cross-site adapter's `with`: `with.component`,
+    `with.layer`)."""
     params = inspect.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
     # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
@@ -28,6 +31,8 @@ def header(kind: str, fields: dict, model: Any, labels: list | None = None, site
     if site is not None:
         found.update({"component": site.component, "layer": str(site.layers), "width": str(width),
                       "document": str(document)})
+    if reads is not None:
+        found.update({"with.component": reads.component, "with.layer": str(reads.layers)})
     return found
 
 
@@ -42,9 +47,15 @@ def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = N
     if not os.path.exists(file):
         raise ValueError(f"{fields['file_path']} does not exist under the corpus root; run the document that "
                          "writes it first")
-    with safe_open(file, "pt") as f:
-        found = dict(sorted((f.metadata() or {}).items()))
-        tensors = {k: f.get_tensor(k) for k in f.keys()}
+    try:
+        with safe_open(file, "pt") as f:
+            found = dict(sorted((f.metadata() or {}).items()))
+            tensors = {k: f.get_tensor(k) for k in f.keys()}
+    except Exception as e:      # safetensors' own error is not a ValueError, and says nothing of what to do
+        raise ValueError(f"{fields['file_path']} is not a safetensors file ({e}); a featurizer's file_path is read as "
+                         "safetensors: a clab bundle, or a published sae's W_enc, W_dec, b_enc and b_dec (and "
+                         "threshold). Gemma Scope's params.npz needs converting first: load it with numpy.load and "
+                         "write its arrays with safetensors.torch.save_file") from None
     points = sorted({k.rpartition("/")[0] for k in tensors if "/" in k})
     if points:
         raise ValueError(f"{fields['file_path']} holds one bundle per point of a sweep ({', '.join(points)}); a "
