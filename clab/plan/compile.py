@@ -180,10 +180,10 @@ def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     """Names are one flat namespace per scope: no dots, and no step also a dataset or a featurizer.
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
-    `counterfactual`'s read `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
+    `counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
     is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member. Values are produced in
     document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A named intervention
+    value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
     is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
     producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
     rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
@@ -343,7 +343,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{at}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
                      "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
-                     f"{value!r} is an entry this forward makes after this one; an operand names an earlier entry")
+                     f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
+                     "entry")
         found = references(cx, plan, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
         paired(at, o.op, dims, found)
@@ -374,9 +375,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
 
 
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
-    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist; and the op's
-    further arguments bound to the function its `options` choose for them (a mode the kind lacks refused by
-    name), a `Value` among them a name. None when the op takes no featurizer."""
+    """The kind of the featurizer op `name`'s `Featurizer` argument names, checked to exist and to serve the op
+    (`encode`, `decode`, `apply`); and the op's further arguments bound to the function its `options` choose for
+    them, a `Value` among them a name. None when the op takes no featurizer."""
     ref = ops.featurizer_of(name, args)
     if ref is None:
         return None

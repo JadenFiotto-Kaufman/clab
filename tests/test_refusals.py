@@ -19,7 +19,7 @@ def test_select_and_featurizer_belong_to_encode():
     with pytest.raises(PlanError, match=r"ops\[0\]: 'swap' takes no 'select': an encode keeps some of a featurizer's "
                                         r"coordinates, \{'op': 'encode', 'featurizer': \.\.\., 'select'"):
         edited("patching", change("select", {"features": [0]}))
-    with pytest.raises(PlanError, match=r"ops\[0\]: 'swap' takes no 'featurizer': an op runs in a featurizer's space "
+    with pytest.raises(PlanError, match=r"ops\[0\]: 'swap' takes no 'featurizer': an op runs on a featurizer's coordinates "
                                         r"between an encode and a decode of it"):
         edited("patching", change("featurizer", "rot"))
     with pytest.raises(PlanError, match=r"ops\[0\]: there is no 'featurizer' op: 'encode' gives a featurizer's "
@@ -125,8 +125,8 @@ def test_an_operand_names_an_earlier_entry_whose_ops_all_write():
     edited("patching", operand({"early": early})).compile()
     with pytest.raises(PlanError, match=r"'patched\.early' runs 'readout' once it is off the model, after this forward"):
         edited("patching", operand({"early": {**early, "ops": [{"op": "readout"}]}})).compile()
-    with pytest.raises(PlanError, match=r"'patched\.later' is an entry this forward makes after this one; an operand "
-                                        r"names an earlier entry"):
+    with pytest.raises(PlanError, match=r"'patched\.later' is this entry or one this forward makes after it; an "
+                                        r"operand names an earlier entry"):
         def later(d):
             d["steps"]["patched"]["interventions"]["later"] = early
             d["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "patched.later"

@@ -2,8 +2,9 @@
 
 clab runs mechanistic-interpretability experiments on transformer language models from declarative JSON
 documents. A document names a pinned checkpoint, its datasets, the forwards and generations to run with
-their writes and reads on the model's internals, the ops that score or reduce what they read, and what to
-save. clab reads it
+their interventions on the model's internals (each entry a site, its positions and the ops it runs there:
+an entry with an edit among its ops writes back, and every entry's value is readable by name), the ops that
+score or reduce what they take, and what to save. clab reads it
 into a `Plan`, compiles the plan (rows loaded, names resolved, sweeps expanded into points), runs it inside one
 nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved value
 to a directory with a manifest.
@@ -62,10 +63,14 @@ uv run clab run documents/lora_train.json --batch-size 2 --out documents/artifac
 uv run clab run documents/lora_apply.json --batch-size 2                            # clean vs adapted, and text
 ```
 
-A featurizer is called by the `featurizer` op in one of its kind's modes: `encode` gives its coordinates and
-`apply` its version of the value, `{"op": "featurizer", "featurizer": "fit.lora", "mode": "apply"}`. An
-adapter across sites (o_proj) reads `attention_premix` in the same forward and applies at
-`attention_output`, naming that read as `with`.
+A featurizer is reached by three ops inside an entry: `encode` gives its coordinates of the value (`select:
+{"features": ...}` keeps some), `decode` closes the most recent `encode` of it and writes the change of
+coordinates back, and `apply` is its version of the value, an edit (`{"op": "apply", "featurizer":
+"fit.lora"}`). The ops between an `encode` and its `decode` act on the coordinates, so `das.json`'s patch is
+`[encode fit.rot, swap, decode fit.rot]`; brackets nest, so a gate trains over PCA coordinates as
+`[encode pc, encode fit.mask, swap, decode fit.mask, decode pc]`. An adapter across sites (o_proj) reads
+`attention_premix` in an earlier entry of the same forward and applies at `attention_output`, naming that
+entry as `with`.
 
 A fit's `eval` names its runs after training: `das.json`'s `{"held_out": {"train": "test"}, "train": {}}`
 gives `fit.held_out.iia` and `fit.train.iia`. `documents/artifacts/sae.safetensors`,
@@ -171,8 +176,8 @@ named in every error.
   a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
 - **Featurizer kinds** (`clab/runtime/featurizers/`, one module each) are classes on the `Kind` protocol,
   registered under their lowercase name: class attributes declare what their bundle holds and what a fit
-  trains, the constructor's signature is the document's fields, and each mode a kind has (`encode`, `apply`)
-  is its method of that name; the `featurizer` op reads the layout each mode produces from `MODES`.
+  trains, the constructor's signature is the document's fields, and the ops it serves are its methods
+  `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
 - **Step kinds** (`clab/runtime/steps/`, `@kind`) and
   **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (what it
@@ -192,9 +197,10 @@ plan itself, without the rows it read from files, with each result replaced by w
                     "shape": {"pos=-1": [4, 1], "pos=-2": [4, 1], "pos=-3": [4, 1]}, "dtype": {...}}}
 ```
 
-`step` names the step that made the value, and the manifest's `steps` hold that step as compiled, so a result
+`step` names the step that made the value, and the manifest's `steps` hold that step as compiled (its entries
+one dict in execution order, each marked `gathered` when the run takes its value off the model), so a result
 links back to what computed it. `run.tokens` holds each input's tokens per row and `run.positions` the token
-every positioned read and write resolved to, which is how `table` labels `pos_token`.
+every entry resolved to, which is how `table` labels `pos_token`.
 
 ## The format
 
@@ -203,7 +209,7 @@ arguments and axis behaviour (grouped as metrics, reductions and edits), every c
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`), and `schema.json` is the plan's JSON Schema (`clab schema`); a test fails when either is stale.
-`documents/` holds the corpus: the 31 original documents and the example documents added since (40 in all),
+`documents/` holds the corpus: the 31 original documents and the example documents added since (44 in all),
 and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
 
 ## Tests

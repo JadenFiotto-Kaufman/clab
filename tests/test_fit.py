@@ -1,6 +1,6 @@
 """The documents that train or load a featurizer run from `clab run` on both engines, their numbers pinned
 per engine at one batch size, the engines agreeing to the bit; and the numbers that pin what a fit, a bundle
-and an op in a featurizer's space mean.
+and an edit of a featurizer's coordinates mean.
 
 `das`, `pca_harvest`, `sae_train` and `lora_train` run first, into the corpus copy's `documents/artifacts`,
 because `das_apply`, `pca_control`, `sae_train_ablation` and `lora_apply` load what they write.
@@ -186,7 +186,8 @@ def test_ablating_a_latent_that_was_already_zero_changes_nothing(engines, ran, n
     bit-identical to an unpatched forward (the delta keeps the error term exactly); where it was not, they
     move. The fixture and the dictionary sae_train trains both have each among latents 0 to 3."""
     def change(d):
-        d["steps"]["clean"] = {"kind": "forward", "input": "prompts.input", "interventions": {"logits": {"site": "head", "pos": -1}}}
+        d["steps"]["clean"] = {"kind": "forward", "input": "prompts.input",
+                               "interventions": {"logits": {"site": "head", "pos": -1}}}
         d["saves"] = ["base.latents", "zeroed.logits", "clean.logits"]
     with open(os.path.join(ran["root"], "documents", f"{name}.json")) as f:
         doc = json.load(f)
@@ -405,8 +406,8 @@ def train_an_sae(d):
 
 
 def use_a_root_read_in_the_body(d):
-    d["steps"] = {"early": {"kind": "forward", "input": "train.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
-                  **d["steps"]}
+    d["steps"] = {"early": {"kind": "forward", "input": "train.input",
+                            "interventions": {"logits": {"site": "head", "pos": -1}}}, **d["steps"]}
     d["steps"]["fit"]["steps"]["iia"] = {"kind": "op", "op": "sub", "of": "patched.logits", "with": "early.logits"}
 
 

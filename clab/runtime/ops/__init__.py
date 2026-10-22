@@ -156,7 +156,7 @@ def kind(name: str, args: dict) -> str | None:
 
 def check(name: str, args: dict) -> None:
     """Op `name` exists and `args` bind to its signature; a featurizer named where an op takes none is refused
-    with the bracket that runs the op in its space."""
+    with the bracket that runs the op on its coordinates."""
     if name == "featurizer":
         raise ValueError("there is no 'featurizer' op: 'encode' gives a featurizer's coordinates of the value and "
                          "'apply' its version of it")
@@ -164,8 +164,8 @@ def check(name: str, args: dict) -> None:
         raise ValueError(f"unknown op {name!r}; valid: {', '.join(OPS)}")
     takes = parameters(name)
     if "featurizer" in args and "featurizer" not in takes:
-        raise ValueError(f"{name!r} takes no 'featurizer': an op runs in a featurizer's space between an encode and "
-                         f"a decode of it, [{{'op': 'encode', 'featurizer': ...}}, {{'op': {name!r}, ...}}, "
+        raise ValueError(f"{name!r} takes no 'featurizer': an op runs on a featurizer's coordinates between an "
+                         f"encode and a decode of it, [{{'op': 'encode', 'featurizer': ...}}, {{'op': {name!r}, ...}}, "
                          "{'op': 'decode', 'featurizer': ...}]")
     if "select" in args and "select" not in takes:
         raise ValueError(f"{name!r} takes no 'select': an encode keeps some of a featurizer's coordinates, "

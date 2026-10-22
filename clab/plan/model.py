@@ -433,7 +433,8 @@ def no_sides(given: Any) -> Any:
 
 Entries = Annotated[dict[str, Intervention], BeforeValidator(no_sides)]
 Item = Annotated[Union[str, Entries], ByShape()]
-Interventions = Annotated[Union[str, Entries, list[Item]], ByShape()]
+Items = Union[str, Entries, list[Item]]
+Interventions = Annotated[Items, ByShape()]
 
 
 def entries(step) -> dict[str, Any]:

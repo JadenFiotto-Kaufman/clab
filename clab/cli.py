@@ -38,12 +38,14 @@ FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
          plan.Intervention: "entry", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
          plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal",
-         plan.Interventions: "a bundle's name, an object of entry, or a list of them", plan.Entries: "object of entry"}
+         plan.Items: "a bundle's name, an object of entry, or a list of them", plan.Entries: "object of entry"}
 
 
 def as_json(value: Any) -> str:
     """A value as a document writes it: JSON (`true`, `null`, `"local"`), or as Python spells it where JSON
     cannot."""
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="json", exclude_defaults=True)
     try:
         return json.dumps(value, ensure_ascii=False)
     except TypeError:

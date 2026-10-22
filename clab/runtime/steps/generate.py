@@ -133,13 +133,12 @@ def generated(engine, name: str, batch: dict, records: list[dict], options: dict
 def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
              encoded: list[dict], pads: list[int], rows: slice, state: dict, at: dict, head_only: bool,
              most: int | None, answers: dict) -> Any:
-    """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved to
-    (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
+    """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
+    to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
-    `head_only`), a generated input's from
-    its decode call (`values`, one `[rows, 1, ...]` per call the record asked for that the batch made); then
-    the ops after its last edit; `picks` is what its `select` keeps. A rectangular read is `[rows, width, ...]`, NaN on a row it
-    does not reach; a ragged one `{values, row, tok}`, `tok` the position, with no entries for such a row.
+    `head_only`), a generated input's from its decode call (`values`, one `[rows, 1, ...]` per call the record
+    asked for that the batch made); then the ops after its last edit; `picks` is what its `select` keeps. A
+    rectangular read is `[rows, width, ...]`, NaN on a row it does not reach; a ragged one `{values, row, tok}`, `tok` the position, with no entries for such a row.
     `most` is the step's `max_new_tokens`, which bounds the calls it asked for."""
     pos = positions.parse(record.pos)
     _, asked, _ = positions.reach(pos, most)

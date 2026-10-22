@@ -75,7 +75,7 @@ is the token alone. A row's value may be a list of strings: a set, any of which 
 ### An entry of `interventions`
 
 - `site: str or site`
-- `pos: int or pos or a sweep = Pos(frame=0, scope=None, index=':')`
+- `pos: int or pos or a sweep = {}`
 - `ops: list of op = []`
 
 An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the
@@ -203,7 +203,7 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`.
 ### `forward`
 
 - `input: str or list of str or literal`
-- `interventions: str or object of entry or list of str or object of entry = {}`
+- `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
 `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
@@ -225,7 +225,7 @@ differ in the last bits. Results reproduce to the bit at a fixed batch size.
 ### `generate`
 
 - `input: str or list of str or literal`
-- `interventions: str or object of entry or list of str or object of entry = {}`
+- `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
 every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,
@@ -690,10 +690,10 @@ that trip, which dispatches the shell here, on `device`, at its first trace.
 Names are one flat namespace per scope: no dots, and no step also a dataset or a featurizer.
 
 A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
-`counterfactual`'s read `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
+`counterfactual`'s entry `v_cf`; `mean` is an op step's value; `pairs.cf_answer` is a dataset's column; `rot`
 is a declared featurizer and `mask.mask` its scalar; `fit.rot` is a fit's member. Values are produced in
 document order and referenced only after they exist. A fit's body is a scope of its own: it sees every
-value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A named intervention
+value produced before the fit, and nothing leaves it except through `<fit>.<member>`. A bundle of entries
 is a template, so the names inside it resolve where a step pulls it in. Under a sweep, a name means the
 producer's point that agrees with the consumer's coordinates on the producer's axes. Every value with a
 rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and

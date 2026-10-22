@@ -214,7 +214,8 @@ def test_a_hub_dataset_is_declared_but_not_loaded_yet():
      r"steps\.iia: 'match' takes no 'expect'; its arguments: expected$"),
     (lambda d: d["steps"]["patched"].update(kind="trace"),
      r"steps\.patched: unknown step kind 'trace'; valid: forward, generate, op, fit"),
-    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": 1, "scope": {"turn": "user", "text": "x"}}),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(
+        pos={"index": 1, "scope": {"turn": "user", "text": "x"}}),
      r"steps\.patched\.interventions\.patch\.pos\.scope: a scope is one of \{'column'"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "prompt"}),
      r"steps\.patched\.interventions\.patch\.pos\.frame: 'prompt' is not a selector: an int \(2, -1\), a slice "
