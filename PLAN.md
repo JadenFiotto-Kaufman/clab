@@ -846,8 +846,9 @@ mis-specification. Decisions, in build order:
   consumed; order written is execution order. The `featurizer`/`select`
   arguments and the `featurizer` op go; `encode` (with `select`), `decode`
   (the delta rule, bracketing the most recent `encode` of that featurizer
-  in the entry) and `apply` replace them; chains nest. 54 documents
-  migrate; no numeric changes.
+  in the entry) and `apply` replace them; chains nest. The ids-to-text op
+  becomes `detokenize` so `decode` has one meaning. 49 documents migrate;
+  no numeric changes. nnsight is pinned from PyPI (>=0.8.1) from here on.
 - **PR 14: bugs and silent behaviours** from `FINDINGS.md` (B1–B13; S3,
   S5, S8, S10–S12, S13, S20 become refusals or checks; the ten messages
   that did not say what to do).
