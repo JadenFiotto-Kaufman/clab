@@ -100,24 +100,37 @@ def batches(engine, step, found: "Found", batch_size: int):
         yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
 
 
-def bind(engine, plan: Plan, name: str, step, state: dict, found: "Found", rows: slice,
-         pads: list[int]) -> tuple[dict, list[dict]]:
-    """A forward's entries bound to one batch: each one's site, and the records the engine does in their order:
-    an entry that writes as a write with its ops, then, when it is gathered, its reads, one per layer
-    (`<entry>@<layer>`). An entry that does neither is left out."""
-    chosen = {k: r for k, r in entries(step).items() if writes(r) or r.gathered}
+def read_name(key: str, layer, prefill: bool = False) -> str:
+    """The engine's name for a read of entry `key` made at `layer` (None for a model's own value): `<key>@<layer>`,
+    with `#0` after it for the prefill part of an entry that also reads at decode calls."""
+    return f"{key}@{layer}" + ("#0" if prefill else "")
+
+
+def write_name(key: str, prefill: bool = False) -> str:
+    """The engine's name for a write of entry `key`: the key, with `#0` after it for the prefill part of a write
+    that also lands at decode calls."""
+    return key + ("#0" if prefill else "")
+
+
+def bind(engine, plan: Plan, name: str, step, state: dict, found: "Found", rows: slice, pads: list[int],
+         among: set | None = None) -> tuple[dict, list[dict]]:
+    """The step's prefill entries (those `among`, default every one) bound to one batch: each one's site, and
+    the records the engine does in their order: an entry that writes as a write with its ops, then, when it is
+    gathered, its reads, one per layer. An entry that does neither is left out."""
+    chosen = {k: r for k, r in entries(step).items() if (writes(r) or r.gathered) and (among is None or k in among)}
     width = found.inputs[data.input_name(step.input)]["width"]
     sites = {key: site(record, lookup(found.selects, f"{name}.{key}", step.at),
                        lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
              for key, record in chosen.items()}
-    live = {f"{name}.{key}": f"{key}@{layers(engine, record)[0]}" for key, record in chosen.items() if record.gathered}
+    live = {f"{name}.{key}": read_name(key, layers(engine, record)[0]) for key, record in chosen.items()
+            if record.gathered}
     records = []
     for key, record in chosen.items():
         if writes(record):
-            records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
+            records.append({**sites[key], "name": write_name(key), "layer": layers(engine, record)[0],
                             "ops": edit(engine, plan, record, state, step.at, rows, live, found.answers)})
         if record.gathered:
-            records += [{**sites[key], "name": f"{key}@{layer}", "layer": layer} for layer in layers(engine, record)]
+            records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
     return sites, records
 
 

@@ -22,7 +22,7 @@ from torch import Tensor
 
 from .answers import probe_of
 from . import ops
-from .batches import batches, bind, bound, home, joined, layers, read, stacked
+from .batches import batches, bind, bound, home, joined, layers, read, read_name, stacked
 from .featurizers.uses import instance
 from .plan import Plan, Run, arguments, dims_of, entries, points
 from .preflight import Found, preflight
@@ -154,7 +154,7 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     for chunk, batch, pads in batches(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
-        parts.append({key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk,
+        parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
                                                  state, step.at, found.answers)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})

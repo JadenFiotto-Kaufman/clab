@@ -6,7 +6,7 @@ import torch
 from torch import Tensor
 
 from . import address, data, positions
-from .batches import batches, decoding, edit, joined, layers, read, site, stacked, with_ops
+from .batches import batches, bind, decoding, edit, joined, layers, read, read_name, site, stacked, with_ops, write_name
 from .plan import Plan, entries, horizon, writes
 from .positions import head, place, texts
 from .sweeps import lookup, put
@@ -22,88 +22,39 @@ def stops(engine, step) -> list[int]:
 
 
 def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: "Found") -> None:
-    """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as
-    its options; each gathered entry joined along rows, and the new ids joined into the step's value.
+    """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
+    options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
-    An entry in the prefill (`frame: 0`) is a forward's. One beyond it goes to the engine in two parts: its
-    prefill positions (for a read, the whole prefill, since which of its positions it means can depend on
-    what the row says), and its decode calls, each at that call's one position (`calls`: the frame's own,
-    or None for every decode call); an entry that writes and is gathered goes as its write, then its read.
-    A write with a text scope is found online: it goes to every decode call with each row's text (`online`),
-    lands where `positions.landing` says, and is recorded at the calls it says so of afterwards. Every other
-    entry resolves after the generation from what each row generated (`positions.resolve`); a row that
-    stopped before a call a write selects is not written there (the call computes nothing of that row's) and
-    is recorded as missing. The resolution is recorded per row in `plan.run.positions` and each row's
-    continuation, as token strings, in `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes
-    fewer calls; its ids are filled after their EOS to the longest batch's."""
+    An entry in the prefill (`frame: 0`) binds as a forward's (`bind`); one beyond it goes to the engine in
+    parts (`beyond`) and resolves after the generation from what each row generated (`landed_at`); a row that
+    stopped before a call a write selects is not written there and is recorded as missing. The resolution is
+    recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
+    `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
+    their EOS to the longest batch's."""
     eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
-    first = {k: r for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
+    first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
+    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
     most = horizon(step)
-    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
     for chunk, batch, pads in batches(engine, step, found, batch_size):
-        prompts = [len(e["ids"]) for e in encoded[chunk]]
-        sites, records = {}, []
-        for key, record in every.items():
-            pos = positions.parse(record.pos)
-            if key in first:
-                if writes(record) or record.gathered:
-                    sites[key] = site(record, picks[key], lookup(found.positions, f"{name}.{key}", step.at)[chunk],
-                                      pads, padded, head(step, record))
-                if writes(record):
-                    records.append({**sites[key], "name": key, "layer": layers(engine, record)[0],
-                                    "ops": edit(engine, plan, record, state, step.at, chunk, answers=found.answers)})
-                if record.gathered:
-                    records += [{**sites[key], "name": f"{key}@{layer}", "layer": layer}
-                                for layer in layers(engine, record)]
-                continue
-            holds, calls, _ = positions.reach(pos, most)
-            if writes(record):
-                edits = edit(engine, plan, record, state, step.at, chunk, answers=found.answers)
-                if holds:
-                    where = [positions.prompted(len(e["ids"]), head(step, record)) for e in encoded[chunk]]
-                    records.append({**site(record, picks[key], where, pads, padded, head(step, record)),
-                                    "name": f"{key}#0", "layer": layers(engine, record)[0], "ops": edits})
-                online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows[chunk]],
-                                     "eos": sorted(eos)}} if pos["scope"] else {}
-                records.append({**decoding(record, picks[key], prompts), "name": key,
-                                "layer": layers(engine, record)[0], "ops": edits, "calls": None if online else calls,
-                                **online})
-            for layer in layers(engine, record) if record.gathered else []:
-                if holds:
-                    whole = [positions.prompted(len(e["ids"])) for e in encoded[chunk]]
-                    records.append({**site(record, picks[key], whole, pads, padded, head(step, record)),
-                                    "name": f"{key}@{layer}#0", "layer": layer})
-                records.append({**decoding(record, picks[key], prompts), "name": f"{key}@{layer}",
-                                "layer": layer, "calls": calls})
+        sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
+        for key, record in after.items():
+            records += beyond(engine, plan, record, key, picks[key], step, state, found, chunk, pads, padded,
+                              encoded[chunk], rows[chunk], eos, most)
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
-        for record in records:
-            if "calls" in record and "ops" not in record:
-                made = range(1, ids.shape[1]) if record["calls"] is None else \
-                    [k for k in record["calls"] if k < ids.shape[1]]
-                if len(got[record["name"]]) != len(made):
-                    raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
-                                       f"{len(made)} decode calls it made; a read out of forward order shifts calls")
-        out = {key: stacked(record, [read(engine, plan, record, got[f"{key}@{layer}"], sites[key], chunk, state,
+        out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk, state,
                                           step.at, found.answers) for layer in layers(engine, record)])
-               for key, record in first.items() if record.gathered}
+               for key, record in every.items() if key in first and record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in after.items():
-            pos = positions.parse(record.pos)
-            if writes(record) and pos["scope"]:
-                where = [[len(e["ids"]) + k - 1 for k in range(1, len(x))
-                          if positions.landing(pos, texts(pos, row), x[:k], eos, engine.tokenizer)] or positions.MISSING
-                         for row, e, x in zip(rows[chunk], encoded[chunk], said)]
-            else:
-                where = [place(pos, row, e, x, engine.tokenizer, head(step, record))
-                         for row, e, x in zip(rows[chunk], encoded[chunk], said)]
+            where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(step, record))
             resolved[f"{name}.{key}"] += where
             if record.gathered:
-                out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(f"{key}@{layer}#0"),
-                                                     got[f"{key}@{layer}"], where, encoded[chunk], chunk, state,
+                out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(read_name(key, layer, True)),
+                                                     got[read_name(key, layer)], where, encoded[chunk], chunk, state,
                                                      step.at, head(step, record), most, found.answers)
                                             for layer in layers(engine, record)])
         parts.append(out)
@@ -118,16 +69,69 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 
-def generated(engine, name: str, batch: dict, records: list[dict], options: dict):
+def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict, found: "Found", chunk: slice,
+           pads: list[int], padded: int, encoded: list[dict], rows: list[dict], eos: set[int],
+           most: int | None) -> list[dict]:
+    """An entry past the prefill as the engine takes it in one batch, in parts: a write's prefill part, where
+    its frame holds the prompt, and its decode part (`calls`: the frame's own, or None for every decode call;
+    a write with a text scope goes to every call with each row's texts, `online`, and lands where
+    `positions.landing` says); then a gathered entry's whole prefill (which of its positions it means can
+    depend on what the row says) and its decode calls, one read per layer, each at the call's one position."""
+    pos = positions.parse(record.pos)
+    holds, calls, _ = positions.reach(pos, most)
+    head_only, layer = head(step, record), layers(engine, record)[0]
+    out = []
+    if writes(record):
+        edits = edit(engine, plan, record, state, step.at, chunk, answers=found.answers)
+        if holds:
+            where = [positions.prompted(len(e["ids"]), head_only) for e in encoded]
+            out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, True),
+                        "layer": layer, "ops": edits})
+        online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
+            if pos["scope"] else {}
+        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": write_name(key),
+                    "layer": layer, "ops": edits, "calls": None if online else calls, **online})
+    for layer in layers(engine, record) if record.gathered else []:
+        if holds:
+            whole = [positions.prompted(len(e["ids"])) for e in encoded]
+            out.append({**site(record, picks, whole, pads, padded, head_only), "name": read_name(key, layer, True),
+                        "layer": layer})
+        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": read_name(key, layer),
+                    "layer": layer, "calls": calls})
+    return out
+
+
+def landed_at(record, rows: list[dict], encoded: list[dict], said: list[list[int]], eos: set[int], tokenizer,
+              head_only: bool) -> list:
+    """Where an entry past the prefill resolved on each row, once what the row generated (`said`) is known: a
+    write with a text scope at the calls `positions.landing` said so of as each input was fed, any other entry
+    by `positions.resolve` (`place`); a marker for a row it does not reach."""
+    pos = positions.parse(record.pos)
+    if writes(record) and pos["scope"]:
+        return [[len(e["ids"]) + k - 1 for k in range(1, len(x))
+                 if positions.landing(pos, texts(pos, row), x[:k], eos, tokenizer)] or positions.MISSING
+                for row, e, x in zip(rows, encoded, said)]
+    return [place(pos, row, e, x, tokenizer, head_only) for row, e, x in zip(rows, encoded, said)]
+
+
+def generated(engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
     """`engine.generate`, which validates its own options: an error it raises naming one of them is reported
-    as the step's, `<step>: generate rejected '<option>': <the engine's message>`."""
+    as the step's, `<step>: generate rejected '<option>': <the engine's message>`. Each read at decode calls is
+    checked to hold one value per call the batch made (a read out of forward order shifts calls)."""
     try:
-        return engine.generate(batch, records, options)
+        ids, got = engine.generate(batch, records, options)
     except (TypeError, ValueError) as e:
         key = next((k for k in options if repr(k) in str(e)), None)
         if key is None:
             raise
         raise ValueError(f"{name}: generate rejected {key!r}: {e}") from None
+    for record in records:
+        if "calls" in record and "ops" not in record:
+            made = range(1, ids.shape[1]) if record["calls"] is None else [k for k in record["calls"] if k < ids.shape[1]]
+            if len(got[record["name"]]) != len(made):
+                raise RuntimeError(f"{name}.{record['name']}: the engine read {len(got[record['name']])} of the "
+                                   f"{len(made)} decode calls it made; a read out of forward order shifts calls")
+    return ids, got
 
 
 def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
