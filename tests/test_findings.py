@@ -612,9 +612,8 @@ def test_m3_one_latent_is_read_with_encodes_select_and_the_featurizer_op_is_gone
 def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differs():
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     positions come from."""
-    with pytest.raises(PlanError, match=r"with: 'abc\.v' and this write both hold a different number of positions on "
-                                        r"each row, and another forward's positions need not pair with this one's: "
-                                        r"read both at a static index"):
+    with pytest.raises(PlanError, match=r"with: 'abc\.v' holds a different number of positions on each row, which "
+                                        r"another forward's positions need not pair with; read it at a static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},

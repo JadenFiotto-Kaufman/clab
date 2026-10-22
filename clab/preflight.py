@@ -158,7 +158,8 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved = indices(where, write, record, step, rows, encoded, tokenizer)
                     put(found.positions, where, step.at, resolved)
-                    shape = (max(map(len, resolved)), select)
+                    widths = [len(r) for r in resolved]
+                    shape = (widths[0] if len(set(widths)) == 1 else tuple(widths), select)
                 else:               # resolved in the run, from what each row generates; one position a call
                     shape = (positions.width(pos) or 1, select)
                 probe = None                        # past a probe's encode, a column names its classes

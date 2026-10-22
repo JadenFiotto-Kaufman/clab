@@ -304,8 +304,9 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
     """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space`: the
     same coordinates, and that layout or one vector of its features; only the vector when the selection is
     ragged, unless the operand is an earlier entry of the same forward, gathered as the selection is (one layer,
-    no op after its last edit). An adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's
-    rows and positions, whatever its features."""
+    no op after its last edit). An operand without a static width (its rows hold different numbers of
+    positions) pairs with nothing but such an entry. An adapter's input (`apply`'s `with`, `adapts`) is laid
+    out on the selection's rows and positions, whatever its features."""
     lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info.kind != "value":
@@ -319,6 +320,10 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
                 fail(f"{path}.{key}", f"{info.name!r} is read at every layer; an operand from the write's own "
                      "forward is one layer's read")
         whole = not ragged or info.name in live
+        if "pos" in info.dims and info.width is None and not (ragged and info.name in live):
+            fail(f"{path}.{key}", f"{info.name!r} holds a different number of positions on each row, which "
+                 + ("another forward's positions need not pair with" if ragged else "pair with no static width's")
+                 + "; read it at a static index (pos -1, {'index': '-3:'}), or reduce it to one vector")
         if adapts and key == "with":
             if [a for a in info.dims if a in address.EXAMPLE_AXES] != lead or not whole:
                 fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {key!r} is "
@@ -329,10 +334,6 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
             fail(f"{path}.{key}", f"{info.name!r} is in {said(info.space)}; this "
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
-        if info.dims == own and not whole and info.width is None:
-            fail(f"{path}.{key}", f"{info.name!r} and this write both hold a different number of positions on each "
-                 "row, and another forward's positions need not pair with this one's: read both at a static index "
-                 "(pos -1, {'index': '-3:'}), or reduce the operand to one vector")
         if "layers" in info.dims and "layers" not in own:
             fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}: it keeps a layers axis, and this "
                  "write lands at one layer, so its operand has none; read the operand at the write's own layer")

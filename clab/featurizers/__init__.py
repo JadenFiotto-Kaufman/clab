@@ -137,13 +137,20 @@ class Kind:
 
     def call(self, op: str, h: Tensor, options: dict) -> Tensor:
         """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
-        document spelling). A missing vector of `h` (NaN) goes in as zeros and comes out missing, so the math,
-        and a fit's gradients through it, see none of it. An encode is kept beside `h` while a fit watches the
+        document spelling). A missing vector of `h` (NaN), and the same vector of an option laid out on its
+        rows and positions, goes in as zeros and comes out missing, so the math, and a fit's gradients through
+        it, see none of it. An encode is kept beside `h` while a fit watches the
         instance (`seen`)."""
         fn = self.method(op)
         names = {k: p.name for k, p in registry.spelled(fn, ("self", "h")).items()}
         gone = h.isnan().any(-1, keepdim=True)
-        out = fn(self, h.masked_fill(gone, 0.0) if gone.any() else h, **{names[k]: v for k, v in options.items()})
+        x = h
+        if gone.any():
+            x = h.masked_fill(gone, 0.0)
+            options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
+                       if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
+                       for k, v in options.items()}
+        out = fn(self, x, **{names[k]: v for k, v in options.items()})
         out = out.masked_fill(gone, float("nan")) if gone.any() else out
         if op == "encode" and self.seen is not None:
             self.seen.append((h, out))
