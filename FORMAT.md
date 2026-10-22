@@ -171,7 +171,7 @@ call 0 holds that one position.
 **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
 calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
 prefixes: the tokens covering its characters, a chat template's marker among them where the text spans one
-(BOS covers none). An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
+(a BOS the tokenizer adds covers none; one a template writes covers its text, `<s>`). An occurrence lies on token and word boundaries: it starts where a token starts and ends where a
 token ends (a token's own leading or trailing whitespace on either side of the boundary; one that ends in
 the next token's leading whitespace ends where that token starts, so `Paris. ` does not cover the ` Paris`
 after it), and where its first or last character is a letter or a digit, none adjoins it: ` Sara` does not
@@ -234,8 +234,9 @@ name, a dict of entries, or a list of either) are what it reads and writes, each
 
 A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
 template without a generation prompt, so the rendered prompt ends with the template's close of the last
-message (`[/INST]` on Llama-2-style templates): `pos: -1` with no scope is that close's last token, and
-`{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
+message (`[/INST]` on Llama-2-style templates, `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no
+scope is that close's last token, a marker or not, and `{"scope": {"turn": "user", "occurrence": 1}}` names
+the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
 row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
