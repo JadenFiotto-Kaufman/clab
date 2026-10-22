@@ -13,18 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import (
-    BATCH_SIZE,
-    FORWARD,
-    INSIDE,
-    close,
-    document,
-    edited,
-    plain,
-    plan_of,
-    same,
-    snapshot,
-)
+from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 from clab import Plan
 from clab.cli import main

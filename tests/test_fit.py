@@ -12,20 +12,8 @@ import shutil
 
 import pytest
 import torch
-from conftest import (
-    BATCH_SIZE,
-    DOCUMENTS,
-    FIT,
-    ROOT,
-    TRIP,
-    bundle_header,
-    close,
-    edited,
-    plain,
-    same,
-    snapshot,
-    stand_in,
-)
+from conftest import (BATCH_SIZE, DOCUMENTS, FIT, ROOT, TRIP, bundle_header, close, edited, plain, same, snapshot,
+                      stand_in)
 from safetensors.torch import load_file, save_file
 
 from clab import Plan, featurizers

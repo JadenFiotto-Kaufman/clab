@@ -23,16 +23,7 @@ from transformers import AutoModelForCausalLM
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import (
-    COMPUTED,
-    SIZES,
-    build,
-    by_site,
-    envoy,
-    inputs,
-    nnterp_name,
-    stops,
-)
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
 from clab.format.address import COMPONENTS
 from clab.format.plan import Model, Plan
 from clab.steps import batches

@@ -17,19 +17,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import (
-    BATCH_SIZE,
-    GENERATE,
-    ROOT,
-    TRIP,
-    close,
-    edited,
-    plain,
-    plan_of,
-    same,
-    snapshot,
-    stand_in,
-)
+from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan

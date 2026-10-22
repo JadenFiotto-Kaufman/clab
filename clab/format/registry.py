@@ -3,16 +3,7 @@ arguments are checked against that function's signature."""
 
 import inspect
 import types
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Any,
-    Callable,
-    Literal,
-    Union,
-    get_args,
-    get_origin,
-)
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin
 
 from pydantic import TypeAdapter, ValidationError
 from torch import Tensor

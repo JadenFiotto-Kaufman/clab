@@ -6,18 +6,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import (
-    BATCH_SIZE,
-    ROOT,
-    TRIP,
-    by_reference,
-    document,
-    edited,
-    plan_of,
-    same,
-    snapshot,
-    stand_in,
-)
+from conftest import BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot, stand_in
 
 import clab
 from clab import Plan
