@@ -93,8 +93,8 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
 
 def distribution(args: dict) -> None:
     """`kl`'s and `js`'s `against` is a distribution: a named value, never a number or a flag."""
-    against = args.get("against")
-    if "against" in args and not isinstance(against, str):
+    against = args["against"]
+    if not isinstance(against, str):
         raise ValueError(f"against {against!r} is not a name, and only a named value is a distribution; 'against' "
                          "names a value with the same vocabulary axis (another read's logits)")
 

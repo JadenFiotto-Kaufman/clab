@@ -146,13 +146,11 @@ def check(name: str, args: dict) -> None:
 
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
-    """Run op `name` on `value` with `args` (document spelling, already bound to tensors); an argument the
-    op's signature does not name goes to its `**` catch-all as spelled."""
+    """Run op `name` on `value` with `args` (document spelling, checked and bound to tensors) and those of the
+    run's `supplied` values its signature names."""
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
-    kwargs = {names.get(k, k): v for k, v in args.items()}
-    kwargs.update((k, v) for k, v in supplied.items() if k in names and k not in kwargs)
-    return fn(value, **kwargs)
+    return fn(value, **{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names})
 
 
 def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:
