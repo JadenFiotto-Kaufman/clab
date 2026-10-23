@@ -1,11 +1,20 @@
 """What the engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
 there, the sizes), how a model block becomes a loader call, where a batch's inputs go, where a HuggingFace generation
-stops, a forward's or a generation's records grouped by site and by call, and where a write with an online
-scope lands."""
+stops, and a forward's or a generation's records grouped by site."""
 
-from typing import Any, Callable, cast
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from clab.format.address import COMPONENTS
+
+if TYPE_CHECKING:
+    from nnsight.intervention.envoy import Envoy
+    from nnterp import StandardizedTransformer
+    from torch import Tensor
+    from transformers import GenerationConfig, PreTrainedTokenizerBase
+
+    from clab.plan import Model
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
          "vocab_size")
@@ -30,7 +39,7 @@ def nnterp_name(component: str) -> str:
     return f"{host(component)}.{component}" if host(component) in BELOW else component
 
 
-def envoy(model, component: str, layer: int | None):
+def envoy(model: StandardizedTransformer, component: str, layer: int | None) -> Envoy:
     """The envoy on `model` (a loaded model or a meta shell) that serves the component."""
     where = host(component)
     if where == "model":
@@ -51,13 +60,13 @@ OWNED = {"device": "where the model runs is a run option: --device", "device_map
 COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
 
 
-def inputs(batch: dict, keys: tuple, device: str) -> dict:
+def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:
     """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
     computed device map puts the model's input."""
     return {k: batch[k].to(device) for k in keys}
 
 
-def build(model, engine: str, call: Callable[[dict], Any]) -> Any:
+def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
     """`call` with the model block's keys other than `key`, `revision` and `dtype`, as they are. A key in
     `OWNED` is refused by name, and one the loader rejects is reported as that key."""
     extra = dict(model.model_extra or {})
@@ -73,17 +82,16 @@ def build(model, engine: str, call: Callable[[dict], Any]) -> Any:
         raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
 
 
-
-def stops(config, tokenizer) -> list[int]:
+def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[int]:
     """The ids a generation stops on: the generation config's EOS, else the tokenizer's."""
     found = getattr(config, "eos_token_id", None)
-    found = tokenizer.eos_token_id if found is None else found
+    found = cast("int | list[int]", tokenizer.eos_token_id if found is None else found)
     return [found] if isinstance(found, int) else list(found)
 
 
-def by_site(records: list[dict]) -> dict[tuple, list]:
+def by_site(records: list[dict]) -> dict[tuple[str, int | None], list[dict]]:
     """A forward's records by `(component, layer)`, each site's in listed order."""
-    sites: dict[tuple, list] = {}
+    sites: dict[tuple[str, int | None], list[dict]] = {}
     for record in records:
         sites.setdefault((record["component"], record["layer"]), []).append(record)
     return sites

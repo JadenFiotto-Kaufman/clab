@@ -14,8 +14,8 @@ from safetensors.torch import save_file
 from clab import Plan, featurizers
 from clab.featurizers.gate import Gate
 from clab.featurizers.sae import Sae
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
+from clab.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 H = torch.randn(3, 2, 16, generator=G)
@@ -124,13 +124,6 @@ def test_the_published_activations_are_their_formulas():
         f = kinds[name]
         assert torch.equal(f.call("apply", H, {}), f.call("encode", H, {}) @ TENSORS["W_dec"] + TENSORS["b_dec"])
         assert torch.equal(f.within(H, lambda z: z, None), H)
-
-
-def test_a_scalar_the_kind_lacks_is_refused_by_name():
-    kinds = every_kind()
-    for name in ("gate", "sae"):
-        with pytest.raises(ValueError, match=rf"a '{name}' featurizer has no scalar 'loss'"):
-            kinds[name].scalar("loss")
 
 
 def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = None,

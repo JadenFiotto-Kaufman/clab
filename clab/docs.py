@@ -10,8 +10,8 @@ from typing import Any, get_args
 from pydantic import BaseModel
 
 from clab import compile as compiler
-from clab import featurizers, ops, output
-from clab.format import address, plan, registry, sweeps
+from clab import featurizers, ops, output, plan
+from clab.format import address, registry, sweeps
 from clab.output import table
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
@@ -20,9 +20,6 @@ WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines"
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
            "A column read as text": plan.Column, "A literal in a list `input`": plan.TextPart,
            "An entry of `interventions`": plan.Intervention, "An op in an entry": plan.Op, "`pos`": plan.Pos}
-
-
-STEPS = {name: model for name, model in plan.KINDS.items()}
 
 
 FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
@@ -45,13 +42,15 @@ def as_json(value: Any) -> str:
         return repr(value)
 
 
-def spell_type(annotation: Any, names: dict | None = None) -> str:
-    """A type as the tables spell it, a literal's values as JSON."""
-    return registry.spell(annotation, names, as_json)
-
-
 def spell(annotation: Any) -> str:
-    return spell_type(annotation, NAMES)
+    """A type as the tables spell it, a literal's values as JSON."""
+    return registry.spell(annotation, NAMES, as_json)
+
+
+def signature(params: dict[str, inspect.Parameter]) -> list[str]:
+    """Parameters as a document writes them: `key: type`, and `= default` where there is one."""
+    return [f"{k}: {spell(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
+            for k, p in params.items()]
 
 
 def fields(model: type[BaseModel]) -> list[str]:
@@ -71,11 +70,11 @@ def derived(model: type[BaseModel]) -> list[str]:
             if name not in plan.documented(model)]
 
 
-def doc(thing) -> str:
+def doc(thing: object) -> str:
     return inspect.getdoc(thing) or ""
 
 
-def summary(thing) -> str:
+def summary(thing: object) -> str:
     return " ".join(doc(thing).split())
 
 
@@ -85,22 +84,11 @@ def axes(name: str) -> str:
         return summary(a["layout"])
 
     def listed(verb: str) -> str:
-        if not isinstance(a[verb], tuple):
-            return f"the axes `{a[verb]}` names"
         if verb == "removes" and a[verb] == ops.VOCABULARY:
             return "its vocabulary axis"
         return ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb])
     parts = [f"{verb} {listed(verb)}" for verb in ("needs", "removes", "adds") if a[verb]]
     return "; ".join(parts) or "keeps the layout"
-
-
-def arguments(name: str) -> list[str]:
-    """An op's arguments as a document writes them."""
-    out = []
-    for key, p in ops.parameters(name).items():
-        text = f"{key}: {spell_type(p.annotation)}"
-        out.append(text if p.default is p.empty else f"{text} = {as_json(p.default)}")
-    return out
 
 
 def served(kind: str) -> list[str]:
@@ -109,8 +97,7 @@ def served(kind: str) -> list[str]:
     cls = featurizers.KINDS[kind]
     for name in cls.ops():
         fn = cls.method(name)
-        own = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
-               for k, p in registry.spelled(fn, ("self", "h", "z", "new")).items()]
+        own = signature(registry.spelled(fn, ("self", "h", "z", "new")))
         produces = featurizers.OPS[name]["produces"].format(axis=cls.axis)
         out.append(f"`{name}`" + (f"({', '.join(own)})" if own else "") + f" {produces}"
                    + (f": {summary(fn)}" if doc(fn) else ""))
@@ -125,7 +112,7 @@ def run_options(name: str) -> list[tuple[str, str]]:
     cls: Any = ENGINES[name]
     params = {"device": inspect.signature(cls.__init__).parameters["device"], **options(name)}
     said = registry.described(cls.__init__)
-    return [(f"{k}: {spell_type(p.annotation)} = {as_json(p.default)}", said.get(k, "")) for k, p in params.items()]
+    return [(text, said.get(k, "")) for k, text in zip(params, signature(params))]
 
 
 def describe(what: str | None = None) -> str:
@@ -137,7 +124,7 @@ def describe(what: str | None = None) -> str:
                                                   for name, model in RECORDS.items()]))
     if what in (None, "steps"):
         lines = ["step kinds:"]
-        for name, model in {**STEPS, **FIT}.items():
+        for name, model in {**plan.KINDS, **FIT}.items():
             lines += [f"  {name}({', '.join(fields(model))})", f"      {summary(model)}"]
         sections.append("\n".join(lines))
     if what in (None, "ops"):
@@ -146,7 +133,8 @@ def describe(what: str | None = None) -> str:
             lines.append(f"  {group}:")
             for name, fn in ops.OPS.items():
                 if ops.DECLARED[name]["group"] == group:
-                    lines += [f"    {name}({', '.join(arguments(name))})  [{axes(name)}]", f"        {summary(fn)}"]
+                    lines += [f"    {name}({', '.join(signature(ops.parameters(name)))})  [{axes(name)}]",
+                              f"        {summary(fn)}"]
         sections.append("\n".join(lines))
     if what in (None, "components"):
         lines = ["components:"]
@@ -157,9 +145,8 @@ def describe(what: str | None = None) -> str:
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
         for name, cls in featurizers.KINDS.items():
-            params = [f"{k}: {spell_type(p.annotation)}" + ("" if p.default is p.empty else f" = {as_json(p.default)}")
-                      for k, p in registry.spelled(cls, featurizers.SUPPLIED).items()]
-            lines += [f"  {name}({', '.join(params)})", f"      {summary(cls)}",
+            lines += [f"  {name}({', '.join(signature(registry.spelled(cls, featurizers.SUPPLIED)))})",
+                      f"      {summary(cls)}",
                       f"      ops: {'; '.join(m.replace('`', '') for m in served(name))}"]
         sections.append("\n".join(lines))
     if what in (None, "pos"):
@@ -177,10 +164,10 @@ def describe(what: str | None = None) -> str:
 def markdown() -> str:
     """FORMAT.md: the one-page reference, generated from the code (`clab describe --markdown`)."""
 
-    def block(model) -> str:
+    def block(model: type[BaseModel]) -> str:
         return "\n".join(f"- `{f}`" for f in fields(model)) + "\n\n" + doc(model) + "\n"
 
-    def grid(rows) -> str:
+    def grid(rows: list[list[str]]) -> str:
         return "\n".join("| " + " | ".join(r) + " |" for r in rows) + "\n"
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -197,7 +184,7 @@ def markdown() -> str:
     for name, model in RECORDS.items():
         parts += [f"### {name}\n", block(model)]
     parts += ["## Step kinds\n", "Each entry of `steps` is `{\"kind\": <kind>, ...fields}`.\n"]
-    for name, model in STEPS.items():
+    for name, model in plan.KINDS.items():
         parts += [f"### `{name}`\n", block(model)]
     parts += ["### `fit` blocks\n"] + [part for name, model in FIT.items() for part in (f"`{name}`:\n", block(model))]
     parts += ["## Derived fields\n",
@@ -210,7 +197,8 @@ def markdown() -> str:
     for group in ops.GROUPS:
         parts += [f"### {group.capitalize()}\n",
                   grid([["op", "arguments", "axes", "what"], ["---", "---", "---", "---"]]
-                        + [[f"`{n}`", ", ".join(f"`{a}`" for a in arguments(n)) or "—", axes(n), summary(fn)]
+                        + [[f"`{n}`", ", ".join(f"`{a}`" for a in signature(ops.parameters(n))) or "—", axes(n),
+                            summary(fn)]
                            for n, fn in ops.OPS.items() if ops.DECLARED[n]["group"] == group])]
     parts += ["## Components\n", doc(address) + "\n",
               grid([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
@@ -218,8 +206,7 @@ def markdown() -> str:
                         c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, cls in featurizers.KINDS.items():
-        params = [f"- `{k}: {spell_type(p.annotation)}" + ("`" if p.default is p.empty else f" = {as_json(p.default)}`")
-                  for k, p in registry.spelled(cls, featurizers.SUPPLIED).items()]
+        params = [f"- `{p}`" for p in signature(registry.spelled(cls, featurizers.SUPPLIED))]
         listed = "; ".join(served(name))
         parts += [f"### `{name}`\n", "\n".join(params) + "\n\n" + doc(cls) + "\n\n" + "Ops: " + listed
                   + ("" if listed.endswith(".") else ".") + "\n"]

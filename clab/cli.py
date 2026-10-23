@@ -20,8 +20,8 @@ from typing import Any
 
 from clab import output
 from clab.docs import WHAT, as_json, describe, markdown
-from clab.format.plan import Plan, Run, dims_of, name, points
 from clab.format.sweeps import coordinate, labelled
+from clab.plan import Plan, Run, dims_of, name, points
 
 
 def how(run: Run) -> str:
@@ -152,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{stem} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
-    for key, d in described.items():
+    for d in described.values():
         print(f"  {d['file']:28} {d['step']:16} {json.dumps(d['shape'])}")
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0

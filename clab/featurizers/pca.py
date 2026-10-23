@@ -10,10 +10,11 @@ class Pca(Kind):
     coordinates are centred on the mean."""
     saves, header, counts = ("basis", "mean"), ("k",), ("k",)
 
-    def __init__(self, width: int, file_path: str, k: int | None = None, bundle: dict | None = None):
+    def __init__(self, width: int, file_path: str, k: int | None = None,
+                 bundle: dict[str, Tensor] | None = None) -> None:
         assert bundle is not None
-        self.basis: Tensor = bundle["basis"]
-        self.mean: Tensor = bundle["mean"]
+        self.basis = bundle["basis"]
+        self.mean = bundle["mean"]
 
     def encode(self, h: Tensor) -> Tensor:
         return (h - self.mean.to(h)) @ self.basis.to(h)

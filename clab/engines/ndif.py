@@ -17,12 +17,12 @@ from nnterp import StandardizedTransformer
 from clab.engines import engine
 from clab.engines.nnterp import NnterpEngine
 from clab.engines.standard import build
-from clab.format.plan import Model
+from clab.plan import Model
 
 
 @engine("ndif")
 class NdifEngine(NnterpEngine):
-    def __init__(self, model: Model, *, device: str = "cpu", remote: Literal[True, "local"] = True):
+    def __init__(self, model: Model, *, device: str = "cpu", remote: Literal[True, "local"] = True) -> None:
         """`model`'s meta shell; `remote` is True for the NDIF server nnsight is configured for, or "local"
         for its in-process simulation, which places the model on `device`. On a server the server places it,
         so `device` stays at its default and the engine's is None (`plan.run.devices` says where it ran).

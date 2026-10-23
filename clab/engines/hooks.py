@@ -13,31 +13,33 @@ transformers moves them on from there.
 """
 
 import time
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Callable, Iterator
 
 import nnterp  # noqa: F401  (before any transformers.models import, which otherwise segfaults)
 import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
+from torch.utils.hooks import RemovableHandle
 from transformers import AutoModelForCausalLM
 
 from clab import steps
 from clab.engines import engine
 from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
 from clab.format.address import COMPONENTS
-from clab.format.plan import Model, Plan
+from clab.plan import Model, Plan
 from clab.steps import batches
-from clab.steps.generate import landed, now
+from clab.steps.batches import landed, now
 
 
 @engine("hooks")
 class HooksEngine:
     name: str
 
-    def __init__(self, model: Model, *, device: str = "cpu"):
+    def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
         `device_map` when transformers computes it, else moved there once loaded), with what the meta shell says
-        of it: each component's native module and boundary, the sizes, and the modules the readout runs.
+        of it: each component's native module and boundary, and the sizes.
 
         device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
         """
@@ -47,8 +49,7 @@ class HooksEngine:
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
         self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
-        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
-                       "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
+        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
             device_map=device if device in COMPUTED else None, **extra).eval())
@@ -68,70 +69,68 @@ class HooksEngine:
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.tokenizer)
 
-    def unserved(self) -> dict:
+    def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
         module's forward rather than at a module boundary; None where it can."""
         return {c: site["refused"] for c, site in self.config["sites"].items()}
 
     def rank(self, component: str, layer: int | None) -> int:
         """Where the component falls in this model's forward: when its hook fires, as measured at load."""
-        return self.config["order"][f"{component}@{layer}"]
+        return self.config["order"][component, layer]
 
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
 
-    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]:
-        """One call of the model with a hook at every site the records name; the hooks are removed after."""
-        sites = by_site(records)
+    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
+        """One call of the model, under the records' hooks (`hooked`)."""
         got: dict[str, Tensor] = {}
-        handles = [hook(self.model, self.config, component, layer, here, got, None)
-                   for (component, layer), here in sites.items()]
-        try:
+        with self.hooked(records, got):
             self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
-        finally:
-            for handle in handles:
-                handle.remove()
         return got
 
-    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]:
-        """`generate` over the batch, with `options` as its keyword arguments: the new ids, and each read. A
-        pre-hook on the model counts its forward calls (0 is the prompt) and keeps each decode call's
-        `input_ids`, and each site's hook does what `now` (and, for an online scope, `landed`) says there."""
-        sites = by_site(records)
+    def generate(self, batch: dict[str, Tensor], records: list[dict],
+                 options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]:
+        """`generate` over the batch, with `options` as its keyword arguments, under the records' hooks
+        (`hooked`): the new ids, and each read."""
         got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
-        call: dict = {"n": -1, "seen": [], "tokenizer": self.tokenizer}
-
-        def count(module, args, kwargs):
-            call["n"] += 1
-            if call["n"] > 0:
-                call["seen"].append(kwargs["input_ids"])
-        handles = [self.model.register_forward_pre_hook(count, with_kwargs=True)]
-        handles += [hook(self.model, self.config, component, layer, here, got, call)
-                    for (component, layer), here in sites.items()]
-        try:
+        with self.hooked(records, got):
             ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.home(self)), **options)
+        return ids[:, batch["input_ids"].shape[1]:], got
+
+    @contextmanager
+    def hooked(self, records: list[dict], got: dict[str, Any]) -> Iterator[None]:
+        """A hook at every site the records name, removed after. A pre-hook on the model keeps each forward call's
+        `input_ids` (call 0 is a forward's one call, or a generation's prompt), and each site's hook does what `now`
+        (and, at a decode call, `landed`) says there."""
+        calls: list[Tensor] = []
+        handles = [self.model.register_forward_pre_hook(lambda module, args, kwargs: calls.append(kwargs["input_ids"]),
+                                                        with_kwargs=True)]
+        handles += [hook(self, component, layer, here, got, calls)
+                    for (component, layer), here in by_site(records).items()]
+        try:
+            yield
         finally:
             for handle in handles:
                 handle.remove()
-        return ids[:, batch["input_ids"].shape[1]:], got
 
     def readout(self, hidden: Tensor) -> Tensor:
         """The final norm, then the head: the modules nnterp's names for their outputs reach."""
-        norm, head = (self.model.get_submodule(path) for path in self.config["readout"])
+        norm, head = (self.model.get_submodule(self.config["sites"][c]["paths"][None])
+                      for c in ("final_norm_output", "lm_head_output"))
         return head(norm(hidden))
 
 
-def hook(model, config: dict, component: str, layer: int | None, here: list, got: dict, call: dict | None):
-    """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout;
-    under a generation (`call` counts its forward calls), those `now` says on the current call."""
-    reach = config["sites"][component]
-    module = model.get_submodule(reach["paths"][str(layer)])
-    shape = config["sizes"]["num_heads"], config["sizes"]["head_dim"]
+def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
+         calls: list[Tensor]) -> RemovableHandle:
+    """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
+    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far)."""
+    reach = engine.config["sites"][component]
+    module = engine.model.get_submodule(reach["paths"][layer])
+    shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
-        records = here if call is None else now(here, call["n"])
-        if call is not None and call["n"] > 0:
-            records = landed(records, call["seen"], call["tokenizer"])
+        records = now(here, len(calls) - 1)
+        records = landed(records, calls[1:], engine.tokenizer) if len(calls) > 1 else records
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
@@ -139,12 +138,12 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, got
         return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":
-        def pre(module, args):
+        def pre(module: torch.nn.Module, args: tuple[Any, ...]) -> tuple[Any, ...] | None:
             value, wrote = visit(args[0])
             return (value, *args[1:]) if wrote else None
         return module.register_forward_pre_hook(pre)
 
-    def post(module, args, output):
+    def post(module: torch.nn.Module, args: tuple[Any, ...], output: Any) -> Any:
         if component == "logits":
             value, wrote = visit(output.logits)
             if wrote:
@@ -158,14 +157,14 @@ def hook(model, config: dict, component: str, layer: int | None, here: list, got
     return module.register_forward_hook(post)
 
 
-def order(model, sites: dict, device: str) -> dict[str, int]:
-    """When each served component's hook fires in a forward (`<component>@<layer>`), measured on a two-token
+def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str) -> dict[tuple[str, int | None], int]:
+    """When each served component's hook fires in a forward, by `(component, layer)`, measured on a two-token
     input on `device`, where the model takes its input: components at one module boundary fire together and
     share a rank."""
-    fired: list = []
+    fired: list[tuple[str, str]] = []
 
-    def noted(key: tuple):
-        def note(*_):
+    def noted(key: tuple[str, str]) -> Callable[..., None]:
+        def note(*_: object) -> None:
             if key not in fired:
                 fired.append(key)
         return note
@@ -180,11 +179,11 @@ def order(model, sites: dict, device: str) -> dict[str, int]:
     finally:
         for handle in handles:
             handle.remove()
-    return {f"{c}@{layer}": fired.index((path, s["boundary"])) for c, s in sites.items()
+    return {(c, layer): fired.index((path, s["boundary"])) for c, s in sites.items()
             for layer, path in s["paths"].items()}
 
 
-def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict:
+def reach(shell: StandardizedTransformer, component: str, support: dict[str, Any]) -> dict[str, Any]:
     """Where the component is on the native model: per layer, the module whose output or input nnterp's key names."""
     per_layer = COMPONENTS[component]["per_layer"]
     reason_for = support.get(nnterp_name(component))
@@ -203,6 +202,6 @@ def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict
         *children, boundary = key.split(".")
         for child in children:
             host = getattr(host, child)
-        paths[str(layer)] = host.path.removeprefix("model").removeprefix(".")
+        paths[layer] = host.path.removeprefix("model").removeprefix(".")
     return {"paths": paths, "boundary": boundary, "refused": None}
 

@@ -1,52 +1,38 @@
 """Everything that needs the model, checked before any forward: what the run needs found, and what it
 cannot run refused by name."""
 
-from dataclasses import dataclass, field
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens, placed, probe_of
 from clab.compile.interventions import check_labels, check_operands, held, refuse
 from clab.compile.positions import indices
-from clab.featurizers.uses import widths
+from clab.compile.state import Found
+from clab.compile.uses import widths
 from clab.format import address, data, selectors
-from clab.format.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
-from clab.steps.generate import generation_options
+from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points
+
+if TYPE_CHECKING:
+    from clab.engines import Engine
 
 
-@dataclass
-class Found:
-    """What preflight found, which the run needs: each dataset input's encoded rows and padded width
-    (`inputs`), every prefill record's positions per row by point (`positions`, which the run extends with the
-    other records'), the indices every record's `select` keeps on each axis (`selects`), room for what each
-    generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
-    each featurizer's width (`widths`), and for each fit point the same for its body (`bodies`): over its
-    training rows (`train`) and under each of its named `eval` substitutions (`evals`), each beside the plan
-    the body runs in."""
-    inputs: dict = field(default_factory=dict)
-    positions: dict = field(default_factory=dict)
-    said: dict = field(default_factory=dict)
-    selects: dict = field(default_factory=dict)
-    answers: dict = field(default_factory=dict)
-    widths: dict = field(default_factory=dict)
-    bodies: dict = field(default_factory=dict)
-
-
-def preflight(engine, plan: Plan) -> Found:
+def preflight(engine: Engine, plan: Plan) -> Found:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
     the indices every record's `select` keeps on each axis (`selects`, resolved here once, among the engine's
-    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
-    fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
-    `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
-    each substituted dataset's rows under the body's name for it.
+    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`, the root's
+    alone), and for each fit point the same for its body (`bodies`): over its training rows (`train`) and under
+    each of its named `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the
+    body's steps and each substituted dataset's rows under the body's name for it.
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
-    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
-    option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
+    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a position that does not fit some
     row's scope, or whose scope is not in a row a write or a read of static width needs; a token column that is not
     one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
     indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
@@ -60,36 +46,30 @@ def preflight(engine, plan: Plan) -> Found:
     or encoded with a `select` outside its features or keeping none of them; and a trained featurizer used at
     no site. A refusal inside a fit's body names the fit, and under an eval the eval and the datasets it reads.
     """
-    assert plan.run is not None
     refuse(engine, plan)
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
     found = prepare(engine, plan, plan.steps, {}, classes)
     found.widths = widths(engine, plan)
-    found.bodies = {}
     for name, entry in plan.steps.items():
         for step in points(entry):
-            if step.kind != "fit":
-                continue
-            within = body_view(plan, name, step.at)
-            sources: dict = {"train": (within, inside(name, None, {}, lambda within=within: prepare(
-                engine, within, step.steps, {}, classes))), "evals": {}}
-            for label, swap in step.eval.items():
-                held = body_view(plan, name, step.at, swap)
-                sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
-                    engine, held, step.steps, swap, classes))) if swap else sources["train"]
-            for _, body in [sources["train"], *sources["evals"].values()]:
-                body.widths = found.widths
-            put(found.bodies, name, step.at, sources)
+            if step.kind == "fit":
+                train = body(engine, plan, name, step, None, {}, classes)
+                put(found.bodies, name, step.at, {"train": train, "evals": {
+                    label: body(engine, plan, name, step, label, swap, classes) if swap else train
+                    for label, swap in step.eval.items()}})
     return found
 
 
-def inside(fit: str, label: str | None, swap: dict, run) -> Found:
-    """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
-    reads in place of the body's, whose rows a row number counts."""
+def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swap: dict[str, str],
+         classes: dict[str, list]) -> tuple[Plan, Found]:
+    """A fit body's plan (under eval `label`, with each dataset `swap` maps read under the body's name for it) and
+    its `prepare`; a refusal names the fit and, under an eval, which one and the datasets it reads in place of
+    the body's, whose rows a row number counts."""
+    view = body_view(plan, fit, step.at, swap)
     try:
-        return run()
+        return view, prepare(engine, view, step.steps, swap, classes)
     except ValueError as e:
         if label is None:
             raise ValueError(f"{fit}.{e}") from None
@@ -97,7 +77,7 @@ def inside(fit: str, label: str | None, swap: dict, run) -> Found:
         raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
-def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found:
+def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list]) -> Found:
     """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
     the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""
@@ -110,27 +90,24 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found
             if step.kind == "fit":
                 continue
             if step.kind == "op":
-                check_labels(plan, name, step, step.at, held(plan, step.of, step.at, sizes), dims_of(plan, step.of),
-                             sizes, False)
-                if "classes" in dims_of(plan, step.of):
-                    check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
+                args, ours, dims = arguments(step), held(plan, step.of, step.at, sizes), dims_of(plan, step.of)
+                check_labels(plan, name, step, step.at, ours, dims, sizes, False)
+                if "classes" in dims:
+                    check_classes(plan, name, step.op, args, probe_of(plan, step.of), classes, swap)
                 else:
-                    check_tokens(engine, plan, found, name, step.op, arguments(step), dims_of(plan, step.of),
-                                 *placed(plan, found, step.of, step.at))
+                    check_tokens(engine, plan, found, name, step.op, args, dims, *placed(plan, found, step.of, step.at))
                 bundle = ops.DECLARED[step.op]["bundle"]
                 for field in featurizers.KINDS[bundle].counts if bundle else ():
-                    width = (held(plan, step.of, step.at, sizes) or {}).get("hidden_size", range(sizes["hidden_size"]))
-                    if arguments(step)[field] > len(width):
-                        raise ValueError(f"{name}: {step.op} {field} {arguments(step)[field]} counts directions of a "
+                    width = (ours or {}).get("hidden_size", range(sizes["hidden_size"]))
+                    if args[field] > len(width):
+                        raise ValueError(f"{name}: {step.op} {field} {args[field]} counts directions of a "
                                          f"value {len(width)} wide, which has no more than {len(width)}")
                 if step.op == "pca" and step.of in found.positions:
                     n = sum(map(len, lookup(found.positions, step.of, step.at)))
-                    if n <= arguments(step)["k"]:
-                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
-                                         f"it needs more than {arguments(step)['k']}")
+                    if n <= args["k"]:
+                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
+                                         f"it needs more than {args['k']}")
                 continue
-            if step.kind == "generate":
-                generation_options(name, step.model_extra or {})
             rows = plan.data[step.dataset].rows or []
             source = data.input_name(step.input)
             if source not in found.inputs:
@@ -146,7 +123,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found
             encoded = found.inputs[source]["rows"]
             later = []                      # a write's operands, checked once the step's entries have their shapes
             for key, record in entries(step).items():
-                where, site, write = f"{name}.{key}", record.site, writes(record)
+                where, site = f"{name}.{key}", record.site
                 if site.layers is not None:
                     picked(where, site.layers, sizes["num_layers"])
                 for axis, index in (site.select or {}).items():
@@ -159,7 +136,7 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found
                 pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
                 resolved = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                    resolved = indices(where, write, record, step, rows, encoded, tokenizer)
+                    resolved = indices(where, record, step, rows, encoded, tokenizer)
                     put(found.positions, where, step.at, resolved)
                     widths = [len(r) for r in resolved]
                     shape = (widths[0] if len(set(widths)) == 1 else tuple(widths), select)

@@ -8,8 +8,8 @@ from conftest import BATCH_SIZE, plan_of
 
 from clab import Plan, ops
 from clab.compile import answers
-from clab.compile.answers import answered
-from clab.format.plan import PlanError
+from clab.compile.answers import Answer, answered
+from clab.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -109,6 +109,21 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
     assert filled.results["hit"][0, 0].item() == float(top in members)
 
 
+def test_a_set_scores_nothing_past_a_rows_own_answer():
+    """Token i of an answer scores position i, and a row's positions past its answer are NaN in the value. A
+    set's row there holds only padding ids, and its probability and cross-entropy stay missing, not 0 and inf."""
+    of = torch.randn(2, 3, 6)
+    of[1, 1:] = float("nan")                            # row 1's answer is one token, row 0's three
+    ids = torch.tensor([[[1, -1], [2, -1], [3, -1]], [[4, 5], [-1, -1], [-1, -1]]])
+    dims = ["rows", "pos", "vocab_size"]
+    p, nll = ops.metrics.token_prob(of, ids, dims), ops.metrics.cross_entropy(of, ids, dims)
+    probs = of.softmax(-1)
+    torch.testing.assert_close(p[0], probs[0, [0, 1, 2], [1, 2, 3]])
+    torch.testing.assert_close(p[1, 0], probs[1, 0, [4, 5]].sum())
+    torch.testing.assert_close(nll[1, 0], -probs[1, 0, [4, 5]].sum().log())
+    assert p[1, 1:].isnan().all() and nll[1, 1:].isnan().all()
+
+
 def refused_before_any_forward(engines, plan: Plan, message: str) -> None:
     engine = engines("nnterp", plan.model)
     calls = []
@@ -165,10 +180,11 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name, and a row with none is missing."""
     of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["rows", "pos", "vocab_size"], None, True)
+        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of, ["rows", "pos", "vocab_size"],
+                 None)
     missing = torch.full((1, 3, 5), float("nan"))
-    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["rows", "pos", "vocab_size"], None,
-                    True).shape == (1, 3, 1)
+    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
+                    ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
 
 
 @pytest.mark.parametrize("scope, message", [

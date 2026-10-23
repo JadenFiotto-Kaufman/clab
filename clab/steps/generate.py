@@ -1,29 +1,46 @@
 """The `generate` step kind, and its entries beyond the prefill."""
 
-from typing import TYPE_CHECKING, Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import Tensor
 
 from clab.compile import positions
 from clab.compile.positions import head, place, texts
+from clab.compile.state import Found
 from clab.format import address, data
-from clab.format.plan import Plan, entries, horizon, writes
 from clab.format.sweeps import lookup, put
-from clab.steps.batches import (bind, chunked, decoding, edit, joined, layers, read, read_name, site, stacked, with_ops,
-                                write_name)
+from clab.plan import Generate, Intervention, Plan, Site, entries, horizon, writes
+from clab.steps.batches import (
+    bind,
+    chunked,
+    decoding,
+    edit,
+    joined,
+    layers,
+    read,
+    read_name,
+    site,
+    stacked,
+    with_ops,
+    write_name,
+)
 
 if TYPE_CHECKING:
-    from clab.steps.preflight import Found
+    from transformers import PreTrainedTokenizerBase
+
+    from clab.engines import Engine
 
 
-def stops(engine, step) -> list[int]:
+def stops(engine: Engine, step: Generate) -> list[int]:
     """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
     given = (step.model_extra or {}).get("eos_token_id")
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: "Found") -> None:
+def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int, found: Found) -> None:
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
     options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
@@ -33,12 +50,12 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
     their EOS to the longest batch's."""
-    eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
+    eos, rows = set(stops(engine, step)), plan.data[cast(str, step.dataset)].rows or []
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
-    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
+    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
     most = horizon(step)
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
@@ -71,9 +88,9 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 
-def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict, found: "Found", chunk: slice,
-           pads: list[int], padded: int, encoded: list[dict], rows: list[dict], eos: set[int],
-           most: int | None) -> list[dict]:
+def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
+           found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
+           eos: set[int], most: int | None) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: a write's prefill part, where
     its frame holds the prompt, and its decode part (`calls`: the frame's own, or None for every decode call;
     a write with a text scope goes to every call with each row's texts, `online`, and lands where
@@ -82,29 +99,29 @@ def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict,
     pos = positions.parse(record.pos)
     holds, calls, _ = positions.reach(pos, most)
     head_only, layer = head(step, record), layers(engine, record)[0]
+    prompts = [len(e["ids"]) for e in encoded]
     out = []
     if writes(record):
-        edits = edit(engine, plan, record, state, step.at, chunk, answers=found.answers)
+        edits = edit(plan, record, state, step.at, chunk, found.answers)
         if holds:
-            where = [positions.prompted(len(e["ids"]), head_only) for e in encoded]
+            where = [positions.prompted(p, head_only) for p in prompts]
             out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, True),
                         "layer": layer, "ops": edits})
         online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
             if pos["scope"] else {}
-        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": write_name(key),
-                    "layer": layer, "ops": edits, "calls": None if online else calls, **online})
+        out.append({**decoding(record, picks, prompts), "name": write_name(key), "layer": layer, "ops": edits,
+                    "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
-            whole = [positions.prompted(len(e["ids"])) for e in encoded]
+            whole = [positions.prompted(p) for p in prompts]
             out.append({**site(record, picks, whole, pads, padded, head_only), "name": read_name(key, layer, True),
                         "layer": layer})
-        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": read_name(key, layer),
-                    "layer": layer, "calls": calls})
+        out.append({**decoding(record, picks, prompts), "name": read_name(key, layer), "layer": layer, "calls": calls})
     return out
 
 
-def landed_at(record, rows: list[dict], encoded: list[dict], said: list[list[int]], eos: set[int], tokenizer,
-              head_only: bool) -> list:
+def landed_at(record: Intervention, rows: list[dict], encoded: list[dict], said: list[list[int]], eos: set[int],
+              tokenizer: PreTrainedTokenizerBase, head_only: bool) -> list[list[int] | str]:
     """Where an entry past the prefill resolved on each row, once what the row generated (`said`) is known: a
     write with a text scope at the calls `positions.landing` said so of as each input was fed, any other entry
     by `positions.resolve` (`place`); a marker for a row it does not reach."""
@@ -116,7 +133,7 @@ def landed_at(record, rows: list[dict], encoded: list[dict], said: list[list[int
     return [place(pos, row, e, x, tokenizer, head_only) for row, e, x in zip(rows, encoded, said)]
 
 
-def generated(engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
+def generated(engine: Engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
     """`engine.generate`, which validates its own options: an error it raises naming one of them is reported
     as the step's, `<step>: generate rejected '<option>': <the engine's message>`. Each read at decode calls is
     checked to hold one value per call the batch made (a read out of forward order shifts calls)."""
@@ -136,9 +153,9 @@ def generated(engine, name: str, batch: dict, records: list[dict], options: dict
     return ids, got
 
 
-def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
-             encoded: list[dict], rows: slice, state: dict, at: dict, head_only: bool, most: int | None,
-             answers: dict) -> Any:
+def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whole: Tensor | None,
+             values: list[Tensor], where: list, encoded: list[dict], rows: slice, state: dict, at: dict,
+             head_only: bool, most: int | None, answers: dict) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
@@ -151,7 +168,7 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
     _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes = engine.sizes()
-    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(record.site.component)[2:]]
+    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(cast(Site, record.site).component)[2:]]
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
     device = some.device if some is not None else None
@@ -171,52 +188,3 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
             value[i, j] = at_position(i, p)
     places = torch.tensor([got + [-1] * (width - len(got)) for got in found], dtype=torch.long).reshape(len(where), width)
     return with_ops(engine, plan, record, value, state, at, rows, places, answers)
-
-
-# The generate options a step cannot forward as they are, the one value each may have, and why.
-FIXED = {
-    "num_return_sequences": (1, "more sequences than rows would break the step's one row of ids per input row"),
-    "num_beams": (1, "beams change the rows each forward call sees, so a read's row is no longer the input's"),
-    "return_dict_in_generate": (False, "the step's value is the ids"),
-    "use_cache": (True, "without the cache a decode step recomputes the prompt, and the prompt-call writes "
-                        "would not reach it"),
-}
-
-
-def generation_options(name: str, options: dict) -> None:
-    """Refuses an option in `FIXED` at another value. Every other option is the engine's `generate`'s to
-    accept or reject, when the step runs (`generated`)."""
-    for key, value in options.items():
-        if key in FIXED and value != FIXED[key][0]:
-            raise ValueError(f"{name}: {key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
-
-
-def now(records: list, call: int) -> list:
-    """What a generation does at a site on forward call `call` (0 is the prefill), in order: a record with no
-    `calls` acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
-    def wanted(record: dict) -> bool:
-        if "calls" not in record:
-            return call == 0
-        return call > 0 and (record["calls"] is None or call in record["calls"])
-    return [r for r in records if wanted(r)]
-
-
-def landed(records: list[dict], seen: list, tokenizer) -> list[dict]:
-    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
-    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
-    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
-    is left out. A read is as it was."""
-    out = []
-    for w in records:
-        if "ops" not in w:
-            out.append(w)
-            continue
-        online, w = w.get("online"), {**w, "call": len(seen)}
-        if online is None:
-            out.append(w)
-            continue
-        rows = [positions.landing(online["pos"], texts, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
-                for r, texts in enumerate(online["texts"])]
-        if any(rows):
-            out.append({**w, "keep": torch.tensor(rows)[:, None]})
-    return out

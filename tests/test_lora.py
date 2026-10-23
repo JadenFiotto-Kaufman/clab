@@ -14,8 +14,8 @@ from test_fit import TINY, corpus_copy
 
 from clab import Plan
 from clab.featurizers.lora import Lora
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
+from clab.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 
@@ -32,7 +32,7 @@ def test_an_untrained_adapter_is_the_identity_to_the_bit():
     f = Lora(16, rank=4, alpha=8, seed=0)
     h, other = torch.randn(3, 2, 16, generator=G), torch.randn(3, 2, 4, 4, generator=G)
     assert torch.equal(f.call("apply", h, {}), h)
-    assert torch.equal(f.call("apply", h, {"with": other}), h)
+    assert torch.equal(f.call("apply", h, {"with_": other}), h)
     assert f.A.shape == (16, 4) and f.B.eq(0).all() and f.scale == 2.0
 
 
@@ -41,7 +41,7 @@ def test_apply_is_h_plus_the_scaled_low_rank_update():
              header={"rank": "4", "alpha": "8"})
     h, other = torch.randn(3, 2, 16, generator=G), torch.randn(3, 2, 4, 4, generator=G)
     assert torch.equal(f.call("apply", h, {}), h + 2.0 * ((h @ f.A) @ f.B))
-    assert torch.equal(f.call("apply", h, {"with": other}), h + 2.0 * ((other.flatten(2) @ f.A) @ f.B))
+    assert torch.equal(f.call("apply", h, {"with_": other}), h + 2.0 * ((other.flatten(2) @ f.A) @ f.B))
 
 
 def test_training_an_adapter_lowers_ce_the_same_everywhere(engines, monkeypatch):

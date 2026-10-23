@@ -1,22 +1,27 @@
 """Bundles: a featurizer's tensors in a safetensors file, and the header that says what made them."""
 
+from __future__ import annotations
+
 import inspect
 import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from safetensors import safe_open
 from torch import Tensor
 
 from clab.featurizers import FORMAT, KINDS
 
+if TYPE_CHECKING:
+    from clab.plan import Model, Site
+
 # The keys every clab header holds beside `format` and its kind's own fields (`header`, below, writes them).
 OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "layer", "width", "document",
         "with.component", "with.layer")
 
 
-def header(kind: str, fields: dict, model: Any, labels: list | None = None, site: Any = None,
-           width: int | None = None, document: str | None = None, reads: Any = None) -> dict[str, str]:
+def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None, site: Site | None = None,
+           width: int | None = None, document: str | None = None, reads: Site | None = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
     list), the model, and, when written, the site it was used at, its width and the document's name, and the
     site it read its input at when that was another (`reads`, a cross-site adapter's `with`: `with.component`,
@@ -36,7 +41,7 @@ def header(kind: str, fields: dict, model: Any, labels: list | None = None, site
     return found
 
 
-def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = None
+def load(root: str, kind: str, fields: dict[str, Any], model: Model, labels: list | None
          ) -> tuple[dict[str, Tensor], dict[str, str] | None]:
     """The tensors and header of the bundle `fields["file_path"]` names under `root`: exactly the tensors the
     kind's bundle holds, and the header checked key by key against the featurizer that loads it and the

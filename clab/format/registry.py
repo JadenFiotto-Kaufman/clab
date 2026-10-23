@@ -1,9 +1,9 @@
-"""How a function joins one of clab's tables (step kinds, featurizer kinds, ops), and how a document's
-arguments are checked against that function's signature."""
+"""How a document's arguments are checked against the signature of the function they go to (an op, a
+featurizer kind, an engine), and how its types are spelled to a reader."""
 
 import inspect
 import types
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin, is_typeddict
 
 from pydantic import TypeAdapter, ValidationError
 from torch import Tensor
@@ -19,15 +19,7 @@ Text = Annotated[list, "Text"]
 Featurizer = Annotated["Kind", "Featurizer"]
 
 
-def registers(table: dict, name: str | None = None) -> Callable:
-    """A decorator that adds the function (or class) it decorates to `table` under `name`, else its own name."""
-    def add(fn: Callable) -> Callable:
-        table[name or fn.__name__] = fn
-        return fn
-    return add
-
-
-def spelled(fn: Callable, supplied: tuple) -> dict[str, inspect.Parameter]:
+def spelled(fn: Callable, supplied: tuple[str, ...]) -> dict[str, inspect.Parameter]:
     """A function's parameters by document spelling (a trailing underscore dropped: `with_` is `"with"`),
     without the ones the run supplies and a `**` catch-all."""
     return {p.name.rstrip("_"): p for p in inspect.signature(fn).parameters.values()
@@ -42,7 +34,7 @@ def described(fn: Callable) -> dict[str, str]:
     return {name: text for name, sep, text in lines if sep and name in names}
 
 
-def check(fn: Callable, args: dict, supplied: tuple, what: str) -> None:
+def check(fn: Callable, args: dict[str, Any], supplied: tuple[str, ...], what: str) -> None:
     """`args` (document spelling) bound to `fn`'s signature: every key a parameter, every required one given,
     and every literal of its annotated type. An `Annotated` parameter names a thing (a value, a column, a
     featurizer), which compile resolves; a `{"sweep": ...}` stands for a value and is checked per point. A
@@ -76,16 +68,13 @@ def thing(annotation: Any) -> Any:
     return named[0] if get_origin(annotation) in (Union, types.UnionType) and named else annotation
 
 
-def spell(annotation: Any, names: dict | None = None, literal: Callable[[Any], str] = repr) -> str:
+def spell(annotation: Any, names: dict[Any, str] | None = None, literal: Callable[[Any], str] = repr) -> str:
     """A type as a reader of the format says it: `float or null`. `names` spells some types by name, and
     `literal` a literal's values."""
     names = names or {}
     origin, args = get_origin(annotation), get_args(annotation)
-    try:
-        if annotation in names:
-            return names[annotation]
-    except TypeError:
-        pass
+    if annotation in names:
+        return names[annotation]
     if origin is Literal:
         return "one of " + ", ".join(map(literal, args))
     if origin in (Union, types.UnionType):
@@ -99,6 +88,6 @@ def spell(annotation: Any, names: dict | None = None, literal: Callable[[Any], s
         return f"object of {spell(args[1], names, literal)}" if args else "object"
     if annotation is type(None):
         return "null"
-    if isinstance(annotation, type) and issubclass(annotation, dict) and hasattr(annotation, "__required_keys__"):
+    if is_typeddict(annotation):
         return "{" + ", ".join(f"{k}: {spell(v, names, literal)}" for k, v in annotation.__annotations__.items()) + "}"
     return getattr(annotation, "__name__", str(annotation))

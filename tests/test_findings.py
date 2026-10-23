@@ -17,8 +17,8 @@ from safetensors.torch import save_file
 from clab import Plan, ops
 from clab.compile import positions
 from clab.format import data
-from clab.format.plan import PlanError, dims_of
 from clab.ops import metrics, reductions, transforms
+from clab.plan import PlanError, dims_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -375,7 +375,7 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     assert positions.located([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
     assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
     assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
-    from clab.format.plan import Pos, Scope
+    from clab.plan import Pos, Scope
     assert "starts where a token starts and ends where a token" in " ".join((Pos.__doc__ or "").split())
     assert "lies on token and word boundaries" in " ".join((Scope.__doc__ or "").split())
 

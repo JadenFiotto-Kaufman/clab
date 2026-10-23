@@ -42,7 +42,7 @@ what a kind need not have.
 import functools
 import inspect
 from contextlib import nullcontext
-from typing import Any, Callable, ClassVar, Protocol, cast
+from typing import Any, Callable, ClassVar
 
 import torch
 from torch import Tensor
@@ -56,20 +56,20 @@ KINDS: dict[str, type["Kind"]] = {}
 # The ops that reach a featurizer: the method of the kind's each runs, and what it produces on a value, for a
 # kind whose coordinates are on `axis`. A kind serves an op when it defines its method (one with `replace` has
 # `encode` too).
-OPS: dict[str, dict] = {
+OPS: dict[str, dict[str, str]] = {
     "encode": {"method": "encode", "produces": "gives its coordinates, the last axis becoming {axis}"},
     "decode": {"method": "replace", "produces": "writes a change of its coordinates back into the value"},
     "apply": {"method": "apply", "produces": "gives its version of the value, in the value's own layout"},
 }
 
 
-def unautocast(h: Tensor):
+def unautocast(h: Tensor) -> torch.autocast | nullcontext[None]:
     """Autocast off on `h`'s device, for the length of a `with`: a featurizer's math stays in its own dtype."""
     kind = h.device.type
     return torch.autocast(kind, enabled=False) if torch.amp.is_autocast_available(kind) else nullcontext()
 
 
-def exact(math: Callable) -> Callable:
+def exact(math: Callable[..., Tensor]) -> Callable[..., Tensor]:
     """A kind's method on a value `h` (`encode`, `replace`, `apply`), run with autocast off."""
     @functools.wraps(math)
     def run(self, h: Tensor, *args: Any, **kwargs: Any) -> Tensor:
@@ -100,12 +100,12 @@ class Kind:
         for name in ("encode", "replace", "apply"):
             if name in vars(cls):
                 setattr(cls, name, exact(vars(cls)[name]))
-        registry.registers(KINDS, cls.kind)(cls)
+        KINDS[cls.kind] = cls
 
     # -- what the document and the plan see ------------------------------------------------------------------
 
     @classmethod
-    def check(cls, fields: dict) -> None:
+    def check(cls, fields: dict[str, Any]) -> None:
         """`fields` bind to the kind's signature."""
         registry.check(cls, fields, SUPPLIED, repr(cls.kind))
 
@@ -115,10 +115,8 @@ class Kind:
         return [op for op, o in OPS.items() if hasattr(cls, o["method"])]
 
     @classmethod
-    def method(cls, op: str) -> Callable:
-        """The kind's method op `op` runs; an op the kind does not serve is refused by name."""
-        if op not in cls.ops():
-            raise ValueError(f"a {cls.kind!r} featurizer has no {op}; it serves {', '.join(cls.ops())}")
+    def method(cls, op: str) -> Callable[..., Tensor]:
+        """The kind's method op `op` runs: compile refuses an op the kind does not serve (`ops`)."""
         return getattr(cls, OPS[op]["method"])
 
     @classmethod
@@ -127,21 +125,20 @@ class Kind:
         return tensors[cls.saves[0]].shape[0]
 
     @classmethod
-    def published(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
+    def published(cls, tensors: dict[str, Tensor], fields: dict[str, Any]) -> dict[str, Tensor]:
         """The tensors of a published file (one with no clab header), as an instance loads them; a kind that
         reads none refuses."""
         raise ValueError(f"{fields['file_path']} has no clab header; a {cls.kind} bundle is one clab wrote")
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
-    def call(self, op: str, h: Tensor, options: dict) -> Tensor:
+    def call(self, op: str, h: Tensor, options: dict[str, Any]) -> Tensor:
         """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
-        document spelling). A missing vector of `h` (NaN), and the same vector of an option laid out on its
+        parameter name). A missing vector of `h` (NaN), and the same vector of an option laid out on its
         rows and positions, goes in as zeros and comes out missing, so the math, and a fit's gradients through
         it, see none of it. An encode is kept beside `h` while a fit watches the
         instance (`seen`)."""
         fn = self.method(op)
-        names = {k: p.name for k, p in registry.spelled(fn, ("self", "h")).items()}
         gone = h.isnan().any(-1, keepdim=True)
         x = h
         if gone.any():
@@ -149,7 +146,7 @@ class Kind:
             options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
                        if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
                        for k, v in options.items()}
-        out = fn(self, x, **{names[k]: v for k, v in options.items()})
+        out = fn(self, x, **options)
         out = out.masked_fill(gone, float("nan")) if gone.any() else out
         if op == "encode" and self.seen is not None:
             self.seen.append((h, out))
@@ -159,12 +156,12 @@ class Kind:
         """`h` after `fn` ran on its coordinates, on the `features` it keeps (every one when None), and the change
         was written back: an `encode` and the `decode` that closes it, `fn` the ops between; `new == z` gives `h`
         to the bit."""
-        space = cast(Writable, self)         # compile closes an encode only of a kind that serves `decode`
+        encode, replace = self.method("encode"), self.method("decode")
         with unautocast(h):
-            z = space.encode(h)
+            z = encode(self, h)
             index = None if features is None else features.to(z.device)
             new = fn(z if index is None else z.index_select(-1, index)).to(z.dtype)
-            return space.replace(h, z, new if index is None else z.index_copy(-1, index, new))
+            return replace(self, h, z, new if index is None else z.index_copy(-1, index, new))
 
     def settle(self) -> None:
         """Recompute what derives from the trained tensors (a subspace's basis), once per optimizer step rather
@@ -177,7 +174,7 @@ class Kind:
         """The instance's schedule at `epoch` of `epochs` (a gate's temperature)."""
 
     def scalar(self, name: str) -> Tensor:
-        """The scalar `name` a fit's objective may name (one of `scalars`); a kind refuses any other."""
+        """The scalar `name` a fit's objective may name: one of `scalars`, as compile checks."""
         raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
@@ -193,20 +190,14 @@ class Kind:
         return {name: getattr(self, name).detach() for name in self.saves}
 
 
-class Writable(Protocol):
-    """A kind with coordinates and a way back into the value: one that serves `decode`."""
-    def encode(self, h: Tensor) -> Tensor: ...
-    def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor: ...
-
-
-def check(kind: str, fields: dict) -> None:
+def check(kind: str, fields: dict[str, Any]) -> None:
     """Featurizer kind `kind` exists and `fields` are fields of it."""
     if kind not in KINDS:
         raise ValueError(f"unknown featurizer kind {kind!r}; valid: {', '.join(KINDS)}")
     KINDS[kind].check(fields)
 
 
-def labels(rows: dict[str, list[dict]], column: str) -> list:
+def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:
     """A probe's class list: the distinct values of `<dataset>.<column>`, sorted. They sort, and two compare
     as one class only when they are the same value, so they are of one type: all strings, all ints, all floats or
     all booleans (`1`, `1.0` and `true` would otherwise be one class, and `1` and `"yes"` do not sort)."""
@@ -222,8 +213,8 @@ def labels(rows: dict[str, list[dict]], column: str) -> list:
     return sorted(set(values))
 
 
-def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None,
-         header: dict | None = None, device: str = "cpu") -> Kind:
+def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor] | None, seed: int | None,
+         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu") -> Kind:
     """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`, its tensors on `device`.
     It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
     what a fit trains, its optimizer's state and its math live where the model is."""

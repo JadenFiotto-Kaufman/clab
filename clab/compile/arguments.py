@@ -6,8 +6,9 @@ from dataclasses import replace
 
 from clab import featurizers, ops
 from clab.compile.answers import column_ref, text_ref
+from clab.compile.state import Compiling, Known
 from clab.format import address, data
-from clab.format.plan import Compiling, Known, Op, Plan, arguments, fail, kind_of
+from clab.plan import Op, Plan, arguments, fail, kind_of
 
 
 def narrowed_readout(what: str) -> str:
@@ -34,7 +35,7 @@ def said(space: list[dict]) -> str:
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
     """The kind of the featurizer op `name` names, checked to exist and to serve the op, and an `apply`'s `with`
     to be a name its kind takes; None when the op takes no featurizer."""
-    ref = ops.featurizer_of(name, args)
+    ref = args.get("featurizer")
     if ref is None:
         return None
     featurizer_ref(cx, ref, f"{path}.featurizer")
@@ -52,7 +53,7 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     return kind
 
 
-def references(cx: Compiling, path: str, name: str, args: dict, classes: bool = False) -> dict[str, Known]:
+def references(cx: Compiling, path: str, name: str, args: dict, classes: bool) -> dict[str, Known]:
     """Op `name`'s arguments that name a value or a column, each resolved (`Known`, with `name` as written). A
     column read as text or scored against the vocabulary holds text on every row; one scored against a probe's
     `classes` holds its labels, whatever they are. A featurizer argument is checked to exist."""
@@ -105,7 +106,7 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
                  "many (a pos axis broadcasts no more than a layers axis does)")
 
 
-def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
+def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
     """The layout of op `name`'s result on a value laid out `dims`. Inside an entry (`where`) the op sees one
     batch, so it may not aggregate over rows; `original` is only an entry's."""
     if where != "entry" and "original" in inspect.signature(ops.OPS[name]).parameters:
@@ -120,9 +121,9 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def value_ref(cx: Compiling, value, path: str) -> Known:
+def value_ref(cx: Compiling, value: str, path: str) -> Known:
     """A named value produced before this point, noted as referenced and used."""
-    info = cx.names.get(value) if isinstance(value, str) else None
+    info = cx.names.get(value)
     if info is not None and info.kind == "featurizer":
         fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
@@ -135,7 +136,7 @@ def value_ref(cx: Compiling, value, path: str) -> Known:
     return info
 
 
-def featurizer_ref(cx: Compiling, value, path: str) -> None:
+def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
     """A declared featurizer's name, noted as referenced."""
     if not (isinstance(value, str) and value in cx.names and cx.names[value].kind == "featurizer"):
         known = sorted(k for k, v in cx.names.items() if v.kind == "featurizer")

@@ -22,7 +22,7 @@ from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
 from clab.compile import positions
-from clab.format.plan import PlanError
+from clab.plan import PlanError
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 # Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two
@@ -289,19 +289,9 @@ def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     ({"return_dict_in_generate": True}, "patched: return_dict_in_generate True; it stays False: the step's value"),
     ({"use_cache": False}, "patched: use_cache False; it stays True: without the cache a decode step recomputes"),
 ])
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_options_a_step_cannot_forward_are_refused_before_any_forward(engines, kind, option, message):
-    plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(option)).compile()
-    engine = engines(kind, plan.model)
-    calls = []
-    original = engine.generate
-    engine.generate = lambda *args: calls.append(1) or original(*args)
-    try:
-        with pytest.raises(ValueError, match=message):
-            engine.execute(plan)
-    finally:
-        del engine.generate
-    assert calls == []
+def test_options_a_step_cannot_forward_are_refused_by_the_record(option, message):
+    with pytest.raises(PlanError, match=message):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(option))
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -339,6 +329,23 @@ def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_pat
     rows = Plan.load(str(out)).table("p_answer")
     assert [(r["at"], r["row"], r["pos"], r["pos_token"], r["call"]) for r in rows][4] == \
         ({"frame": 1}, 0, 11, "Handler", 1)
+
+
+def test_a_swept_json_save_is_keyed_by_its_labelled_coordinate(engines, tmp_path):
+    """Text is JSON; swept, its file holds a key per point, `max_new_tokens=1`, as a tensor file's are, and
+    loads back to the same text."""
+    def change(d):
+        del d["steps"]["answer"]["min_new_tokens"]
+        d["steps"]["answer"]["max_new_tokens"] = {"sweep": [1, 2]}
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
+        d["saves"] = ["text"]
+    filled = run(engines, edited("generated_answer", change).compile(), "nnterp")
+    filled.dump(str(tmp_path))
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    keys = ["max_new_tokens=1", "max_new_tokens=2"]
+    assert manifest["results"]["text"]["file"] == "text.json" and list(manifest["results"]["text"]["shape"]) == keys
+    assert list(json.loads((tmp_path / "text.json").read_text())) == keys
+    assert Plan.load(str(tmp_path)).results["text"] == filled.results["text"]
 
 
 @pytest.mark.parametrize("name", GENERATE)

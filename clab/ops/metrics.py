@@ -74,7 +74,7 @@ def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
 def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The probability of `token` (of a class or a set, its members' summed)."""
     p, real = _gather(of.softmax(-1), token, dims)
-    return p.squeeze(-1) if p.shape[-1] == 1 else p.masked_fill(~real, 0.0).sum(-1)
+    return p.masked_fill(~real, 0.0).sum(-1).masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
@@ -88,13 +88,13 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     """The negative log-probability of `target` (of a class or a set, of its members' summed probability), in
     nats."""
     logp, real = _gather(of.log_softmax(-1), target, dims)
-    return -(logp.squeeze(-1) if logp.shape[-1] == 1 else logp.masked_fill(~real, -math.inf).logsumexp(-1))
+    return -logp.masked_fill(~real, -math.inf).logsumexp(-1).masked_fill(missing(of), float("nan"))
 
 
 def distribution(args: dict) -> None:
     """`kl`'s and `js`'s `against` is a distribution: a named value, never a number or a flag."""
-    against = args.get("against")
-    if "against" in args and not isinstance(against, str):
+    against = args["against"]
+    if not isinstance(against, str):
         raise ValueError(f"against {against!r} is not a name, and only a named value is a distribution; 'against' "
                          "names a value with the same vocabulary axis (another read's logits)")
 
@@ -120,8 +120,8 @@ def cosine(of: Tensor, with_: Value) -> Tensor:
     return torch.nn.functional.cosine_similarity(of, torch.as_tensor(with_, dtype=of.dtype, device=of.device), dim=-1)
 
 
-@op("metrics", needs=("rows",), removes=())
-def contains(of: list, text: Text, dims: list[str]) -> Tensor:
+@op("metrics", needs=("rows",))
+def contains(of: list[str], text: Text, dims: list[str]) -> Tensor:
     """1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set),
     compared as its reference says, else 0. Every row generated something, so none is missing."""
     hits = [any(compared(answer, strip, lower) in compared(said, False, lower) for answer in answers)

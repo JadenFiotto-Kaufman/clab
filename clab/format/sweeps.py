@@ -7,7 +7,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from clab.format.plan import Plan
+    from clab.plan import Plan
 
 
 UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows",
@@ -56,30 +56,30 @@ def points(entry: Any) -> list:
     return entry if isinstance(entry, list) else [entry]
 
 
-def agreeing(entry: Any, at: dict) -> Any:
+def agreeing(entry: Any, at: dict[str, int]) -> Any:
     """The point of `entry` that agrees with the point `at` on the entry's own axes."""
     return next(p for p in points(entry) if all(at.get(k) == i for k, i in p.at.items()))
 
 
-def coordinate(plan: Plan, at: dict) -> Any:
+def coordinate(plan: Plan, at: dict[str, int]) -> Any:
     """A point's key in a swept result: its axis's value (a list as a tuple), or the tuple of its axes' values
     in axis order."""
     values = [tuple(v) if isinstance(v := plan.sweeps[label].values[i], list) else v for label, i in at.items()]
     return values[0] if len(values) == 1 else tuple(values)
 
 
-def labelled(plan: Plan, at: dict, labels: bool = True) -> str:
-    """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`; without its labels, `-1`, `0,-1`."""
-    parts = [json.dumps(plan.sweeps[label].values[i], separators=(",", ":")) for label, i in at.items()]
-    return ",".join(f"{label}={part}" for label, part in zip(at, parts)) if labels else ",".join(parts)
+def labelled(plan: Plan, at: dict[str, int]) -> str:
+    """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`."""
+    return ",".join(f"{label}={json.dumps(plan.sweeps[label].values[i], separators=(',', ':'))}"
+                    for label, i in at.items())
 
 
-def put(state: dict, name: str, at: dict, value) -> None:
+def put(state: dict, name: str, at: dict[str, int], value: Any) -> None:
     # A new dict each time: a fit's body namespace is a copy of the state, whose entries it must not change.
     state[name] = {**state.get(name, {}), tuple(at.items()): value}
 
 
-def lookup(state: dict, name: str, at: dict):
+def lookup(state: dict, name: str, at: dict[str, int]) -> Any:
     """The value `name` at the producer's point that agrees with `at` on the producer's axes."""
     for coords, value in state[name].items():
         if all(at.get(k) == i for k, i in coords):
@@ -93,7 +93,7 @@ def by_coordinate(plan: Plan, by_point: dict) -> Any:
     return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
 
 
-def by_point(plan: Plan, name: str) -> list[tuple[dict, Any]]:
+def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
     """A saved value per point: each point's coordinates (none when its step is not swept) and its value."""
     entry = plan.steps[name.partition(".")[0]]
     if not isinstance(entry, list):

@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterator, Protocol
 from torch import Tensor
 
 from clab.format import registry
-from clab.format.plan import Model, Plan
+from clab.plan import Model, Plan
 
 # What every engine's constructor takes beside its own options.
 SUPPLIED = ("self", "model", "device")
@@ -48,18 +48,21 @@ class Engine(Protocol):
     name: str
     spec: Model
     model: Parameterized
-    device: str | None
     options: dict[str, Any]
+
+    @property
+    def device(self) -> str | None: ...
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...
 
-    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]: ...
+    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]: ...
 
-    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]: ...
+    def generate(self, batch: dict[str, Tensor], records: list[dict],
+                 options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]: ...
 
     def readout(self, hidden: Tensor) -> Tensor: ...
 
-    def unserved(self) -> dict: ...
+    def unserved(self) -> dict[str, str | dict[int, str] | None]: ...
 
     def rank(self, component: str, layer: int | None) -> Any: ...
 
@@ -77,7 +80,7 @@ ENGINES: dict[str, Callable[..., Engine]] = {}
 
 def engine(name: str) -> Callable:
     """A class decorator that registers an engine under `name`."""
-    def register(cls):
+    def register(cls: type) -> type:
         cls.name = name
         ENGINES[name] = cls
         return cls

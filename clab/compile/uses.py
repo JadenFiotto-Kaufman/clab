@@ -2,16 +2,35 @@
 checks of a loaded bundle's header against those uses, the instance made for the run, and the header a saved
 bundle carries."""
 
-from typing import Any
+from __future__ import annotations
 
-from clab.compile.interventions import bracketed, visited
+from typing import TYPE_CHECKING, cast
+
 from clab.featurizers import KINDS, Kind, labels, make
 from clab.format import address, selectors
-from clab.format.plan import Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, scope, walk
-from clab.format.selectors import selected
+from clab.format.selectors import Selector, selected
+from clab.plan import (
+    Featurizer,
+    Op,
+    Plan,
+    Site,
+    agreeing,
+    arguments,
+    bracketed,
+    declared,
+    entries,
+    entry_of,
+    fail,
+    scope,
+    visited,
+    walk,
+)
+
+if TYPE_CHECKING:
+    from clab.engines import Engine
 
 
-def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:
+def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
     """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
     step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
     applied to."""
@@ -41,7 +60,7 @@ def bundled_sites(plan: Plan) -> None:
                          f"{site.layers} ({where})")
 
 
-def widths(engine, plan: Plan) -> dict[str, int]:
+def widths(engine: Engine, plan: Plan) -> dict[str, int]:
     """Each featurizer's width: the size of the last axis of every site it is used at, which is one size, and
     the width its bundle's header says. A `select` on its features stays within them, and a featurizer a fit
     trains is used somewhere."""
@@ -49,7 +68,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     for name, used in uses(plan).items():
         for where, site, at, o, around in used:
             last = address.dims(site.component)[-1]
-            kept = selectors.kept(site.select, sizes)
+            kept = selectors.kept(cast("dict[str, Selector] | None", site.select), sizes)
             width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
@@ -79,8 +98,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                  f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                  f"layer {site.layers}, which is layer {layer[0]}")
-            if f.header is not None:
-                read_with(plan, where, at, f, o, sizes["num_layers"])
+            read_with(plan, where, at, f, o, sizes["num_layers"])
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
@@ -89,7 +107,7 @@ def widths(engine, plan: Plan) -> dict[str, int]:
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']} has no clab header and is "
                                  f"{KINDS[f.kind].width(f.bundle)} wide; this document uses {name!r} at "
                                  f"{site.component}, whose width is {width}")
-            features: Any = (arguments(o).get("select") or {}).get("features")
+            features = (arguments(o).get("select") or {}).get("features")
             if features is not None:
                 n = instance(plan, f, width, None).size()
                 selected(where, "features", features, n, f"the {n} features of {name!r}")
@@ -100,15 +118,18 @@ def widths(engine, plan: Plan) -> dict[str, int]:
     return out
 
 
-def at_layer(layers, n: int) -> str:
+def at_layer(layers: object, n: int) -> str:
     """A site's one layer counted from the first, as a header records it; other layers as written."""
     return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
-def read_with(plan: Plan, where: str, at: dict, f, o, n: int) -> None:
+def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, n: int) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
     `with.component` and `with.layer`) is used reading it there, and one made without reads none: the width check
-    alone would pass an o_proj adapter fed its own output, whose width can equal the premix's."""
+    alone would pass an o_proj adapter fed its own output, whose width can equal the premix's. A featurizer
+    with no clab header (drawn, or a published file) records neither."""
+    if f.header is None:
+        return
     given, recorded, layer = arguments(o).get("with"), f.header.get("with.component"), f.header.get("with.layer")
     file = (f.model_extra or {})["file_path"]
     if recorded is None and given is not None:
@@ -125,7 +146,7 @@ def read_with(plan: Plan, where: str, at: dict, f, o, n: int) -> None:
                          f"this use's with {given!r} is {site.component} layer {at_layer(site.layers, n)}")
 
 
-def instance(plan: Plan, spec, width: int, seed: int | None, device: str = "cpu") -> Kind:
+def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device: str = "cpu") -> Kind:
     """A featurizer point `spec` made on `device`: from its bundle, or drawn from its seed, else `seed`; a probe's
     class list from its `classes` column."""
     fields = spec.model_extra or {}

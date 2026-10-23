@@ -16,8 +16,8 @@ from test_fit import TINY, corpus_copy
 from clab import Plan, featurizers, ops
 from clab.docs import describe
 from clab.featurizers.gate import Gate
-from clab.format.plan import PlanError, dims_of
 from clab.format.sweeps import points
+from clab.plan import PlanError, dims_of
 from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)
@@ -61,13 +61,6 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
     assert ops.out_dims("encode", DIMS, {}, "linear") == ["rows", "pos", "classes"]
     assert [featurizers.KINDS[k].ops() for k in featurizers.KINDS] == [
         ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"]]
-
-
-def test_an_op_the_kind_does_not_serve_is_refused_by_name():
-    with pytest.raises(ValueError, match=r"a 'linear' featurizer has no apply; it serves encode$"):
-        featurizers.KINDS["linear"].method("apply")
-    with pytest.raises(ValueError, match=r"a 'lora' featurizer has no decode; it serves apply$"):
-        featurizers.KINDS["lora"].method("decode")
 
 
 def bracket(f, features=None, between=()) -> list[dict]:

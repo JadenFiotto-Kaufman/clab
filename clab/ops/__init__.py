@@ -1,23 +1,20 @@
 """The one computation vocabulary: every op is a plain function over tensors.
 
-`@op(group, ...)` declares a function as an op under its own name: its group, the axes the input
-must carry (`needs`), the axes it removes (`removes`: a tuple, or the name of the argument that lists them),
-the axes it appends (`adds`), when its value is a bundle a featurizer loads, that featurizer's kind
-(`bundle`), and a rule its arguments keep beyond their types (`check`). `OPS` lists them, in the order at the
-end of this file. An op whose axes depend on what it is given declares them as a function instead (`layout`),
-as `encode` does for its featurizer's kind. Compile reads the axes to lay out every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`,
-`Featurizer`, or a literal); `engine`, `original` and `dims` are filled by the
-run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
-`"with"`).
+`@op(group, ...)` declares a function as an op under its own name: its group, the axes the input must carry
+(`needs`), the axes it removes (`removes`), the axes it appends (`adds`), when its value is a bundle a featurizer
+loads, that featurizer's kind (`bundle`), and a rule its arguments keep beyond their types (`check`). `OPS` lists
+them, in the order at the end of this file. An op whose axes depend on what it is given declares them as a function
+instead (`layout`), as `encode` does for its featurizer's kind. Compile reads the axes to lay out every value. A
+parameter's annotation says how a document fills it (`Value`, `Tokens`, `Featurizer`, or a literal); `engine`,
+`original` and `dims` are filled by the run, never by a document; a trailing underscore is dropped from a
+parameter's document spelling (`with_` is `"with"`).
 """
 
 import inspect
 from typing import Any, Callable
 
-from clab import featurizers
 from clab.format import registry
-from clab.format.address import EXAMPLE_AXES
-from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
+from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (each read as ops.<name>)
 
 ABOUT = """An op runs in two places, always as the same function:
 
@@ -101,11 +98,12 @@ VOCABULARY = ("vocab_size", "classes")
 
 OPS: dict[str, Callable] = {}
 GROUPS = ("metrics", "reductions", "edits", "transforms")
-DECLARED: dict[str, dict] = {}
+DECLARED: dict[str, dict[str, Any]] = {}
 
 
-def op(group: str, needs: tuple = (), removes: tuple | str = (), adds: tuple = (), bundle: str | None = None,
-       layout: Callable | None = None, check: Callable | None = None):
+def op(group: str, needs: tuple[str | tuple[str, ...], ...] = (), removes: tuple[str, ...] = (),
+       adds: tuple[str, ...] = (), bundle: str | None = None, layout: Callable[..., list[str]] | None = None,
+       check: Callable[[dict], None] | None = None) -> Callable[[Callable], Callable]:
     """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`,
     `edits` or `transforms`), its axes, and, for a value a featurizer loads, the featurizer kind its `bundle`
     is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of
@@ -125,17 +123,6 @@ def parameters(name: str) -> dict[str, inspect.Parameter]:
     None`) as the thing."""
     return {k: p.replace(annotation=registry.thing(p.annotation))
             for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
-
-
-def featurizer_of(name: str, args: dict) -> Any:
-    """Op `name`'s `Featurizer` argument in `args`, if it takes one: a name in a document, an instance in a run."""
-    return next((args.get(k) for k, p in parameters(name).items() if p.annotation == Featurizer), None)
-
-
-def kind(name: str, args: dict) -> str | None:
-    """The kind of the featurizer instance bound as op `name`'s `Featurizer` argument, if any."""
-    f = featurizer_of(name, args)
-    return f.kind if isinstance(f, featurizers.Kind) else None
 
 
 def check(name: str, args: dict) -> None:
@@ -160,13 +147,11 @@ def check(name: str, args: dict) -> None:
 
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
-    """Run op `name` on `value` with `args` (document spelling, already bound to tensors); an argument the
-    op's signature does not name goes to its `**` catch-all as spelled."""
+    """Run op `name` on `value` with `args` (document spelling, checked and bound to tensors) and those of the
+    run's `supplied` values its signature names."""
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
-    kwargs = {names.get(k, k): v for k, v in args.items()}
-    kwargs.update((k, v) for k, v in supplied.items() if k in names and k not in kwargs)
-    return fn(value, **kwargs)
+    return fn(value, **{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names})
 
 
 def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:
@@ -176,20 +161,14 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
     if axes["layout"] is not None:
         return axes["layout"](dims, args, kind)
     for axis in axes["needs"]:
-        if not set(axis if isinstance(axis, tuple) else (axis,)) & set(dims):
+        either = axis if isinstance(axis, tuple) else (axis,)
+        if not set(either) & set(dims):
             ranks = "; it ranks a vocabulary's tokens, and over another axis (an sae's features, a probe's classes) " \
                 "it is not an op yet: save the value and rank it after the run" if axis == "vocab_size" and \
                 name in ("argmax", "top_k") else ""
-            raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, axis)) if isinstance(axis, tuple) else repr(axis)} "
-                             f"axis; this one is {dims}{ranks}")
-    removes = axes["removes"]
-    if isinstance(removes, str):
-        removes = args.get(removes)
-        for axis in removes or []:
-            if axis not in dims:
-                raise ValueError(f"{name!r} cannot remove {axis!r}; the value is {dims}")
-        removes = removes if removes is not None else EXAMPLE_AXES
-    return [a for a in dims if a not in removes] + list(axes["adds"])
+            raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, either))} axis; this one is "
+                             f"{dims}{ranks}")
+    return [a for a in dims if a not in axes["removes"]] + list(axes["adds"])
 
 
 # The ops, in the order the tables (`describe`, FORMAT.md) list them.

@@ -2,6 +2,8 @@
 positions checked against its step, its ops' layouts and operands), and what preflight checks of them against
 the model."""
 
+from __future__ import annotations
+
 import math
 from typing import TYPE_CHECKING
 
@@ -10,59 +12,41 @@ from clab.compile import positions
 from clab.compile.answers import text_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, said, space_of
 from clab.compile.positions import decided
+from clab.compile.state import Compiling, Found, Known
 from clab.format import address, data, selectors
-from clab.format.plan import (Compiling, Intervention, Known, Op, Plan, Site, agreeing, arguments, body_view, dims_of,
-                              edits, entries, entry_of, fail, gathers, horizon, walk, writes)
 from clab.format.selectors import made_at, picked
 from clab.format.sweeps import lookup
+from clab.plan import (
+    Forward,
+    Generate,
+    Intervention,
+    Op,
+    OpStep,
+    Plan,
+    Site,
+    Step,
+    Unbracketed,
+    agreeing,
+    arguments,
+    body_view,
+    bracketed,
+    dims_of,
+    edits,
+    entries,
+    entry_of,
+    fail,
+    gathers,
+    horizon,
+    visited,
+    walk,
+    writes,
+)
 
 if TYPE_CHECKING:
-    from clab.steps.preflight import Found
+    from clab.engines import Engine
 
 
-class Unbracketed(ValueError):
-    """A `decode` with no matching encode open, at index `at` among the entry's ops."""
-
-    def __init__(self, at: int, message: str):
-        super().__init__(message)
-        self.at = at
-
-
-def bracketed(listed: list[Op]) -> list[dict]:
-    """An entry's ops as their brackets nest: each op a node `{"at", "op"}`, an `encode` also holding the ops
-    after it as `inner` up to the `decode` that closes it (`closed`, that decode's index) or to the end. A decode
-    closes the most recent encode still open; one with none open, or of another featurizer, is `Unbracketed`."""
-    top: list[dict] = []
-    opened: list[dict] = []
-    for i, o in enumerate(listed):
-        ref = arguments(o).get("featurizer")
-        if o.op == "decode":
-            if not opened:
-                raise Unbracketed(i, f"decode of {ref!r} closes no encode: none is open in this entry here; put the "
-                                     f"encode of {ref!r} before it, the edits of its coordinates between them")
-            theirs = arguments(opened[-1]["op"])["featurizer"]
-            if theirs != ref:
-                raise Unbracketed(i, f"decode of {ref!r}, and the open encode is of {theirs!r} "
-                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most "
-                                     "recent encode not yet closed")
-            opened.pop()["closed"] = i
-            continue
-        node = {"at": i, "op": o}
-        (opened[-1]["inner"] if opened else top).append(node)
-        if o.op == "encode":
-            node.update(inner=[], closed=None)
-            opened.append(node)
-    return top
-
-
-def visited(nodes: list[dict], around: tuple = ()):
-    """`bracketed` nodes in the order their ops run, each with the encode nodes open around it, outermost first."""
-    for node in nodes:
-        yield node, around
-        yield from visited(node.get("inner", []), around + (node,))
-
-
-def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
+def items(plan: Plan, path: str, name: str, spec: Forward | Generate) -> list[tuple[str, str, Intervention]]:
     """A step's entries in the order written, each with its document path and name: the items of its
     `interventions` in turn, a bundle's entries where its name stands, rescoped to the step (`scoped`)."""
     value = spec.interventions
@@ -81,7 +65,7 @@ def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Interv
     return out
 
 
-def bundles_of(step) -> list[str]:
+def bundles_of(step: Step) -> list[str]:
     """The bundles a step's `interventions` pull in, by name."""
     value = getattr(step, "interventions", None)
     return [i for i in (value if isinstance(value, list) else [value]) if isinstance(i, str)]
@@ -109,12 +93,13 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
     return spec.model_copy(update={"ops": rewritten})
 
 
-def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, dataset: str,
-          live: dict[str, tuple[dict, Intervention]], own: set) -> dict:
-    """One entry compiled: its site inlined, its positions checked against the step, its ops walked for their
-    layouts and operands. Up to its last edit each op acts on the live value, so no edit follows an op that
-    changed the layout unless that was an `encode` its `decode` closes, and every encode before the write-back is
-    closed by then. `live` holds the forward's earlier entries by name; `own` names every entry of the step."""
+def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
+          live: dict[str, tuple[dict, Intervention]], own: set[str]) -> tuple[dict, Known]:
+    """One entry compiled, and what a name records of its value: its site inlined, its positions checked against
+    the step, its ops walked for their layouts and operands. Up to its last edit each op acts on the live value,
+    so no edit follows an op that changed the layout unless that was an `encode` its `decode` closes, and every
+    encode before the write-back is closed by then. `live` holds the forward's earlier entries by name; `own`
+    names every entry of the step."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -148,7 +133,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
                      dataset)
-    ragged = positions.width(pos) is None
+    width = positions.width(pos)                            # None when rows differ
     dims = address.dims(site.component, site.layers)
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
     try:
@@ -184,9 +169,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
                      "entry")
         found = references(cx, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
-        paired(at, o.op, dims, positions.width(pos), found)
+        paired(at, o.op, dims, width, found)
         if i <= last:
-            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, o.op == "apply")
+            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), width is None, live, o.op == "apply")
         if i in closes:
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
@@ -202,12 +187,15 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
         ref = arguments(spec.ops[j])["featurizer"]
         fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
-    record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
-    return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
+    space = space_of(cx, [n["op"] for n in unclosed])
+    record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True), "dims": dims,
+              **({"space": space} if space else {})}
+    return record, Known(dims, dataset, space=space, select={a: v for a, v in (site.select or {}).items() if a in dims},
+                         width=width if "pos" in dims else None)
 
 
-def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool, live: dict,
-             adapts: bool) -> None:
+def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,
+             live: dict[str, tuple[dict, Intervention]], adapts: bool) -> None:
     """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space`: the
     same coordinates, and that layout or one vector of its features; only the vector when the selection is
     ragged, unless the operand is an earlier entry of the same forward, gathered as the selection is (one layer,
@@ -252,7 +240,7 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
 # -- what preflight checks of the entries against the model ---------------------------------------------
 
 
-def refuse(engine, plan: Plan) -> None:
+def refuse(engine: Engine, plan: Plan) -> None:
     """Every component the plan reads or writes that the engine cannot serve, by name (`engine.unserved()` maps
     a component to None, why not, or why not per layer)."""
     reasons = engine.unserved()
@@ -267,7 +255,8 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: "Found", shapes: dict) -> None:
+def check_operands(engine: Engine, plan: Plan, where: str, o: Op, shape: tuple, step: Forward | Generate, site: Site,
+                   found: Found, shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
     that line up token for token; from the write's own forward, read at a site this engine reaches first. An
     adapter's input (`apply`'s `with`) is as wide per position as the value the op acts on, its axes after the
@@ -315,7 +304,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
             windowed(engine, where, value, producer, consumer, found, step.at)
 
 
-def windowed(engine, where: str, value: str, producer: str, consumer: str, found: "Found", at: dict) -> None:
+def windowed(engine: Engine, where: str, value: str, producer: str, consumer: str, found: Found, at: dict) -> None:
     """The same unscoped positions read on one input and written on another pair position i with position i. On
     a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
     from the start within the tokens both prompts begin with alike, or from the end within those they end with
@@ -339,7 +328,7 @@ def windowed(engine, where: str, value: str, producer: str, consumer: str, found
                                  "in each row")
 
 
-def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: list[str], sizes: dict,
+def check_labels(plan: Plan, where: str, o: Op | OpStep, at: dict, ours: dict | None, dims: list[str], sizes: dict,
                  write: bool) -> None:
     """An op's operand holds, on each axis a read's site narrows, the same indices as the value the op acts on
     (`ours`, by axis: a write's selection, or what a read or an op step's `of` holds), in the same order: a

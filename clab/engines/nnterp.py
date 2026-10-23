@@ -17,14 +17,15 @@ import nnsight
 import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
+from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine
 from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
 from clab.format.address import COMPONENTS
-from clab.format.plan import Model, Plan
+from clab.plan import Model, Plan
 from clab.steps import batches
-from clab.steps.generate import landed, now
+from clab.steps.batches import landed, now
 
 
 @engine("nnterp")
@@ -32,7 +33,7 @@ class NnterpEngine:
     name: str
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
-    def __init__(self, model: Model, *, device: str = "cpu"):
+    def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, placed by `device`: the loader's `device_map` when transformers computes
         it, else its `device`; the block's other keys go to the loader as they are.
 
@@ -56,58 +57,53 @@ class NnterpEngine:
         return plan
 
     @property
-    def tokenizer(self):
+    def tokenizer(self) -> PreTrainedTokenizerBase:
         return self.model.tokenizer
 
     @property
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.model.tokenizer)
 
-    def unserved(self) -> dict:
+    def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """Why nnterp does not serve a component on this checkpoint, from its `support()`; None where it does."""
         support = self.model.support()
         return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
 
-    def rank(self, component: str, layer: int | None) -> tuple:
+    def rank(self, component: str, layer: int | None) -> tuple[int, int]:
         """Where the component falls in this checkpoint's forward: nnterp's measured order."""
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
         return {k: getattr(self.model, k) for k in SIZES}
 
-    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]:
-        """One trace over the batch, visiting each site in forward order and doing its records there in turn."""
-        model = self.model
+    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
+        """One trace over the batch, its one forward call done as `visited` says."""
         sites = by_site(records)
-        order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
+        order = sorted(sites, key=lambda s: self.rank(*s))
         got: dict[str, Tensor] = {}
-        with model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
-            for component, layer in order:
-                host = envoy(model, component, layer)
-                value, wrote = batches.visit(getattr(host, component), component, sites[(component, layer)], got)
-                if wrote:
-                    setattr(host, component, value)
+        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
+            self.visited(order, sites, 0, [], got)
         return got
 
-    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]:
+    def generate(self, batch: dict[str, Tensor], records: list[dict],
+                 options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]:
         """`model.generate` over the batch, with `options` as its keyword arguments: the new ids, and each read.
 
-        One loop over the forward calls visits, at each call, every site in forward order and does there what
-        `now` says (and, for a write with an online scope, `landed`, from the inputs seen so far: each decode
-        call's `input_ids`, read first). It is bounded by the steps the reads ask for, or open when a read asks
-        for every step;
+        One loop over the forward calls does each call as `visited` says (from the inputs seen so far: each decode
+        call's `input_ids`, read first, where a write has an online scope). It is bounded by the steps the reads ask
+        for, or open when a read asks for every step;
         either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
         read out of forward order shows up instead as a missing step, which `generate.generate` refuses), so the
         ids are read in an invoke of their own, which the loop's end does not cut short."""
         model = self.model
         sites = by_site(records)
-        order = sorted(sites, key=lambda s: model.rank(nnterp_name(s[0]), s[1]))
+        order = sorted(sites, key=lambda s: self.rank(*s))
         asked = [r["calls"] for r in records if "calls" in r]
         loop = None if None in asked else sorted({0, *(s for a in asked for s in a)})
         got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
         online = any("online" in r for r in records)
-        result: dict = {}
-        seen: list = []
+        result: dict[str, Tensor] = {}
+        seen: list[Tensor] = []
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
@@ -116,18 +112,23 @@ class NnterpEngine:
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)
-                        for component, layer in order:
-                            here = now(sites[(component, layer)], step)
-                            here = landed(here, seen, model.tokenizer) if step > 0 else here
-                            if not here:
-                                continue
-                            host = envoy(model, component, layer)
-                            value, wrote = batches.visit(getattr(host, component), component, here, got)
-                            if wrote:
-                                setattr(host, component, value)
+                        self.visited(order, sites, step, seen, got)
                 with tracer.invoke():
                     result["ids"] = tracer.result
         return result["ids"][:, batch["input_ids"].shape[1]:], got
+
+    def visited(self, order: list[tuple[str, int | None]], sites: dict[tuple[str, int | None], list[dict]], call: int,
+                seen: list[Tensor], got: dict[str, Any]) -> None:
+        """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site in forward `order`,
+        doing there what `now` says and, at a decode call, `landed`, from the inputs `seen` so far."""
+        for component, layer in order:
+            here = now(sites[(component, layer)], call)
+            here = landed(here, seen, self.tokenizer) if call > 0 else here
+            if here:
+                host = envoy(self.model, component, layer)
+                value, wrote = batches.visit(getattr(host, component), component, here, got)
+                if wrote:
+                    setattr(host, component, value)
 
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
