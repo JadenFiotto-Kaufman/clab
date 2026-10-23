@@ -8,8 +8,8 @@ from torch import Tensor
 
 from clab.compile import positions
 from clab.format import address, data, selectors
-from clab.format.sweeps import by_point, coordinate, labelled
-from clab.plan import Plan, arguments, body_view, corpus_root, dims_of, entries, points, walk
+from clab.format.sweeps import by_point, labelled
+from clab.plan import Plan, arguments, body_view, corpus_root, dims_of, entries, entry_of, points, walk
 
 JOIN = ("at", "row", "layer", "pos", "key")
 
@@ -72,17 +72,15 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
     dataset = points(entry)[0].dataset
     examples = materialized(plan, dataset) if dataset else []
     out = []
-    for p in points(entry):
-        value = plan.results[name][coordinate(plan, p.at)] if isinstance(entry, list) else plan.results[name]
-        at = {"at": {label: plan.sweeps[label].values[i] for label, i in p.at.items()}} if p.at else {}
+    for p, (at, value) in zip(points(entry), by_point(plan, name)):
         place = located(plan, source, p.at) if source else None
         for row in elements(value, dims, place):
             if "row" in row and examples:
                 example = examples[row["row"]]
                 row = {**({"example_id": example["example_id"]} if "example_id" in example else {}), **row,
                        **{c: example[c] for c in (columns if columns is not None else used)}}
-            value = {"value": row.pop("value")} if "value" in row else {}
-            out.append({**at, **row, **value})                      # the value last, as in a joined table
+            last = {"value": row.pop("value")} if "value" in row else {}
+            out.append({**({"at": at} if at else {}), **row, **last})       # the value last, as in a joined table
     return out
 
 
@@ -218,13 +216,12 @@ def located(plan: Plan, source: str, at: dict[str, int]) -> dict[str, Any]:
     generation (whose positions are labelled with their call), the positions each row resolved to, the keys
     it selects, and the layers it was made at when it has a `layers` axis."""
     assert plan.run is not None
-    thing, _, member = source.partition(".")
-    producer = next(p for p in points(plan.steps[thing]) if all(at.get(k) == i for k, i in p.at.items()))
+    producer, read = entry_of(plan.steps, source, at)
     prompt = plan.run.tokens[data.input_name(producer.input)]
-    said = plan.run.tokens.get(thing) if producer.kind == "generate" else None
+    said = plan.run.tokens.get(source.partition(".")[0]) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
-    resolved, site = plan.run.positions[source], entries(producer)[member].site
+    resolved, site = plan.run.positions[source], read.site
     keys = selectors.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
