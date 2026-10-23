@@ -223,20 +223,17 @@ def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice 
     for key, value in args.items():
         annotation = params[key].annotation
         if annotation == ops.Value and isinstance(value, str) and live and value in live:
-            out[key] = {"live": live[value]}
-            continue
-        if annotation == ops.Value and isinstance(value, str):
+            value = {"live": live[value]}
+        elif annotation == ops.Value and isinstance(value, str):
             given, value = value, lookup(state, value, at)
             value = value[rows] if rows is not None and dims_of(plan, given)[:1] == ["rows"] else value
-        elif annotation == ops.Tokens:
-            if vocabulary is None:
-                out[key] = answered(answers[refkey(value)], of, dims or [], rows)
-                continue
+        elif annotation == ops.Tokens and vocabulary is not None:
             value = indexed(plan, value, vocabulary, rows)[:, None]
+        elif annotation == ops.Tokens:
+            value = answered(answers[refkey(value)], of, dims or [], rows)
         elif annotation == ops.Text:
             column, strip, lower = data.column_of(value) or ("", False, False)
-            out[key] = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, rows)]
-            continue
+            value = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, rows)]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, at)
         out[key] = value
@@ -386,10 +383,8 @@ def landed(records: list[dict], seen: list[Tensor], tokenizer: PreTrainedTokeniz
     is left out. A read is as it was."""
     out = []
     for w in records:
-        if "ops" not in w:
-            out.append(w)
-            continue
-        online, w = w.get("online"), {**w, "call": len(seen)}
+        w = {**w, "call": len(seen)} if "ops" in w else w
+        online = w.get("online")
         if online is None:
             out.append(w)
             continue
