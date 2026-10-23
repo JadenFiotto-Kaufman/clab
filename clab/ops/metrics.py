@@ -74,7 +74,7 @@ def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
 def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The probability of `token` (of a class or a set, its members' summed)."""
     p, real = _gather(of.softmax(-1), token, dims)
-    return p.squeeze(-1) if p.shape[-1] == 1 else p.masked_fill(~real, 0.0).sum(-1)
+    return p.masked_fill(~real, 0.0).sum(-1).masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
@@ -88,7 +88,7 @@ def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     """The negative log-probability of `target` (of a class or a set, of its members' summed probability), in
     nats."""
     logp, real = _gather(of.log_softmax(-1), target, dims)
-    return -(logp.squeeze(-1) if logp.shape[-1] == 1 else logp.masked_fill(~real, -math.inf).logsumexp(-1))
+    return -logp.masked_fill(~real, -math.inf).logsumexp(-1).masked_fill(missing(of), float("nan"))
 
 
 def distribution(args: dict) -> None:
