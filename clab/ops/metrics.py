@@ -120,7 +120,7 @@ def cosine(of: Tensor, with_: Value) -> Tensor:
     return torch.nn.functional.cosine_similarity(of, torch.as_tensor(with_, dtype=of.dtype, device=of.device), dim=-1)
 
 
-@op("metrics", needs=("rows",), removes=())
+@op("metrics", needs=("rows",))
 def contains(of: list, text: Text, dims: list[str]) -> Tensor:
     """1 where a row's text (a `detokenize`d generation) contains `text`, the row's answer (any member of a set),
     compared as its reference says, else 0. Every row generated something, so none is missing."""
