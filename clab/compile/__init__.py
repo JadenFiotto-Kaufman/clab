@@ -19,7 +19,6 @@ from dataclasses import replace
 from typing import Any, Callable
 
 from clab import featurizers
-from clab.compile import positions
 from clab.compile.answers import column_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
 from clab.compile.interventions import entry, items
@@ -212,8 +211,7 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
     live: dict[str, tuple[dict, Intervention]] = {}
     made = {}
     for p, k, e in given:
-        records[k] = entry(cx, p, e, plan, spec, dataset, live, own)
-        made[k] = value_of(records[k], e, dataset)
+        records[k], made[k] = entry(cx, p, e, plan, spec, dataset, live, own)
         # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":
@@ -224,14 +222,6 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         cx.names[name] = Known(["rows", "new"], dataset)
     return {**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), "interventions": records,
             "dataset": dataset}
-
-
-def value_of(record: dict, spec: Intervention, dataset: str) -> Known:
-    """What a name records of an entry's value (`Known`)."""
-    dims = record["dims"]
-    return Known(dims, dataset, space=record.get("space", []),
-                 select={a: v for a, v in (record["site"].get("select") or {}).items() if a in dims},
-                 width=positions.width(positions.parse(spec.pos)) if "pos" in dims else None)
 
 
 def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> dict:

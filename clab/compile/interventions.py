@@ -94,11 +94,12 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
 
 
 def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
-          live: dict[str, tuple[dict, Intervention]], own: set[str]) -> dict:
-    """One entry compiled: its site inlined, its positions checked against the step, its ops walked for their
-    layouts and operands. Up to its last edit each op acts on the live value, so no edit follows an op that
-    changed the layout unless that was an `encode` its `decode` closes, and every encode before the write-back is
-    closed by then. `live` holds the forward's earlier entries by name; `own` names every entry of the step."""
+          live: dict[str, tuple[dict, Intervention]], own: set[str]) -> tuple[dict, Known]:
+    """One entry compiled, and what a name records of its value: its site inlined, its positions checked against
+    the step, its ops walked for their layouts and operands. Up to its last edit each op acts on the live value,
+    so no edit follows an op that changed the layout unless that was an `encode` its `decode` closes, and every
+    encode before the write-back is closed by then. `live` holds the forward's earlier entries by name; `own`
+    names every entry of the step."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -186,8 +187,11 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         ref = arguments(spec.ops[j])["featurizer"]
         fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
-    record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True)}
-    return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
+    space = space_of(cx, [n["op"] for n in unclosed])
+    record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True), "dims": dims,
+              **({"space": space} if space else {})}
+    return record, Known(dims, dataset, space=space, select={a: v for a, v in (site.select or {}).items() if a in dims},
+                         width=width if "pos" in dims else None)
 
 
 def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,
