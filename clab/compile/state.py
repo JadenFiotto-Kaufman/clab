@@ -1,7 +1,14 @@
 """What compile knows while it works: each name produced so far (`Known`), the context every function that
 resolves a name is handed (`Compiling`), and what preflight found with the model in hand (`Found`)."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from clab.compile.answers import Answer
+    from clab.plan import Plan
 
 
 @dataclass
@@ -37,15 +44,15 @@ class Compiling:
     by its coordinates (`point`)."""
     doc: dict
     root: str
-    rows: dict
-    sweeps: dict
-    values: dict
-    names: dict[str, "Known"]
-    axes_of: dict
-    refs: list
-    used: set
-    aliases: dict = field(default_factory=dict)
-    points: dict = field(default_factory=dict)
+    rows: dict[str, list[dict]]
+    sweeps: dict[tuple, str]
+    values: dict[str, list]
+    names: dict[str, Known]
+    axes_of: dict[str, list[str]]
+    refs: list[str]
+    used: set[str]
+    aliases: dict[str, str] = field(default_factory=dict)
+    points: dict[tuple, Plan] = field(default_factory=dict)
 
 
 @dataclass
@@ -57,10 +64,10 @@ class Found:
     each featurizer's width (`widths`), and for each fit point the same for its body (`bodies`): over its
     training rows (`train`) and under each of its named `eval` substitutions (`evals`), each beside the plan
     the body runs in."""
-    inputs: dict = field(default_factory=dict)
+    inputs: dict[str, dict] = field(default_factory=dict)
     positions: dict = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     selects: dict = field(default_factory=dict)
-    answers: dict = field(default_factory=dict)
-    widths: dict = field(default_factory=dict)
+    answers: dict[str, Answer] = field(default_factory=dict)
+    widths: dict[str, int] = field(default_factory=dict)
     bodies: dict = field(default_factory=dict)

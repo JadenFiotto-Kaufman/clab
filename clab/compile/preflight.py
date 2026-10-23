@@ -1,6 +1,10 @@
 """Everything that needs the model, checked before any forward: what the run needs found, and what it
 cannot run refused by name."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Callable
+
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens, placed, probe_of
@@ -13,8 +17,11 @@ from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 
+if TYPE_CHECKING:
+    from clab.engines import Engine
 
-def preflight(engine, plan: Plan) -> Found:
+
+def preflight(engine: Engine, plan: Plan) -> Found:
     """Everything that needs the model, checked before any forward. Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
@@ -64,7 +71,7 @@ def preflight(engine, plan: Plan) -> Found:
     return found
 
 
-def inside(fit: str, label: str | None, swap: dict, run) -> Found:
+def inside(fit: str, label: str | None, swap: dict[str, str], run: Callable[[], Found]) -> Found:
     """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
     reads in place of the body's, whose rows a row number counts."""
     try:
@@ -76,7 +83,7 @@ def inside(fit: str, label: str | None, swap: dict, run) -> Found:
         raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
-def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found:
+def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list]) -> Found:
     """`preflight`'s checks and findings for `steps` (a fit is prepared apart), over the rows `plan` holds:
     the root's, or a body's. `swap` names each dataset as the run record knows it (an eval substitution's
     `{"train": "test"}` records `train.input` as `test.input`); `classes` is each probe's class list."""

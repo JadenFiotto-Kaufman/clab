@@ -1,10 +1,12 @@
 """Answers: a dataset column scored against a value's vocabulary (the tokenizer's against logits, or a probe's
 classes), each row's answer tokenized as written and lined up with the read it scores; and a column read as text."""
 
+from __future__ import annotations
+
 import functools
 import json
 from dataclasses import dataclass, replace
-from typing import Any, cast
+from typing import TYPE_CHECKING
 
 import torch
 from pydantic import ValidationError
@@ -18,6 +20,11 @@ from clab.format.sweeps import lookup
 from clab.ops.metrics import ONE_ID
 from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, points
 
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
+
+    from clab.engines import Engine
+
 
 def probe_of(plan: Plan, name: str) -> str:
     """The probe whose `encode` made value `name`'s `classes` axis, as referenced where it was encoded."""
@@ -30,7 +37,7 @@ def probe_of(plan: Plan, name: str) -> str:
     return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")
 
 
-def text_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
+def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> str:
     """A column reference (`"<dataset>.<column path>"`, or `{"column", "strip"?, "lower"?}`) naming text on
     every row, of `dataset` (the step's) when one is given: a string, or a non-empty list of them (a set).
     Returns its dataset."""
@@ -57,7 +64,7 @@ def text_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     return name
 
 
-def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
+def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> str:
     """`<dataset>.<column>`, a column present on every row; of `dataset` when one is given. Returns the dataset."""
     name, _, column = value.partition(".") if isinstance(value, str) else ("", "", "")
     if name not in cx.rows:
@@ -70,7 +77,7 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     return name
 
 
-def check_tokens(engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
+def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
                  placed: list | None, forced: list | None = None) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
@@ -116,11 +123,11 @@ class Answer:
     column: str
     aligned: bool
 
-    def rows(self, part: slice) -> "Answer":
+    def rows(self, part: slice) -> Answer:
         return replace(self, values=self.values[part], sets=self.sets[part])
 
 
-def answer(engine, plan: Plan, found: Found, ref, where: str) -> Answer:
+def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str) -> Answer:
     """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
     key = refkey(ref)
     if key not in found.answers:
@@ -183,12 +190,12 @@ def column_texts(plan: Plan, column: str, rows: slice | None) -> list:
     return values[rows] if rows is not None else values
 
 
-def refkey(ref) -> str:
+def refkey(ref: str | dict) -> str:
     """A column reference as the key its resolved answers are found under."""
     return json.dumps(ref, sort_keys=True)
 
 
-def tokens(engine, plan: Plan, ref, rows: slice | None) -> tuple[list, list, str]:
+def tokens(engine: Engine, plan: Plan, ref: str | dict, rows: slice | None) -> tuple[list, list, str]:
     """A column reference's answer on each row, sliced to `rows`: its value, and per token the ids it may be
     (`answers`), and the column's name."""
     column, strip, lower = data.column_of(ref) or ("", False, False)
@@ -196,7 +203,7 @@ def tokens(engine, plan: Plan, ref, rows: slice | None) -> tuple[list, list, str
     return values, answers(engine.tokenizer, values, column, strip, lower), column
 
 
-def answered(values: list, sets: list, column: str, of: Any, dims: list[str], rows: slice | None,
+def answered(values: list, sets: list, column: str, of: Tensor | None, dims: list[str], rows: slice | None,
              aligned: bool) -> Tensor:
     """Each row's answer laid against the value `of` a metric scores, as the ids each position may be, padded
     with -1 (`metrics._aligned`). A column whose every row is one token scores it at every position of its row
@@ -211,8 +218,9 @@ def answered(values: list, sets: list, column: str, of: Any, dims: list[str], ro
     if "pos" not in dims:
         raise ValueError(f"{column}: an answer of several tokens scores a position each, and the value has no pos "
                          f"axis ({dims})")
-    width = cast(Tensor, of).shape[dims.index("pos")]
-    lined(values, sets, present(cast(Tensor, of), dims), column, start)
+    assert of is not None, "only a write's ops are bound without the value, and with no dims"
+    width = of.shape[dims.index("pos")]
+    lined(values, sets, present(of, dims), column, start)
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 
@@ -231,7 +239,7 @@ def lined(values: list, sets: list, widths: list[int], column: str, start: int) 
             raise ValueError(unaligned(column, start + r, value, k, n))
 
 
-def unaligned(column: str, row: int, value, k: int, n: int) -> str:
+def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:
     """Why a row's answer does not line up with the read a metric scores."""
     return (f"{column} row {row}: {value!r} is {k} token{'s' * (k != 1)}; the read has {n} position"
             f"{'s' * (n != 1)} on that row; "
@@ -239,7 +247,8 @@ def unaligned(column: str, row: int, value, k: int, n: int) -> str:
             "\"before\": true reads the positions that predict the answer's tokens)")
 
 
-def answers(tokenizer, values: list, column: str, strip: bool = False, lower: bool = False) -> list[list[list[int]]]:
+def answers(tokenizer: PreTrainedTokenizerBase, values: list, column: str, strip: bool = False,
+            lower: bool = False) -> list[list[list[int]]]:
     """Each row's answer as, per token, the ids it may be. A row's value is a string or a set of them (a list),
     each tokenized exactly as written without special tokens (`" Friday"` and `"Friday"` are different tokens
     on most tokenizers; the column says which), and under `strip` without its whitespace-only tokens at either
@@ -258,7 +267,7 @@ def answers(tokenizer, values: list, column: str, strip: bool = False, lower: bo
     return out
 
 
-def trimmed(tokenizer, ids: list[int], strip: bool) -> list[int]:
+def trimmed(tokenizer: PreTrainedTokenizerBase, ids: list[int], strip: bool) -> list[int]:
     """`ids` without the whitespace-only tokens at either end under `strip` (`"  New York "`: `ĠNew ĠYork`)."""
     texts = vocabulary(tokenizer)
     while strip and ids and not texts[ids[0]].strip():
@@ -268,7 +277,7 @@ def trimmed(tokenizer, ids: list[int], strip: bool) -> list[int]:
     return ids
 
 
-def spelled(tokenizer, token: int, strip: bool, lower: bool) -> list[int]:
+def spelled(tokenizer: PreTrainedTokenizerBase, token: int, strip: bool, lower: bool) -> list[int]:
     """The ids a token stands for: under `strip` or `lower`, its class, every id whose text compares the same
     (`compared`); else the token alone. A token that is part of a character (its text is U+FFFD) is its own."""
     text = vocabulary(tokenizer)[token]
@@ -278,7 +287,7 @@ def spelled(tokenizer, token: int, strip: bool, lower: bool) -> list[int]:
 
 
 @functools.cache
-def vocabulary(tokenizer) -> list[str]:
+def vocabulary(tokenizer: PreTrainedTokenizerBase) -> list[str]:
     """Each id's text: what it decodes to after another token (`a`'s first), so a leading space (` Positive`,
     `▁Positive`) is its own. Made once per tokenizer."""
     anchor = tokenizer("a", add_special_tokens=False)["input_ids"][0]
@@ -287,7 +296,7 @@ def vocabulary(tokenizer) -> list[str]:
 
 
 @functools.cache
-def spellings(tokenizer, strip: bool, lower: bool) -> dict[str, list[int]]:
+def spellings(tokenizer: PreTrainedTokenizerBase, strip: bool, lower: bool) -> dict[str, list[int]]:
     """Every id of the vocabulary but a part of a character by its text as `strip` and `lower` compare it: the
     classes an answer's tokens stand for. Made once per tokenizer and flags."""
     found: dict[str, list[int]] = {}

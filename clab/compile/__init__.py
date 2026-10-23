@@ -16,7 +16,7 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 
 import itertools
 from dataclasses import replace
-from typing import Any
+from typing import Any, Callable
 
 from clab import featurizers
 from clab.compile import positions
@@ -28,7 +28,21 @@ from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data
 from clab.format.sweeps import find_sweeps
-from clab.plan import Intervention, Plan, arguments, corpus_root, fail, gathers, kind_of, points
+from clab.plan import (
+    Entry,
+    Fit,
+    Forward,
+    Generate,
+    Intervention,
+    OpStep,
+    Plan,
+    arguments,
+    corpus_root,
+    fail,
+    gathers,
+    kind_of,
+    points,
+)
 
 
 def compile(plan: Plan) -> Plan:
@@ -76,7 +90,7 @@ def compile(plan: Plan) -> Plan:
     return done
 
 
-def get(doc: dict, path: tuple):
+def get(doc: dict, path: tuple) -> Any:
     for key in path:
         doc = doc[key]
     return doc
@@ -85,7 +99,7 @@ def get(doc: dict, path: tuple):
 # -- sweeps: each entry compiled at every point of its axes -------------------------------------------
 
 
-def expand(cx: Compiling, name: str, where: tuple, build) -> dict | list:
+def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan], dict]) -> dict | list[dict]:
     """An entry compiled at every point of its axes: those in what it uses (its own spec, and the sites,
     interventions and featurizers it names), and those of every value it references."""
     own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
@@ -105,7 +119,7 @@ def expand(cx: Compiling, name: str, where: tuple, build) -> dict | list:
     return entries if labels else entries[0]
 
 
-def point(cx: Compiling, at: dict) -> Plan:
+def point(cx: Compiling, at: dict[str, int]) -> Plan:
     """The document with every sweep `at` names replaced by its value there, built and validated once per
     distinct `at` (`cx.points`): every step of an unswept document compiles against the one plan."""
     key = tuple(sorted(at.items()))
@@ -126,7 +140,7 @@ def footprint(cx: Compiling, where: tuple) -> list[tuple]:
     """The document paths an entry reads: its own, and the sites, interventions and featurizers it names."""
     found, doc = [where], cx.doc
 
-    def walk(value):
+    def walk(value: Any) -> None:
         if isinstance(value, dict):
             for k, v in value.items():
                 named = v if isinstance(v, list) else [v]
@@ -151,7 +165,7 @@ def footprint(cx: Compiling, where: tuple) -> list[tuple]:
 # -- steps -------------------------------------------------------------------------------------------
 
 
-def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+def step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan) -> dict:
     """Names are one flat namespace per scope: no dots, and no step also a dataset or a featurizer.
 
     A reference is "thing, then member", split at the first dot: `counterfactual.v_cf` is step
@@ -164,10 +178,11 @@ def step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     rows axis knows the dataset its rows are aligned to (a forward's input; an op's `of`, operands and
     columns), and an op takes one dataset's rows.
     """
+    assert not isinstance(spec, list), "a point holds one step under each name"
     return {"forward": forward, "generate": forward, "op": op_step, "fit": compile_fit}[spec.kind](cx, path, name, spec, plan)
 
 
-def forward(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan: Plan) -> dict:
     joined = not isinstance(spec.input, str)
     dataset = None
     for i, part in enumerate(spec.input if joined else [spec.input]):
@@ -219,7 +234,7 @@ def value_of(record: dict, spec: Intervention, dataset: str) -> Known:
                  width=positions.width(positions.parse(spec.pos)) if "pos" in dims else None)
 
 
-def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> dict:
     if spec.op == "decode":
         fail(path, "decode closes an encode of its own entry, so it runs inside the entry that encodes, after the "
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
@@ -244,7 +259,7 @@ def op_step(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
 # -- references --------------------------------------------------------------------------------------
 
 
-def gathered(steps: dict, used: set) -> None:
+def gathered(steps: dict, used: set[str]) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`): one `used` names (a value something
     references, a save, or the entries a fit's objective scalar is over), and in a fit's body one a
     `<fit>.<eval>.<step>.<entry>` member names. Any other entry only writes, and an entry that neither writes
@@ -296,7 +311,7 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     return {**record, "bundle": tensors, "header": header}
 
 
-def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
+def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> dict:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
     as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
     is one the body makes. It trains featurizers that have something to train, and holds no fit."""
@@ -316,7 +331,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
     before = len(cx.refs)
     body = {}
     for n, s in spec.steps.items():
-        if s.kind == "fit":
+        if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")
         if n in plan.data or n in plan.featurizers or "." in n:
             fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
@@ -369,5 +384,6 @@ def compile_fit(cx: Compiling, path: str, name: str, spec, plan: Plan) -> dict:
         for label, swap in spec.eval.items():
             for member in members:
                 info = inner[member]
-                cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap.get(info.data, info.data))
+                cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap[info.data] if info.data in swap
+                                                               else info.data)
     return {**spec.model_dump(exclude_defaults=True), "steps": body}

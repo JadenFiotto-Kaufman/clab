@@ -121,7 +121,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def value_ref(cx: Compiling, value, path: str) -> Known:
+def value_ref(cx: Compiling, value: str, path: str) -> Known:
     """A named value produced before this point, noted as referenced and used."""
     info = cx.names.get(value) if isinstance(value, str) else None
     if info is not None and info.kind == "featurizer":
@@ -136,7 +136,7 @@ def value_ref(cx: Compiling, value, path: str) -> Known:
     return info
 
 
-def featurizer_ref(cx: Compiling, value, path: str) -> None:
+def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
     """A declared featurizer's name, noted as referenced."""
     if not (isinstance(value, str) and value in cx.names and cx.names[value].kind == "featurizer"):
         known = sorted(k for k, v in cx.names.items() if v.kind == "featurizer")

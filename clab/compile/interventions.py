@@ -2,7 +2,10 @@
 positions checked against its step, its ops' layouts and operands), and what preflight checks of them against
 the model."""
 
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 from clab import ops
 from clab.compile import positions
@@ -14,10 +17,14 @@ from clab.format import address, data, selectors
 from clab.format.selectors import made_at, picked
 from clab.format.sweeps import lookup
 from clab.plan import (
+    Forward,
+    Generate,
     Intervention,
     Op,
+    OpStep,
     Plan,
     Site,
+    Step,
     Unbracketed,
     agreeing,
     arguments,
@@ -35,8 +42,11 @@ from clab.plan import (
     writes,
 )
 
+if TYPE_CHECKING:
+    from clab.engines import Engine
 
-def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
+
+def items(plan: Plan, path: str, name: str, spec: Forward | Generate) -> list[tuple[str, str, Intervention]]:
     """A step's entries in the order written, each with its document path and name: the items of its
     `interventions` in turn, a bundle's entries where its name stands, rescoped to the step (`scoped`)."""
     value = spec.interventions
@@ -55,7 +65,7 @@ def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Interv
     return out
 
 
-def bundles_of(step) -> list[str]:
+def bundles_of(step: Step) -> list[str]:
     """The bundles a step's `interventions` pull in, by name."""
     value = getattr(step, "interventions", None)
     return [i for i in (value if isinstance(value, list) else [value]) if isinstance(i, str)]
@@ -83,8 +93,8 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
     return spec.model_copy(update={"ops": rewritten})
 
 
-def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, dataset: str,
-          live: dict[str, tuple[dict, Intervention]], own: set) -> dict:
+def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
+          live: dict[str, tuple[dict, Intervention]], own: set[str]) -> dict:
     """One entry compiled: its site inlined, its positions checked against the step, its ops walked for their
     layouts and operands. Up to its last edit each op acts on the live value, so no edit follows an op that
     changed the layout unless that was an `encode` its `decode` closes, and every encode before the write-back is
@@ -180,8 +190,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step, datase
     return {**record, "dims": dims, **({"space": space_of(cx, [n["op"] for n in unclosed])} if unclosed else {})}
 
 
-def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool, live: dict,
-             adapts: bool) -> None:
+def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,
+             live: dict[str, tuple[dict, Intervention]], adapts: bool) -> None:
     """Inside a write an operand stands for the value it meets, laid out `own` in the coordinates `space`: the
     same coordinates, and that layout or one vector of its features; only the vector when the selection is
     ragged, unless the operand is an earlier entry of the same forward, gathered as the selection is (one layer,
@@ -226,7 +236,7 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
 # -- what preflight checks of the entries against the model ---------------------------------------------
 
 
-def refuse(engine, plan: Plan) -> None:
+def refuse(engine: Engine, plan: Plan) -> None:
     """Every component the plan reads or writes that the engine cannot serve, by name (`engine.unserved()` maps
     a component to None, why not, or why not per layer)."""
     reasons = engine.unserved()
@@ -241,7 +251,8 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: Found, shapes: dict) -> None:
+def check_operands(engine: Engine, plan: Plan, where: str, o: Op, shape: tuple, step: Forward | Generate, site: Site,
+                   found: Found, shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
     that line up token for token; from the write's own forward, read at a site this engine reaches first. An
     adapter's input (`apply`'s `with`) is as wide per position as the value the op acts on, its axes after the
@@ -289,7 +300,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
             windowed(engine, where, value, producer, consumer, found, step.at)
 
 
-def windowed(engine, where: str, value: str, producer: str, consumer: str, found: Found, at: dict) -> None:
+def windowed(engine: Engine, where: str, value: str, producer: str, consumer: str, found: Found, at: dict) -> None:
     """The same unscoped positions read on one input and written on another pair position i with position i. On
     a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
     from the start within the tokens both prompts begin with alike, or from the end within those they end with
@@ -313,7 +324,7 @@ def windowed(engine, where: str, value: str, producer: str, consumer: str, found
                                  "in each row")
 
 
-def check_labels(plan: Plan, where: str, o, at: dict, ours: dict | None, dims: list[str], sizes: dict,
+def check_labels(plan: Plan, where: str, o: Op | OpStep, at: dict, ours: dict | None, dims: list[str], sizes: dict,
                  write: bool) -> None:
     """An op's operand holds, on each axis a read's site narrows, the same indices as the value the op acts on
     (`ours`, by axis: a write's selection, or what a read or an op step's `of` holds), in the same order: a

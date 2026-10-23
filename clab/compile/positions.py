@@ -8,11 +8,17 @@ generated token `j`). The prefill, call 0, holds the prompt; decode call `k >= 1
 row's keys, on an attention pattern's `key` axis, are its prompt's positions, numbered the same way.
 """
 
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING, cast
 
 from clab.format import data, selectors
-from clab.format.selectors import bound, covers, every, fixed, from_end, select
-from clab.plan import fail
+from clab.format.selectors import Selector, bound, covers, every, fixed, from_end, select
+from clab.plan import Forward, Generate, Intervention, Pos, Site, Sweep, Swept, fail
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 MISSING = "alignment_missing"
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
@@ -22,8 +28,9 @@ class Unaligned(ValueError):
     """A row the record does not reach, and why: `alignment_missing` beyond the prefill, a refusal in it."""
 
 
-def parse(pos) -> dict:
+def parse(pos: Swept[int | Pos]) -> dict:
     """A `pos` (an int, or a `Pos`) as `{"frame", "scope", "index"}`."""
+    assert not isinstance(pos, Sweep), "a point's pos is one value"
     if isinstance(pos, int):
         return {"frame": 0, "scope": None, "index": pos}
     scope = None if pos.scope is None else pos.scope.model_dump(exclude_none=True)
@@ -76,7 +83,7 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     return False, sorted(full) if exact else decode_calls(frame, horizon), exact
 
 
-def decode_calls(frame, horizon: int | None) -> list[int] | None:
+def decode_calls(frame: Selector, horizon: int | None) -> list[int] | None:
     """A frame's decode calls, in order: listed when it names a static number of them or when the horizon
     bounds them; None when it names every one, or calls to the row's last that only the run will know."""
     if fixed(frame) is not None:
@@ -109,7 +116,7 @@ def prefill(pos: dict) -> bool:
 # -- the three stages ---------------------------------------------------------------------------------
 
 
-def framed(frame, n: int) -> list[int]:
+def framed(frame: Selector, n: int) -> list[int]:
     """Stage one: the calls `frame` picks among a row's `n` calls; `-1` is its last, whether it chose EOS or
     the generation ran out."""
     return select(frame, n)
@@ -155,7 +162,7 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -
     return [t for t in tokens if any(t in found[i] for i in picked)]
 
 
-def indexed(index, tokens: list[int], width: int | None) -> list[int]:
+def indexed(index: Selector, tokens: list[int], width: int | None) -> list[int]:
     """Stage three: the positions `index` picks among the scope's tokens; a record with a static width must
     hold all of them."""
     got = [tokens[i] for i in select(index, len(tokens))]
@@ -189,7 +196,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
 # -- where a scope's text occurs ----------------------------------------------------------------------
 
 
-def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer, texts: list[tuple],
+def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTrainedTokenizerBase, texts: list[tuple],
                 online: bool = False) -> list[set[int]]:
     """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
     occurrence of any of its texts (`texts`: `(text, strip, lower)`, the columns' or the literals) in the
@@ -271,7 +278,8 @@ def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> s
     return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
 
 
-def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer) -> bool:
+def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer: PreTrainedTokenizerBase
+            ) -> bool:
     """Whether a write with a text scope lands at the call fed `inputs[-1]`, given every input the row was fed
     so far: some occurrence its `occurrence` picks resolves, with index -1, to that token, on the prefix and
     counted only within the frame's calls, as `resolve` counts them; so each picked occurrence lands at its own
@@ -294,14 +302,14 @@ def continuation(ids: list[int], eos: set[int]) -> list[int]:
     return next((ids[:i + 1] for i, token in enumerate(ids) if token in eos), ids)
 
 
-def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
+def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
     """The text `ids` decode to, and each token's character span in it, found by decoding growing prefixes.
 
     A token ends where its prefix's text stops agreeing with the whole text, so a character split across
     tokens (a multi-byte one, which a partial prefix decodes to `\\ufffd`) is the span of the token that
     completes it, and the tokens before that one have empty spans at the character's start.
     """
-    text = tokenizer.decode(ids)
+    text = cast(str, tokenizer.decode(ids))
     spans, start = [], 0
     for i in range(len(ids)):
         prefix = tokenizer.decode(ids[:i + 1])
@@ -311,11 +319,12 @@ def char_spans(tokenizer, ids: list[int]) -> tuple[str, list[tuple[int, int]]]:
     return text, spans
 
 
-def indices(where: str, write: bool, record, step, rows: list[dict], encoded: list[dict],
-            tokenizer) -> list[list[int]]:
+def indices(where: str, write: bool, record: Intervention, step: Forward | Generate, rows: list[dict],
+            encoded: list[dict], tokenizer: PreTrainedTokenizerBase) -> list[list[int]]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row."""
+    assert isinstance(record.site, Site), "a compiled entry's site is inlined"
     pos = parse(record.pos)
     found = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
@@ -332,7 +341,7 @@ def indices(where: str, write: bool, record, step, rows: list[dict], encoded: li
     return found
 
 
-def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer,
+def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,
           head_only: bool) -> list[int] | str:
     """`resolve` for one row (its dataset row and its encoding), with what that needs: where the
     scope's text occurs."""
@@ -361,8 +370,9 @@ def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
     return [(t, bool(scope.get("strip")), bool(scope.get("lower"))) for t in given]
 
 
-def head(step, record) -> bool:
+def head(step: Forward | Generate, record: Intervention) -> bool:
     """Whether the record reads the head in a generation, whose prefill computes it at its last position only."""
+    assert isinstance(record.site, Site), "a compiled entry's site is inlined"
     return step.kind == "generate" and record.site.component in ("lm_head_output", "logits")
 
 
