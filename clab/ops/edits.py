@@ -107,7 +107,7 @@ def noise(of: Tensor, scale: float, dims: list[str], seed: int = 0, rows: Tensor
     return of + scale * drawn.to(device=of.device, dtype=of.dtype)
 
 
-def seeded(*key) -> torch.Generator:
+def seeded(*key: int | None) -> torch.Generator:
     """A CPU generator seeded by `key` (a document's seed, a row, a position) and nothing else."""
     digest = hashlib.blake2b(repr(key).encode(), digest_size=8).digest()
     return torch.Generator().manual_seed(int.from_bytes(digest, "big"))

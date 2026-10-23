@@ -2,7 +2,7 @@
 `encode`, which turns a value into a featurizer's coordinates, the ones over logits (`top_k`, `argmax`), and
 `detokenize`, which turns generated ids into text."""
 
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 import torch
 from torch import Tensor
@@ -13,9 +13,12 @@ from clab.format.registry import Featurizer
 from clab.ops import op
 from clab.ops.metrics import missing, ranked
 
+if TYPE_CHECKING:       # the engines sit later in the chain, so only the checker sees them
+    from clab.engines import Engine
+
 
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))
-def readout(of: Tensor, engine: Any) -> Tensor:
+def readout(of: Tensor, engine: "Engine") -> Tensor:
     """The model's own readout of a residual-stream value, its final norm and head (the logit lens)."""
     return engine.readout(of)
 
@@ -52,7 +55,7 @@ def encode(of: Tensor, featurizer: Featurizer, select: Annotated[dict, "{feature
 
 
 @op("transforms", needs=("new",), removes=("new",))
-def detokenize(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) -> list:
+def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = False) -> list[str] | list[list[str]]:
     """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
     with `tokens`, as its token strings."""
     tokenizer, stops = engine.tokenizer, set(eos)
@@ -64,7 +67,7 @@ def detokenize(of: Tensor, engine: Any, eos: list[int], tokens: bool = False) ->
 
 
 @op("transforms", needs=("vocab_size",), removes=("vocab_size",), adds=("k",))
-def top_k(of: Tensor, k: int) -> dict:
+def top_k(of: Tensor, k: int) -> dict[str, Tensor]:
     """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
     `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so
     `top_k`'s first is `argmax`'s token."""

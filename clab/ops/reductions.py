@@ -50,7 +50,7 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 
 
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")
-def pca(of: Tensor, k: int, dims: list[str]) -> dict:
+def pca(of: Tensor, k: int, dims: list[str]) -> dict[str, Tensor]:
     """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
     first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
     x = of.reshape(-1, of.shape[-1]).double()

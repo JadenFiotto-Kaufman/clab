@@ -98,11 +98,12 @@ VOCABULARY = ("vocab_size", "classes")
 
 OPS: dict[str, Callable] = {}
 GROUPS = ("metrics", "reductions", "edits", "transforms")
-DECLARED: dict[str, dict] = {}
+DECLARED: dict[str, dict[str, Any]] = {}
 
 
-def op(group: str, needs: tuple = (), removes: tuple = (), adds: tuple = (), bundle: str | None = None,
-       layout: Callable | None = None, check: Callable | None = None):
+def op(group: str, needs: tuple[str | tuple[str, ...], ...] = (), removes: tuple[str, ...] = (),
+       adds: tuple[str, ...] = (), bundle: str | None = None, layout: Callable[..., list[str]] | None = None,
+       check: Callable[[dict], None] | None = None) -> Callable[[Callable], Callable]:
     """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`,
     `edits` or `transforms`), its axes, and, for a value a featurizer loads, the featurizer kind its `bundle`
     is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of
