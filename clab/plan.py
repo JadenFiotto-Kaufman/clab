@@ -441,7 +441,7 @@ Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries]
 
 def entries(step) -> dict[str, Any]:
     """A compiled forward's or generation's entries (`Intervention`s, each site inlined) in execution order:
-    compile lays every `interventions` value out as one dict. None for another step."""
+    compile lays every `interventions` value out as one dict. Empty for another step."""
     found = getattr(step, "interventions", {})
     assert isinstance(found, dict), "a compiled step's interventions are one dict of entries"
     return found
@@ -919,9 +919,6 @@ def scope(plan: Plan, where: str) -> dict:
     return {**plan.steps, **points(plan.steps[where.partition(".")[0]])[0].steps}
 
 
-# -- sweeps ---------------------------------------------------------------------
-
-
 def horizon(step) -> int | None:
     """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
     most = (step.model_extra or {}).get("max_new_tokens")
@@ -940,7 +937,7 @@ def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = 
                                    "data": {**plan.data, **{a: plan.data[b] for a, b in (swap or {}).items()}}})
 
 
-# -- what compile knows while it works ------------------------------------------------------------------
+# -- an entry's brackets ---------------------------------------------------------------------------------
 
 
 class Unbracketed(ValueError):
