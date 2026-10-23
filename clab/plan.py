@@ -14,6 +14,7 @@ import json
 import math
 import os
 import types
+from collections.abc import Iterator
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
 from pydantic import (
@@ -21,6 +22,8 @@ from pydantic import (
     ConfigDict,
     Discriminator,
     Field,
+    GetCoreSchemaHandler,
+    SerializerFunctionWrapHandler,
     Tag,
     ValidationError,
     field_serializer,
@@ -28,7 +31,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-from pydantic_core import core_schema
+from pydantic_core import ErrorDetails, core_schema
 from torch import Tensor
 
 from clab import featurizers, ops
@@ -76,7 +79,7 @@ class Sweep(Record):
 
     @field_validator("sweep")
     @classmethod
-    def _flat(cls, values: list) -> list:
+    def _flat(cls, values: list[Any]) -> list[Any]:
         if '"sweep"' in json.dumps(values):
             raise ValueError("a sweep's values hold no sweep")
         # A point is keyed by its value, so each value is one a key can hold: a scalar, or a list of them.
@@ -96,7 +99,7 @@ class ByShape:
     """A union validated by the one member the input's shape picks (a sweep, a dict, a string, a number, a
     list, null), so a wrong value gets one error, from the member it was meant for."""
 
-    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+    def __get_pydantic_core_schema__(self, source: Any, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
         members = get_args(source)
 
         def pick(value: Any) -> str:
@@ -154,7 +157,7 @@ class Data(Record):
     n_rows: int | None = derived(None, "how many rows the dataset has")
 
     @model_validator(mode="after")
-    def _one_source(self):
+    def _one_source(self) -> "Data":
         if self.path is None and self.rows is None:
             raise ValueError("a dataset is a 'path' or inline 'rows'")
         if self.path is None and self.split is not None:
@@ -172,7 +175,7 @@ class Site(Record):
     select: dict[str, Swept[Selector]] | None = None
 
     @model_validator(mode="after")
-    def _narrowing(self):
+    def _narrowing(self) -> "Site":
         if self.component not in address.COMPONENTS:
             raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
         if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
@@ -205,7 +208,7 @@ class Column(Record):
     lower: bool = False
 
     @model_serializer(mode="wrap")
-    def _spelled(self, handler):
+    def _spelled(self, handler: SerializerFunctionWrapHandler) -> str | dict[str, Any]:
         """The string alone when no flag is set, as a document writes it."""
         return handler(self) if self.strip or self.lower else self.column
 
@@ -235,14 +238,14 @@ class Scope(Record):
 
     @field_validator("column")
     @classmethod
-    def _columns(cls, given):
+    def _columns(cls, given: ColumnRef | list[ColumnRef] | None) -> Column | list[Column] | None:
         """Each column a `Column`, a string the one without flags."""
-        def made(ref):
+        def made(ref: ColumnRef) -> Column:
             return Column(column=ref) if isinstance(ref, str) else ref
         return [made(c) for c in given] if isinstance(given, list) else None if given is None else made(given)
 
     @model_validator(mode="after")
-    def _one(self):
+    def _one(self) -> "Scope":
         if [self.column, self.text, self.turn].count(None) != 2:
             raise ValueError("a scope is one of {'column': '<dataset>.<column>'}, {'text': '<literal>'}, "
                              "{'turn': '<role>'}")
@@ -352,7 +355,7 @@ class Pos(Record):
     index: Swept[Selector] = ":"
 
     @model_validator(mode="after")
-    def _grammar(self):
+    def _grammar(self) -> "Pos":
         frame, index = self.frame, self.index
         if self.scope is not None and self.scope.turn is not None and frame != 0 and not isinstance(frame, Sweep):
             raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
@@ -370,12 +373,12 @@ class Op(Record):
     op: str
 
     @model_validator(mode="after")
-    def _arguments(self):
+    def _arguments(self) -> "Op":
         ops.check(self.op, arguments(self))
         return self
 
 
-def arguments(op: "Op | OpStep") -> dict:
+def arguments(op: "Op | OpStep") -> dict[str, Any]:
     """An op record's arguments by document spelling."""
     return dict(op.model_extra or {})
 
@@ -439,7 +442,7 @@ Entries = dict[str, Intervention]
 Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries], ByShape()]]], ByShape()]
 
 
-def entries(step) -> dict[str, Any]:
+def entries(step: "Step") -> dict[str, Any]:
     """A compiled forward's or generation's entries (`Intervention`s, each site inlined) in execution order:
     compile lays every `interventions` value out as one dict. Empty for another step."""
     found = getattr(step, "interventions", {})
@@ -502,7 +505,7 @@ class Forward(Record):
 
     @field_validator("input")
     @classmethod
-    def _input(cls, given):
+    def _input(cls, given: str | list[str | TextPart]) -> str | list[str | TextPart]:
         if isinstance(given, list) and not any(isinstance(part, str) for part in given):
             raise ValueError("a list input names at least one column, whose dataset its rows are")
         for column in data.input_columns(given):
@@ -551,7 +554,7 @@ class Generate(Forward):
     kind: Literal["generate"]  # type: ignore[assignment]
 
     @model_validator(mode="after")
-    def _fixed(self):
+    def _fixed(self) -> "Generate":
         """An option in `FIXED` at another value is refused; every other option is the engine's `generate`'s to
         accept or reject when the step runs."""
         for key, value in (self.model_extra or {}).items():
@@ -572,7 +575,7 @@ class OpStep(Record):
     dims: list[str] | None = derived(None, "the layout of the step's value")
 
     @model_validator(mode="after")
-    def _arguments(self):
+    def _arguments(self) -> "OpStep":
         ops.check(self.op, arguments(self))
         return self
 
@@ -642,7 +645,7 @@ class Fit(Record):
     at: dict[str, int] = derived({}, AT)
 
     @model_validator(mode="after")
-    def _counts(self):
+    def _counts(self) -> "Fit":
         if isinstance(self.epochs, int) and self.epochs < 0:
             raise ValueError(f"epochs {self.epochs}: a fit runs 0 or more epochs (0 scores the untrained draw)")
         if isinstance(self.batch_size, int) and self.batch_size < 1:
@@ -683,7 +686,7 @@ class Featurizer(Record):
                                                   "checks the model's width against")
 
     @model_validator(mode="after")
-    def _fields(self):
+    def _fields(self) -> "Featurizer":
         featurizers.check(self.kind, self.model_extra or {})
         return self
 
@@ -750,7 +753,7 @@ class Plan(Record):
         {}, "each saved value by name; a swept one is a dict keyed by coordinate", exclude=True)
     run: Run | None = derived(None, "how the plan ran, set by `execute`")
 
-    def __init__(self, path: str | None = None, /, **fields: Any):
+    def __init__(self, path: str | None = None, /, **fields: Any) -> None:
         if path is not None:
             with open(path) as f:
                 fields = {**json.load(f), "document": os.path.abspath(path)}
@@ -778,7 +781,7 @@ class Plan(Record):
         return given
 
     @model_validator(mode="after")
-    def _bundles(self):
+    def _bundles(self) -> "Plan":
         # A bundle's file is its source of truth, and tensors never go in a document: a compiled plan read back
         # without its bundles loads them again from their `file_path`. A manifest holds no rows a dataset read from
         # a file, so a probe's classes are then its bundle's header's, which the run checked.
@@ -852,7 +855,7 @@ def name(plan: Plan) -> str:
     return os.path.splitext(os.path.basename(plan.document))[0] if plan.document else "plan"
 
 
-def message(error: Any) -> str:
+def message(error: ErrorDetails) -> str:
     """A validation error as `<document path>: <what>`."""
     path = ""
     for part in error["loc"]:
@@ -873,7 +876,7 @@ def dims_of(plan: Plan, name: str) -> list[str]:
     return dims_in(plan.steps, name)
 
 
-def dims_in(steps: dict, name: str) -> list[str]:
+def dims_in(steps: dict[str, Entry], name: str) -> list[str]:
     thing, _, member = name.partition(".")
     step = points(steps[thing])[0]
     if step.kind == "fit":
@@ -884,7 +887,7 @@ def dims_in(steps: dict, name: str) -> list[str]:
     return ["rows", "new"] if step.kind == "generate" else step.dims
 
 
-def walk(steps: dict, prefix: str = ""):
+def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
     """Every step and point, a fit's body steps after the fit, each with its dotted name."""
     for name, entry in steps.items():
         for step in points(entry):
@@ -903,7 +906,7 @@ def kind_of(plan: Plan, ref: str) -> str:
     return points(plan.featurizers[declared(plan, ref)])[0].kind
 
 
-def entry_of(steps: dict, ref: str, at: dict) -> tuple[Any, Any]:
+def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Any]:
     """The step point and the entry `<step>.<entry>` names among `steps`, at the step's point that agrees with
     `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
@@ -911,7 +914,7 @@ def entry_of(steps: dict, ref: str, at: dict) -> tuple[Any, Any]:
     return step, entries(step)[member]
 
 
-def scope(plan: Plan, where: str) -> dict:
+def scope(plan: Plan, where: str) -> dict[str, Entry]:
     """The steps an entry `where` (`[<fit>.]<step>.<entry>`, as `uses` names it) sees by name: the root's, and
     a fit's body steps beside them when it stands in one."""
     if where.count(".") < 2:
@@ -919,13 +922,13 @@ def scope(plan: Plan, where: str) -> dict:
     return {**plan.steps, **points(plan.steps[where.partition(".")[0]])[0].steps}
 
 
-def horizon(step) -> int | None:
+def horizon(step: Generate) -> int | None:
     """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
     most = (step.model_extra or {}).get("max_new_tokens")
     return most if isinstance(most, int) else None
 
 
-def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = None) -> Plan:
+def body_view(plan: Plan, fit: str, at: dict[str, int] | None = None, swap: dict[str, str] | None = None) -> Plan:
     """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
     at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
     dataset a substitution `swap` maps read under the body's name for it."""
@@ -943,7 +946,7 @@ def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = 
 class Unbracketed(ValueError):
     """A `decode` with no matching encode open, at index `at` among the entry's ops."""
 
-    def __init__(self, at: int, message: str):
+    def __init__(self, at: int, message: str) -> None:
         super().__init__(message)
         self.at = at
 
@@ -975,7 +978,7 @@ def bracketed(listed: list[Op]) -> list[dict]:
     return top
 
 
-def visited(nodes: list[dict], around: tuple = ()):
+def visited(nodes: list[dict], around: tuple[dict, ...] = ()) -> Iterator[tuple[dict, tuple[dict, ...]]]:
     """`bracketed` nodes in the order their ops run, each with the encode nodes open around it, outermost first."""
     for node in nodes:
         yield node, around

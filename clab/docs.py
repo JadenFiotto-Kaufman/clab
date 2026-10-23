@@ -70,11 +70,11 @@ def derived(model: type[BaseModel]) -> list[str]:
             if name not in plan.documented(model)]
 
 
-def doc(thing) -> str:
+def doc(thing: object) -> str:
     return inspect.getdoc(thing) or ""
 
 
-def summary(thing) -> str:
+def summary(thing: object) -> str:
     return " ".join(doc(thing).split())
 
 
@@ -166,10 +166,10 @@ def describe(what: str | None = None) -> str:
 def markdown() -> str:
     """FORMAT.md: the one-page reference, generated from the code (`clab describe --markdown`)."""
 
-    def block(model) -> str:
+    def block(model: type[BaseModel]) -> str:
         return "\n".join(f"- `{f}`" for f in fields(model)) + "\n\n" + doc(model) + "\n"
 
-    def grid(rows) -> str:
+    def grid(rows: list[list[str]]) -> str:
         return "\n".join("| " + " | ".join(r) + " |" for r in rows) + "\n"
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

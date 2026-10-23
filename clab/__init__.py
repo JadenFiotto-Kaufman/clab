@@ -5,7 +5,7 @@ table its values. `run` does the whole of that in one call; `describe` prints th
 """
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from clab.docs import describe
 from clab.plan import Plan, name
@@ -17,7 +17,7 @@ __all__ = ["Plan", "run", "describe"]
 
 
 def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None = None, batch_size: int = 8,
-        device: str | None = None, **options) -> Plan:
+        device: str | None = None, **options: Any) -> Plan:
     """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
     Returns the filled plan. `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
