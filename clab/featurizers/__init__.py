@@ -116,9 +116,7 @@ class Kind:
 
     @classmethod
     def method(cls, op: str) -> Callable:
-        """The kind's method op `op` runs; an op the kind does not serve is refused by name."""
-        if op not in cls.ops():
-            raise ValueError(f"a {cls.kind!r} featurizer has no {op}; it serves {', '.join(cls.ops())}")
+        """The kind's method op `op` runs: compile refuses an op the kind does not serve (`ops`)."""
         return getattr(cls, OPS[op]["method"])
 
     @classmethod

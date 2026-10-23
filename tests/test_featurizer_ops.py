@@ -63,13 +63,6 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
         ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"]]
 
 
-def test_an_op_the_kind_does_not_serve_is_refused_by_name():
-    with pytest.raises(ValueError, match=r"a 'linear' featurizer has no apply; it serves encode$"):
-        featurizers.KINDS["linear"].method("apply")
-    with pytest.raises(ValueError, match=r"a 'lora' featurizer has no decode; it serves apply$"):
-        featurizers.KINDS["lora"].method("decode")
-
-
 def bracket(f, features=None, between=()) -> list[dict]:
     """An encode of `f` holding the bound ops `between`, which its decode closes over, as `batches.edit` binds
     them."""
