@@ -10,8 +10,20 @@ from clab.compile.positions import head, place, texts
 from clab.format import address, data
 from clab.format.plan import Plan, entries, horizon, writes
 from clab.format.sweeps import lookup, put
-from clab.steps.batches import (bind, chunked, decoding, edit, joined, layers, read, read_name, site, stacked, with_ops,
-                                write_name)
+from clab.steps.batches import (
+    bind,
+    chunked,
+    decoding,
+    edit,
+    joined,
+    layers,
+    read,
+    read_name,
+    site,
+    stacked,
+    with_ops,
+    write_name,
+)
 
 if TYPE_CHECKING:
     from clab.steps.preflight import Found

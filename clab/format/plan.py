@@ -16,8 +16,18 @@ import types
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
 
-from pydantic import (BaseModel, ConfigDict, Discriminator, Field, Tag, ValidationError, field_serializer,
-                      field_validator, model_serializer, model_validator)
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_serializer,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 from pydantic_core import core_schema
 from torch import Tensor
 
@@ -961,3 +971,45 @@ class Compiling:
     used: set
     aliases: dict = field(default_factory=dict)
     points: dict = field(default_factory=dict)
+
+
+class Unbracketed(ValueError):
+    """A `decode` with no matching encode open, at index `at` among the entry's ops."""
+
+    def __init__(self, at: int, message: str):
+        super().__init__(message)
+        self.at = at
+
+
+def bracketed(listed: list[Op]) -> list[dict]:
+    """An entry's ops as their brackets nest: each op a node `{"at", "op"}`, an `encode` also holding the ops
+    after it as `inner` up to the `decode` that closes it (`closed`, that decode's index) or to the end. A decode
+    closes the most recent encode still open; one with none open, or of another featurizer, is `Unbracketed`."""
+    top: list[dict] = []
+    opened: list[dict] = []
+    for i, o in enumerate(listed):
+        ref = arguments(o).get("featurizer")
+        if o.op == "decode":
+            if not opened:
+                raise Unbracketed(i, f"decode of {ref!r} closes no encode: none is open in this entry here; put the "
+                                     f"encode of {ref!r} before it, the edits of its coordinates between them")
+            theirs = arguments(opened[-1]["op"])["featurizer"]
+            if theirs != ref:
+                raise Unbracketed(i, f"decode of {ref!r}, and the open encode is of {theirs!r} "
+                                     f"(ops[{opened[-1]['at']}]); close {theirs!r} first: a decode closes the most "
+                                     "recent encode not yet closed")
+            opened.pop()["closed"] = i
+            continue
+        node = {"at": i, "op": o}
+        (opened[-1]["inner"] if opened else top).append(node)
+        if o.op == "encode":
+            node.update(inner=[], closed=None)
+            opened.append(node)
+    return top
+
+
+def visited(nodes: list[dict], around: tuple = ()):
+    """`bracketed` nodes in the order their ops run, each with the encode nodes open around it, outermost first."""
+    for node in nodes:
+        yield node, around
+        yield from visited(node.get("inner", []), around + (node,))

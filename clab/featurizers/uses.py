@@ -4,10 +4,22 @@ bundle carries."""
 
 from typing import Any
 
-from clab.compile.interventions import bracketed, visited
 from clab.featurizers import KINDS, Kind, labels, make
 from clab.format import address, selectors
-from clab.format.plan import Op, Plan, agreeing, arguments, declared, entries, entry_of, fail, scope, walk
+from clab.format.plan import (
+    Op,
+    Plan,
+    agreeing,
+    arguments,
+    bracketed,
+    declared,
+    entries,
+    entry_of,
+    fail,
+    scope,
+    visited,
+    walk,
+)
 from clab.format.selectors import selected
 
 

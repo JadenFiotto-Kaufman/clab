@@ -23,8 +23,18 @@ from clab.compile.interventions import entry, items
 from clab.featurizers import KINDS, bundles, labels
 from clab.featurizers.uses import bundled_sites
 from clab.format import data
-from clab.format.plan import (Compiling, Intervention, Known, Plan, arguments, corpus_root, fail, gathers, kind_of,
-                              points)
+from clab.format.plan import (
+    Compiling,
+    Intervention,
+    Known,
+    Plan,
+    arguments,
+    corpus_root,
+    fail,
+    gathers,
+    kind_of,
+    points,
+)
 from clab.format.sweeps import find_sweeps
 
 
