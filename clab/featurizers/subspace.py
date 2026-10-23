@@ -14,12 +14,10 @@ class Subspace(Kind):
     untrained subspace is a uniformly random one and each seed draws a different one. Its bundle holds the
     `[width, k]` basis."""
     saves, trains, header, drawn, counts = ("basis",), ("theta",), ("k", "parametrization"), ("k",), ("k",)
-    basis: Tensor
-    origin: Tensor
-    theta: Tensor
 
     def __init__(self, width: int, k: int | None = None, parametrization: Literal["cayley"] = "cayley",
-                 seed: int | None = None, file_path: str | None = None, bundle: dict | None = None):
+                 seed: int | None = None, file_path: str | None = None,
+                 bundle: dict[str, Tensor] | None = None) -> None:
         if bundle is not None:
             self.basis = bundle["basis"]
             return

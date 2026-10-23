@@ -15,10 +15,10 @@ class Linear(Kind):
     axis, header = "classes", ("classes",)
 
     def __init__(self, width: int, classes: str, labels: list, file_path: str | None = None,
-                 bundle: dict | None = None):
+                 bundle: dict[str, Tensor] | None = None) -> None:
         self.classes = labels
-        self.W: Tensor = bundle["W"] if bundle is not None else torch.zeros(width, len(labels))
-        self.b: Tensor = bundle["b"] if bundle is not None else torch.zeros(len(labels))
+        self.W = bundle["W"] if bundle is not None else torch.zeros(width, len(labels))
+        self.b = bundle["b"] if bundle is not None else torch.zeros(len(labels))
 
     def encode(self, h: Tensor) -> Tensor:
         return h @ self.W.to(h) + self.b.to(h)

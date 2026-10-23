@@ -21,8 +21,8 @@ class Gate(Kind):
     scalars = ("mask",)
 
     def __init__(self, width: int, temperature: Temperature | None = None, file_path: str | None = None,
-                 bundle: dict | None = None):
-        self.theta: Tensor = bundle["theta"] if bundle is not None else torch.ones(width)
+                 bundle: dict[str, Tensor] | None = None) -> None:
+        self.theta = bundle["theta"] if bundle is not None else torch.ones(width)
         self.temperature = temperature
         self.T = temperature["start"] if temperature else 1.0
 

@@ -56,20 +56,20 @@ KINDS: dict[str, type["Kind"]] = {}
 # The ops that reach a featurizer: the method of the kind's each runs, and what it produces on a value, for a
 # kind whose coordinates are on `axis`. A kind serves an op when it defines its method (one with `replace` has
 # `encode` too).
-OPS: dict[str, dict] = {
+OPS: dict[str, dict[str, str]] = {
     "encode": {"method": "encode", "produces": "gives its coordinates, the last axis becoming {axis}"},
     "decode": {"method": "replace", "produces": "writes a change of its coordinates back into the value"},
     "apply": {"method": "apply", "produces": "gives its version of the value, in the value's own layout"},
 }
 
 
-def unautocast(h: Tensor):
+def unautocast(h: Tensor) -> torch.autocast | nullcontext[None]:
     """Autocast off on `h`'s device, for the length of a `with`: a featurizer's math stays in its own dtype."""
     kind = h.device.type
     return torch.autocast(kind, enabled=False) if torch.amp.is_autocast_available(kind) else nullcontext()
 
 
-def exact(math: Callable) -> Callable:
+def exact(math: Callable[..., Tensor]) -> Callable[..., Tensor]:
     """A kind's method on a value `h` (`encode`, `replace`, `apply`), run with autocast off."""
     @functools.wraps(math)
     def run(self, h: Tensor, *args: Any, **kwargs: Any) -> Tensor:
@@ -105,7 +105,7 @@ class Kind:
     # -- what the document and the plan see ------------------------------------------------------------------
 
     @classmethod
-    def check(cls, fields: dict) -> None:
+    def check(cls, fields: dict[str, Any]) -> None:
         """`fields` bind to the kind's signature."""
         registry.check(cls, fields, SUPPLIED, repr(cls.kind))
 
@@ -115,7 +115,7 @@ class Kind:
         return [op for op, o in OPS.items() if hasattr(cls, o["method"])]
 
     @classmethod
-    def method(cls, op: str) -> Callable:
+    def method(cls, op: str) -> Callable[..., Tensor]:
         """The kind's method op `op` runs: compile refuses an op the kind does not serve (`ops`)."""
         return getattr(cls, OPS[op]["method"])
 
@@ -125,14 +125,14 @@ class Kind:
         return tensors[cls.saves[0]].shape[0]
 
     @classmethod
-    def published(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
+    def published(cls, tensors: dict[str, Tensor], fields: dict[str, Any]) -> dict[str, Tensor]:
         """The tensors of a published file (one with no clab header), as an instance loads them; a kind that
         reads none refuses."""
         raise ValueError(f"{fields['file_path']} has no clab header; a {cls.kind} bundle is one clab wrote")
 
     # -- what the run calls ----------------------------------------------------------------------------------
 
-    def call(self, op: str, h: Tensor, options: dict) -> Tensor:
+    def call(self, op: str, h: Tensor, options: dict[str, Any]) -> Tensor:
         """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
         parameter name). A missing vector of `h` (NaN), and the same vector of an option laid out on its
         rows and positions, goes in as zeros and comes out missing, so the math, and a fit's gradients through
@@ -190,14 +190,14 @@ class Kind:
         return {name: getattr(self, name).detach() for name in self.saves}
 
 
-def check(kind: str, fields: dict) -> None:
+def check(kind: str, fields: dict[str, Any]) -> None:
     """Featurizer kind `kind` exists and `fields` are fields of it."""
     if kind not in KINDS:
         raise ValueError(f"unknown featurizer kind {kind!r}; valid: {', '.join(KINDS)}")
     KINDS[kind].check(fields)
 
 
-def labels(rows: dict[str, list[dict]], column: str) -> list:
+def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:
     """A probe's class list: the distinct values of `<dataset>.<column>`, sorted. They sort, and two compare
     as one class only when they are the same value, so they are of one type: all strings, all ints, all floats or
     all booleans (`1`, `1.0` and `true` would otherwise be one class, and `1` and `"yes"` do not sort)."""
@@ -213,8 +213,8 @@ def labels(rows: dict[str, list[dict]], column: str) -> list:
     return sorted(set(values))
 
 
-def make(kind: str, fields: dict, width: int, bundle: dict | None, seed: int | None, labels: list | None,
-         header: dict | None = None, device: str = "cpu") -> Kind:
+def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor] | None, seed: int | None,
+         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu") -> Kind:
     """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`, its tensors on `device`.
     It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
     what a fit trains, its optimizer's state and its math live where the model is."""

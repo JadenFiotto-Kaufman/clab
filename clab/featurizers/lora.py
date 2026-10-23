@@ -16,11 +16,12 @@ class Lora(Kind):
     header = drawn = ("rank", "alpha")
 
     def __init__(self, width: int, rank: int | None = None, alpha: float | None = None, seed: int | None = None,
-                 file_path: str | None = None, bundle: dict | None = None, header: dict | None = None):
+                 file_path: str | None = None, bundle: dict[str, Tensor] | None = None,
+                 header: dict[str, str] | None = None) -> None:
         if bundle is not None:
             assert header is not None
-            self.A: Tensor = bundle["A"]
-            self.B: Tensor = bundle["B"]
+            self.A = bundle["A"]
+            self.B = bundle["B"]
             self.scale = float(header["alpha"]) / int(header["rank"])
             return
         assert rank is not None and alpha is not None

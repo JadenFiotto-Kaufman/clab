@@ -1,7 +1,7 @@
 """The `sae` kind: a sparse autoencoder, trained, loaded from a bundle, or published, whose writes keep its
 error term."""
 
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 import torch
 from torch import Tensor
@@ -40,15 +40,12 @@ class Sae(Kind):
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
     scalars = ("reconstruction", "l1")
-    W_enc: Tensor
-    b_enc: Tensor
-    W_dec: Tensor
-    b_dec: Tensor
-    threshold: Tensor
+    threshold: Tensor       # a published JumpReLU's, set with the bundle's other tensors
 
     def __init__(self, width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
                  activation: Literal["relu", "jumprelu", "topk"] = "relu", k: int | None = None,
-                 centered: bool = True, site: str | TrainedAt | None = None, bundle: dict | None = None):
+                 centered: bool = True, site: str | TrainedAt | None = None,
+                 bundle: dict[str, Tensor] | None = None) -> None:
         self.activation, self.k, self.centered = activation, k, centered
         if bundle is not None:
             for name, tensor in bundle.items():
@@ -62,7 +59,7 @@ class Sae(Kind):
         self.W_dec = w_dec / w_dec.norm(dim=1, keepdim=True)
 
     @classmethod
-    def check(cls, fields: dict) -> None:
+    def check(cls, fields: dict[str, Any]) -> None:
         """`k` comes with `topk` and only with it, and `jumprelu` loads the threshold a published file holds."""
         super().check(fields)
         activation, k = fields.get("activation", "relu"), fields.get("k")
@@ -78,7 +75,7 @@ class Sae(Kind):
             raise ValueError(f"'topk' keeps k = {k} of {latents} latents; k is from 1 to latents")
 
     @classmethod
-    def published(cls, tensors: dict[str, Tensor], fields: dict) -> dict[str, Tensor]:
+    def published(cls, tensors: dict[str, Tensor], fields: dict[str, Any]) -> dict[str, Tensor]:
         """A published SAE's tensors: exactly `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`,
         shaped for one width and one number of latents (and the document's `latents`, `k` and `activation`).
         Nothing in the file says how it encodes or where it was trained, so the document states `activation`,
