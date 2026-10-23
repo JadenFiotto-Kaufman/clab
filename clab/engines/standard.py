@@ -1,7 +1,6 @@
 """What the engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
 there, the sizes), how a model block becomes a loader call, where a batch's inputs go, where a HuggingFace generation
-stops, a forward's or a generation's records grouped by site and by call, and where a write with an online
-scope lands."""
+stops, and a forward's or a generation's records grouped by site."""
 
 from typing import Any, Callable, cast
 
@@ -71,7 +70,6 @@ def build(model, engine: str, call: Callable[[dict], Any]) -> Any:
         if key is None:
             raise
         raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
-
 
 
 def stops(config, tokenizer) -> list[int]:
