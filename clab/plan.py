@@ -11,6 +11,7 @@ thing wherever it lands, which is what lets it travel into a remote session and 
 """
 
 import json
+import math
 import os
 import types
 from typing import Annotated, Any, Literal, NoReturn, TypeVar, Union, get_args, get_origin
@@ -210,7 +211,6 @@ class Column(Record):
 
 
 ColumnRef = Union[str, Column]
-FLAGS = ("strip", "lower")      # how a text compares: a `text` scope's own, a column's on its reference
 
 
 class Scope(Record):
@@ -248,7 +248,7 @@ class Scope(Record):
                              "{'turn': '<role>'}")
         if [] in (self.column, self.text):
             raise ValueError("a scope's list of columns or texts names at least one")
-        for flag in FLAGS:
+        for flag in ("strip", "lower"):
             if self.turn is not None and flag in self.model_fields_set:
                 raise ValueError(f"a turn's messages are located as the chat template rendered them; it takes no "
                                  f"{flag}")
@@ -763,6 +763,7 @@ class Plan(Record):
     @classmethod
     def _names_and_sweeps(cls, given: Any) -> Any:
         if isinstance(given, dict):
+            # find_sweeps also refuses a sweep where none may stand, so every document read runs it.
             if find_sweeps(given) and given.get("compiled"):
                 raise ValueError("a compiled plan holds no sweep; its sweeps are expanded into points")
             for bundle, listed in given.get("interventions", {}).items():
@@ -800,9 +801,7 @@ class Plan(Record):
         if self.run is not None:
             return f"Plan({name(self)}, run on {self.run.engine}, {len(self.results)} results)"
         if self.compiled:
-            n = 1
-            for axis in self.sweeps.values():
-                n *= len(axis.values)
+            n = math.prod(len(axis.values) for axis in self.sweeps.values())
             return f"Plan({name(self)}, compiled, {n} point{'s' * (n != 1)})"
         return f"Plan({name(self)}, uncompiled)"
 
@@ -937,9 +936,8 @@ def body_view(plan: Plan, fit: str, at: dict | None = None, swap: dict | None = 
     fits = [agreeing(entry, at)] if at is not None else points(entry)
     one = at is not None or not isinstance(entry, list)
     steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
-    swap = swap or {}
     return plan.model_copy(update={"steps": {**plan.steps, **steps},
-                                   "data": {**plan.data, **{a: plan.data[b] for a, b in swap.items()}}})
+                                   "data": {**plan.data, **{a: plan.data[b] for a, b in (swap or {}).items()}}})
 
 
 # -- what compile knows while it works ------------------------------------------------------------------
