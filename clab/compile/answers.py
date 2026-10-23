@@ -177,8 +177,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
 
 def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Tensor:
     """A column's values as their indices in a probe's class list."""
-    values = column_texts(plan, column, None)       # preflight checked each is a class
-    return torch.tensor([vocabulary.index(v) for v in (values[rows] if rows is not None else values)])
+    return torch.tensor([vocabulary.index(v) for v in column_texts(plan, column, rows)])   # each one, preflight checked
 
 
 def column_texts(plan: Plan, column: str, rows: slice | None) -> list:

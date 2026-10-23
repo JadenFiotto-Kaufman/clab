@@ -239,17 +239,17 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
         fail(path, "decode closes an encode of its own entry, so it runs inside the entry that encodes, after the "
              "encode and the edits of its coordinates; as a step there is none to close (detokenize turns a "
              "generation's ids into text)")
-    of = value_ref(cx, spec.of, f"{path}.of")
+    of, args = value_ref(cx, spec.of, f"{path}.of"), arguments(spec)
     if spec.op == "contains" and not of.text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
-    kind = called(cx, plan, path, spec.op, arguments(spec))
-    found = references(cx, path, spec.op, arguments(spec), "classes" in of.dims)
+    kind = called(cx, plan, path, spec.op, args)
+    found = references(cx, path, spec.op, args, "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
     paired(path, spec.op, of.dims, of.width, found)
     if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
-    dims = layout(path, spec.op, arguments(spec), of.dims, "step", kind)
-    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not arguments(spec).get("tokens"),
+    dims = layout(path, spec.op, args, of.dims, "step", kind)
+    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not args.get("tokens"),
                            space=of.space if dims[-1:] == of.dims[-1:] else [],
                            select={a: v for a, v in of.select.items() if a in dims},
                            width=of.width if "pos" in dims else None)
@@ -280,11 +280,11 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     the document."""
     f, path = plan.featurizers[name], f"featurizers.{name}"
     assert not isinstance(f, list)
-    fields = f.model_extra or {}
+    fields, classes = f.model_extra or {}, None
     if fields.get("classes") is not None:
         column_ref(cx, fields["classes"], f"{path}.classes", None)
         try:
-            labels(cx.rows, fields["classes"])
+            classes = labels(cx.rows, fields["classes"])
         except ValueError as e:
             fail(f"{path}.classes", str(e))
     missing = [k for k in KINDS[f.kind].drawn if fields.get(k) is None]
@@ -303,9 +303,7 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
     if fields.get("file_path") is None:
         return record
     try:
-        tensors, header = bundles.load(cx.root, f.kind, fields, plan.model,
-                                                   labels(cx.rows, fields["classes"]) if "classes" in fields
-                                                   else None)
+        tensors, header = bundles.load(cx.root, f.kind, fields, plan.model, classes)
     except ValueError as e:
         fail(f"{path}.file_path", str(e))
     return {**record, "bundle": tensors, "header": header}

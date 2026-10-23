@@ -90,24 +90,23 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             if step.kind == "fit":
                 continue
             if step.kind == "op":
-                check_labels(plan, name, step, step.at, held(plan, step.of, step.at, sizes), dims_of(plan, step.of),
-                             sizes, False)
-                if "classes" in dims_of(plan, step.of):
-                    check_classes(plan, name, step.op, arguments(step), probe_of(plan, step.of), classes, swap)
+                args, ours, dims = arguments(step), held(plan, step.of, step.at, sizes), dims_of(plan, step.of)
+                check_labels(plan, name, step, step.at, ours, dims, sizes, False)
+                if "classes" in dims:
+                    check_classes(plan, name, step.op, args, probe_of(plan, step.of), classes, swap)
                 else:
-                    check_tokens(engine, plan, found, name, step.op, arguments(step), dims_of(plan, step.of),
-                                 *placed(plan, found, step.of, step.at))
+                    check_tokens(engine, plan, found, name, step.op, args, dims, *placed(plan, found, step.of, step.at))
                 bundle = ops.DECLARED[step.op]["bundle"]
                 for field in featurizers.KINDS[bundle].counts if bundle else ():
-                    width = (held(plan, step.of, step.at, sizes) or {}).get("hidden_size", range(sizes["hidden_size"]))
-                    if arguments(step)[field] > len(width):
-                        raise ValueError(f"{name}: {step.op} {field} {arguments(step)[field]} counts directions of a "
+                    width = (ours or {}).get("hidden_size", range(sizes["hidden_size"]))
+                    if args[field] > len(width):
+                        raise ValueError(f"{name}: {step.op} {field} {args[field]} counts directions of a "
                                          f"value {len(width)} wide, which has no more than {len(width)}")
                 if step.op == "pca" and step.of in found.positions:
                     n = sum(map(len, lookup(found.positions, step.of, step.at)))
-                    if n <= arguments(step)["k"]:
-                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
-                                         f"it needs more than {arguments(step)['k']}")
+                    if n <= args["k"]:
+                        raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
+                                         f"it needs more than {args['k']}")
                 continue
             rows = plan.data[step.dataset].rows or []
             source = data.input_name(step.input)

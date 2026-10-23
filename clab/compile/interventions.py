@@ -132,7 +132,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
                      dataset)
-    ragged = positions.width(pos) is None
+    width = positions.width(pos)                            # None when rows differ
     dims = address.dims(site.component, site.layers)
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
     try:
@@ -168,9 +168,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                      "entry")
         found = references(cx, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
-        paired(at, o.op, dims, positions.width(pos), found)
+        paired(at, o.op, dims, width, found)
         if i <= last:
-            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), ragged, live, o.op == "apply")
+            operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), width is None, live, o.op == "apply")
         if i in closes:
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
