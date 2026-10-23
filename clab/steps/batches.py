@@ -9,14 +9,13 @@ from torch import Tensor
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
-from clab.compile.interventions import bracketed
 from clab.compile.positions import head
 from clab.compile.state import Found
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.selectors import made_at
 from clab.format.sweeps import lookup, put
-from clab.plan import Plan, arguments, dims_of, entries, gathers, writes
+from clab.plan import Plan, arguments, bracketed, dims_of, entries, gathers, writes
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool) -> dict:

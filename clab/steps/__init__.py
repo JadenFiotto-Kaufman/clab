@@ -27,6 +27,7 @@ from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
 from clab.plan import Plan, Run, arguments, dims_of, entries, points
+from clab.steps import fit, generate
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, read, read_name, stacked
 
 if TYPE_CHECKING:
@@ -184,8 +185,6 @@ def decoded(tokenizer, ids: Tensor) -> list:
         return [decoded(tokenizer, x) for x in ids]
     return [tokenizer.decode([i]) if i >= 0 else None for i in ids.tolist()]
 
-
-from clab.steps import fit, generate  # noqa: E402
 
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found)`.
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}
