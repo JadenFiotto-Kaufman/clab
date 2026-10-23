@@ -8,7 +8,7 @@ from conftest import BATCH_SIZE, plan_of
 
 from clab import Plan, ops
 from clab.compile import answers
-from clab.compile.answers import answered
+from clab.compile.answers import Answer, answered
 from clab.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -165,10 +165,11 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name, and a row with none is missing."""
     of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", of, ["rows", "pos", "vocab_size"], None, True)
+        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of, ["rows", "pos", "vocab_size"],
+                 None)
     missing = torch.full((1, 3, 5), float("nan"))
-    assert answered([" Tuesday"], [[[1], [2], [3]]], "days.answer", missing, ["rows", "pos", "vocab_size"], None,
-                    True).shape == (1, 3, 1)
+    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
+                    ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
 
 
 @pytest.mark.parametrize("scope, message", [

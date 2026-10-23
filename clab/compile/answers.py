@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import functools
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import torch
@@ -123,9 +123,6 @@ class Answer:
     column: str
     aligned: bool
 
-    def rows(self, part: slice) -> Answer:
-        return replace(self, values=self.values[part], sets=self.sets[part])
-
 
 def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str) -> Answer:
     """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
@@ -196,26 +193,25 @@ def refkey(ref: str | dict) -> str:
     return json.dumps(ref, sort_keys=True)
 
 
-def answered(values: list, sets: list, column: str, of: Tensor | None, dims: list[str], rows: slice | None,
-             aligned: bool) -> Tensor:
-    """Each row's answer laid against the value `of` a metric scores, as the ids each position may be, padded
-    with -1 (`metrics._aligned`). A column whose every row is one token scores it at every position of its row
-    (`[rows, m]`); one with an answer of several tokens is `aligned`: token i of each row's at the row's
+def answered(answer: Answer, of: Tensor | None, dims: list[str], rows: slice | None) -> Tensor:
+    """Each row's answer (of `rows`) laid against the value `of` a metric scores, as the ids each position may
+    be, padded with -1 (`metrics._aligned`). A column whose every row is one token scores it at every position of
+    its row (`[rows, m]`); one with an answer of several tokens is `aligned`: token i of each row's at the row's
     position i (`[rows, pos, m]`), which needs every row the value reaches to have as many positions as its
     answer has tokens (`present`)."""
-    start = rows.start if rows is not None else 0
-    most = max(len(ids) for row in sets for ids in row)
-    sets = [[ids + [-1] * (most - len(ids)) for ids in row] for row in sets]
-    if not aligned:
+    part, column = rows or slice(None), answer.column
+    most = max(len(ids) for row in answer.sets[part] for ids in row)
+    sets = [[ids + [-1] * (most - len(ids)) for ids in row] for row in answer.sets[part]]
+    if not answer.aligned:
         return torch.tensor([row[0] for row in sets])
     if "pos" not in dims:
         raise ValueError(f"{column}: an answer of several tokens scores a position each, and the value has no pos "
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    for r, (value, row, n) in enumerate(zip(values, sets, present(of, dims))):
+    for r, (value, row, n) in enumerate(zip(answer.values[part], sets, present(of, dims))):
         if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
-            raise ValueError(unaligned(column, start + r, value, len(row), n))
+            raise ValueError(unaligned(column, (part.start or 0) + r, value, len(row), n))
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 

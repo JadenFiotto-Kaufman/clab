@@ -223,8 +223,7 @@ def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice 
             value = value[rows] if rows is not None and dims_of(plan, given)[:1] == ["rows"] else value
         elif annotation == ops.Tokens:
             if vocabulary is None:
-                got = (answers or {})[refkey(value)].rows(rows or slice(None))
-                out[key] = answered(got.values, got.sets, got.column, of, dims or [], rows, got.aligned)
+                out[key] = answered((answers or {})[refkey(value)], of, dims or [], rows)
                 continue
             value = indexed(plan, value, vocabulary, rows)[:, None]
         elif annotation == ops.Text:
