@@ -15,7 +15,7 @@ OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "laye
         "with.component", "with.layer")
 
 
-def header(kind: str, fields: dict, model: Any, labels: list | None = None, site: Any = None,
+def header(kind: str, fields: dict, model: Any, labels: list | None, site: Any = None,
            width: int | None = None, document: str | None = None, reads: Any = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
     list), the model, and, when written, the site it was used at, its width and the document's name, and the
@@ -36,7 +36,7 @@ def header(kind: str, fields: dict, model: Any, labels: list | None = None, site
     return found
 
 
-def load(root: str, kind: str, fields: dict, model: Any, labels: list | None = None
+def load(root: str, kind: str, fields: dict, model: Any, labels: list | None
          ) -> tuple[dict[str, Tensor], dict[str, str] | None]:
     """The tensors and header of the bundle `fields["file_path"]` names under `root`: exactly the tensors the
     kind's bundle holds, and the header checked key by key against the featurizer that loads it and the
