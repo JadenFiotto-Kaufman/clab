@@ -27,7 +27,7 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     optimizer = step.optimizer
     opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if s.kind == "op"]
-    n = len(sources["train"][0].data[next(iter(datasets(step)))].rows or [])
+    n = len(sources["train"][0].data[datasets(step)[0]].rows or [])
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None

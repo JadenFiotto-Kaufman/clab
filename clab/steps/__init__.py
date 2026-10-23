@@ -167,9 +167,8 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     its tokens, decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
-    vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims_of(plan, step.of) \
-        else None
     dims = dims_of(plan, step.of)
+    vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims else None
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
     value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, found.answers, of,
                                         vocabulary, dims=dims), engine=engine, dims=dims,

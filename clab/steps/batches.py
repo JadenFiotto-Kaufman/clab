@@ -214,8 +214,8 @@ def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice 
     params, out = ops.parameters(name), {}
     for key, value in args.items():
         annotation = params[key].annotation
-        if annotation == ops.Value and isinstance(value, str) and value in (live or {}):
-            out[key] = {"live": (live or {})[value]}
+        if annotation == ops.Value and isinstance(value, str) and live and value in live:
+            out[key] = {"live": live[value]}
             continue
         if annotation == ops.Value and isinstance(value, str):
             given, value = value, lookup(state, value, at)

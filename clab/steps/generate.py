@@ -48,7 +48,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
-    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in every}
+    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
     parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
     most = horizon(step)
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
@@ -92,24 +92,24 @@ def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict,
     pos = positions.parse(record.pos)
     holds, calls, _ = positions.reach(pos, most)
     head_only, layer = head(step, record), layers(engine, record)[0]
+    prompts = [len(e["ids"]) for e in encoded]
     out = []
     if writes(record):
         edits = edit(plan, record, state, step.at, chunk, found.answers)
         if holds:
-            where = [positions.prompted(len(e["ids"]), head_only) for e in encoded]
+            where = [positions.prompted(p, head_only) for p in prompts]
             out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, True),
                         "layer": layer, "ops": edits})
         online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
             if pos["scope"] else {}
-        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": write_name(key),
-                    "layer": layer, "ops": edits, "calls": None if online else calls, **online})
+        out.append({**decoding(record, picks, prompts), "name": write_name(key), "layer": layer, "ops": edits,
+                    "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
-            whole = [positions.prompted(len(e["ids"])) for e in encoded]
+            whole = [positions.prompted(p) for p in prompts]
             out.append({**site(record, picks, whole, pads, padded, head_only), "name": read_name(key, layer, True),
                         "layer": layer})
-        out.append({**decoding(record, picks, [len(e["ids"]) for e in encoded]), "name": read_name(key, layer),
-                    "layer": layer, "calls": calls})
+        out.append({**decoding(record, picks, prompts), "name": read_name(key, layer), "layer": layer, "calls": calls})
     return out
 
 
