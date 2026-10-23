@@ -130,7 +130,7 @@ def prompted(prompt: int, head_only: bool = False) -> list[int]:
     return [prompt - 1] if head_only else list(range(prompt))
 
 
-def held(called: list[int], prompt: int, head_only: bool = False) -> list[int]:
+def held(called: list[int], prompt: int, head_only: bool) -> list[int]:
     """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompted`), and
     each decode call's input."""
     return [p for call in called for p in (prompted(prompt, head_only) if call == 0 else [prompt + call - 1])]
@@ -272,7 +272,7 @@ def bounds(words: str, tokens: list[tuple[int, int]]) -> tuple[dict[int, int], d
     return starts, ends
 
 
-def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int = 0) -> set[int]:
+def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int) -> set[int]:
     """The tokens (`offset` + their index) whose spans overlap characters `a` to `b`; a token with an empty
     span covers the character it begins."""
     return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}

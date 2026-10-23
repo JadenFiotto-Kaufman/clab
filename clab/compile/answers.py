@@ -78,7 +78,7 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
 
 
 def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
-                 placed: list | None, forced: list | None = None) -> None:
+                 placed: list | None, forced: list | None) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
     tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
@@ -247,8 +247,8 @@ def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:
             "\"before\": true reads the positions that predict the answer's tokens)")
 
 
-def answers(tokenizer: PreTrainedTokenizerBase, values: list, column: str, strip: bool = False,
-            lower: bool = False) -> list[list[list[int]]]:
+def answers(tokenizer: PreTrainedTokenizerBase, values: list, column: str, strip: bool,
+            lower: bool) -> list[list[list[int]]]:
     """Each row's answer as, per token, the ids it may be. A row's value is a string or a set of them (a list),
     each tokenized exactly as written without special tokens (`" Friday"` and `"Friday"` are different tokens
     on most tokenizers; the column says which), and under `strip` without its whitespace-only tokens at either

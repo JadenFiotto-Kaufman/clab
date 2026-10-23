@@ -53,7 +53,7 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     return kind
 
 
-def references(cx: Compiling, path: str, name: str, args: dict, classes: bool = False) -> dict[str, Known]:
+def references(cx: Compiling, path: str, name: str, args: dict, classes: bool) -> dict[str, Known]:
     """Op `name`'s arguments that name a value or a column, each resolved (`Known`, with `name` as written). A
     column read as text or scored against the vocabulary holds text on every row; one scored against a probe's
     `classes` holds its labels, whatever they are. A featurizer argument is checked to exist."""
@@ -106,7 +106,7 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
                  "many (a pos axis broadcasts no more than a layers axis does)")
 
 
-def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None = None) -> list[str]:
+def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
     """The layout of op `name`'s result on a value laid out `dims`. Inside an entry (`where`) the op sees one
     batch, so it may not aggregate over rows; `original` is only an entry's."""
     if where != "entry" and "original" in inspect.signature(ops.OPS[name]).parameters:
