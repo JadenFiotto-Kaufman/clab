@@ -1,5 +1,5 @@
-"""How a function joins one of clab's tables (step kinds, featurizer kinds, ops), and how a document's
-arguments are checked against that function's signature."""
+"""How a document's arguments are checked against the signature of the function they go to (an op, a
+featurizer kind, an engine), and how its types are spelled to a reader."""
 
 import inspect
 import types
@@ -17,14 +17,6 @@ Value = Annotated[Tensor, "Value"]
 Tokens = Annotated[Tensor, "Tokens"]
 Text = Annotated[list, "Text"]
 Featurizer = Annotated["Kind", "Featurizer"]
-
-
-def registers(table: dict, name: str | None = None) -> Callable:
-    """A decorator that adds the function (or class) it decorates to `table` under `name`, else its own name."""
-    def add(fn: Callable) -> Callable:
-        table[name or fn.__name__] = fn
-        return fn
-    return add
 
 
 def spelled(fn: Callable, supplied: tuple) -> dict[str, inspect.Parameter]:

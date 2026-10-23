@@ -100,7 +100,7 @@ class Kind:
         for name in ("encode", "replace", "apply"):
             if name in vars(cls):
                 setattr(cls, name, exact(vars(cls)[name]))
-        registry.registers(KINDS, cls.kind)(cls)
+        KINDS[cls.kind] = cls
 
     # -- what the document and the plan see ------------------------------------------------------------------
 
