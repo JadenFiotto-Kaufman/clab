@@ -29,12 +29,10 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     sources = lookup(found.bodies, name, step.at)
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
-    device = home(engine)
-    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found.widths[f], seed, device)
+    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found.widths[f], seed, home(engine))
                for f in step.train}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
-    optimizer = step.optimizer
-    opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
+    opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     n = len(sources["train"][0].data[datasets(step)[0]].rows or [])
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
