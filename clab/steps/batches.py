@@ -19,7 +19,7 @@ from clab.format.sweeps import lookup, put
 from clab.plan import Plan, arguments, dims_of, entries, gathers, writes
 
 
-def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
+def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
     its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
     batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
@@ -65,8 +65,7 @@ def selection(record, picks: dict) -> dict:
     return {layout.index(axis): torch.tensor(v) for axis, v in picks.items()}
 
 
-def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: dict | None = None,
-         answers: dict | None = None) -> list[dict]:
+def edit(plan: Plan, record, state: dict, at: dict, rows: slice, answers: dict, live: dict | None = None) -> list[dict]:
     """An entry's ops up to its last edit, bound to one batch, as `visit` runs them: each with the layout of
     the value it meets (`dims`), the dataset rows of the batch, and its arguments bound, an operand that names an
     earlier entry of the same forward (`live`: by name, the engine's name for it) to that name, for the forward
@@ -78,7 +77,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
         out = []
         for node in nodes:
             o = node["op"]
-            args = bound(plan, o.op, arguments(o), state, at, rows, live=live, answers=answers)
+            args = bound(plan, o.op, arguments(o), state, at, rows, answers, live=live)
             out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -128,7 +127,7 @@ def bind(engine, plan: Plan, name: str, step, state: dict, found: Found, rows: s
     for key, record in chosen.items():
         if writes(record):
             records.append({**sites[key], "name": write_name(key), "layer": layers(engine, record)[0],
-                            "ops": edit(engine, plan, record, state, step.at, rows, live, found.answers)})
+                            "ops": edit(plan, record, state, step.at, rows, found.answers, live)})
         if record.gathered:
             records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
     return sites, records
@@ -196,7 +195,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     dims = address.dims(record.site.component)
     vocabulary = None
     for o in gathers(record):
-        args = bound(plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
+        args = bound(plan, o.op, arguments(o), state, at, rows, answers, value, vocabulary, dims=dims)
         value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.arange(rows.start, rows.stop),
                          positions=places)
         dims = ops.out_dims(o.op, dims, arguments(o), getattr(args.get("featurizer"), "kind", None))
@@ -205,9 +204,9 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
     return value
 
 
-def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None, of: Any = None,
-          vocabulary: list | None = None, live: dict | None = None, dims: list[str] | None = None,
-          answers: dict | None = None) -> dict:
+def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None, answers: dict,
+          of: Any = None, vocabulary: list | None = None, live: dict | None = None,
+          dims: list[str] | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
     forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
@@ -223,7 +222,7 @@ def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice 
             value = value[rows] if rows is not None and dims_of(plan, given)[:1] == ["rows"] else value
         elif annotation == ops.Tokens:
             if vocabulary is None:
-                out[key] = answered((answers or {})[refkey(value)], of, dims or [], rows)
+                out[key] = answered(answers[refkey(value)], of, dims or [], rows)
                 continue
             value = indexed(plan, value, vocabulary, rows)[:, None]
         elif annotation == ops.Text:
@@ -317,7 +316,7 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
         at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
-        new = edited(new, original, w["ops"], got, {"positions": at})
+        new = edited(new, original, w["ops"], got, at)
         new = new.to(device=current.device, dtype=current.dtype)
         for dim, index in w["select"].items():
             new = whole.index_copy(dim, index.to(current.device), new)
@@ -327,30 +326,30 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     return x.movedim(1, axis), wrote
 
 
-def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict | None, where: dict) -> Tensor:
+def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict, places: Tensor | None) -> Tensor:
     """`new` after a write's bound ops, each on the current value in turn. An `encode` runs the ops its `decode`
     closes over (`inner`) on the value's coordinates, on the features its `select` keeps, and writes the change
     back (`Kind.within`); `original` goes in with them, encoded the same way."""
     for o in bound:
         args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
         if o["op"] != "encode":
-            new = ops.call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), **where)
+            new = ops.call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), positions=places)
             continue
         f: Any = args["featurizer"]
         features = o.get("features")
         start = f.encode(original)
         start = start if features is None else start.index_select(-1, features.to(start.device))
-        new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, where), features)
+        new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, places), features)
     return new
 
 
-def live(got: dict | None, operand: dict) -> Tensor:
+def live(got: dict, operand: dict) -> Tensor:
     """A write's operand that names a read of its own forward: that read's value, which the engine made before
     it reached the write."""
-    if operand["live"] not in (got or {}):
+    if operand["live"] not in got:
         raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
                          "reached the write; it reads it at a later site")
-    return (got or {})[operand["live"]]
+    return got[operand["live"]]
 
 
 def home(engine) -> str:

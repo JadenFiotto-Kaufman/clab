@@ -171,8 +171,8 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
         else None
     dims = dims_of(plan, step.of)
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
-    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, of, vocabulary,
-                                        dims=dims, answers=found.answers), engine=engine, dims=dims,
+    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, found.answers, of,
+                                        vocabulary, dims=dims), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

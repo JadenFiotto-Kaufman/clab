@@ -94,7 +94,7 @@ def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict,
     head_only, layer = head(step, record), layers(engine, record)[0]
     out = []
     if writes(record):
-        edits = edit(engine, plan, record, state, step.at, chunk, answers=found.answers)
+        edits = edit(plan, record, state, step.at, chunk, found.answers)
         if holds:
             where = [positions.prompted(len(e["ids"]), head_only) for e in encoded]
             out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, True),
