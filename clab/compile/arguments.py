@@ -123,7 +123,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
 
 def value_ref(cx: Compiling, value: str, path: str) -> Known:
     """A named value produced before this point, noted as referenced and used."""
-    info = cx.names.get(value) if isinstance(value, str) else None
+    info = cx.names.get(value)
     if info is not None and info.kind == "featurizer":
         fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "

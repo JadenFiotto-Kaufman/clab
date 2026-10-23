@@ -78,7 +78,7 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
 
 
 def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
-                 placed: list | None, forced: list | None) -> None:
+                 placed: list[list[int]] | None, forced: list[list[int]] | None) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
     tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
@@ -98,12 +98,12 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
             if aligned and dims is not None and "pos" not in dims:
                 raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
                                  f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
-            if aligned and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
+            if aligned and placed is not None and len(placed[r]) != len(row):
                 raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}")
         if forced is None or placed is None:
             continue
         for r, at in enumerate(placed):
-            for i, p in enumerate(at if isinstance(at, list) else []):
+            for i, p in enumerate(at):
                 ids, next_ = sets[r][i if aligned else 0], forced[r][p + 1]
                 if next_ not in ids:
                     shown = engine.tokenizer.convert_ids_to_tokens([next_])[0]
@@ -139,7 +139,7 @@ def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str
     return found.answers[key]
 
 
-def placed(plan: Plan, found: Found, name: str, at: dict) -> tuple[list | None, list | None]:
+def placed(plan: Plan, found: Found, name: str, at: dict) -> tuple[list[list[int]] | None, list[list[int]] | None]:
     """The positions per row of the read value `name`'s positions are (following `of` through op steps), where
     they are known before the run, else None; and each row's input ids where that read is a scope that is
     `before` (whose next tokens an answer scores), else None."""
@@ -153,8 +153,7 @@ def placed(plan: Plan, found: Found, name: str, at: dict) -> tuple[list | None, 
         where = lookup(found.positions, name, at)
     except KeyError:
         return None, None
-    record = entries(step).get(member) if step.kind in ("forward", "generate") else None
-    scope = (positions.parse(record.pos)["scope"] or {}) if record is not None else {}
+    scope = positions.parse(entries(step)[member].pos)["scope"] or {}     # only an entry holds positions
     return where, [e["ids"] for e in found.inputs[data.input_name(step.input)]["rows"]] \
         if scope.get("before") else None
 

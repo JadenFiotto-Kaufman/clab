@@ -46,14 +46,12 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     or encoded with a `select` outside its features or keeping none of them; and a trained featurizer used at
     no site. A refusal inside a fit's body names the fit, and under an eval the eval and the datasets it reads.
     """
-    assert plan.run is not None
     refuse(engine, plan)
     rows = {n: d.rows or [] for n, d in plan.data.items()}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
     found = prepare(engine, plan, plan.steps, {}, classes)
     found.widths = widths(engine, plan)
-    found.bodies = {}
     for name, entry in plan.steps.items():
         for step in points(entry):
             if step.kind != "fit":
