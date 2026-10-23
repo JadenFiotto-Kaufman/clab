@@ -131,8 +131,10 @@ def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str
     """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
     key = refkey(ref)
     if key not in found.answers:
+        column, strip, lower = data.column_of(ref) or ("", False, False)
+        values = column_texts(plan, column, None)
         try:
-            values, sets, column = tokens(engine, plan, ref, None)
+            sets = answers(engine.tokenizer, values, column, strip, lower)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
         found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets))
@@ -194,14 +196,6 @@ def refkey(ref: str | dict) -> str:
     return json.dumps(ref, sort_keys=True)
 
 
-def tokens(engine: Engine, plan: Plan, ref: str | dict, rows: slice | None) -> tuple[list, list, str]:
-    """A column reference's answer on each row, sliced to `rows`: its value, and per token the ids it may be
-    (`answers`), and the column's name."""
-    column, strip, lower = data.column_of(ref) or ("", False, False)
-    values = column_texts(plan, column, rows)
-    return values, answers(engine.tokenizer, values, column, strip, lower), column
-
-
 def answered(values: list, sets: list, column: str, of: Tensor | None, dims: list[str], rows: slice | None,
              aligned: bool) -> Tensor:
     """Each row's answer laid against the value `of` a metric scores, as the ids each position may be, padded
@@ -219,7 +213,9 @@ def answered(values: list, sets: list, column: str, of: Tensor | None, dims: lis
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    lined(values, sets, present(of, dims), column, start)
+    for r, (value, row, n) in enumerate(zip(values, sets, present(of, dims))):
+        if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
+            raise ValueError(unaligned(column, start + r, value, len(row), n))
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 
@@ -228,14 +224,6 @@ def present(of: Tensor, dims: list[str]) -> list[int]:
     or a position past a row's own, is NaN)."""
     x = of.movedim((dims.index("rows"), dims.index("pos")), (0, 1))
     return (~x.reshape(*x.shape[:2], -1).isnan().all(-1)).sum(1).tolist()
-
-
-def lined(values: list, sets: list, widths: list[int], column: str, start: int) -> None:
-    """Refuses a row that does not have one of the read's positions per token of its answer; a row with none is
-    missing, not refused."""
-    for r, (value, k, n) in enumerate(zip(values, (len(s) for s in sets), widths)):
-        if n != k and n != 0:
-            raise ValueError(unaligned(column, start + r, value, k, n))
 
 
 def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:

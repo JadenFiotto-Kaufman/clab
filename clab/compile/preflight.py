@@ -3,7 +3,7 @@ cannot run refused by name."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from clab import featurizers, ops
 from clab.compile import positions
@@ -15,7 +15,7 @@ from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
-from clab.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
+from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -54,24 +54,22 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     found.widths = widths(engine, plan)
     for name, entry in plan.steps.items():
         for step in points(entry):
-            if step.kind != "fit":
-                continue
-            within = body_view(plan, name, step.at)
-            sources: dict = {"train": (within, inside(name, None, {}, lambda within=within: prepare(
-                engine, within, step.steps, {}, classes))), "evals": {}}
-            for label, swap in step.eval.items():
-                held = body_view(plan, name, step.at, swap)
-                sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
-                    engine, held, step.steps, swap, classes))) if swap else sources["train"]
-            put(found.bodies, name, step.at, sources)
+            if step.kind == "fit":
+                train = body(engine, plan, name, step, None, {}, classes)
+                put(found.bodies, name, step.at, {"train": train, "evals": {
+                    label: body(engine, plan, name, step, label, swap, classes) if swap else train
+                    for label, swap in step.eval.items()}})
     return found
 
 
-def inside(fit: str, label: str | None, swap: dict[str, str], run: Callable[[], Found]) -> Found:
-    """A fit body's `prepare` (`run`), a refusal naming the fit and, under an eval, which one and the datasets it
-    reads in place of the body's, whose rows a row number counts."""
+def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swap: dict[str, str],
+         classes: dict[str, list]) -> tuple[Plan, Found]:
+    """A fit body's plan (under eval `label`, with each dataset `swap` maps read under the body's name for it) and
+    its `prepare`; a refusal names the fit and, under an eval, which one and the datasets it reads in place of
+    the body's, whose rows a row number counts."""
+    view = body_view(plan, fit, step.at, swap)
     try:
-        return run()
+        return view, prepare(engine, view, step.steps, swap, classes)
     except ValueError as e:
         if label is None:
             raise ValueError(f"{fit}.{e}") from None

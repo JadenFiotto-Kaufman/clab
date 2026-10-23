@@ -116,12 +116,6 @@ def prefill(pos: dict) -> bool:
 # -- the three stages ---------------------------------------------------------------------------------
 
 
-def framed(frame: Selector, n: int) -> list[int]:
-    """Stage one: the calls `frame` picks among a row's `n` calls; `-1` is its last, whether it chose EOS or
-    the generation ran out."""
-    return select(frame, n)
-
-
 def prompted(prompt: int, head_only: bool = False) -> list[int]:
     """The positions the prefill of a row whose prompt is `prompt` tokens holds, the one place a row's positions
     are decided: every token of its prompt, in order, BOS and a chat template's markers included (a row's ids are
@@ -180,7 +174,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
     them when the frame names its last call, and the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
-        calls = framed(pos["frame"], max(len(said), 1))
+        calls = select(pos["frame"], max(len(said), 1))     # stage one: -1 is the row's last call, EOS or not
         tokens = held(calls, prompt, head_only)
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
@@ -208,7 +202,9 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
-    spans = turns(row, scope["turn"]) if "turn" in scope else located(texts, row["text"], row["offsets"])
+    # A role's messages in the order the template rendered them, so by where each ends, as `located` orders text.
+    spans = [(a, b) for role, a, b in row["turns"] if role == scope["turn"]] if "turn" in scope else \
+        located(texts, row["text"], row["offsets"])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
     found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
@@ -289,12 +285,6 @@ def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tok
     found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts, online=True)
     return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, said, found)
                == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
-
-
-def turns(row: dict, role: str) -> list[tuple[int, int]]:
-    """The character spans of the row's messages of `role`, as the chat template rendered them: in order, so
-    ordered by where each ends, as `located` orders text."""
-    return [(a, b) for r, a, b in row["turns"] if r == role]
 
 
 def continuation(ids: list[int], eos: set[int]) -> list[int]:
