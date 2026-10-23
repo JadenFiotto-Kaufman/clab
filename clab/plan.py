@@ -353,16 +353,14 @@ class Pos(Record):
 
     @model_validator(mode="after")
     def _grammar(self):
-        if self.scope is not None and self.scope.turn is not None and self.frame != 0 \
-                and not isinstance(self.frame, Sweep):
-            raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
         frame, index = self.frame, self.index
-        if self.scope is None and not isinstance(frame, Sweep) and not isinstance(index, Sweep) and \
-                selectors.fixed(frame) is not None and not selectors.from_end(frame) and 0 not in selectors.select(frame, 1):
-            calls = selectors.fixed(frame)
-            if not selectors.select(index, calls or 0):
-                raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
-                                 "calls, one each")
+        if self.scope is not None and self.scope.turn is not None and frame != 0 and not isinstance(frame, Sweep):
+            raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
+        calls = None if isinstance(frame, Sweep) or selectors.from_end(frame) else selectors.fixed(frame)
+        if self.scope is None and calls is not None and not isinstance(index, Sweep) \
+                and 0 not in selectors.select(frame, 1) and not selectors.select(index, calls):
+            raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
+                             "calls, one each")
         return self
 
 
