@@ -15,7 +15,7 @@ from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
+from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -123,7 +123,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             encoded = found.inputs[source]["rows"]
             later = []                      # a write's operands, checked once the step's entries have their shapes
             for key, record in entries(step).items():
-                where, site, write = f"{name}.{key}", record.site, writes(record)
+                where, site = f"{name}.{key}", record.site
                 if site.layers is not None:
                     picked(where, site.layers, sizes["num_layers"])
                 for axis, index in (site.select or {}).items():
@@ -136,7 +136,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 pos, select = positions.parse(record.pos), {a: len(v) for a, v in kept.items()}
                 resolved = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                    resolved = indices(where, write, record, step, rows, encoded, tokenizer)
+                    resolved = indices(where, record, step, rows, encoded, tokenizer)
                     put(found.positions, where, step.at, resolved)
                     widths = [len(r) for r in resolved]
                     shape = (widths[0] if len(set(widths)) == 1 else tuple(widths), select)

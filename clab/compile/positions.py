@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, cast
 
 from clab.format import data, selectors
 from clab.format.selectors import Selector, bound, covers, every, fixed, from_end, select
-from clab.plan import Forward, Generate, Intervention, Pos, Site, Sweep, Swept, fail
+from clab.plan import Forward, Generate, Intervention, Pos, Site, Sweep, Swept, fail, writes
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -309,8 +309,8 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
     return text, spans
 
 
-def indices(where: str, write: bool, record: Intervention, step: Forward | Generate, rows: list[dict],
-            encoded: list[dict], tokenizer: PreTrainedTokenizerBase) -> list[list[int]]:
+def indices(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
+            tokenizer: PreTrainedTokenizerBase) -> list[list[int]]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row."""
@@ -324,7 +324,7 @@ def indices(where: str, write: bool, record: Intervention, step: Forward | Gener
             why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
                 "that is all call 0 holds of it" if head(step, record) else ""
             raise ValueError(f"{where}: row {i}: {e}{why}") from None
-        if write and not got:
+        if writes(record) and not got:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              "one to write")
         found.append(list(got))
