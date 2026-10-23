@@ -84,8 +84,6 @@ def axes(name: str) -> str:
         return summary(a["layout"])
 
     def listed(verb: str) -> str:
-        if not isinstance(a[verb], tuple):
-            return f"the axes `{a[verb]}` names"
         if verb == "removes" and a[verb] == ops.VOCABULARY:
             return "its vocabulary axis"
         return ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb])
