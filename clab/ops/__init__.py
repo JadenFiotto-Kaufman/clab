@@ -13,9 +13,8 @@ parameter's document spelling (`with_` is `"with"`).
 import inspect
 from typing import Any, Callable
 
-from clab import featurizers
 from clab.format import registry
-from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (ops.Text, ops.Tokens, ops.Value)
+from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (each read as ops.<name>)
 
 ABOUT = """An op runs in two places, always as the same function:
 
@@ -123,17 +122,6 @@ def parameters(name: str) -> dict[str, inspect.Parameter]:
     None`) as the thing."""
     return {k: p.replace(annotation=registry.thing(p.annotation))
             for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
-
-
-def featurizer_of(name: str, args: dict) -> Any:
-    """Op `name`'s `Featurizer` argument in `args`, if it takes one: a name in a document, an instance in a run."""
-    return next((args.get(k) for k, p in parameters(name).items() if p.annotation == Featurizer), None)
-
-
-def kind(name: str, args: dict) -> str | None:
-    """The kind of the featurizer instance bound as op `name`'s `Featurizer` argument, if any."""
-    f = featurizer_of(name, args)
-    return f.kind if isinstance(f, featurizers.Kind) else None
 
 
 def check(name: str, args: dict) -> None:

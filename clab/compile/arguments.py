@@ -35,7 +35,7 @@ def said(space: list[dict]) -> str:
 def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
     """The kind of the featurizer op `name` names, checked to exist and to serve the op, and an `apply`'s `with`
     to be a name its kind takes; None when the op takes no featurizer."""
-    ref = ops.featurizer_of(name, args)
+    ref = args.get("featurizer")
     if ref is None:
         return None
     featurizer_ref(cx, ref, f"{path}.featurizer")

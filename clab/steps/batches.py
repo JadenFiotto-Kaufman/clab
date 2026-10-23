@@ -199,7 +199,7 @@ def with_ops(engine, plan: Plan, record, value: Any, state: dict, at: dict, rows
         args = bound(plan, o.op, arguments(o), state, at, rows, value, vocabulary, dims=dims, answers=answers)
         value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.arange(rows.start, rows.stop),
                          positions=places)
-        dims = ops.out_dims(o.op, dims, arguments(o), ops.kind(o.op, args))
+        dims = ops.out_dims(o.op, dims, arguments(o), getattr(args.get("featurizer"), "kind", None))
         if o.op == "encode":
             vocabulary = getattr(args["featurizer"], "classes", None)
     return value
