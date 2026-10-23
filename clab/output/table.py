@@ -169,11 +169,9 @@ def token(place: dict[str, Any] | None, row: int, axis: str, k: int) -> dict[str
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 
 
-def label(place: dict[str, Any] | None, row: int, index: int, axis: str) -> dict[str, Any]:
+def label(place: dict[str, Any], row: int, index: int, axis: str) -> dict[str, Any]:
     """A row's position `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`), the token
     that sits there, and for a read in a generation the forward `call` that holds it."""
-    if place is None:
-        return {axis: index}
     call = {"call": positions.call_of(index, len(place["prompt"][row]))} if place["beyond"] else {}
     return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
 

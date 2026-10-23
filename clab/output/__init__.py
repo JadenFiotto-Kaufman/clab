@@ -110,8 +110,7 @@ def load(out: str) -> Plan:
             value = value[name] if isinstance(d["dtype"], str) else value
         else:
             with open(file) as f:
-                value = json.load(f)
-        value = restored(value, d["dtype"])
+                value = restored(json.load(f), d["dtype"])
         entry = plan.steps[d["step"]]
         if isinstance(entry, list):
             value = {coordinate(plan, p.at): value[labelled(plan, p.at, file.endswith(".safetensors"))] for p in entry}
@@ -131,9 +130,9 @@ def nested(value: dict[str, Tensor]) -> dict[str, Any]:
 
 
 def restored(value: Any, dtype: str | dict[str, Any] | None) -> Any:
-    """A loaded value with every entry its `dtype` says was a tensor a tensor again."""
+    """A value read from JSON with every entry its `dtype` says was a tensor a tensor again."""
     if isinstance(dtype, str):
-        return value if isinstance(value, Tensor) else torch.tensor(value, dtype=getattr(torch, dtype))
+        return torch.tensor(value, dtype=getattr(torch, dtype))
     if isinstance(dtype, dict):
         return {k: restored(value[k], dtype[k]) for k in value}
     return value
@@ -159,7 +158,7 @@ def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | No
     declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
     trained featurizer, made at the first site it is used at."""
     member = name.partition(".")[2]
-    if step.kind == "op" and not member and ops.DECLARED[step.op]["bundle"]:
+    if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
         site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
         reads = None
