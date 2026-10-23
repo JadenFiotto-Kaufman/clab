@@ -40,12 +40,8 @@ def selects(args: dict) -> None:
             raise ValueError(f"select.features: {e}") from None
 
 
-# `encode`'s `select`, which its `check` reads.
-Kept = Annotated[dict, "{features: selector}"]
-
-
 @op("transforms", layout=coordinates, check=selects)
-def encode(of: Tensor, featurizer: Featurizer, select: Kept | None = None) -> Tensor:
+def encode(of: Tensor, featurizer: Featurizer, select: Annotated[dict, "{features: selector}"] | None = None) -> Tensor:
     """The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select`
     (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer
     closes it, and the ops between act on the coordinates."""
