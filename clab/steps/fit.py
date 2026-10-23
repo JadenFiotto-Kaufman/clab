@@ -5,11 +5,11 @@ from dataclasses import replace
 import torch
 from torch import Tensor
 
+from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, agreeing, entries
 from clab.steps.batches import home
-from clab.steps.preflight import Found
 
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 

@@ -512,6 +512,16 @@ class Forward(Record):
         return given
 
 
+# The generate options a step cannot forward as they are, the one value each may have, and why.
+FIXED = {
+    "num_return_sequences": (1, "more sequences than rows would break the step's one row of ids per input row"),
+    "num_beams": (1, "beams change the rows each forward call sees, so a read's row is no longer the input's"),
+    "return_dict_in_generate": (False, "the step's value is the ids"),
+    "use_cache": (True, "without the cache a decode step recomputes the prompt, and the prompt-call writes "
+                        "would not reach it"),
+}
+
+
 class Generate(Forward):
     """Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
     every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,
@@ -541,6 +551,15 @@ class Generate(Forward):
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
+
+    @model_validator(mode="after")
+    def _fixed(self):
+        """An option in `FIXED` at another value is refused; every other option is the engine's `generate`'s to
+        accept or reject when the step runs."""
+        for key, value in (self.model_extra or {}).items():
+            if key in FIXED and value != FIXED[key][0]:
+                raise ValueError(f"{key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
+        return self
 
 
 class OpStep(Record):

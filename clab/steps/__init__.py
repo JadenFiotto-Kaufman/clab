@@ -1,4 +1,4 @@
-"""Walk a compiled plan inside the run: preflight, every step and point in order, then the saved values into
+"""Walk a compiled plan inside the run: the preflight pass, every step and point in order, then the saved values into
 `plan.results`.
 
 This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards and generations,
@@ -22,11 +22,12 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile.answers import probe_of
+from clab.compile.preflight import preflight
+from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
 from clab.plan import Plan, Run, arguments, dims_of, entries, points
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, read, read_name, stacked
-from clab.steps.preflight import Found, preflight
 
 if TYPE_CHECKING:
     from clab.engines import Parameterized

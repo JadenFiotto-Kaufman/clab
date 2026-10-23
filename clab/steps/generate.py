@@ -1,12 +1,13 @@
 """The `generate` step kind, and its entries beyond the prefill."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 from torch import Tensor
 
 from clab.compile import positions
 from clab.compile.positions import head, place, texts
+from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, entries, horizon, writes
@@ -25,9 +26,6 @@ from clab.steps.batches import (
     write_name,
 )
 
-if TYPE_CHECKING:
-    from clab.steps.preflight import Found
-
 
 def stops(engine, step) -> list[int]:
     """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
@@ -35,7 +33,7 @@ def stops(engine, step) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: "Found") -> None:
+def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
     options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
@@ -83,7 +81,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 
-def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict, found: "Found", chunk: slice,
+def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict, found: Found, chunk: slice,
            pads: list[int], padded: int, encoded: list[dict], rows: list[dict], eos: set[int],
            most: int | None) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: a write's prefill part, where
@@ -183,21 +181,3 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
             value[i, j] = at_position(i, p)
     places = torch.tensor([got + [-1] * (width - len(got)) for got in found], dtype=torch.long).reshape(len(where), width)
     return with_ops(engine, plan, record, value, state, at, rows, places, answers)
-
-
-# The generate options a step cannot forward as they are, the one value each may have, and why.
-FIXED = {
-    "num_return_sequences": (1, "more sequences than rows would break the step's one row of ids per input row"),
-    "num_beams": (1, "beams change the rows each forward call sees, so a read's row is no longer the input's"),
-    "return_dict_in_generate": (False, "the step's value is the ids"),
-    "use_cache": (True, "without the cache a decode step recomputes the prompt, and the prompt-call writes "
-                        "would not reach it"),
-}
-
-
-def generation_options(name: str, options: dict) -> None:
-    """Refuses an option in `FIXED` at another value. Every other option is the engine's `generate`'s to
-    accept or reject, when the step runs (`generated`)."""
-    for key, value in options.items():
-        if key in FIXED and value != FIXED[key][0]:
-            raise ValueError(f"{name}: {key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")

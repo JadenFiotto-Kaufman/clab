@@ -1,6 +1,9 @@
-"""What a document means: a plan resolved for running, every name checked, every sweep expanded into points.
+"""What a document means, decided before any forward in two passes: here, with the document alone, a plan
+resolved for running, every name checked, every sweep expanded into points; and in `preflight`, with the model
+in hand, everything the model decides (tokens, positions per row, answers' ids, selects and widths against its
+sizes), collected into what the run needs (`state.Found`).
 
-The package holds the driver here and the concepts it resolves: `sweeps` and `data` are the format's own; `answers`
+The package holds the two drivers and the concepts they resolve: `sweeps` and `data` are the format's own; `answers`
 (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments
 against what compile knows), `interventions` (an entry, its brackets and operands) and `uses` (a featurizer's uses in
 a plan) are here, each with its checks at compile and what it resolves to in the run.

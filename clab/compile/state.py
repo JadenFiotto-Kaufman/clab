@@ -1,5 +1,5 @@
-"""What compile knows while it works: each name produced so far (`Known`) and the context every function that
-resolves a name is handed (`Compiling`)."""
+"""What compile knows while it works: each name produced so far (`Known`), the context every function that
+resolves a name is handed (`Compiling`), and what preflight found with the model in hand (`Found`)."""
 
 from dataclasses import dataclass, field
 
@@ -46,3 +46,21 @@ class Compiling:
     used: set
     aliases: dict = field(default_factory=dict)
     points: dict = field(default_factory=dict)
+
+
+@dataclass
+class Found:
+    """What preflight found, which the run needs: each dataset input's encoded rows and padded width
+    (`inputs`), every prefill record's positions per row by point (`positions`, which the run extends with the
+    other records'), the indices every record's `select` keeps on each axis (`selects`), room for what each
+    generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
+    each featurizer's width (`widths`), and for each fit point the same for its body (`bodies`): over its
+    training rows (`train`) and under each of its named `eval` substitutions (`evals`), each beside the plan
+    the body runs in."""
+    inputs: dict = field(default_factory=dict)
+    positions: dict = field(default_factory=dict)
+    said: dict = field(default_factory=dict)
+    selects: dict = field(default_factory=dict)
+    answers: dict = field(default_factory=dict)
+    widths: dict = field(default_factory=dict)
+    bodies: dict = field(default_factory=dict)

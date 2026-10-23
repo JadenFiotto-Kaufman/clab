@@ -3,14 +3,13 @@ positions checked against its step, its ops' layouts and operands), and what pre
 the model."""
 
 import math
-from typing import TYPE_CHECKING
 
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import text_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, said, space_of
 from clab.compile.positions import decided
-from clab.compile.state import Compiling, Known
+from clab.compile.state import Compiling, Found, Known
 from clab.format import address, data, selectors
 from clab.format.selectors import made_at, picked
 from clab.format.sweeps import lookup
@@ -35,9 +34,6 @@ from clab.plan import (
     walk,
     writes,
 )
-
-if TYPE_CHECKING:
-    from clab.steps.preflight import Found
 
 
 def items(plan: Plan, path: str, name: str, spec) -> list[tuple[str, str, Intervention]]:
@@ -245,7 +241,7 @@ def refuse(engine, plan: Plan) -> None:
                                  f"{reason}")
 
 
-def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: "Found", shapes: dict) -> None:
+def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, found: Found, shapes: dict) -> None:
     """A write's operands that another entry selected: the same width and narrowing; on a `key` axis, inputs
     that line up token for token; from the write's own forward, read at a site this engine reaches first. An
     adapter's input (`apply`'s `with`) is as wide per position as the value the op acts on, its axes after the
@@ -293,7 +289,7 @@ def check_operands(engine, plan: Plan, where: str, o, shape: tuple, step, site, 
             windowed(engine, where, value, producer, consumer, found, step.at)
 
 
-def windowed(engine, where: str, value: str, producer: str, consumer: str, found: "Found", at: dict) -> None:
+def windowed(engine, where: str, value: str, producer: str, consumer: str, found: Found, at: dict) -> None:
     """The same unscoped positions read on one input and written on another pair position i with position i. On
     a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
     from the start within the tokens both prompts begin with alike, or from the end within those they end with

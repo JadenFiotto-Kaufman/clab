@@ -1,37 +1,17 @@
 """Everything that needs the model, checked before any forward: what the run needs found, and what it
 cannot run refused by name."""
 
-from dataclasses import dataclass, field
-
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens, placed, probe_of
 from clab.compile.interventions import check_labels, check_operands, held, refuse
 from clab.compile.positions import indices
+from clab.compile.state import Found
 from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
-from clab.steps.generate import generation_options
-
-
-@dataclass
-class Found:
-    """What preflight found, which the run needs: each dataset input's encoded rows and padded width
-    (`inputs`), every prefill record's positions per row by point (`positions`, which the run extends with the
-    other records'), the indices every record's `select` keeps on each axis (`selects`), room for what each
-    generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
-    each featurizer's width (`widths`), and for each fit point the same for its body (`bodies`): over its
-    training rows (`train`) and under each of its named `eval` substitutions (`evals`), each beside the plan
-    the body runs in."""
-    inputs: dict = field(default_factory=dict)
-    positions: dict = field(default_factory=dict)
-    said: dict = field(default_factory=dict)
-    selects: dict = field(default_factory=dict)
-    answers: dict = field(default_factory=dict)
-    widths: dict = field(default_factory=dict)
-    bodies: dict = field(default_factory=dict)
 
 
 def preflight(engine, plan: Plan) -> Found:
@@ -45,8 +25,7 @@ def preflight(engine, plan: Plan) -> Found:
     each substituted dataset's rows under the body's name for it.
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
-    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a generate
-    option its `generate` does not take, or one in `FIXED` at another value; a position that does not fit some
+    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a position that does not fit some
     row's scope, or whose scope is not in a row a write or a read of static width needs; a token column that is not
     one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
     indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
@@ -129,8 +108,6 @@ def prepare(engine, plan: Plan, steps: dict, swap: dict, classes: dict) -> Found
                         raise ValueError(f"{name}: pca of {n} vectors has no rank-{arguments(step)['k']} basis; "
                                          f"it needs more than {arguments(step)['k']}")
                 continue
-            if step.kind == "generate":
-                generation_options(name, step.model_extra or {})
             rows = plan.data[step.dataset].rows or []
             source = data.input_name(step.input)
             if source not in found.inputs:

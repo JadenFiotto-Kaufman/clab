@@ -1,7 +1,7 @@
 """A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
 with, its value with the ops after its last edit applied."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 from torch import Tensor
@@ -11,14 +11,12 @@ from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
 from clab.compile.interventions import bracketed
 from clab.compile.positions import head
+from clab.compile.state import Found
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.selectors import made_at
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, arguments, dims_of, entries, gathers, writes
-
-if TYPE_CHECKING:
-    from clab.steps.preflight import Found
 
 
 def site(record, picks: dict, rows: list[list[int]], pads: list[int], width: int, last_only: bool = False) -> dict:
@@ -91,7 +89,7 @@ def edit(engine, plan: Plan, record, state: dict, at: dict, rows: slice, live: d
     return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(record.site.component))
 
 
-def chunked(engine, step, found: "Found", batch_size: int):
+def chunked(engine, step, found: Found, batch_size: int):
     """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
     input's longest row, and each row's padding."""
     encoded = found.inputs[data.input_name(step.input)]
@@ -114,7 +112,7 @@ def write_name(key: str, prefill: bool = False) -> str:
     return key + ("#0" if prefill else "")
 
 
-def bind(engine, plan: Plan, name: str, step, state: dict, found: "Found", rows: slice, pads: list[int],
+def bind(engine, plan: Plan, name: str, step, state: dict, found: Found, rows: slice, pads: list[int],
          among: set | None = None) -> tuple[dict, list[dict]]:
     """The step's prefill entries (those `among`, default every one) bound to one batch: each one's site, and
     the records the engine does in their order: an entry that writes as a write with its ops, then, when it is

@@ -289,19 +289,9 @@ def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     ({"return_dict_in_generate": True}, "patched: return_dict_in_generate True; it stays False: the step's value"),
     ({"use_cache": False}, "patched: use_cache False; it stays True: without the cache a decode step recomputes"),
 ])
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_options_a_step_cannot_forward_are_refused_before_any_forward(engines, kind, option, message):
-    plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(option)).compile()
-    engine = engines(kind, plan.model)
-    calls = []
-    original = engine.generate
-    engine.generate = lambda *args: calls.append(1) or original(*args)
-    try:
-        with pytest.raises(ValueError, match=message):
-            engine.execute(plan)
-    finally:
-        del engine.generate
-    assert calls == []
+def test_options_a_step_cannot_forward_are_refused_by_the_record(option, message):
+    with pytest.raises(PlanError, match=message):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(option))
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

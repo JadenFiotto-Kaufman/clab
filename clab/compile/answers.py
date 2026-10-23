@@ -4,7 +4,7 @@ classes), each row's answer tokenized as written and lined up with the read it s
 import functools
 import json
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import torch
 from pydantic import ValidationError
@@ -12,15 +12,11 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import positions
-from clab.compile.state import Compiling
+from clab.compile.state import Compiling, Found
 from clab.format import data
 from clab.format.sweeps import lookup
 from clab.ops.metrics import ONE_ID
 from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, points
-
-if TYPE_CHECKING:
-    from clab.steps.preflight import Found
-
 
 
 def probe_of(plan: Plan, name: str) -> str:
@@ -74,7 +70,7 @@ def column_ref(cx: Compiling, value, path: str, dataset: str | None) -> str:
     return name
 
 
-def check_tokens(engine, plan: Plan, found: "Found", where: str, name: str, args: dict, dims: list[str] | None,
+def check_tokens(engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
                  placed: list | None, forced: list | None = None) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
@@ -124,7 +120,7 @@ class Answer:
         return replace(self, values=self.values[part], sets=self.sets[part])
 
 
-def answer(engine, plan: Plan, found: "Found", ref, where: str) -> Answer:
+def answer(engine, plan: Plan, found: Found, ref, where: str) -> Answer:
     """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
     key = refkey(ref)
     if key not in found.answers:
@@ -136,7 +132,7 @@ def answer(engine, plan: Plan, found: "Found", ref, where: str) -> Answer:
     return found.answers[key]
 
 
-def placed(plan: Plan, found: "Found", name: str, at: dict) -> tuple[list | None, list | None]:
+def placed(plan: Plan, found: Found, name: str, at: dict) -> tuple[list | None, list | None]:
     """The positions per row of the read value `name`'s positions are (following `of` through op steps), where
     they are known before the run, else None; and each row's input ids where that read is a scope that is
     `before` (whose next tokens an answer scores), else None."""
