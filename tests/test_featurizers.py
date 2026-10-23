@@ -126,13 +126,6 @@ def test_the_published_activations_are_their_formulas():
         assert torch.equal(f.within(H, lambda z: z, None), H)
 
 
-def test_a_scalar_the_kind_lacks_is_refused_by_name():
-    kinds = every_kind()
-    for name in ("gate", "sae"):
-        with pytest.raises(ValueError, match=rf"a '{name}' featurizer has no scalar 'loss'"):
-            kinds[name].scalar("loss")
-
-
 def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = None,
               metadata: dict | None = None) -> Plan:
     """sae_published_jumprelu with its dictionary loaded from `tensors`, written with `metadata` (none by

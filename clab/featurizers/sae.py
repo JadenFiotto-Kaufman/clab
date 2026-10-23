@@ -115,8 +115,6 @@ class Sae(Kind):
 
     def scalar(self, name: str) -> Tensor:
         """Over the vectors and latents the body's encodes saw in this run of the body, the missing ones left out."""
-        if name not in self.scalars:
-            return super().scalar(name)
         if not self.seen:
             raise ValueError("an sae's scalars are over what the body's encodes of it saw; this body has none")
         h = torch.cat([h.reshape(-1, h.shape[-1]) for h, _ in self.seen])

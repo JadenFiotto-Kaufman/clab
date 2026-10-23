@@ -174,7 +174,7 @@ class Kind:
         """The instance's schedule at `epoch` of `epochs` (a gate's temperature)."""
 
     def scalar(self, name: str) -> Tensor:
-        """The scalar `name` a fit's objective may name (one of `scalars`); a kind refuses any other."""
+        """The scalar `name` a fit's objective may name: one of `scalars`, as compile checks."""
         raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:

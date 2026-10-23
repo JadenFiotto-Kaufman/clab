@@ -48,4 +48,4 @@ class Gate(Kind):
 
     def scalar(self, name: str) -> Tensor:
         """`mask`: the mean of the soft mask."""
-        return torch.sigmoid(self.theta / self.T).mean() if name == "mask" else super().scalar(name)
+        return torch.sigmoid(self.theta / self.T).mean()
