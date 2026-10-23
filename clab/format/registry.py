@@ -3,7 +3,7 @@ featurizer kind, an engine), and how its types are spelled to a reader."""
 
 import inspect
 import types
-from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin, is_typeddict
 
 from pydantic import TypeAdapter, ValidationError
 from torch import Tensor
@@ -91,6 +91,6 @@ def spell(annotation: Any, names: dict | None = None, literal: Callable[[Any], s
         return f"object of {spell(args[1], names, literal)}" if args else "object"
     if annotation is type(None):
         return "null"
-    if isinstance(annotation, type) and issubclass(annotation, dict) and hasattr(annotation, "__required_keys__"):
+    if is_typeddict(annotation):
         return "{" + ", ".join(f"{k}: {spell(v, names, literal)}" for k, v in annotation.__annotations__.items()) + "}"
     return getattr(annotation, "__name__", str(annotation))
