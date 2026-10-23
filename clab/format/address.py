@@ -95,8 +95,7 @@ def pos_axis(component: str) -> int:
 def dims(component: str, layers: object = None) -> list[str]:
     """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`, a `layers` axis
     first under `layers` that `stacks`."""
-    rest = [a for i, a in enumerate(COMPONENTS[component]["dims"]) if a != "batch" and i != pos_axis(component)]
-    return (["layers"] if stacks(layers) else []) + ["rows", "pos"] + rest
+    return (["layers"] if stacks(layers) else []) + ["rows", "pos"] + selectable(component)
 
 
 def stacks(layers: object) -> bool:
