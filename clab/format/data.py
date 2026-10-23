@@ -1,11 +1,19 @@
 """Rows at compile time; encoding, padding and token columns inside the run."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import os
 import re
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
+
+    from clab.plan import TextPart
 
 INPUT = re.compile(r"^(\w+)\.(\w+)(?:\[(\d+)\])?$")
 
@@ -32,12 +40,12 @@ def parse_input(text: str) -> tuple[str, str, int | None]:
     return match.group(1), match.group(2), None if match.group(3) is None else int(match.group(3))
 
 
-def input_columns(input) -> list[str]:
+def input_columns(input: str | list[str | TextPart]) -> list[str]:
     """The columns an input names: itself, or a list's that are not `{"text": ...}` literals."""
     return [input] if isinstance(input, str) else [part for part in input if isinstance(part, str)]
 
 
-def input_name(input, swap: dict | None = None) -> str:
+def input_name(input: str | list[str | TextPart], swap: dict[str, str] | None = None) -> str:
     """An input as the run record names it: the column, or a list's parts joined by ` + ` (a literal as JSON),
     each column's dataset as `swap` renames it."""
     parts = [input] if isinstance(input, str) else input
@@ -46,7 +54,7 @@ def input_name(input, swap: dict | None = None) -> str:
                       if isinstance(p, str) else json.dumps(p.text, ensure_ascii=False) for p in parts)
 
 
-def column_of(ref) -> tuple[str, bool, bool] | None:
+def column_of(ref: object) -> tuple[str, bool, bool] | None:
     """A column reference as a document writes it, `(<dataset>.<column>, strip, lower)`: the string, or
     `{"column", "strip"?, "lower"?}`; None for anything else."""
     if isinstance(ref, str):
@@ -56,7 +64,7 @@ def column_of(ref) -> tuple[str, bool, bool] | None:
     return ref["column"], bool(ref.get("strip")), bool(ref.get("lower"))
 
 
-def field(row: dict, input) -> str | list[dict]:
+def field(row: dict, input: str | list[str | TextPart]) -> str | list[dict]:
     """The row's input: its text, or its chat messages; a list's parts joined, each column's text as it is."""
     if not isinstance(input, str):
         return "".join(str(field(row, part)) if isinstance(part, str) else part.text for part in input)
@@ -67,9 +75,9 @@ def field(row: dict, input) -> str | list[dict]:
 def lookup(row: dict, path: str) -> object:
     """The value a column path names in one row, after its dataset: `entity`, or into a column's entries and
     keys, `counterfactual_inputs_variables[0].entity`."""
-    value: object = row
+    value: Any = row
     for name, index in re.findall(r"(\w+)|\[(\d+)\]", path):
-        value = value[name] if name else value[int(index)]  # type: ignore[index]
+        value = value[name] if name else value[int(index)]
     return value
 
 
@@ -78,7 +86,7 @@ def lookup(row: dict, path: str) -> object:
 MARKER = "\ue000clab\ue001"
 
 
-def encode(tokenizer, value: str | list[dict]) -> dict:
+def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict]) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 
@@ -92,21 +100,21 @@ def encode(tokenizer, value: str | list[dict]) -> dict:
     if isinstance(value, str):
         text, adds = value, True
     else:
-        text, adds, cursor = tokenizer.apply_chat_template(value, tokenize=False), False, 0
+        text, adds, cursor = cast(str, tokenizer.apply_chat_template(value, tokenize=False)), False, 0
         for i, message in enumerate(value):
             held = [{**m, "content": MARKER} if j == i else m for j, m in enumerate(value)]
-            own = tokenizer.apply_chat_template(held, tokenize=False).find(MARKER, cursor)
+            own = cast(str, tokenizer.apply_chat_template(held, tokenize=False)).find(MARKER, cursor)
             start = text.find(message["content"], max(cursor, own))
             if start < 0:
                 raise ValueError(f"message {i} ({message['role']}) {message['content']!r} is not where the chat "
                                  "template put the messages before it")
             cursor = start + len(message["content"])
             turns.append((message["role"], start, cursor))
-    got = tokenizer(text, add_special_tokens=adds, return_offsets_mapping=tokenizer.is_fast)
+    got = tokenizer(text, add_special_tokens=adds, return_offsets_mapping=bool(tokenizer.is_fast))
     return {"ids": got["input_ids"], "offsets": got.get("offset_mapping"), "text": text, "turns": turns}
 
 
-def pad(tokenizer, ids: list[list[int]], width: int) -> dict:
+def pad(tokenizer: PreTrainedTokenizerBase, ids: list[list[int]], width: int) -> dict[str, torch.Tensor]:
     """Rows of ids padded on the left, by hand, to `width`.
 
     Padding by hand keeps the serving side's tokenizer unmutated. `position_ids` count real tokens only, and

@@ -2,11 +2,16 @@
 int, a slice string in Python notation, or a list of distinct picks; and what can be known of a selector before
 the number of things is."""
 
+from __future__ import annotations
+
 import re
 import sys
-from typing import Annotated, Union
+from typing import TYPE_CHECKING, Annotated, Union, cast
 
 from pydantic import BeforeValidator
+
+if TYPE_CHECKING:
+    from clab.plan import Site
 
 # A slice string: each part an int or empty, no `-0`, no step 0.
 SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
@@ -15,7 +20,7 @@ SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
 FORMS = "an int (2, -1), a slice in Python notation ('2:5', '-3:', ':') or a list of picks ([1, 3, 7])"
 
 
-def checked(selector):
+def checked(selector: object) -> Selector:
     """A selector as written, refused unless it is an int, a slice string or a list of distinct int picks, and
     unless it can pick something: a slice whose static width is 0 (`"0:0"`, `"5:2"`) picks nothing ever."""
     if isinstance(selector, bool) or not isinstance(selector, (int, str, list)):
@@ -32,7 +37,7 @@ def checked(selector):
     return selector
 
 
-def select(selector, n: int) -> list[int]:
+def select(selector: Selector, n: int) -> list[int]:
     """The indices a selector picks among `n` things, the one place a selector is read: an int, the one it
     counts (negative from the end), if there is one; a slice string, its range by Python's rules; a list of
     picks, each one there is, in the order written. Two picks that count the same thing (`[0, -2]` of two)
@@ -47,19 +52,19 @@ def select(selector, n: int) -> list[int]:
     return got
 
 
-def kept(selects: dict | None, sizes: dict[str, int]) -> dict[str, list[int]]:
+def kept(selects: dict[str, Selector] | None, sizes: dict[str, int]) -> dict[str, list[int]]:
     """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
     and on `key` its `keys`."""
     return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
 
 
-def keys(selector) -> list[int]:
+def keys(selector: Selector) -> list[int]:
     """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
     number counted from the start (`keyed` says so), so no row's length changes them."""
     return select(selector, sys.maxsize)
 
 
-def keyed(selector) -> bool:
+def keyed(selector: Selector) -> bool:
     """Whether a selector picks the same keys of every row long enough to hold them: a fixed number, counted
     from the start (`3`, `[0, 2]`, `"1:4"`; not `-1`, `"2:"`)."""
     return fixed(selector) is not None and not from_end(selector)
@@ -71,13 +76,13 @@ def parsed(selector: str) -> tuple[int | None, int | None, int]:
     return start, stop, 1 if step is None else step
 
 
-def bound(selector) -> int:
+def bound(selector: Selector) -> int:
     """A number of things past every number the selector is written with: what it picks among that many is
     all a static selector ever picks."""
     return 2 * (1 + max(map(int, re.findall(r"[0-9]+", str(selector))), default=0))
 
 
-def fixed(selector) -> int | None:
+def fixed(selector: Selector) -> int | None:
     """A selector's static width: how many things it picks whatever their number (once there are enough), or
     None when that grows with the number. An int is 1, a list of picks its length; a slice has one when both
     its ends count from the same side, a bound written non-negative counting from the front and one left out
@@ -93,7 +98,7 @@ def fixed(selector) -> int | None:
     return len(select(selector, bound(selector))) if front[0] == front[1] else None
 
 
-def from_end(selector) -> bool:
+def from_end(selector: Selector) -> bool:
     """Whether what a selector picks among the first `n` things depends on `n`: a negative int or pick, a slice
     with a bound written negative, or a backward slice from the end unless it walks every thing (`"::-1"`)."""
     if isinstance(selector, int):
@@ -106,12 +111,12 @@ def from_end(selector) -> bool:
     return start is not None and start < 0 if step > 0 else not (step == -1 and start in (None, -1))
 
 
-def every(selector) -> bool:
+def every(selector: Selector) -> bool:
     """Whether a selector picks every one of however many things there are, in order (`":"`)."""
     return isinstance(selector, str) and parsed(selector) in ((None, None, 1), (0, None, 1))
 
 
-def covers(frame) -> bool:
+def covers(frame: Selector) -> bool:
     """Whether a frame names every decode call (`":"`, `"1:"`), whichever way it walks them."""
     if not isinstance(frame, str):
         return False
@@ -124,12 +129,13 @@ def covers(frame) -> bool:
 Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(checked)]
 
 
-def made_at(site, n: int) -> list:
-    """The layers a site is made at among the model's `n`, or `[None]` for a model's own value."""
-    return [None] if site.layers is None else select(site.layers, n)
+def made_at(site: Site, n: int) -> list[int] | list[None]:
+    """The layers a point's site (its `layers` a selector, no sweep) is made at among the model's `n`, or
+    `[None]` for a model's own value."""
+    return [None] if site.layers is None else select(cast(Selector, site.layers), n)
 
 
-def picked(where: str, layers, n: int) -> list[int]:
+def picked(where: str, layers: Selector, n: int) -> list[int]:
     """The layers a site's `layers` select among the model's `n`; a layer outside them, or a slice that picks
     none, is refused by name."""
     for i in [layers] if isinstance(layers, int) else layers if isinstance(layers, list) else []:
@@ -144,7 +150,7 @@ def picked(where: str, layers, n: int) -> list[int]:
     return got
 
 
-def selected(where: str, axis: str, selector, n: int, what: str) -> None:
+def selected(where: str, axis: str, selector: Selector, n: int, what: str) -> None:
     """Refuses a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps none."""
     written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
     try:
