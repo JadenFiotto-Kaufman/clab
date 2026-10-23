@@ -359,9 +359,10 @@ class Pos(Record):
         frame, index = self.frame, self.index
         if self.scope is not None and self.scope.turn is not None and frame != 0 and not isinstance(frame, Sweep):
             raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
-        calls = None if isinstance(frame, Sweep) or selectors.from_end(frame) else selectors.fixed(frame)
-        if self.scope is None and calls is not None and not isinstance(index, Sweep) \
-                and 0 not in selectors.select(frame, 1) and not selectors.select(index, calls):
+        if self.scope is not None or isinstance(frame, Sweep) or isinstance(index, Sweep) or selectors.from_end(frame):
+            return self
+        calls = selectors.fixed(frame)
+        if calls is not None and 0 not in selectors.select(frame, 1) and not selectors.select(index, calls):
             raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
                              "calls, one each")
         return self
@@ -442,7 +443,7 @@ Entries = dict[str, Intervention]
 Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries], ByShape()]]], ByShape()]
 
 
-def entries(step: "Step") -> dict[str, Any]:
+def entries(step: "Entry") -> dict[str, Any]:
     """A compiled forward's or generation's entries (`Intervention`s, each site inlined) in execution order:
     compile lays every `interventions` value out as one dict. Empty for another step."""
     found = getattr(step, "interventions", {})

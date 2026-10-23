@@ -4,11 +4,11 @@ bundle carries."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from clab.featurizers import KINDS, Kind, labels, make
 from clab.format import address, selectors
-from clab.format.selectors import selected
+from clab.format.selectors import Selector, selected
 from clab.plan import (
     Featurizer,
     Op,
@@ -68,7 +68,7 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
     for name, used in uses(plan).items():
         for where, site, at, o, around in used:
             last = address.dims(site.component)[-1]
-            kept = selectors.kept(site.select, sizes)
+            kept = selectors.kept(cast("dict[str, Selector] | None", site.select), sizes)
             width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "

@@ -141,9 +141,9 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, foun
     return sites, records
 
 
-def layers(engine: Engine, record: Intervention) -> list[int | None]:
+def layers(engine: Engine, record: Intervention) -> list[int] | list[None]:
     """The layers a record is made at: those its site's `layers` select among the model's (an int's one)."""
-    return made_at(record.site, engine.sizes()["num_layers"])
+    return made_at(cast(Site, record.site), engine.sizes()["num_layers"])
 
 
 def stacked(record: Intervention, values: list) -> Any:
