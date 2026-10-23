@@ -38,7 +38,7 @@ class HooksEngine:
     def __init__(self, model: Model, *, device: str = "cpu"):
         """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
         `device_map` when transformers computes it, else moved there once loaded), with what the meta shell says
-        of it: each component's native module and boundary, the sizes, and the modules the readout runs.
+        of it: each component's native module and boundary, and the sizes.
 
         device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
         """
@@ -48,8 +48,7 @@ class HooksEngine:
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
         self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
-        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites,
-                       "readout": [sites[c]["paths"]["None"] for c in ("final_norm_output", "lm_head_output")]}
+        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
             device_map=device if device in COMPUTED else None, **extra).eval())
@@ -76,7 +75,7 @@ class HooksEngine:
 
     def rank(self, component: str, layer: int | None) -> int:
         """Where the component falls in this model's forward: when its hook fires, as measured at load."""
-        return self.config["order"][f"{component}@{layer}"]
+        return self.config["order"][component, layer]
 
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
@@ -114,7 +113,8 @@ class HooksEngine:
 
     def readout(self, hidden: Tensor) -> Tensor:
         """The final norm, then the head: the modules nnterp's names for their outputs reach."""
-        norm, head = (self.model.get_submodule(path) for path in self.config["readout"])
+        norm, head = (self.model.get_submodule(self.config["sites"][c]["paths"][None])
+                      for c in ("final_norm_output", "lm_head_output"))
         return head(norm(hidden))
 
 
@@ -122,7 +122,7 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list, got
     """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
     those `now` says on the current forward call (`calls` holds each call's `input_ids` so far)."""
     reach = engine.config["sites"][component]
-    module = engine.model.get_submodule(reach["paths"][str(layer)])
+    module = engine.model.get_submodule(reach["paths"][layer])
     shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
@@ -154,8 +154,8 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list, got
     return module.register_forward_hook(post)
 
 
-def order(model, sites: dict, device: str) -> dict[str, int]:
-    """When each served component's hook fires in a forward (`<component>@<layer>`), measured on a two-token
+def order(model, sites: dict, device: str) -> dict[tuple[str, int | None], int]:
+    """When each served component's hook fires in a forward, by `(component, layer)`, measured on a two-token
     input on `device`, where the model takes its input: components at one module boundary fire together and
     share a rank."""
     fired: list = []
@@ -176,7 +176,7 @@ def order(model, sites: dict, device: str) -> dict[str, int]:
     finally:
         for handle in handles:
             handle.remove()
-    return {f"{c}@{layer}": fired.index((path, s["boundary"])) for c, s in sites.items()
+    return {(c, layer): fired.index((path, s["boundary"])) for c, s in sites.items()
             for layer, path in s["paths"].items()}
 
 
@@ -199,6 +199,6 @@ def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict
         *children, boundary = key.split(".")
         for child in children:
             host = getattr(host, child)
-        paths[str(layer)] = host.path.removeprefix("model").removeprefix(".")
+        paths[layer] = host.path.removeprefix("model").removeprefix(".")
     return {"paths": paths, "boundary": boundary, "refused": None}
 
