@@ -48,8 +48,10 @@ class Engine(Protocol):
     name: str
     spec: Model
     model: Parameterized
-    device: str | None
     options: dict[str, Any]
+
+    @property
+    def device(self) -> str | None: ...
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...
 

@@ -1,6 +1,8 @@
 """The `generate` step kind, and its entries beyond the prefill."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import Tensor
@@ -10,7 +12,7 @@ from clab.compile.positions import head, place, texts
 from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import lookup, put
-from clab.plan import Plan, entries, horizon, writes
+from clab.plan import Generate, Intervention, Plan, Site, entries, horizon, writes
 from clab.steps.batches import (
     bind,
     chunked,
@@ -26,14 +28,19 @@ from clab.steps.batches import (
     write_name,
 )
 
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
-def stops(engine, step) -> list[int]:
+    from clab.engines import Engine
+
+
+def stops(engine: Engine, step: Generate) -> list[int]:
     """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
     given = (step.model_extra or {}).get("eos_token_id")
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
+def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int, found: Found) -> None:
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
     options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
@@ -43,7 +50,7 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
     their EOS to the longest batch's."""
-    eos, rows = set(stops(engine, step)), plan.data[step.dataset].rows or []
+    eos, rows = set(stops(engine, step)), plan.data[cast(str, step.dataset)].rows or []
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
@@ -81,9 +88,9 @@ def generate(engine, plan: Plan, name: str, step, state: dict, batch_size: int, 
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
 
 
-def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict, found: Found, chunk: slice,
-           pads: list[int], padded: int, encoded: list[dict], rows: list[dict], eos: set[int],
-           most: int | None) -> list[dict]:
+def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
+           found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
+           eos: set[int], most: int | None) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: a write's prefill part, where
     its frame holds the prompt, and its decode part (`calls`: the frame's own, or None for every decode call;
     a write with a text scope goes to every call with each row's texts, `online`, and lands where
@@ -113,8 +120,8 @@ def beyond(engine, plan: Plan, record, key: str, picks: dict, step, state: dict,
     return out
 
 
-def landed_at(record, rows: list[dict], encoded: list[dict], said: list[list[int]], eos: set[int], tokenizer,
-              head_only: bool) -> list:
+def landed_at(record: Intervention, rows: list[dict], encoded: list[dict], said: list[list[int]], eos: set[int],
+              tokenizer: PreTrainedTokenizerBase, head_only: bool) -> list[list[int] | str]:
     """Where an entry past the prefill resolved on each row, once what the row generated (`said`) is known: a
     write with a text scope at the calls `positions.landing` said so of as each input was fed, any other entry
     by `positions.resolve` (`place`); a marker for a row it does not reach."""
@@ -126,7 +133,7 @@ def landed_at(record, rows: list[dict], encoded: list[dict], said: list[list[int
     return [place(pos, row, e, x, tokenizer, head_only) for row, e, x in zip(rows, encoded, said)]
 
 
-def generated(engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
+def generated(engine: Engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
     """`engine.generate`, which validates its own options: an error it raises naming one of them is reported
     as the step's, `<step>: generate rejected '<option>': <the engine's message>`. Each read at decode calls is
     checked to hold one value per call the batch made (a read out of forward order shifts calls)."""
@@ -146,9 +153,9 @@ def generated(engine, name: str, batch: dict, records: list[dict], options: dict
     return ids, got
 
 
-def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, values: list[Tensor], where: list,
-             encoded: list[dict], rows: slice, state: dict, at: dict, head_only: bool, most: int | None,
-             answers: dict) -> Any:
+def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whole: Tensor | None,
+             values: list[Tensor], where: list, encoded: list[dict], rows: slice, state: dict, at: dict,
+             head_only: bool, most: int | None, answers: dict) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
@@ -161,7 +168,7 @@ def at_calls(engine, plan: Plan, record, picks: dict, whole: Tensor | None, valu
     _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
     sizes = engine.sizes()
-    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(record.site.component)[2:]]
+    rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(cast(Site, record.site).component)[2:]]
     some = whole if whole is not None else values[0] if values else None
     dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
     device = some.device if some is not None else None

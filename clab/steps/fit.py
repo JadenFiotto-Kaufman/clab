@@ -1,48 +1,58 @@
 """The `fit` step kind: train featurizers through the frozen model, then score its body under each eval."""
 
+from __future__ import annotations
+
 from dataclasses import replace
+from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import Tensor
 
 from clab.compile.state import Found
 from clab.compile.uses import instance
+from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
-from clab.plan import Plan, agreeing, entries
+from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, entries
 from clab.steps.batches import home
+
+if TYPE_CHECKING:
+    from clab.engines import Engine
 
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
 
-def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
+def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_size: int, found: Found) -> None:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
     weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there."""
     sources = lookup(found.bodies, name, step.at)
+    # A compiled point's values are its own, never a sweep.
+    epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
     device = home(engine)
-    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found.widths[f], step.seed, device)
+    trained = {f: instance(plan, agreeing(plan.featurizers[f], step.at), found.widths[f], seed, device)
                for f in step.train}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     optimizer = step.optimizer
     opt = OPTIMIZERS[optimizer.name](params, lr=optimizer.lr, weight_decay=optimizer.weight_decay)
-    body_ops = [n for n, s in step.steps.items() if s.kind == "op"]
+    body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     n = len(sources["train"][0].data[datasets(step)[0]].rows or [])
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
-    for epoch in range(step.epochs):
+    for epoch in range(epochs):
         for f in trained.values():
-            f.anneal(epoch, step.epochs)
+            f.anneal(epoch, epochs)
         # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
-        order = torch.randperm(n, generator=torch.Generator().manual_seed(step.seed * 1_000_003 + epoch)).tolist()
-        for lo in range(0, n, step.batch_size):
+        order = torch.randperm(n, generator=torch.Generator().manual_seed(seed * 1_000_003 + epoch)).tolist()
+        for lo in range(0, n, size):
             with torch.enable_grad():
                 for f in trained.values():
                     f.settle()
-            body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + step.batch_size])
+            body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + size])
             with torch.enable_grad():
-                loss = sum(weight * term(body, trained, t, step.at) for t, weight in step.objective.items())
+                loss = sum(cast(float, weight) * term(body, trained, t, step.at)
+                           for t, weight in step.objective.items())
             assert isinstance(loss, Tensor)
             for p, g in zip(params, torch.autograd.grad(loss, params)):
                 p.grad = g
@@ -67,7 +77,7 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
             best, since, kept = score, 0, snapshot(trained)
         else:
             since += 1
-            if since >= step.early_stop.patience:
+            if since >= cast(int, step.early_stop.patience):
                 break
     for f, inst in trained.items():
         vars(inst).update(kept[f] if kept else {})
@@ -75,7 +85,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
     for label in step.eval:
         final = body_run(engine, name, step, state, trained, sources["evals"][label], None)
         for key, s in step.steps.items():
-            members = ([key] if s.kind == "op" else []) + [f"{key}.{k}" for k, e in entries(s).items() if e.gathered]
+            members = [key] if isinstance(s, OpStep) else []
+            members += [f"{key}.{k}" for k, e in entries(s).items() if e.gathered]
             for member in members:
                 put(state, f"{name}.{label}.{member}", step.at, lookup(final, member, step.at))
     for f, inst in trained.items():
@@ -85,7 +96,8 @@ def fit(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
 
 
-def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple, index: list[int] | None) -> dict:
+def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[str, Kind], source: tuple[Plan, Found],
+             index: list[int] | None) -> dict:
     """A fit's body over the rows `source` holds (its training rows or eval's), or the minibatch `index` of
     them, in a namespace of its own that falls back to `state`, each trained featurizer under its declared
     name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
@@ -100,13 +112,14 @@ def body_run(engine, name: str, step, state: dict, trained: dict, source: tuple,
     from clab.steps import KINDS
     with torch.set_grad_enabled(index is not None):
         for n, s in step.steps.items():
-            KINDS[s.kind](engine, plan, n, s, body, step.batch_size, found)
+            KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
     return body
 
 
-def datasets(step) -> list[str]:
+def datasets(step: Fit) -> list[str]:
     """The datasets a fit's body runs over, which have as many rows as each other."""
-    return sorted({s.dataset for s in step.steps.values() if s.dataset is not None})
+    body = cast("dict[str, Forward | OpStep]", step.steps)          # a fit's body holds no fit (compile refuses one)
+    return sorted({s.dataset for s in body.values() if s.dataset is not None})
 
 
 def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tuple[Plan, Found]:
@@ -121,7 +134,7 @@ def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tu
                  if a.column.partition(".")[0] in names else a for k, a in found.answers.items()})
 
 
-def term(body: dict, trained: dict, name: str, at: dict) -> Tensor:
+def term(body: dict, trained: dict[str, Kind], name: str, at: dict) -> Tensor:
     """An objective term: a body op's value averaged over every axis, or a trained featurizer's scalar."""
     thing, _, member = name.partition(".")
     if member and thing in trained:
@@ -134,7 +147,7 @@ def overall(value: Tensor) -> Tensor:
     return value.float().nanmean() if value.isnan().any() else value.float().mean()
 
 
-def snapshot(trained: dict) -> dict:
+def snapshot(trained: dict[str, Kind]) -> dict[str, dict[str, Any]]:
     """Each trained featurizer as it is now, its tensors detached copies: what restoring the epoch puts back."""
     return {f: {k: v.detach().clone() if isinstance(v, Tensor) else v for k, v in vars(inst).items() if k != "seen"}
             for f, inst in trained.items()}

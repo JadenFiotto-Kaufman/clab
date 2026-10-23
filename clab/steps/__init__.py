@@ -9,6 +9,8 @@ under ndif); under the hooks engine, in plain Python. The cross-step state is a 
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 """
 
+from __future__ import annotations
+
 import importlib.metadata
 import json
 import os
@@ -26,14 +28,17 @@ from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
-from clab.plan import Plan, Run, arguments, dims_of, entries, points
+from clab.plan import Forward, OpStep, Plan, Run, arguments, dims_of, entries, points
 from clab.steps import fit, generate
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, read, read_name, stacked
 
 if TYPE_CHECKING:
-    from clab.engines import Parameterized
+    from transformers import PreTrainedTokenizerBase
 
-def begin(engine, plan: Plan, batch_size: int) -> float:
+    from clab.engines import Engine, Parameterized
+
+
+def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
     """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
     the device and the options it loaded with; returns the start time."""
     if not plan.compiled:
@@ -46,7 +51,7 @@ def begin(engine, plan: Plan, batch_size: int) -> float:
     return time.time()
 
 
-def run(engine, plan: Plan, batch_size: int) -> None:
+def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, without gradients except where a fit trains; then each saved
     value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
     dtypes and devices of the model's parameters (`placed`)."""
@@ -74,7 +79,7 @@ def run(engine, plan: Plan, batch_size: int) -> None:
     plan.run.dtype, plan.run.devices = placed(engine.model)
 
 
-def placed(model: "Parameterized") -> tuple[list[str], list[str]]:
+def placed(model: Parameterized) -> tuple[list[str], list[str]]:
     """The distinct dtypes and devices of `model`'s parameters, each in the order first met. `run` reads them
     inside the session after the steps, so they are the server's under the ndif engine, and those of a model
     that loads its weights at its first forward once it has."""
@@ -91,7 +96,7 @@ def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def made(plan: Plan, widths: dict, device: str) -> dict:
+def made(plan: Plan, widths: dict[str, int], device: str) -> dict:
     """The run's state at its start: each declared featurizer used at a site, at each of its points, made
     where the model is (`device`)."""
     state: dict = {}
@@ -101,7 +106,7 @@ def made(plan: Plan, widths: dict, device: str) -> dict:
     return state
 
 
-def finished(value):
+def finished(value: Any) -> Any:
     """Detached CPU clones all the way down; a result never holds a view of a larger buffer."""
     if isinstance(value, Tensor):
         return value.detach().cpu().clone()
@@ -142,9 +147,7 @@ def version() -> str:
     return f"{dist.version}+{described}"
 
 
-
-
-def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
+def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, batch_size: int, found: Found) -> None:
     """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
     rows.
 
@@ -163,7 +166,7 @@ def forward(engine, plan: Plan, name: str, step, state: dict, batch_size: int, f
     joined(state, name, step, parts)
 
 
-def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found: Found) -> None:
+def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_size: int, found: Found) -> None:
     """The op over the whole value `of` names, given each of its rows' dataset row. `top_k`'s value also holds
     its tokens, decoded."""
     of = lookup(state, step.of, step.at)
@@ -179,7 +182,7 @@ def op(engine, plan: Plan, name: str, step, state: dict, batch_size: int, found:
     put(state, name, step.at, value)
 
 
-def decoded(tokenizer, ids: Tensor) -> list:
+def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
     """Each token id as the text it decodes to, nested as the ids are; None for a missing one (-1)."""
     if ids.dim() > 1:
         return [decoded(tokenizer, x) for x in ids]
