@@ -14,12 +14,13 @@ transformers moves them on from there.
 
 import time
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import nnterp  # noqa: F401  (before any transformers.models import, which otherwise segfaults)
 import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
+from torch.utils.hooks import RemovableHandle
 from transformers import AutoModelForCausalLM
 
 from clab import steps
@@ -35,7 +36,7 @@ from clab.steps.batches import landed, now
 class HooksEngine:
     name: str
 
-    def __init__(self, model: Model, *, device: str = "cpu"):
+    def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
         `device_map` when transformers computes it, else moved there once loaded), with what the meta shell says
         of it: each component's native module and boundary, and the sizes.
@@ -68,7 +69,7 @@ class HooksEngine:
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.tokenizer)
 
-    def unserved(self) -> dict:
+    def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
         module's forward rather than at a module boundary; None where it can."""
         return {c: site["refused"] for c, site in self.config["sites"].items()}
@@ -80,14 +81,15 @@ class HooksEngine:
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
 
-    def forward(self, batch: dict, records: list[dict]) -> dict[str, Tensor]:
+    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
         """One call of the model, under the records' hooks (`hooked`)."""
         got: dict[str, Tensor] = {}
         with self.hooked(records, got):
             self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
         return got
 
-    def generate(self, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict[str, Any]]:
+    def generate(self, batch: dict[str, Tensor], records: list[dict],
+                 options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]:
         """`generate` over the batch, with `options` as its keyword arguments, under the records' hooks
         (`hooked`): the new ids, and each read."""
         got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
@@ -118,7 +120,8 @@ class HooksEngine:
         return head(norm(hidden))
 
 
-def hook(engine: HooksEngine, component: str, layer: int | None, here: list, got: dict, calls: list):
+def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
+         calls: list[Tensor]) -> RemovableHandle:
     """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
     those `now` says on the current forward call (`calls` holds each call's `input_ids` so far)."""
     reach = engine.config["sites"][component]
@@ -135,12 +138,12 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list, got
         return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":
-        def pre(module, args):
+        def pre(module: torch.nn.Module, args: tuple[Any, ...]) -> tuple[Any, ...] | None:
             value, wrote = visit(args[0])
             return (value, *args[1:]) if wrote else None
         return module.register_forward_pre_hook(pre)
 
-    def post(module, args, output):
+    def post(module: torch.nn.Module, args: tuple[Any, ...], output: Any) -> Any:
         if component == "logits":
             value, wrote = visit(output.logits)
             if wrote:
@@ -154,14 +157,14 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list, got
     return module.register_forward_hook(post)
 
 
-def order(model, sites: dict, device: str) -> dict[tuple[str, int | None], int]:
+def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str) -> dict[tuple[str, int | None], int]:
     """When each served component's hook fires in a forward, by `(component, layer)`, measured on a two-token
     input on `device`, where the model takes its input: components at one module boundary fire together and
     share a rank."""
-    fired: list = []
+    fired: list[tuple[str, str]] = []
 
-    def noted(key: tuple):
-        def note(*_):
+    def noted(key: tuple[str, str]) -> Callable[..., None]:
+        def note(*_: object) -> None:
             if key not in fired:
                 fired.append(key)
         return note
@@ -180,7 +183,7 @@ def order(model, sites: dict, device: str) -> dict[tuple[str, int | None], int]:
             for layer, path in s["paths"].items()}
 
 
-def reach(shell: StandardizedTransformer, component: str, support: dict) -> dict:
+def reach(shell: StandardizedTransformer, component: str, support: dict[str, Any]) -> dict[str, Any]:
     """Where the component is on the native model: per layer, the module whose output or input nnterp's key names."""
     per_layer = COMPONENTS[component]["per_layer"]
     reason_for = support.get(nnterp_name(component))
