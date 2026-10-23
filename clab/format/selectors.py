@@ -39,8 +39,7 @@ def select(selector, n: int) -> list[int]:
     are refused. The order matters where the picked things are listed (layers, forward calls, tokens); an
     occurrence's picks make a scope, which is a set of positions, so there the order does not."""
     if isinstance(selector, str):
-        parts = [int(x) if x else None for x in (selector.split(":") + [""])[:3]]
-        return list(range(n)[slice(*parts)])
+        return list(range(n)[slice(*parsed(selector))])
     picks = [selector] if isinstance(selector, int) else selector
     got = [i + n if i < 0 else i for i in picks if -n <= i < n]
     if len(set(got)) < len(got):
@@ -75,7 +74,7 @@ def parsed(selector: str) -> tuple[int | None, int | None, int]:
 def bound(selector) -> int:
     """A number of things past every number the selector is written with: what it picks among that many is
     all a static selector ever picks."""
-    return 2 * (1 + max((abs(int(x)) for x in re.findall(r"-?[0-9]+", str(selector))), default=0))
+    return 2 * (1 + max(map(int, re.findall(r"[0-9]+", str(selector))), default=0))
 
 
 def fixed(selector) -> int | None:
