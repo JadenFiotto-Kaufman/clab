@@ -40,7 +40,7 @@ def apply(of: Tensor, featurizer: Featurizer, with_: Value | None = None) -> Ten
     reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an
     adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply`
     takes none refuses it."""
-    return featurizer.call("apply", of, {} if with_ is None else {"with": with_})
+    return featurizer.call("apply", of, {} if with_ is None else {"with_": with_})
 
 
 def uncoded(dims: list[str], args: dict, kind: str | None) -> list[str]:
