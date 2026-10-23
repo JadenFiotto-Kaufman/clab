@@ -42,7 +42,7 @@ what a kind need not have.
 import functools
 import inspect
 from contextlib import nullcontext
-from typing import Any, Callable, ClassVar, Protocol, cast
+from typing import Any, Callable, ClassVar
 
 import torch
 from torch import Tensor
@@ -158,12 +158,12 @@ class Kind:
         """`h` after `fn` ran on its coordinates, on the `features` it keeps (every one when None), and the change
         was written back: an `encode` and the `decode` that closes it, `fn` the ops between; `new == z` gives `h`
         to the bit."""
-        space = cast(Writable, self)         # compile closes an encode only of a kind that serves `decode`
+        encode, replace = self.method("encode"), self.method("decode")
         with unautocast(h):
-            z = space.encode(h)
+            z = encode(self, h)
             index = None if features is None else features.to(z.device)
             new = fn(z if index is None else z.index_select(-1, index)).to(z.dtype)
-            return space.replace(h, z, new if index is None else z.index_copy(-1, index, new))
+            return replace(self, h, z, new if index is None else z.index_copy(-1, index, new))
 
     def settle(self) -> None:
         """Recompute what derives from the trained tensors (a subspace's basis), once per optimizer step rather
@@ -190,12 +190,6 @@ class Kind:
     def tensors(self) -> dict[str, Tensor]:
         """The tensors its bundle holds."""
         return {name: getattr(self, name).detach() for name in self.saves}
-
-
-class Writable(Protocol):
-    """A kind with coordinates and a way back into the value: one that serves `decode`."""
-    def encode(self, h: Tensor) -> Tensor: ...
-    def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor: ...
 
 
 def check(kind: str, fields: dict) -> None:
