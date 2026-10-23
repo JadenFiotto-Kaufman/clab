@@ -334,6 +334,21 @@ def test_tables_join_wide_and_label_layers_and_keys(filled):
     assert len(first[0]["value"]) == 4                                                   # one probability per head
 
 
+def test_a_value_with_positions_but_no_rows_tables_a_row_per_position(engines):
+    """A mean over rows keeps the token axis; like any value with no rows it tables a row per element, and its
+    positions are no one row's, so each is labelled by its index alone."""
+    def change(d):
+        d["steps"]["patched"]["interventions"]["logits"]["pos"] = {"index": "-2:"}
+        d["steps"]["avg"] = {"kind": "op", "op": "mean", "of": "patched.logits", "over": ["rows"]}
+        d["saves"] = ["avg"]
+    plan = edited("patching", change).compile()
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    rows, avg = filled.table("avg"), filled.results["avg"]
+    assert len(rows) == avg.numel() and "pos_token" not in rows[0]
+    vocab = avg.shape[-1]
+    assert (rows[vocab]["pos"], rows[vocab]["vocab_size"], rows[vocab]["value"]) == (1, 0, avg[1, 0].item())
+
+
 def test_a_bundle_carries_the_header_its_featurizer_checks(filled, tmp_path):
     filled["pca_harvest", "hooks"].dump(str(tmp_path))
     from safetensors import safe_open

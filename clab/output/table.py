@@ -133,7 +133,9 @@ def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place:
         row: dict[str, Any] = dict(whole)
         for i, k in at.items():
             if dims[i] in ("pos", "key"):
-                row.update(token(place, at[dims.index("rows")], dims[i], k))
+                # a value with no rows has no one row's tokens to name a position by
+                row.update(token(place, at[dims.index("rows")], dims[i], k) if place and "rows" in dims
+                           else {dims[i]: k})
         if row.get("key", 0) is None or row.get("pos", 0) is None:
             continue                                    # past the row's own keys or positions
         pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
@@ -147,12 +149,10 @@ def layer(place: dict[str, Any] | None, k: int) -> int:
     return place["layers"][k] if place and place["layers"] is not None else k
 
 
-def token(place: dict[str, Any] | None, row: int, axis: str, k: int) -> dict[str, Any]:
+def token(place: dict[str, Any], row: int, axis: str, k: int) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
     None past the row's own positions or keys."""
-    if place is None:
-        return {axis: k}
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) else {axis: None}
     index = place["keys"][k] if place["keys"] is not None else k
