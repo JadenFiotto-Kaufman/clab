@@ -15,20 +15,17 @@ def reduced(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     """Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over`
     names it."""
     over = args.get("over")
-    if over is None:
-        return [a for a in dims if a not in DEFAULT]
-    for axis in over:
+    for axis in over or []:
         if axis not in dims:
             raise ValueError(f"a reduction cannot remove {axis!r}; the value is {dims}")
-    return [a for a in dims if a not in over]
+    return [a for a in dims if a not in (DEFAULT if over is None else over)]
 
 
 @op("reductions", layout=reduced)
 def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over
     the rows and positions, a `layers` axis kept."""
-    over = over if over is not None else [a for a in dims if a in DEFAULT]
-    axes = [dims.index(a) for a in over]
+    axes = [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
 
 
@@ -36,8 +33,7 @@ def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none
     is (a missing row)."""
-    over = over if over is not None else [a for a in dims if a in DEFAULT]
-    axes = [dims.index(a) for a in over]
+    axes = [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     gone = of.isnan().all(dim=axes) if axes else of.isnan()
     return of.nansum(dim=axes).masked_fill(gone, float("nan"))
 
@@ -46,8 +42,7 @@ def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
     none is."""
-    over = over if over is not None else [a for a in dims if a in DEFAULT]
-    axes = [dims.index(a) for a in over]
+    axes = [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
         return torch.full_like(of.sum(dim=axes), float("nan"))
     gone = of.isnan().all(dim=axes) if axes else of.isnan()
