@@ -26,8 +26,8 @@ from safetensors.torch import load_file, save
 from torch import Tensor
 
 from clab import ops
+from clab.compile.uses import uses
 from clab.featurizers import KINDS, bundles, labels
-from clab.featurizers.uses import uses
 from clab.format import selectors
 from clab.format.sweeps import coordinate, labelled
 from clab.output.table import materialized, provenance

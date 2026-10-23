@@ -8,7 +8,7 @@ from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens, placed, probe_of
 from clab.compile.interventions import check_labels, check_operands, held, refuse
 from clab.compile.positions import indices
-from clab.featurizers.uses import widths
+from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put

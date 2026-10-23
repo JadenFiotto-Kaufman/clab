@@ -22,7 +22,7 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile.answers import probe_of
-from clab.featurizers.uses import instance
+from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
 from clab.plan import Plan, Run, arguments, dims_of, entries, points
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, read, read_name, stacked

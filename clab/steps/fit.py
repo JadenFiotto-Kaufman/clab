@@ -5,7 +5,7 @@ from dataclasses import replace
 import torch
 from torch import Tensor
 
-from clab.featurizers.uses import instance
+from clab.compile.uses import instance
 from clab.format.sweeps import lookup, put
 from clab.plan import Plan, agreeing, entries
 from clab.steps.batches import home
