@@ -331,6 +331,23 @@ def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_pat
         ({"frame": 1}, 0, 11, "Handler", 1)
 
 
+def test_a_swept_json_save_is_keyed_by_its_labelled_coordinate(engines, tmp_path):
+    """Text is JSON; swept, its file holds a key per point, `max_new_tokens=1`, as a tensor file's are, and
+    loads back to the same text."""
+    def change(d):
+        del d["steps"]["answer"]["min_new_tokens"]
+        d["steps"]["answer"]["max_new_tokens"] = {"sweep": [1, 2]}
+        d["steps"]["text"] = {"kind": "op", "op": "detokenize", "of": "answer"}
+        d["saves"] = ["text"]
+    filled = run(engines, edited("generated_answer", change).compile(), "nnterp")
+    filled.dump(str(tmp_path))
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    keys = ["max_new_tokens=1", "max_new_tokens=2"]
+    assert manifest["results"]["text"]["file"] == "text.json" and list(manifest["results"]["text"]["shape"]) == keys
+    assert list(json.loads((tmp_path / "text.json").read_text())) == keys
+    assert Plan.load(str(tmp_path)).results["text"] == filled.results["text"]
+
+
 @pytest.mark.parametrize("name", GENERATE)
 def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch, name):
     plan = plan_of(name)

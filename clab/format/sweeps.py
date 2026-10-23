@@ -68,10 +68,10 @@ def coordinate(plan: Plan, at: dict[str, int]) -> Any:
     return values[0] if len(values) == 1 else tuple(values)
 
 
-def labelled(plan: Plan, at: dict[str, int], labels: bool = True) -> str:
-    """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`; without its labels, `-1`, `0,-1`."""
-    parts = [json.dumps(plan.sweeps[label].values[i], separators=(",", ":")) for label, i in at.items()]
-    return ",".join(f"{label}={part}" for label, part in zip(at, parts)) if labels else ",".join(parts)
+def labelled(plan: Plan, at: dict[str, int]) -> str:
+    """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`."""
+    return ",".join(f"{label}={json.dumps(plan.sweeps[label].values[i], separators=(',', ':'))}"
+                    for label, i in at.items())
 
 
 def put(state: dict, name: str, at: dict[str, int], value: Any) -> None:
