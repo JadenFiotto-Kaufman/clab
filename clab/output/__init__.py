@@ -19,7 +19,7 @@ row's prompt tokens, BOS first, then its generated ones) every read and write re
 
 import json
 import os
-from typing import Any
+from typing import Any, Literal
 
 import torch
 from safetensors.torch import load_file, save
@@ -31,7 +31,7 @@ from clab.featurizers import KINDS, bundles, labels
 from clab.format import selectors
 from clab.format.sweeps import coordinate, labelled
 from clab.output.table import materialized, provenance
-from clab.plan import Plan, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
+from clab.plan import Entry, Plan, Site, Step, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
 from clab.plan import name as named
 
 
@@ -81,14 +81,14 @@ def tensors(value: Any) -> bool:
     return isinstance(value, Tensor) or isinstance(value, dict) and all(map(tensors, value.values()))
 
 
-def flat(value: dict, prefix: str = "") -> dict[str, Tensor]:
+def flat(value: dict[str, Any], prefix: str = "") -> dict[str, Tensor]:
     out = {}
     for k, v in value.items():
         out.update(flat(v, f"{prefix}{k}/") if isinstance(v, dict) else {prefix + k: v.contiguous()})
     return out
 
 
-def describe(value: Any, what: str) -> Any:
+def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | dict[str, Any] | None:
     """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a list's
     length (and no dtype)."""
     if isinstance(value, Tensor):
@@ -119,8 +119,8 @@ def load(out: str) -> Plan:
     return plan
 
 
-def nested(value: dict[str, Tensor]) -> dict:
-    out: dict = {}
+def nested(value: dict[str, Tensor]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for key, v in value.items():
         *path, last = key.split("/")
         here = out
@@ -130,7 +130,7 @@ def nested(value: dict[str, Tensor]) -> dict:
     return out
 
 
-def restored(value: Any, dtype: Any) -> Any:
+def restored(value: Any, dtype: str | dict[str, Any] | None) -> Any:
     """A loaded value with every entry its `dtype` says was a tensor a tensor again."""
     if isinstance(dtype, str):
         return value if isinstance(value, Tensor) else torch.tensor(value, dtype=getattr(torch, dtype))
@@ -139,7 +139,7 @@ def restored(value: Any, dtype: Any) -> Any:
     return value
 
 
-def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
+def headed(plan: Plan, name: str, entry: Entry) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
     if not isinstance(entry, list):
@@ -154,7 +154,7 @@ def headed(plan: Plan, name: str, entry: Any) -> dict[str, str] | None:
     return found
 
 
-def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | None:
+def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | None:
     """A bundle's header, when the value is one (`value`, at `step`, the point that made it): an op step's whose op
     declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
     trained featurizer, made at the first site it is used at."""
@@ -178,7 +178,7 @@ def header(plan: Plan, name: str, value: Any, step: Any) -> dict[str, str] | Non
                                       named(plan), reads)
 
 
-def counted(plan: Plan, site: Any) -> Any:
+def counted(plan: Plan, site: Site | None) -> Site | None:
     """A site whose one layer is counted from the first, as a header records it."""
     if site is not None and isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
         return site.model_copy(update={"layers": selectors.select(site.layers, plan.run.num_layers)[0]})

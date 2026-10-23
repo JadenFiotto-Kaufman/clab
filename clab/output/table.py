@@ -14,7 +14,7 @@ from clab.plan import Plan, arguments, body_view, corpus_root, dims_of, entries,
 JOIN = ("at", "row", "layer", "pos", "key")
 
 
-def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict]:
+def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict[str, Any]]:
     """The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
     A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
@@ -37,7 +37,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
                          "one dataset")
     if len(names) == 1:
         return rows_of(plan, names[0], columns)
-    joined: list[dict] = []
+    joined: list[dict[str, Any]] = []
     for name in names:
         rows = [{**{k: v for k, v in row.items() if k != "value"}, **({name: row["value"]} if "value" in row else {})}
                 for row in rows_of(plan, name, columns)]
@@ -45,14 +45,14 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     return joined
 
 
-def join(left: list[dict], right: list[dict]) -> list[dict]:
+def join(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
     beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
-    def axes(rows: list[dict]) -> list[str]:
+    def axes(rows: list[dict[str, Any]]) -> list[str]:
         return [k for k in JOIN if any(k in row for row in rows)]
     many, few = (left, right) if len(axes(left)) >= len(axes(right)) else (right, left)
     shared = [k for k in axes(many) if k in axes(few)]
-    by_key: dict = {}
+    by_key: dict[str, list[dict[str, Any]]] = {}
     for row in few:
         by_key.setdefault(json.dumps([row.get(k) for k in shared]), []).append(row)
     pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row.get(k) for k in shared]), [])]
@@ -60,7 +60,7 @@ def join(left: list[dict], right: list[dict]) -> list[dict]:
     return [{"at": m.pop("at"), **m} if "at" in m else m for m in merged]
 
 
-def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict]:
+def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
     if points(plan.steps[thing])[0].kind == "fit":
         if member.partition(".")[0] in ("history", *points(plan.steps[thing])[0].train):
@@ -117,7 +117,8 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
         "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 
 
-def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
+def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
+             ) -> list[dict[str, Any]]:
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
     if isinstance(value, dict) and "rows" not in dims:
         raise ValueError("a bundle has no rows to table; read it from plan.results")
@@ -135,7 +136,7 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
                 marked.add(tuple(whole.items()))
                 out.append({**whole, **mark})
             continue
-        row: dict = dict(whole)
+        row: dict[str, Any] = dict(whole)
         for i, k in at.items():
             if dims[i] in ("pos", "key"):
                 row.update(token(place, at[dims.index("rows")], dims[i], k))
@@ -147,18 +148,18 @@ def elements(value: Any, dims: list[str], place: dict | None) -> list[dict]:
     return out
 
 
-def layer(place: dict | None, k: int) -> int:
+def layer(place: dict[str, Any] | None, k: int) -> int:
     """Index `k` on a `layers` axis as the model's layer it is, by its read's `layers` among the model's."""
     return place["layers"][k] if place and place["layers"] is not None else k
 
 
-def unreached(place: dict | None, row: int | None) -> dict:
+def unreached(place: dict[str, Any] | None, row: int | None) -> dict[str, bool]:
     """`{"alignment_missing": True}` for a row a read beyond the prefill did not reach, else {}."""
     resolved = place["positions"][row] if place and row is not None else None
     return {resolved: True} if isinstance(resolved, str) else {}
 
 
-def token(place: dict | None, row: int, axis: str, k: int) -> dict:
+def token(place: dict[str, Any] | None, row: int, axis: str, k: int) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
     None past the row's own positions or keys."""
@@ -170,7 +171,7 @@ def token(place: dict | None, row: int, axis: str, k: int) -> dict:
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 
 
-def label(place: dict | None, row: int, index: int, axis: str) -> dict:
+def label(place: dict[str, Any] | None, row: int, index: int, axis: str) -> dict[str, Any]:
     """A row's position `index` as a table labels it: `pos` and `pos_token` (or `key`, `key_token`), the token
     that sits there, and for a read in a generation the forward `call` that holds it."""
     if place is None:
@@ -179,7 +180,7 @@ def label(place: dict | None, row: int, index: int, axis: str) -> dict:
     return {axis: index, f"{axis}_token": place["tokens"][row][index], **call}
 
 
-def part(value: Any, pick: tuple) -> Any:
+def part(value: Tensor | list[Any], pick: tuple[int | slice, ...]) -> Any:
     if isinstance(value, Tensor):
         got = value[pick]
         return got.item() if got.dim() == 0 else got.tolist()
@@ -189,7 +190,7 @@ def part(value: Any, pick: tuple) -> Any:
     return value
 
 
-def columns(plan: Plan, args: dict) -> list[str]:
+def columns(plan: Plan, args: dict[str, Any]) -> list[str]:
     """The dataset columns among an op's arguments (a column reference, as the string or the object), by name."""
     refs = [data.column_of(v) for v in args.values()]
     return [r[0].partition(".")[2] for r in refs if r is not None and r[0].partition(".")[0] in plan.data]
@@ -211,7 +212,7 @@ def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
         name = step.of
 
 
-def located(plan: Plan, source: str, at: dict) -> dict:
+def located(plan: Plan, source: str, at: dict[str, int]) -> dict[str, Any]:
     """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
     tokens (the prompt's, then in a generation what each row generated), whether it was read in a
     generation (whose positions are labelled with their call), the positions each row resolved to, the keys
@@ -233,7 +234,7 @@ def located(plan: Plan, source: str, at: dict) -> dict:
             else None}
 
 
-def materialized(plan: Plan, name: str) -> list[dict]:
+def materialized(plan: Plan, name: str) -> list[dict[str, Any]]:
     """A dataset's rows: the plan's, or, after `Plan.load`, read again from its file and checked against the
     digest the run recorded."""
     d = plan.data[name]
