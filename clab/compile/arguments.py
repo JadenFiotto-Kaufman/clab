@@ -6,8 +6,9 @@ from dataclasses import replace
 
 from clab import featurizers, ops
 from clab.compile.answers import column_ref, text_ref
+from clab.compile.state import Compiling, Known
 from clab.format import address, data
-from clab.format.plan import Compiling, Known, Op, Plan, arguments, fail, kind_of
+from clab.plan import Op, Plan, arguments, fail, kind_of
 
 
 def narrowed_readout(what: str) -> str:

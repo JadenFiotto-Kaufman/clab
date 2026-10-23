@@ -12,15 +12,27 @@ import shutil
 
 import pytest
 import torch
-from conftest import (BATCH_SIZE, DOCUMENTS, FIT, ROOT, TRIP, bundle_header, close, edited, plain, same, snapshot,
-                      stand_in)
+from conftest import (
+    BATCH_SIZE,
+    DOCUMENTS,
+    FIT,
+    ROOT,
+    TRIP,
+    bundle_header,
+    close,
+    edited,
+    plain,
+    same,
+    snapshot,
+    stand_in,
+)
 from safetensors.torch import load_file, save_file
 
 from clab import Plan, featurizers
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
-from clab.format.plan import PlanError, dims_of
+from clab.plan import PlanError, dims_of
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}

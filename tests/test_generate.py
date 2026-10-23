@@ -22,7 +22,7 @@ from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
 from clab.compile import positions
-from clab.format.plan import PlanError
+from clab.plan import PlanError
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 # Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two

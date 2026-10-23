@@ -8,7 +8,7 @@ import os
 from typing import TYPE_CHECKING
 
 from clab.docs import describe
-from clab.format.plan import Plan, name
+from clab.plan import Plan, name
 
 if TYPE_CHECKING:
     from clab.engines import Engine

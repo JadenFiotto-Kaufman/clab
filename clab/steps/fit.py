@@ -6,8 +6,8 @@ import torch
 from torch import Tensor
 
 from clab.featurizers.uses import instance
-from clab.format.plan import Plan, agreeing, entries
 from clab.format.sweeps import lookup, put
+from clab.plan import Plan, agreeing, entries
 from clab.steps.batches import home
 from clab.steps.preflight import Found
 

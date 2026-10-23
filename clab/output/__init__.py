@@ -29,10 +29,10 @@ from clab import ops
 from clab.featurizers import KINDS, bundles, labels
 from clab.featurizers.uses import uses
 from clab.format import selectors
-from clab.format.plan import Plan, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
-from clab.format.plan import name as named
 from clab.format.sweeps import coordinate, labelled
 from clab.output.table import materialized, provenance
+from clab.plan import Plan, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
+from clab.plan import name as named
 
 
 def dump(plan: Plan, out: str) -> None:

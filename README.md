@@ -161,16 +161,17 @@ tokenized). `clab.describe()` prints the format's tables.
 
 ## The package
 
-Seven packages, read as a chain from what a document says to what comes out; each imports only from the
-ones before it, and each module owns one concept end to end (its checks at compile, its resolution in the run,
+Seven packages and one hub module, read as a chain from what a document says to what comes out; each
+imports only from the ones before it, and each module owns one concept end to end (its checks at compile, its resolution in the run,
 its labels in the output), so a change to a feature stays in its module:
 
 | package | holds |
 | --- | --- |
-| `format/` | what a document may say: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`), and the records, `Plan` and compile's symbol table (`plan`) |
+| `format/` | the vocabulary a document is written in: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`) |
 | `ops/`, `featurizers/` | the op vocabulary, one plain function per op; the featurizer kinds, their bundles (`bundles`) and their uses in a plan (`uses`) |
-| `compile/` | what it means: the compile driver, and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands) |
-| `steps/` | the run inside the session: the driver with the forward and op kinds, `preflight` (everything that needs the model before a forward), `batches` (an entry bound to a batch, and `visit`, which engines call), `generate`, `fit` |
+| `plan.py` | the records a document is made of and the `Plan` that holds them: the hub every layer above imports, sitting above the ops and kinds its records validate |
+| `compile/` | what it means: the compile driver and its state (`state`: what compile knows of a name), and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands) |
+| `steps/` | the run inside the session: the driver with the forward and op kinds, `preflight` (everything that needs the model before a forward), `batches` (everything an engine calls: an entry bound to a batch, `visit`, and what a generation does at each call), `generate`, `fit` |
 | `engines/` | the protocol and the three engines, each holding a model and nothing else |
 | `output/` | a run's directory and back, and `table` |
 | `cli.py`, `docs.py` | the command line; `describe` and FORMAT.md |

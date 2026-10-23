@@ -16,8 +16,8 @@ from test_fit import TINY, corpus_copy
 from clab import Plan, featurizers, ops
 from clab.docs import describe
 from clab.featurizers.gate import Gate
-from clab.format.plan import PlanError, dims_of
 from clab.format.sweeps import points
+from clab.plan import PlanError, dims_of
 from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)

@@ -11,8 +11,8 @@ row's keys, on an attention pattern's `key` axis, are its prompt's positions, nu
 import re
 
 from clab.format import data, selectors
-from clab.format.plan import fail
 from clab.format.selectors import bound, covers, every, fixed, from_end, select
+from clab.plan import fail
 
 MISSING = "alignment_missing"
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt

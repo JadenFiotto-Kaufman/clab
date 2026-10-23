@@ -10,8 +10,8 @@ from typing import Any, get_args
 from pydantic import BaseModel
 
 from clab import compile as compiler
-from clab import featurizers, ops, output
-from clab.format import address, plan, registry, sweeps
+from clab import featurizers, ops, output, plan
+from clab.format import address, registry, sweeps
 from clab.output import table
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")

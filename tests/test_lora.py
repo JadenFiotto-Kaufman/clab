@@ -14,8 +14,8 @@ from test_fit import TINY, corpus_copy
 
 from clab import Plan
 from clab.featurizers.lora import Lora
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
+from clab.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 

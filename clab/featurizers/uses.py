@@ -6,7 +6,8 @@ from typing import Any
 
 from clab.featurizers import KINDS, Kind, labels, make
 from clab.format import address, selectors
-from clab.format.plan import (
+from clab.format.selectors import selected
+from clab.plan import (
     Op,
     Plan,
     agreeing,
@@ -20,7 +21,6 @@ from clab.format.plan import (
     visited,
     walk,
 )
-from clab.format.selectors import selected
 
 
 def uses(plan: Plan) -> dict[str, list[tuple[str, Any, dict, Op, list[Op]]]]:

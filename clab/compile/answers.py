@@ -12,10 +12,11 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import positions
+from clab.compile.state import Compiling
 from clab.format import data
-from clab.format.plan import Column, Compiling, Plan, arguments, body_view, declared, entries, fail, points
 from clab.format.sweeps import lookup
 from clab.ops.metrics import ONE_ID
+from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, points
 
 if TYPE_CHECKING:
     from clab.steps.preflight import Found

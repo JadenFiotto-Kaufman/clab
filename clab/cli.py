@@ -20,8 +20,8 @@ from typing import Any
 
 from clab import output
 from clab.docs import WHAT, as_json, describe, markdown
-from clab.format.plan import Plan, Run, dims_of, name, points
 from clab.format.sweeps import coordinate, labelled
+from clab.plan import Plan, Run, dims_of, name, points
 
 
 def how(run: Run) -> str:

@@ -14,8 +14,8 @@ from safetensors.torch import save_file
 from clab import Plan, featurizers
 from clab.featurizers.gate import Gate
 from clab.featurizers.sae import Sae
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
+from clab.plan import PlanError
 
 G = torch.Generator().manual_seed(5)
 H = torch.randn(3, 2, 16, generator=G)

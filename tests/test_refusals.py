@@ -6,7 +6,7 @@ from typing import Callable
 import pytest
 from conftest import BATCH_SIZE, edited, plan_of, same
 
-from clab.format.plan import PlanError
+from clab.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
 

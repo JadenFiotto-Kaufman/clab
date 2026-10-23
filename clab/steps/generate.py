@@ -8,8 +8,8 @@ from torch import Tensor
 from clab.compile import positions
 from clab.compile.positions import head, place, texts
 from clab.format import address, data
-from clab.format.plan import Plan, entries, horizon, writes
 from clab.format.sweeps import lookup, put
+from clab.plan import Plan, entries, horizon, writes
 from clab.steps.batches import (
     bind,
     chunked,
@@ -201,34 +201,3 @@ def generation_options(name: str, options: dict) -> None:
     for key, value in options.items():
         if key in FIXED and value != FIXED[key][0]:
             raise ValueError(f"{name}: {key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
-
-
-def now(records: list, call: int) -> list:
-    """What a generation does at a site on forward call `call` (0 is the prefill), in order: a record with no
-    `calls` acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
-    def wanted(record: dict) -> bool:
-        if "calls" not in record:
-            return call == 0
-        return call > 0 and (record["calls"] is None or call in record["calls"])
-    return [r for r in records if wanted(r)]
-
-
-def landed(records: list[dict], seen: list, tokenizer) -> list[dict]:
-    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
-    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
-    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
-    is left out. A read is as it was."""
-    out = []
-    for w in records:
-        if "ops" not in w:
-            out.append(w)
-            continue
-        online, w = w.get("online"), {**w, "call": len(seen)}
-        if online is None:
-            out.append(w)
-            continue
-        rows = [positions.landing(online["pos"], texts, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
-                for r, texts in enumerate(online["texts"])]
-        if any(rows):
-            out.append({**w, "keep": torch.tensor(rows)[:, None]})
-    return out

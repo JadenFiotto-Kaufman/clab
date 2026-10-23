@@ -10,11 +10,12 @@ from clab.compile import positions
 from clab.compile.answers import text_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, said, space_of
 from clab.compile.positions import decided
+from clab.compile.state import Compiling, Known
 from clab.format import address, data, selectors
-from clab.format.plan import (
-    Compiling,
+from clab.format.selectors import made_at, picked
+from clab.format.sweeps import lookup
+from clab.plan import (
     Intervention,
-    Known,
     Op,
     Plan,
     Site,
@@ -34,8 +35,6 @@ from clab.format.plan import (
     walk,
     writes,
 )
-from clab.format.selectors import made_at, picked
-from clab.format.sweeps import lookup
 
 if TYPE_CHECKING:
     from clab.steps.preflight import Found

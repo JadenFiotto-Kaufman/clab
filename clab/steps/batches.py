@@ -13,9 +13,9 @@ from clab.compile.interventions import bracketed
 from clab.compile.positions import head
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
-from clab.format.plan import Plan, arguments, dims_of, entries, gathers, writes
 from clab.format.selectors import made_at
 from clab.format.sweeps import lookup, put
+from clab.plan import Plan, arguments, dims_of, entries, gathers, writes
 
 if TYPE_CHECKING:
     from clab.steps.preflight import Found
@@ -363,3 +363,34 @@ def home(engine) -> str:
     first forward, the engine's device."""
     device = str(next(engine.model.parameters()).device)
     return (engine.device or "cpu") if device == "meta" else device
+
+
+def now(records: list, call: int) -> list:
+    """What a generation does at a site on forward call `call` (0 is the prefill), in order: a record with no
+    `calls` acts on the prefill only, one with `calls` on those decode calls (None: every one)."""
+    def wanted(record: dict) -> bool:
+        if "calls" not in record:
+            return call == 0
+        return call > 0 and (record["calls"] is None or call in record["calls"])
+    return [r for r in records if wanted(r)]
+
+
+def landed(records: list[dict], seen: list, tokenizer) -> list[dict]:
+    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
+    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
+    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
+    is left out. A read is as it was."""
+    out = []
+    for w in records:
+        if "ops" not in w:
+            out.append(w)
+            continue
+        online, w = w.get("online"), {**w, "call": len(seen)}
+        if online is None:
+            out.append(w)
+            continue
+        rows = [positions.landing(online["pos"], texts, [int(t[r, 0]) for t in seen], set(online["eos"]), tokenizer)
+                for r, texts in enumerate(online["texts"])]
+        if any(rows):
+            out.append({**w, "keep": torch.tensor(rows)[:, None]})
+    return out

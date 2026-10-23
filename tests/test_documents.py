@@ -17,9 +17,9 @@ from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain
 
 from clab import Plan
 from clab.cli import main
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
 from clab.ops import edits
+from clab.plan import PlanError
 
 ROWS = [
     {"input": "If the count is one, next is", "counterfactual_inputs": ["two"], "base_answer": " two", "cf_answer": " three"},

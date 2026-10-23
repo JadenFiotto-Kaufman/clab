@@ -11,9 +11,9 @@ from conftest import BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, pla
 import clab
 from clab import Plan
 from clab.cli import main
-from clab.format.plan import PlanError, entries
 from clab.format.sweeps import points
 from clab.ops import edits
+from clab.plan import PlanError, entries
 
 SAVED = ["iia", "logit_diff"]
 

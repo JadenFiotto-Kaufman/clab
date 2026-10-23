@@ -32,7 +32,7 @@ from typing import Any, Callable, Iterator, Protocol
 from torch import Tensor
 
 from clab.format import registry
-from clab.format.plan import Model, Plan
+from clab.plan import Model, Plan
 
 # What every engine's constructor takes beside its own options.
 SUPPLIED = ("self", "model", "device")

@@ -10,9 +10,9 @@ from clab.compile.interventions import check_labels, check_operands, held, refus
 from clab.compile.positions import indices
 from clab.featurizers.uses import widths
 from clab.format import address, data, selectors
-from clab.format.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 from clab.format.selectors import picked, selected
 from clab.format.sweeps import lookup, put
+from clab.plan import Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points, writes
 from clab.steps.generate import generation_options
 
 

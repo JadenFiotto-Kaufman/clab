@@ -12,8 +12,8 @@ from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 from clab import Plan
 from clab.compile import positions
 from clab.format import selectors
-from clab.format.plan import PlanError
 from clab.format.sweeps import points
+from clab.plan import PlanError
 
 
 def step(plan: Plan, name: str) -> Any:
