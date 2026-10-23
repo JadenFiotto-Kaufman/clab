@@ -29,8 +29,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
-    aligned = {name: dataset_of(plan, name) for name in names}
-    found = {d: name for name, d in aligned.items() if d is not None}
+    found = {d: name for name in names if (d := dataset_of(plan, name)) is not None}
     if len(found) > 1:
         (a, x), (b, y) = list(found.items())[:2]
         raise ValueError(f"{x!r} has a row per example of {a!r} and {y!r} of {b!r}; a table joins the values of "
@@ -39,8 +38,7 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
         return rows_of(plan, names[0], columns)
     joined: list[dict[str, Any]] = []
     for name in names:
-        rows = [{**{k: v for k, v in row.items() if k != "value"}, **({name: row["value"]} if "value" in row else {})}
-                for row in rows_of(plan, name, columns)]
+        rows = [{(name if k == "value" else k): v for k, v in row.items()} for row in rows_of(plan, name, columns)]
         joined = join(joined, rows) if joined else rows
     return joined
 
@@ -48,10 +46,9 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 def join(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
     beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
-    def axes(rows: list[dict[str, Any]]) -> list[str]:
-        return [k for k in JOIN if any(k in row for row in rows)]
-    many, few = (left, right) if len(axes(left)) >= len(axes(right)) else (right, left)
-    shared = [k for k in axes(many) if k in axes(few)]
+    left_axes, right_axes = ([k for k in JOIN if any(k in row for row in rows)] for rows in (left, right))
+    many, few = (left, right) if len(left_axes) >= len(right_axes) else (right, left)
+    shared = [k for k in left_axes if k in right_axes]
     by_key: dict[str, list[dict[str, Any]]] = {}
     for row in few:
         by_key.setdefault(json.dumps([row.get(k) for k in shared]), []).append(row)
@@ -62,17 +59,16 @@ def join(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[s
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
-    if points(plan.steps[thing])[0].kind == "fit":
-        if member.partition(".")[0] in ("history", *points(plan.steps[thing])[0].train):
+    step, dims = points(plan.steps[thing])[0], dims_of(plan, name)
+    if step.kind == "fit":
+        if member.partition(".")[0] in ("history", *step.train):
             return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
-                    for row in elements(value, dims_of(plan, name), None)]
+                    for row in elements(value, dims, None)]
         return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
-    entry, dims = plan.steps[thing], dims_of(plan, name)
     source, used = provenance(plan, name)
-    dataset = points(entry)[0].dataset
-    examples = materialized(plan, dataset) if dataset else []
+    examples = materialized(plan, step.dataset) if step.dataset else []
     out = []
-    for p, (at, value) in zip(points(entry), by_point(plan, name)):
+    for p, (at, value) in zip(points(plan.steps[thing]), by_point(plan, name)):
         place = located(plan, source, p.at) if source else None
         for row in elements(value, dims, place):
             if "row" in row and examples:

@@ -173,8 +173,7 @@ def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | No
     classes = labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
         if "classes" in fields else None
     site, reads = (counted(plan, s) for s in (site, reads))
-    return bundles.header(kind, fields, plan.model, classes, site, KINDS[kind].width(value),
-                                      named(plan), reads)
+    return bundles.header(kind, fields, plan.model, classes, site, KINDS[kind].width(value), named(plan), reads)
 
 
 def counted(plan: Plan, site: Site | None) -> Site | None:
