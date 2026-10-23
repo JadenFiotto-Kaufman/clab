@@ -26,10 +26,10 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     tokens, and returns what the run needs: each dataset input's encoded rows and padded width (`inputs`),
     every prefill record's positions per row (`positions`, which the run extends with the other records'),
     the indices every record's `select` keeps on each axis (`selects`, resolved here once, among the engine's
-    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`), and for each
-    fit point the same for its body (`bodies`): over its training rows (`train`) and under each of its named
-    `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the body's steps and
-    each substituted dataset's rows under the body's name for it.
+    sizes), room for what each generate step's rows said (`said`), each featurizer's width (`widths`, the root's
+    alone), and for each fit point the same for its body (`bodies`): over its training rows (`train`) and under
+    each of its named `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the
+    body's steps and each substituted dataset's rows under the body's name for it.
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a position that does not fit some
@@ -63,8 +63,6 @@ def preflight(engine: Engine, plan: Plan) -> Found:
                 held = body_view(plan, name, step.at, swap)
                 sources["evals"][label] = (held, inside(name, label, swap, lambda held=held, swap=swap: prepare(
                     engine, held, step.steps, swap, classes))) if swap else sources["train"]
-            for _, body in [sources["train"], *sources["evals"].values()]:
-                body.widths = found.widths
             put(found.bodies, name, step.at, sources)
     return found
 
