@@ -73,11 +73,8 @@ def spell(annotation: Any, names: dict | None = None, literal: Callable[[Any], s
     `literal` a literal's values."""
     names = names or {}
     origin, args = get_origin(annotation), get_args(annotation)
-    try:
-        if annotation in names:
-            return names[annotation]
-    except TypeError:
-        pass
+    if annotation in names:
+        return names[annotation]
     if origin is Literal:
         return "one of " + ", ".join(map(literal, args))
     if origin in (Union, types.UnionType):
