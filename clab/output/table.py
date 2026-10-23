@@ -125,10 +125,10 @@ def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place:
         at = dict(zip(axes, index))
         whole = {{"rows": "row", "layers": "layer"}.get(dims[i], dims[i]): layer(place, k) if dims[i] == "layers"
                  else k for i, k in at.items() if dims[i] not in ("pos", "key")}
-        if mark := unreached(place, whole.get("row")):
+        if place and "row" in whole and place["positions"][whole["row"]] == positions.MISSING:
             if tuple(whole.items()) not in marked:      # one row says so, in place of its tokens
                 marked.add(tuple(whole.items()))
-                out.append({**whole, **mark})
+                out.append({**whole, positions.MISSING: True})
             continue
         row: dict[str, Any] = dict(whole)
         for i, k in at.items():
@@ -145,12 +145,6 @@ def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place:
 def layer(place: dict[str, Any] | None, k: int) -> int:
     """Index `k` on a `layers` axis as the model's layer it is, by its read's `layers` among the model's."""
     return place["layers"][k] if place and place["layers"] is not None else k
-
-
-def unreached(place: dict[str, Any] | None, row: int | None) -> dict[str, bool]:
-    """`{"alignment_missing": True}` for a row a read beyond the prefill did not reach, else {}."""
-    resolved = place["positions"][row] if place and row is not None else None
-    return {resolved: True} if isinstance(resolved, str) else {}
 
 
 def token(place: dict[str, Any] | None, row: int, axis: str, k: int) -> dict[str, Any]:
