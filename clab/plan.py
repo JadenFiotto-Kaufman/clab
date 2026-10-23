@@ -925,7 +925,7 @@ def scope(plan: Plan, where: str) -> dict:
 
 def horizon(step) -> int | None:
     """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
-    most = (step.model_extra or {}).get("max_new_tokens") if step.kind == "generate" else None
+    most = (step.model_extra or {}).get("max_new_tokens")
     return most if isinstance(most, int) else None
 
 
