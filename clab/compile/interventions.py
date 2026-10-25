@@ -5,7 +5,6 @@ the model."""
 from __future__ import annotations
 
 import math
-from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 from clab import ops
@@ -132,7 +131,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
                      dataset)
     width = positions.width(pos)                            # None when rows differ
-    dims = address.dims(site.component, site.layers)
+    dims = address.dims(site.component)                     # every op acts at each layer the entry is made at
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
     try:
         tree = bracketed(spec.ops)
@@ -159,6 +158,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             fail(at, f"{o.op!r} of {ref!r} at ops[{i}] is inside the encode of {ref!r} (ops[{mine['at']}]), so it "
                  f"would act on {ref!r}'s own coordinates; put it before that encode or after the decode that closes it")
         kind = called(cx, plan, at, o.op, args)
+        if "layers" in (args.get("over") or []):
+            fail(f"{at}.over", f"{o.op!r} over 'layers': inside an entry an op acts at each layer the entry is made "
+                 "at, so it meets no layers axis; reduce over layers in a step after the forward, {'kind': 'op', "
+                 f"'op': {o.op!r}, 'of': '<step>.<entry>', 'over': ['layers']}}")
         for key, value in args.items():
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{at}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
@@ -169,13 +172,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         aligned(at, (dataset, repr(step.input)), found)
         for key, info in found.items():
             if "layers" in info.dims and site.layers is None:
-                fail(f"{at}.{key}", f"{info.name!r} is laid out {info.dims}: at each layer an op takes an operand's "
-                     f"slice of that layer, and {site.component} is the model's own value, at no layer; read the "
+                fail(f"{at}.{key}", f"{info.name!r} is laid out {info.dims}: an op takes an operand's slice of each "
+                     f"layer it acts at, and {site.component} is the model's own value, at no layer; read the "
                      "operand at one layer, or reduce it over layers")
-        # An op acts at each layer the entry is made at, an operand's layers axis aligned to it (`layers_of`), so
-        # layouts compare at one layer.
-        paired(at, o.op, address.unstacked(dims), width,
-               {key: replace(info, dims=address.unstacked(info.dims)) for key, info in found.items()})
+        paired(at, o.op, dims, width, found)
         if i <= last:
             operands(at, found, dims, space_of(cx, [n["op"] for n in outer]), width is None, live, o.op == "apply")
         if i in closes:
@@ -194,6 +194,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     space = space_of(cx, [n["op"] for n in unclosed])
+    dims = (["layers"] if address.stacks(site.layers) else []) + dims
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True), "dims": dims,
               **({"space": space} if space else {})}
     return record, Known(dims, dataset, space=space, select={a: v for a, v in (site.select or {}).items() if a in dims},
@@ -203,14 +204,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
 def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,
              live: dict[str, tuple[dict, Intervention]], adapts: bool) -> None:
     """Inside a write an operand stands for the value it meets at each layer, laid out `own` in the coordinates
-    `space`, a `layers` axis of either aside (an operand's aligns to the write's layers, `layers_of`): the same
-    coordinates, and that layout or one vector of its features; only the vector when the selection is ragged,
-    unless the operand is an earlier entry of the same forward, gathered as the selection is (no op after its
-    last edit). An operand without a static width (its rows hold different numbers of positions) pairs with
-    nothing but such an entry. An adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's
-    rows and positions, whatever its features."""
-    here = "at each of its layers" if "layers" in own else "here"
-    own = address.unstacked(own)
+    `space`, its own `layers` axis aside (`acts_at` says how it aligns): the same coordinates, and that layout or
+    one vector of its features; only the vector when the selection is ragged, unless the operand is an earlier
+    entry of the same forward, gathered as the selection is (no op after its last edit). An operand without a
+    static width (its rows hold different numbers of positions) pairs with nothing but such an entry. An
+    adapter's input (`apply`'s `with`, `adapts`) is laid out on the selection's rows and positions, whatever
+    its features."""
     lead = [a for a in own if a in address.EXAMPLE_AXES]
     for key, info in found.items():
         if info.kind != "value":
@@ -237,7 +236,7 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")
         allowed = [[a for a in own if a not in address.EXAMPLE_AXES]] + ([own] if whole else [])
         if dims not in allowed:
-            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; this write's value is {own} {here}, "
+            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; this write's value is {own} here, "
                  f"so an operand is {' or '.join(map(str, allowed))}" + (", beside a layers axis" if
                                                                          "layers" in info.dims else ""))
 
@@ -338,19 +337,26 @@ def windowed(engine: Engine, where: str, value: str, producer: str, consumer: st
                                  "in each row")
 
 
-def check_layers(plan: Plan, where: str, o: Op, at: dict, layers: list[int] | list[None], n: int) -> None:
-    """At each layer an entry is made at (`layers`, among the model's `n`) its ops take an operand's slice of that
-    layer where the operand has a `layers` axis (`layers_of`), so the operand holds every one of them."""
+def check_layers(plan: Plan, where: str, o: Op | OpStep, at: dict, layers: int | list[int] | None,
+                 sizes: dict) -> None:
+    """An op acts at `layers` (an entry's at each layer it is made at, a step's at `of`'s, `acts_at`) and takes an
+    operand's slice of each where the operand has a `layers` axis: the operand holds every one of them, and an op
+    that acts at no layer takes no such operand."""
+    wanted = [layers] if isinstance(layers, int) else layers
     for key, p in ops.parameters(o.op).items():
         value = arguments(o).get(key)
-        if p.annotation != ops.Value or not isinstance(value, str):
+        if p.annotation != ops.Value or not isinstance(value, str) or "layers" not in dims_of(plan, value):
             continue
-        holds = layers_of(plan, value, at, n)
-        missing = [layer for layer in layers if holds is not None and layer not in holds]
+        holds = (held(plan, value, at, sizes) or {}).get("layers")
+        if wanted is None:
+            raise ValueError(f"{where}: operand {value!r} has a layers axis, and this op acts at no layer (on a "
+                             "model's own value, or one reduced over its layers); read the operand at one layer, or "
+                             "reduce it over layers")
+        missing = [layer for layer in wanted if layer not in (holds or [])]
         if missing:
-            raise ValueError(f"{where}: operand {value!r} holds layers {holds}, and this entry is made at layers "
-                             f"{layers}; at each layer an op takes the operand's slice of that layer, and it holds "
-                             f"none of {missing}: read it at those layers too")
+            raise ValueError(f"{where}: operand {value!r} holds layers {holds}, and this op acts at layers {wanted}; "
+                             f"at each layer it takes the operand's slice of that layer, and it holds none of "
+                             f"{missing}: read it at those layers too")
 
 
 def check_labels(plan: Plan, where: str, o: Op | OpStep, at: dict, ours: dict | None, dims: list[str], sizes: dict,
@@ -366,7 +372,8 @@ def check_labels(plan: Plan, where: str, o: Op | OpStep, at: dict, ours: dict | 
             continue
         theirs, their_dims = held(plan, value, at, sizes), dims_of(plan, value)
         for axis, own in (ours or {}).items():
-            if axis == "key" or axis not in dims or axis not in their_dims or theirs is None or axis not in theirs:
+            if axis in ("key", "layers") or axis not in dims or axis not in their_dims or theirs is None or \
+                    axis not in theirs:
                 continue
             if theirs[axis] == own:
                 continue
@@ -382,8 +389,10 @@ def check_labels(plan: Plan, where: str, o: Op | OpStep, at: dict, ours: dict | 
 
 
 def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] | None:
-    """The indices value `name` holds on each axis its read's site could narrow (every index where its `select`
-    keeps them all), followed through op steps and into a fit's eval members; None for a value no read made."""
+    """The indices value `name` holds on each axis its read's site could narrow: `layers`, the model layers its
+    site picks (in order, the labels of a `layers` axis; none on a model's own value), and each axis a `select`
+    narrows (every index where its `select` keeps them all); followed through op steps and into a fit's eval
+    members; None for a value no read made."""
     thing, _, member = name.partition(".")
     step = agreeing(plan.steps[thing], at)
     if step.kind == "op":
@@ -395,21 +404,17 @@ def held(plan: Plan, name: str, at: dict, sizes: dict) -> dict[str, list[int]] |
         return None
     site = entry_of(plan.steps, name, at)[1].site
     chosen = selectors.kept(site.select, sizes)
-    return {a: chosen[a] if a in chosen else list(range(sizes[a])) for a in address.selectable(site.component)
-            if a in chosen or a in sizes}
+    layers = {} if site.layers is None else {"layers": cast(list[int], made_at(site, sizes["num_layers"]))}
+    return {**layers, **{a: chosen[a] if a in chosen else list(range(sizes[a])) for a in address.selectable(
+        site.component) if a in chosen or a in sizes}}
 
 
-def layers_of(plan: Plan, name: str, at: dict, n: int) -> list[int] | None:
-    """The model layers value `name`'s `layers` axis holds, in order: those its read's site picks among the
-    model's `n`, followed through op steps and into a fit's eval members, as `held` follows them; None for a value
-    without one. An op that acts at layer L takes an operand's slice this labels L, whatever order either side
-    lists its layers in."""
-    if "layers" not in dims_of(plan, name):
-        return None
-    thing, _, member = name.partition(".")
-    step = agreeing(plan.steps[thing], at)
-    if step.kind == "op":
-        return layers_of(plan, step.of, step.at, n)
-    if step.kind == "fit":
-        return layers_of(body_view(plan, thing, step.at), member.partition(".")[2], step.at, n)
-    return cast(list[int], made_at(entry_of(plan.steps, name, at)[1].site, n))
+
+def acts_at(plan: Plan, name: str, at: dict, sizes: dict) -> int | list[int] | None:
+    """The layers an op of value `name` acts at: the labels of its `layers` axis (`held`); the one layer a value
+    without that axis was read at; None for a value at no layer (a model's own, or one reduced over its layers).
+    An entry's op acts at each layer the entry is made at in turn."""
+    picked = (held(plan, name, at, sizes) or {}).get("layers")
+    if "layers" in dims_of(plan, name):
+        return picked
+    return picked[0] if picked is not None and len(picked) == 1 else None

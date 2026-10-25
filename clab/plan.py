@@ -415,32 +415,29 @@ class Intervention(Record):
 
     An entry is made at each layer its site's `layers` pick, in one forward: a write at `layers: "2:6"` runs its
     ops at each of layers 2 to 5 on that layer's live value, in the forward's order, exactly as four entries
-    of one layer each (the same ops, in order) would, and binds its value with a `layers` axis first, labelled
-    with the layers it picks, as a read there does; the ops after its last edit see that axis (`[add, readout,
-    token_prob]` at `layers: ":"` is a probability per layer). An operand with a `layers` axis is aligned by
-    label: at layer L an op takes the operand's slice labelled L, whatever order either lists its layers in (a
-    write at layer 3 takes slice 3), and a layer it does not hold is refused by name before any forward; an
-    operand without one is the same at every layer, as a direction is.
+    of one layer each (the same ops, in order) would. Every op of the entry runs at each layer, the ops after its
+    last edit too, and the value it binds stacks what they made there, a `layers` axis first, labelled with the
+    layers it picks, as a read there does (`[add, readout, token_prob]` at `layers: ":"` is a probability per
+    layer); so no op inside an entry reduces over `layers`, which a step after the forward does. An operand
+    meets those layers as Ops says.
 
     A step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's
     where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
     compose there in order, each on what the one before it left. A name binds once per step: two entries of one
     name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
-    at this entry's site or at one the forward reaches before it, at each layer this entry is made at (an
-    operand with a `layers` axis, its read at that layer): it is that entry's value in this batch, at its
-    positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
-    meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
-    i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
-    before any forward: each pair sits at one distance from the start within the tokens both prompts begin with
-    alike, or from the end within those they end with alike (the first token past either counted in); any other
-    is refused, and a scope names the token in each row. An operand holds the indices of every axis a site
-    narrows (`num_heads`, ...) that the value it meets holds, in the same order. A bundle at the root is a dict
-    of entries
-    pulled into a step by name, a template whose names resolve in the step that pulls it in: an operand naming
-    one of the bundle's own entries bare (`"with": "premix"`) means that entry of whichever step pulls it in,
-    and `<a step>.<one of its entries>` is refused, since pulled into another step it would still mean that
-    step's. An operand from an entry of its own step is served in a forward; inside a generate it is not yet (a
-    cross-site adapter in a generation is on the roadmap)."""
+    at this entry's site or at one the forward reaches before it, at each layer this entry is made at: it is that
+    entry's value in this batch, at its positions, and so an entry whose ops all write (none after its last
+    edit), in the coordinates the operand meets (`space`). An operand read on another input at the write's own
+    positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
+    in length is checked conservatively before any forward: each pair sits at one distance from the start within
+    the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
+    past either counted in); any other is refused, and a scope names the token in each row. An operand holds the
+    indices of every axis a site narrows (`num_heads`, ...) that the value it meets holds, in the same order. A
+    bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
+    step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
+    entry of whichever step pulls it in, and `<a step>.<one of its entries>` is refused, since pulled into
+    another step it would still mean that step's. An operand from an entry of its own step is served in a
+    forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap)."""
     site: Annotated[str | Site, ByShape()]
     pos: Swept[int | Pos] = Pos()
     ops: list[Op] = []

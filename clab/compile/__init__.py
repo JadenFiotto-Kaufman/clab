@@ -235,7 +235,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
     kind = called(cx, plan, path, spec.op, args)
     found = references(cx, path, spec.op, args, "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
-    paired(path, spec.op, of.dims, of.width, found)
+    paired(path, spec.op, of.dims, of.width, found, step=True)
     if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)

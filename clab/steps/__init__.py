@@ -24,6 +24,7 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile.answers import probe_of
+from clab.compile.interventions import acts_at
 from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
@@ -167,15 +168,18 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_size: int, found: Found) -> None:
-    """The op over the whole value `of` names, given each of its rows' dataset row. `top_k`'s value also holds
-    its tokens, decoded."""
+    """The op over the whole value `of` names, given each of its rows' dataset row, at the layers `of` is at
+    (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value also holds its tokens,
+    decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
     dims = dims_of(plan, step.of)
     vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims else None
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    sizes = engine.sizes()
     value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, found.answers, of,
-                                        vocabulary, dims=dims), engine=engine, dims=dims,
+                                        vocabulary, dims=dims, layers=acts_at(plan, step.of, step.at, sizes),
+                                        sizes=sizes), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

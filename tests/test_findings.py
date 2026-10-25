@@ -676,9 +676,9 @@ def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_layer_it_lacks(engi
     written = run(engines, function_vector([0, 1]))
     assert torch.equal(written.results["zs.w"], written.results["m"][1].expand(2, 1, 4, 4))
     refused_before_any_forward(engines, function_vector([0]),
-                               r"^zs\.w: operand 'm' holds layers \[0\], and this entry is made at layers \[1\]; at "
-                               r"each layer an op takes the operand's slice of that layer, and it holds none of \[1\]: "
-                               r"read it at those layers too$")
+                               r"^zs\.w: operand 'm' holds layers \[0\], and this op acts at layers \[1\]; at each "
+                               r"layer it takes the operand's slice of that layer, and it holds none of \[1\]: read it "
+                               r"at those layers too$")
 
 
 def test_m10_a_generate_write_at_the_last_token_of_every_call_names_the_two_writes():

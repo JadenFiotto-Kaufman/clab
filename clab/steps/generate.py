@@ -25,7 +25,6 @@ from clab.steps.batches import (
     site,
     stacked,
     with_ops,
-    write_name,
 )
 
 if TYPE_CHECKING:
@@ -104,14 +103,13 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
     if writes(record):
         online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
             if pos["scope"] else {}
+        where = [positions.prompted(p, head_only) for p in prompts]
         for layer in layers(engine, record):
-            edits = edit(plan, record, state, step.at, chunk, found.answers, layer)
+            edits = edit(plan, record, state, step.at, chunk, found.answers, layer, engine.sizes())
             if holds:
-                where = [positions.prompted(p, head_only) for p in prompts]
-                out.append({**site(record, picks, where, pads, padded, head_only),
-                            "name": write_name(key, layer, True), "layer": layer, "ops": edits})
-            out.append({**decoding(record, picks, prompts), "name": write_name(key, layer), "layer": layer,
-                        "ops": edits, "calls": None if online else calls, **online})
+                out.append({**site(record, picks, where, pads, padded, head_only), "layer": layer, "ops": edits})
+            out.append({**decoding(record, picks, prompts), "layer": layer, "ops": edits,
+                        "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
             whole = [positions.prompted(p) for p in prompts]

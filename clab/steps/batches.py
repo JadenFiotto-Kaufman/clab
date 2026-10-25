@@ -11,7 +11,7 @@ from torch import Tensor
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
-from clab.compile.interventions import layers_of
+from clab.compile.interventions import held
 from clab.compile.positions import head
 from clab.compile.state import Found
 from clab.format import address, data, selectors
@@ -74,7 +74,7 @@ def selection(record: Intervention, picks: dict) -> dict[int, Tensor]:
 
 
 def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, answers: dict, layer: int | None,
-         live: dict | None = None) -> list[dict]:
+         sizes: dict, live: dict | None = None) -> list[dict]:
     """An entry's ops up to its last edit at one of the layers it is made at (`layer`), bound to one batch, as
     `visit` runs them: each with the layout of the value it meets there (`dims`), the dataset rows of the batch,
     and its arguments bound at that layer (`bound`), an operand that names an earlier entry of the same forward
@@ -87,7 +87,7 @@ def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, a
         out = []
         for node in nodes:
             o = node["op"]
-            args = bound(plan, o.op, arguments(o), state, at, rows, answers, live=live, layer=layer)
+            args = bound(plan, o.op, arguments(o), state, at, rows, answers, live=live, layers=layer, sizes=sizes)
             out.append({"op": o.op, "args": args, "rows": torch.arange(rows.start, rows.stop), "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -115,12 +115,6 @@ def read_name(key: str, layer: int | None, prefill: bool = False) -> str:
     return f"{key}@{layer}" + ("#0" if prefill else "")
 
 
-def write_name(key: str, layer: int | None, prefill: bool = False) -> str:
-    """The engine's name for a write of entry `key` made at `layer`, as a read's is (`read_name`): `<key>@<layer>`,
-    with `#0` after it for the prefill part of a write that also lands at decode calls."""
-    return read_name(key, layer, prefill)
-
-
 def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, found: Found, rows: slice,
          pads: list[int], among: set[str] | None = None) -> tuple[dict[str, dict], list[dict]]:
     """The step's prefill entries (those `among`, default every one) bound to one batch: each one's site, and
@@ -136,8 +130,8 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, foun
     records = []
     for key, record in chosen.items():
         if writes(record):
-            records += [{**sites[key], "name": write_name(key, layer), "layer": layer,
-                         "ops": edit(plan, record, state, step.at, rows, found.answers, layer, live)}
+            records += [{**sites[key], "layer": layer,
+                         "ops": edit(plan, record, state, step.at, rows, found.answers, layer, engine.sizes(), live)}
                         for layer in layers(engine, record)]
         if record.gathered:
             records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
@@ -209,7 +203,8 @@ def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, st
     dims = address.dims(cast(Site, record.site).component)
     vocabulary = None
     for o in gathers(record):
-        args = bound(plan, o.op, arguments(o), state, at, rows, answers, value, vocabulary, dims=dims, layer=layer)
+        args = bound(plan, o.op, arguments(o), state, at, rows, answers, value, vocabulary, dims=dims, layers=layer,
+                     sizes=engine.sizes())
         value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.arange(rows.start, rows.stop),
                          positions=places)
         dims = ops.out_dims(o.op, dims, arguments(o), getattr(args.get("featurizer"), "kind", None))
@@ -220,26 +215,30 @@ def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, st
 
 def bound(plan: Plan, name: str, args: dict, state: dict, at: dict, rows: slice | None, answers: dict,
           of: Any = None, vocabulary: list | None = None, live: dict | None = None,
-          dims: list[str] | None = None, layer: int | None = None) -> dict:
+          dims: list[str] | None = None, layers: int | list[int] | None = None, sizes: dict | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
     forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `answers` and `answered` lays them against
-    the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`. Inside an entry,
-    whose ops act at each of its layers (`layer`; None in a step, which acts on the whole value), an operand with
-    a `layers` axis is its slice labelled `layer` (`layers_of`), an entry of the same forward its read at that
-    layer; one without is the same at every layer."""
+    the value `of` laid out `dims`; or a probe's class list) or read as text, sliced to `rows`. The op acts at
+    `layers` (`acts_at`: inside an entry one of its layers, in a step `of`'s labels or its one layer, None at no
+    layer), and an operand with a `layers` axis is aligned to them by label (`held`, among the engine's `sizes`):
+    its slice labelled L where the op acts at layer L (an entry of the same forward, its read at L), its slices
+    in `of`'s order where it acts at several; one without is the same at every layer."""
     params, out = ops.parameters(name), {}
     for key, value in args.items():
         annotation = params[key].annotation
-        aligns = annotation == ops.Value and isinstance(value, str) and layer is not None and \
+        aligns = annotation == ops.Value and isinstance(value, str) and layers is not None and \
             dims_of(plan, value)[:1] == ["layers"]
         if annotation == ops.Value and isinstance(value, str) and live and value in live:
-            value = {"live": live[value][layer] if aligns else next(iter(live[value].values()))}
+            value = {"live": live[value][layers] if aligns else next(iter(live[value].values()))}
         elif annotation == ops.Value and isinstance(value, str):
             given, value, axes = value, lookup(state, value, at), dims_of(plan, value)
             if aligns:
-                assert plan.run is not None and plan.run.num_layers is not None
-                value, axes = value[cast(list, layers_of(plan, given, at, plan.run.num_layers)).index(layer)], axes[1:]
+                labels = cast(dict, held(plan, given, at, cast(dict, sizes)))["layers"]
+                if isinstance(layers, int):
+                    value, axes = value[labels.index(layers)], axes[1:]
+                elif layers != labels:
+                    value = value[[labels.index(layer) for layer in cast(list, layers)]]
             value = value[rows] if rows is not None and axes[:1] == ["rows"] else value
         elif annotation == ops.Tokens and vocabulary is not None:
             value = indexed(plan, value, vocabulary, rows)[:, None]

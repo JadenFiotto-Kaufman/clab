@@ -5,15 +5,18 @@ to the bit (`both`)."""
 
 import json
 import os
+import re
+import shutil
 from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, TRIP, edited, same, stand_in
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
 from clab.format.sweeps import points
+from clab.ops import metrics
 from clab.plan import PlanError, Sweep, dims_of
 
 GPT2 = {"key": "hf-internal-testing/tiny-random-gpt2", "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"}
@@ -81,8 +84,9 @@ def test_a_window_swapped_with_its_own_read_and_nothing_added_at_every_layer_are
                               "run": forward({"w": swap("1:4", "read.h", window), **LOGITS})},
                              ["run.logits", "run.w", "read.h"])).results
     assert torch.equal(got["run.logits"], clean(engines)) and torch.equal(got["run.w"], got["read.h"])
-    nothing = plan({"run": forward({"w": {"site": stream(":"), "pos": {"index": ":"},
-                                          "ops": [{"op": "add", "with": 1.0, "scale": 0.0}]}, **LOGITS})}, ["run.logits"])
+    add = [{"op": "add", "with": 1.0, "scale": 0.0}]
+    nothing = plan({"run": forward({"w": {"site": stream(":"), "pos": {"index": ":"}, "ops": add}, **LOGITS})},
+                   ["run.logits"])
     assert torch.equal(both(engines, nothing).results["run.logits"], clean(engines))
 
 
@@ -155,16 +159,15 @@ def test_a_layer_the_operand_does_not_hold_is_refused_by_name_before_any_forward
         steps = {"cf": forward({"h": {"site": stream([0, 2]), "pos": -1}}, CF)} if operand else {}
         name = "cf.h" if operand else "run.h"
         refused(engines, plan({**steps, "run": forward(entries)}, ["run.w"]),
-                rf"^run\.w: operand '{name.replace('.', chr(92) + '.')}' holds layers \[0, 2\], and this entry is made "
-                r"at layers \[0, 1, 2\]; at each layer an op takes the operand's slice of that layer, and it holds none "
-                r"of \[1\]: read it at those layers too$")
+                rf"^run\.w: operand '{name.replace('.', chr(92) + '.')}' holds layers \[0, 2\], and this op acts at "
+                r"layers \[0, 1, 2\]; at each layer it takes the operand's slice of that layer, and it holds none of "
+                r"\[1\]: read it at those layers too$")
     with pytest.raises(PlanError, match=r"^steps\.run\.interventions\.w\.site\.layers: '0:0' picks nothing, however "
                                         r"many things there are$"):
         plan({"run": forward({"w": {"site": stream("0:0"), "pos": -1, "ops": [{"op": "scale", "factor": 2.0}]}})}, [])
     with pytest.raises(PlanError, match=r"^steps\.run\.interventions\.w\.ops\[0\]\.with: 'cf\.h' is laid out "
-                                        r"\['layers', 'rows', 'pos', 'hidden_size'\]: at each layer an op takes an "
-                                        r"operand's slice of that layer, and logits is the model's own value, at no "
-                                        r"layer"):
+                                        r"\['layers', 'rows', 'pos', 'hidden_size'\]: an op takes an operand's slice "
+                                        r"of each layer it acts at, and logits is the model's own value, at no layer"):
         plan({"cf": forward({"h": {"site": stream(":"), "pos": -1}}, CF),
               "run": forward({"w": {"site": {"component": "logits"}, "pos": -1,
                                     "ops": [{"op": "add", "with": "cf.h"}]}})}, [])
@@ -254,6 +257,74 @@ def test_direction_ablation_is_its_five_one_layer_entries_to_the_bit(engines, mo
     assert got["ablated.ablate"].abs().max() < 1e-5
     came, trip = stand_in(engines, document, monkeypatch)
     assert trip == TRIP and same(came.results, got)
+
+
+def test_an_entrys_ops_act_at_each_layer_and_reduce_over_none():
+    """Inside an entry every op acts at each layer the entry is made at, the ops after its last edit too: a
+    `mean` over `pos` after a write at every layer leaves `[layers, rows, hidden_size]`, and one over `layers` is
+    refused by name, since a step after the forward does it."""
+    def written(over: list[str]) -> Plan:
+        return plan({"run": forward({"w": {"site": stream(":"), "pos": {"index": "-2:"}, "ops": [
+            {"op": "scale", "factor": 2.0}, {"op": "mean", "over": over}]}})}, ["run.w"])
+    assert dims_of(written(["pos"]), "run.w") == ["layers", "rows", "hidden_size"]
+    with pytest.raises(PlanError, match=r"^steps\.run\.interventions\.w\.ops\[1\]\.over: 'mean' over 'layers': "
+                                        r"inside an entry an op acts at each layer the entry is made at, so it meets "
+                                        r"no layers axis; reduce over layers in a step after the forward"):
+        written(["layers"])
+
+
+def test_an_entrys_reduction_runs_at_each_layer(engines):
+    """A write's `mean` over `pos` at every layer is, at each, the mean of what it wrote there, which a read after
+    it at the same site sees."""
+    got = both(engines, plan({"run": forward({"w": {"site": stream(":"), "pos": {"index": "-2:"}, "ops": [
+        {"op": "scale", "factor": 2.0}, {"op": "mean", "over": ["pos"]}]}, "r": {"site": stream(":"), "pos": {
+            "index": "-2:"}}})}, ["run.w", "run.r"])).results
+    assert got["run.w"].shape == (5, 4, 32) and torch.equal(got["run.w"], got["run.r"].nanmean(2))
+
+
+def lens(layers) -> dict:
+    return {"site": stream(layers), "pos": -1, "ops": [{"op": "readout"}]}
+
+
+def kl(mine, theirs, against: str = "b.lens") -> Plan:
+    """A `kl` step between a lens at `mine` and the counterfactual's at `theirs` (or the model's logits)."""
+    return plan({"a": forward({"lens": lens(mine), **LOGITS}), "b": forward({"lens": lens(theirs)}, CF),
+                 "kl": {"kind": "op", "op": "kl", "of": "a.lens", "against": against}}, ["kl", "a.lens", "a.logits"])
+
+
+def test_a_steps_operand_is_aligned_to_ofs_layers_by_label(engines):
+    """A `kl` step between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, as it does between
+    lenses listed alike; against a value without a layers axis (the model's logits) every layer scores against
+    it; a layer `of` holds that the operand does not is refused by name before any forward."""
+    reversed_, alike = (both(engines, kl([0, 1, 2], theirs)).results["kl"] for theirs in ([2, 1, 0], [0, 1, 2]))
+    assert reversed_.shape == (3, 4, 1) and torch.equal(reversed_, alike) and not torch.equal(alike[0], alike[2])
+    against = both(engines, kl([0, 1, 2], [0], "a.logits")).results
+    for i in range(3):
+        assert torch.equal(against["kl"][i], metrics.kl(against["a.lens"][i], against["a.logits"])), i
+    for mine, theirs, missing in (([0, 1], [2, 3], "[0, 1]"), ([0, 1, 2], [0, 1], "[2]")):
+        refused(engines, kl(mine, theirs), rf"^kl: operand 'b\.lens' holds layers {re.escape(str(theirs))}, and this "
+                                           rf"op acts at layers {re.escape(str(mine))}; at each layer it takes the "
+                                           rf"operand's slice of that layer, and it holds none of {re.escape(missing)}")
+
+
+def test_an_edit_steps_operand_is_aligned_and_laid_out_as_its_of(engines):
+    """`sub` of one layer's read (layer 1) with a read at `[0, 1]` takes the operand's slice labelled 1, and keeps
+    the read's layout; an operand laid out otherwise is refused when the plan compiles, and one with a layers axis
+    where `of` is at no layer (the final norm's output) before any forward."""
+    reads = {"f": forward({"h": {"site": stream(1), "pos": -1}, "n": {"site": {"component": "final_norm_output"},
+                                                                       "pos": -1},
+                           "heads": {"site": {"component": "attention_premix", "layers": 1}, "pos": -1}}),
+             "g": forward({"h": {"site": stream([0, 1]), "pos": -1}}, CF)}
+
+    def sub(of: str, operand: str) -> Plan:
+        return plan({**reads, "d": {"kind": "op", "op": "sub", "of": of, "with": operand}}, ["d", "f.h", "g.h"])
+    got = both(engines, sub("f.h", "g.h")).results
+    assert got["d"].shape == (4, 1, 32) and torch.equal(got["d"], got["f.h"] - got["g.h"][1])
+    with pytest.raises(PlanError, match=r"^steps\.d\.with: 'f\.heads' is laid out \['rows', 'pos', 'num_heads', "
+                                        r"'head_dim'\]; 'sub' acts on a value laid out \['rows', 'pos', "
+                                        r"'hidden_size'\]"):
+        sub("f.h", "f.heads")
+    refused(engines, sub("f.n", "g.h"), r"^d: operand 'g\.h' has a layers axis, and this op acts at no layer")
 
 
 # -- sweep labels --------------------------------------------------------------------------------------
