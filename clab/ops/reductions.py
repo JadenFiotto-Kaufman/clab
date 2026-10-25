@@ -1,5 +1,5 @@
 """Reductions: ops that remove axes. `mean`, `sum` and `min` compute in float32 whatever the value's dtype
-(`ops.ABOUT`); `pca` works in double."""
+(`ops.ABOUT`); `pca` works in double and returns the value's dtype."""
 
 import json
 

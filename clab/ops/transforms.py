@@ -68,9 +68,13 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
     return out
 
 
+# What `argmax` and `top_k` rank unless `over` names another axis: a vocabulary's tokens.
+RANKED = "vocab_size"
+
+
 def ranking(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     """removes the axis `over` names, which it ranks: by default `vocab_size`"""
-    over = args.get("over", "vocab_size")
+    over = args.get("over", RANKED)
     if over not in dims:
         hint = f' ("over": {json.dumps(dims[-1])})' if dims else ""
         raise ValueError(f"it ranks the value's {over!r} axis, and the value is laid out {dims}; 'over' names the "
@@ -92,7 +96,7 @@ def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
 
 
 @op("transforms", layout=ranking_k)
-def top_k(of: Tensor, k: int, dims: list[str], over: str = "vocab_size") -> dict[str, Tensor]:
+def top_k(of: Tensor, k: int, dims: list[str], over: str = RANKED) -> dict[str, Tensor]:
     """The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a
     vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis
     `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits
@@ -109,7 +113,7 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str = "vocab_size") -> dict
 
 
 @op("transforms", layout=ranking)
-def argmax(of: Tensor, dims: list[str], over: str = "vocab_size") -> Tensor:
+def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
     """The index of the largest along the axis `over` names: by default the id of the most likely token, ranked
     by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing
     value). An exact tie goes to the lower index, as in `top_k`."""

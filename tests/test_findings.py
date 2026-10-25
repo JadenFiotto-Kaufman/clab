@@ -307,12 +307,12 @@ def test_b12_a_message_that_says_its_role_header_is_found_in_its_own_text(engine
     for chat, role in (([{"role": "user", "content": "INST"}], "user"),
                        ([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "INST"},
                          {"role": "user", "content": "ok"}], "assistant")):
-        encoded = data.encode(tokenizer, chat)
+        encoded = data.encode(tokenizer, chat, None)
         (_, a, b), = [t for t in encoded["turns"] if t[0] == role]
         assert encoded["text"][a:b] == "INST" and encoded["text"][a - 1] == " " and encoded["text"][b] == " "
     marked = [{"role": "user", "content": data.MARKER}, {"role": "assistant", "content": "ok"},
               {"role": "user", "content": "INST"}]          # an earlier message holds the marker itself
-    encoded = data.encode(tokenizer, marked)
+    encoded = data.encode(tokenizer, marked, None)
     (_, a, b) = encoded["turns"][2]
     assert encoded["text"][a:b] == "INST" and encoded["text"][a - 7:a] == "[INST] "
     compiled = plan(data={"c": {"rows": [{"chat": [{"role": "user", "content": "INST"}]}]}}, steps={
@@ -368,9 +368,9 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     for tokenizer in (gpt2, engines("nnterp", compiled.model).tokenizer):
         for text, find, count in (("Then Ann and Annabel met. Ann left", " Ann", 2),
                                   ("I love Paris. Paris is big", "Paris", 2)):
-            row = data.encode(tokenizer, text)
+            row = data.encode(tokenizer, text, None)
             assert len(positions.located([(find, False, False)], row["text"], row["offsets"])) == count
-        row = data.encode(tokenizer, "I love Paris. Paris is big")
+        row = data.encode(tokenizer, "I love Paris. Paris is big", None)
         (a, b), = positions.located([("Paris. ", False, False)], row["text"], row["offsets"])
         covered = [t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a]
         assert "Paris" not in tokenizer.decode([row["ids"][covered[-1]]])

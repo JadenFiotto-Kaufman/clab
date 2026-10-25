@@ -102,7 +102,7 @@ def lookup(row: dict, path: str) -> object:
 MARKER = "\ue000clab\ue001"
 
 
-def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template: dict | None = None) -> dict:
+def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template: dict | None) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 

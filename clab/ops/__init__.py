@@ -48,7 +48,7 @@ a residual stream, coordinates from a value, tokens from logits, text from ids).
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
-float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+float32 (`pca` works in double and returns the value's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
 rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
 to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
 (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
