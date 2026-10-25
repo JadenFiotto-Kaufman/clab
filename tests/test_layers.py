@@ -414,9 +414,13 @@ def test_one_label_over_other_values_is_refused_naming_label():
                                         r"axis, whose sweeps pair their points: give one of them its own label to "
                                         r"cross them"):
         two({"sweep": [0, 1], "label": "at"}, {"sweep": [1, 2], "label": "at"})
-    with pytest.raises(PlanError, match=r"^steps\.cf\.interventions\.h\.site\.layers\.label: 'a\.b': a sweep's label is "
-                                        r"a name, with no dots"):
-        two({"sweep": [0, 1], "label": "a.b"}, 0)
+    for label in ("a=b", "a,b", "a.b", "a/b", "a-b", ""):
+        with pytest.raises(PlanError, match=rf"^steps\.cf\.interventions\.h\.site\.layers\.label: "
+                                            rf"'{re.escape(label)}': a sweep's label is letters, digits and "
+                                            r"underscores, since its points are keyed `<label>=<value>`, joined by "
+                                            r"commas$"):
+            two({"sweep": [0, 1], "label": label}, 0)
+    assert len(points(two({"sweep": [0, 1], "label": "src_2"}, 0).steps["cf"])) == 2
     assert len(points(two({"sweep": [0, 1], "label": "at"}, {"sweep": [0, 1], "label": "at"}).steps["run"])) == 2
 
 
@@ -428,9 +432,16 @@ def test_a_sweep_over_the_string_sweep_compiles():
              "sweep": {"kind": "op", "op": "mean", "of": "f.h"}, "other": {"kind": "op", "op": "sum", "of": "f.h"},
              "sim": {"kind": "op", "op": "cosine", "of": "f.h", "with": {"sweep": ["sweep", "other"]}}}
     assert plan(steps, ["sim"]).sweeps["with"].values == ["sweep", "other"]
-    with pytest.raises(PlanError, match=r"^steps\.f\.interventions\.h\.site\.layers\.sweep: a sweep's values hold "
-                                        r"no sweep$"):
-        plan({"f": forward({"h": {"site": stream({"sweep": [{"sweep": [0, 1]}]}), "pos": -1}})}, [])
+    read = {"f": forward({"h": {"site": stream(0), "pos": -1}})}
+    for path, steps in (
+            ("steps.f.interventions.h.site.layers", {"f": forward({"h": {"site": stream({"sweep": [{"sweep": [0, 1]}]}),
+                                                                         "pos": -1}})}),
+            ("steps.m.over", {**read, "m": {"kind": "op", "op": "mean", "of": "f.h",
+                                            "over": {"sweep": [["rows"], [{"sweep": ["pos"]}]]}}}),
+            ("steps.g.max_new_tokens", {"g": {"kind": "generate", "input": "pairs.input",
+                                              "max_new_tokens": {"sweep": [1, {"sweep": [2, 3]}]}}})):
+        with pytest.raises(PlanError, match=rf"^{re.escape(path)}: a sweep's values hold no sweep$"):
+            plan(steps, [])
 
 
 def test_a_step_named_as_a_plans_derived_field_is_swept():

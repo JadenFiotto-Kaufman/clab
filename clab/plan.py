@@ -83,8 +83,6 @@ class Sweep(Record):
     def _flat(cls, values: list[Any]) -> list[Any]:
         # A point is keyed by its value, so each value is one a key can hold: a scalar, or a list of them.
         for value in values:
-            if isinstance(value, dict) and "sweep" in value:
-                raise ValueError("a sweep's values hold no sweep")
             if isinstance(value, dict):
                 field, first = next(iter(value.items()), ("<field>", "..."))
                 raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "

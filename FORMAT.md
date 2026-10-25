@@ -742,17 +742,20 @@ columns), and an op takes one dataset's rows.
 ## Sweeps
 
 Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
-the `label` it gives, a name (no dots), else the name of the field it stands for (the last key of its path).
+the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
+else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
 
 A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
 source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
 values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
 two steps use); sweeps with one label and different values are refused, and sweeps with different labels
-cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1,
-2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`. A step that uses a swept
-thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
-whole step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
-swept step is a dict keyed by coordinate: the axis's value, or a tuple of them in axis order.
+cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
+"label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}`
+each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
+of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
+points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
+sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
+tuple of them in axis order.
 
 ## Saves and the output
 
