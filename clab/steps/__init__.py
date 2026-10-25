@@ -151,16 +151,16 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
     """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
     rows.
 
-    An entry whose `layers` are a slice or picks is one read per layer, the ops after its last edit run on
-    each, stacked layer-first; one whose rows hold different numbers of positions is as wide as the widest,
-    NaN past a row's own."""
+    An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
+    after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
+    positions is as wide as the widest, NaN past a row's own."""
     parts = []
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
         parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
-                                                 state, step.at, found.answers)
+                                                 state, step.at, found.answers, layer)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
     joined(state, name, step, parts)

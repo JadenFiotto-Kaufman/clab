@@ -253,8 +253,8 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
                                                    r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
     (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' names no step's value; a save is a step or a step's member"),
-    (lambda d: d["sites"]["target"].update(layers=":"),
-     r"steps\.patched\.interventions\.patch\.site: an entry that writes names its layer"),
+    (lambda d: d["sites"]["target"].update(layers="0:0"),
+     r"sites\.target\.layers: '0:0' picks nothing, however many things there are"),
 ])
 def test_a_compile_error_names_the_path(change, message):
     with pytest.raises(PlanError, match=message):

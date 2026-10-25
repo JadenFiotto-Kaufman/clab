@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens, placed, probe_of
-from clab.compile.interventions import check_labels, check_operands, held, refuse
+from clab.compile.interventions import check_labels, check_layers, check_operands, held, refuse
 from clab.compile.positions import indices
 from clab.compile.state import Found
 from clab.compile.uses import widths
 from clab.format import address, data, selectors
-from clab.format.selectors import picked, selected
+from clab.format.selectors import made_at, picked, selected
 from clab.format.sweeps import lookup, put
 from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points
 
@@ -34,7 +34,8 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a position that does not fit some
     row's scope, or whose scope is not in a row a write or a read of static width needs; a token column that is not
-    one token on some row; a write whose operand was selected at a different width or narrowing, or holds other
+    one token on some row; an op whose operand has a `layers` axis without every layer its entry is made at
+    (`check_layers`); a write whose operand was selected at a different width or narrowing, or holds other
     indices of an axis the write's site narrows (`check_labels`: heads in another order, one head for several); a
     write to a component with a `key` axis (the attention pattern, the scores) whose operand was read on another
     input that does not tokenize to the same length on every row, which would misalign the keys, and a window of
@@ -152,6 +153,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
                         probe = arguments(o)["featurizer"]
                 put(shapes, where, step.at, shape)
+                for o in record.ops:
+                    check_layers(plan, where, o, step.at, made_at(site, sizes["num_layers"]), sizes["num_layers"])
                 later += [(where, o, shape, site) for o in record.ops[:len(record.ops) - len(gathers(record))]]
             for where, o, shape, site in later:
                 check_operands(engine, plan, where, o, shape, step, site, found, shapes)

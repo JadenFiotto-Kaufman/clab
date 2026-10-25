@@ -98,6 +98,11 @@ def dims(component: str, layers: object = None) -> list[str]:
     return (["layers"] if stacks(layers) else []) + ["rows", "pos"] + selectable(component)
 
 
+def unstacked(dims: list[str]) -> list[str]:
+    """A layout at one of its layers: every axis but `layers`."""
+    return [a for a in dims if a != "layers"]
+
+
 def stacks(layers: object) -> bool:
     """Whether a site's `layers` make one value with a `layers` axis: a slice or a list of picks, which name
     several layers (or may), not an int, which names one."""
