@@ -1,5 +1,5 @@
 {
- "description": "A direction ablated at every layer in one entry: each layer's mean residual stream at the prompts' last token (`direction`, one vector per layer, its layers axis labelled 0 to 4) is projected out of every token's residual stream at every layer, `layers: \":\"`. At layer L the write takes the direction's slice labelled L, in one forward, so the one entry is the five entries of one layer each that it replaces, to the bit (test_layers.py runs both). After its edit the entry scores what each layer's stream keeps along its own direction (`cosine`, zero to within rounding), so its value has the layers axis first. The logit difference before and after is saved.",
+ "description": "A direction ablated at every layer in one entry: each layer's mean residual stream at the prompts' last token (`direction`, one vector per layer, its layers axis labelled 0 to 4) is projected out of every token's residual stream at every layer, `layers: \":\"`. At layer L the write takes the direction's slice labelled L, in one forward, so the one entry means the five entries of one layer each that it replaces, to the bit. After its edit the entry scores what each layer's stream keeps along its own direction (`cosine`, zero to within rounding), so its value has the layers axis first. The logit difference after the ablation is saved beside it.",
  "model": {
   "key": "hf-internal-testing/tiny-random-gpt2",
   "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
@@ -43,25 +43,6 @@
     "hidden_size"
    ]
   },
-  "clean": {
-   "kind": "forward",
-   "input": "pairs.input",
-   "interventions": {
-    "logits": {
-     "site": {
-      "component": "lm_head_output"
-     },
-     "pos": -1,
-     "dims": [
-      "rows",
-      "pos",
-      "vocab_size"
-     ],
-     "gathered": true
-    }
-   },
-   "dataset": "pairs"
-  },
   "ablated": {
    "kind": "forward",
    "input": "pairs.input",
@@ -103,18 +84,6 @@
    },
    "dataset": "pairs"
   },
-  "clean_ld": {
-   "kind": "op",
-   "op": "logit_diff",
-   "of": "clean.logits",
-   "dataset": "pairs",
-   "dims": [
-    "rows",
-    "pos"
-   ],
-   "a": "pairs.cf_answer",
-   "b": "pairs.base_answer"
-  },
   "ablated_ld": {
    "kind": "op",
    "op": "logit_diff",
@@ -129,7 +98,6 @@
   }
  },
  "saves": [
-  "clean_ld",
   "ablated_ld",
   "ablated.ablate"
  ],

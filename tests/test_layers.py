@@ -248,11 +248,16 @@ def test_direction_ablation_is_its_five_one_layer_entries_to_the_bit(engines, mo
         entry = whole.pop("ablate")
         each = {f"ablate{layer}": {**entry, "site": stream(layer)} for layer in range(5)}
         d["steps"]["ablated"]["interventions"] = {**each, **whole}
-        d["saves"] = ["clean_ld", "ablated_ld", *[f"ablated.{key}" for key in each]]
+        d["saves"] = ["ablated_ld", *[f"ablated.{key}" for key in each]]
+
+    def clean(d):
+        del d["steps"]["ablated"]["interventions"]["ablate"]
+        d["saves"] = ["ablated_ld"]
     document = Plan(os.path.join(DOCUMENTS, "direction_ablation.json")).compile()
     got = both(engines, document).results
     hand = both(engines, edited("direction_ablation", one_layer_each).compile()).results
-    assert same(got["ablated_ld"], hand["ablated_ld"]) and not same(got["ablated_ld"], got["clean_ld"])
+    untouched = both(engines, edited("direction_ablation", clean).compile()).results
+    assert same(got["ablated_ld"], hand["ablated_ld"]) and not same(got["ablated_ld"], untouched["ablated_ld"])
     assert same(got["ablated.ablate"], torch.stack([hand[f"ablated.ablate{layer}"] for layer in range(5)]))
     assert got["ablated.ablate"].abs().max() < 1e-5
     came, trip = stand_in(engines, document, monkeypatch)
