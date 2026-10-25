@@ -101,16 +101,17 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
     head_only = head(step, record)
     prompts = [len(e["ids"]) for e in encoded]
     out = []
-    online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
-        if pos["scope"] else {}
-    for layer in layers(engine, record) if writes(record) else []:
-        edits = edit(plan, record, state, step.at, chunk, found.answers, layer)
-        if holds:
-            where = [positions.prompted(p, head_only) for p in prompts]
-            out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, layer, True),
-                        "layer": layer, "ops": edits})
-        out.append({**decoding(record, picks, prompts), "name": write_name(key, layer), "layer": layer, "ops": edits,
-                    "calls": None if online else calls, **online})
+    if writes(record):
+        online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
+            if pos["scope"] else {}
+        for layer in layers(engine, record):
+            edits = edit(plan, record, state, step.at, chunk, found.answers, layer)
+            if holds:
+                where = [positions.prompted(p, head_only) for p in prompts]
+                out.append({**site(record, picks, where, pads, padded, head_only),
+                            "name": write_name(key, layer, True), "layer": layer, "ops": edits})
+            out.append({**decoding(record, picks, prompts), "name": write_name(key, layer), "layer": layer,
+                        "ops": edits, "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
             whole = [positions.prompted(p) for p in prompts]
