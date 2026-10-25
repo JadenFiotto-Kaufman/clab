@@ -918,6 +918,48 @@ def test_d6_an_eval_reads_a_dataset_as_another_only_where_their_templates_agree(
     assert fit({"template": template}).compile().data["other"].template == template
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_o6_an_op_steps_dose_of_one_number_broadcasts_and_one_per_row_is_refused(engines, kind):
+    """As a step too, a dose of one number is the bits its literal is; one laid out `[rows]` (a mean over the
+    positions and features) is no layout an edit takes, and the op-step operand check refuses it by name before
+    the run rather than broadcasting it against the features."""
+    def stepped(dose: Any, over: list[str]) -> Plan:
+        return plan(data={"d": DAYS}, steps={
+            "base": forward({"h": {"site": LAYER0, "pos": -1}}),
+            "dose": {"kind": "op", "op": "mean", "of": "base.h", "over": over},
+            "scaled": {"kind": "op", "op": "scale", "of": "base.h", "factor": dose},
+            "noisy": {"kind": "op", "op": "noise", "of": "base.h", "scale": dose}}, saves=["dose", "scaled", "noisy"])
+    every = ["rows", "pos", "hidden_size"]
+    named = run(engines, stepped("dose", every).compile(), kind).results
+    assert named["dose"].shape == () and same(named, run(engines, stepped(named["dose"].item(), every).compile(),
+                                                          kind).results)
+    with pytest.raises(PlanError, match=r"^steps\.scaled\.factor: 'dose' is laid out \['rows'\]; 'scale' acts on a "
+                                        r"value laid out \['rows', 'pos', 'hidden_size'\], so its 'factor' is laid "
+                                        r"out so too, or is one vector \['hidden_size'\]"):
+        stepped("dose", ["pos", "hidden_size"]).compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_o6_a_dose_per_layer_scales_each_layer_a_write_across_layers_is_made_at(engines, kind):
+    """A dose with only a `layers` axis is one number at each layer: a write across layers takes its slice of
+    each, the bits of one write per layer with that layer's number as a literal."""
+    every = {"component": "layer_output", "layers": ":"}
+    measured = {"base": forward({"h": {"site": every, "pos": -1}}),
+                "dose": {"kind": "op", "op": "mean", "of": "base.h", "over": ["rows", "pos", "hidden_size"]}}
+    head = {"logits": {"site": HEAD, "pos": -1}}
+    across = run(engines, plan(data={"d": DAYS}, steps={**measured, "w": forward({
+        "w": {"site": every, "pos": -1, "ops": [{"op": "scale", "factor": "dose"}]}, **head})},
+        saves=["dose", "w.w", "w.logits"]).compile(), kind).results
+    dose = across["dose"]
+    assert dose.shape == (2,) and dose[0] != dose[1]
+    one = run(engines, plan(data={"d": DAYS}, steps={"w": forward({
+        **{f"w{layer}": {"site": {"component": "layer_output", "layers": layer}, "pos": -1,
+                         "ops": [{"op": "scale", "factor": dose[layer].item()}]} for layer in (0, 1)}, **head})},
+        saves=["w.w0", "w.w1", "w.logits"]).compile(), kind).results
+    assert torch.equal(across["w.w"], torch.stack([one["w.w0"], one["w.w1"]]))
+    assert torch.equal(across["w.logits"], one["w.logits"])
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 
