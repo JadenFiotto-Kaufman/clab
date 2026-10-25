@@ -2,9 +2,6 @@
 
 What is agreed but not built, in no order. Bring an item up when the owner asks for open items.
 
-- **Op arguments.** `argmax` and `top_k` take `over` (an axis name, default `vocab_size`) so they rank a
-  featurizer's coordinates or a probe's classes; `scale`'s `factor` and `noise`'s `scale` accept a named
-  value as well as a literal (the `Value` kind `with` already has), so a dose can be a measured norm.
 - **Hub datasets** (`hf`, pinned by revision; rows materialize where first touched).
 - **Provenance in `manifest.json`**: the document's digest, a digest per loaded bundle, the device, thread count,
   GPU and driver, a run seed for sampled generation, the command line; on remote runs the server's job id. And

@@ -90,7 +90,7 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
     """A metric's operand (`kl`'s `against`, `cosine`'s `with`), and in a step an edit's (inside an entry
     `operands` checks those), is laid out as the value the op acts on, as many positions wide, or is one vector of
     its features, each at one layer: a `layers` axis of either aligns by label (`acts_at`). One without a static
-    width lines up with nothing."""
+    width lines up with nothing; an edit's of one number (at each layer) broadcasts as a literal does."""
     group = ops.DECLARED[name]["group"]
     if group != "metrics" and not (step and group == "edits"):
         return
@@ -103,6 +103,8 @@ def paired(path: str, name: str, dims: list[str], width: int | None, found: dict
         if "pos" in info.dims and info.width is None:
             fail(f"{path}.{key}", f"{info.name!r} holds a different number of positions on each row, which pair "
                  f"with no other value's; read both at a static index (pos -1, or {{'index': '-3:'}})")
+        if group == "edits" and not address.unstacked(info.dims):
+            continue                        # one number (at each layer), which broadcasts as a literal does
         if address.unstacked(info.dims) not in (dims, one):
             fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {name!r} {verb} a value laid out "
                  f"{dims}, so its {key!r} is laid out so too, or is one vector {one} (either with a layers axis "

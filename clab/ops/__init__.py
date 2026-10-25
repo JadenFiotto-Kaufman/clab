@@ -75,14 +75,15 @@ operand does not hold is refused by name before any forward, and so is such an o
 layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
 every layer, as a direction is.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
-(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
-vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
-else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
-at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
-batch, at its positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
+value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
+reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
+tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
+axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
+positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k

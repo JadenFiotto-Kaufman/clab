@@ -436,14 +436,15 @@ operand does not hold is refused by name before any forward, and so is such an o
 layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
 every layer, as a direction is.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
-(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
-vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
-else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
-at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
-batch, at its positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
+value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
+reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
+tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
+axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
+positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -492,13 +493,13 @@ stays missing: NaN.
 | `swap` | `with: Value` | keeps the layout | Replace the value with `with`, broadcast over its rows and positions. |
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
-| `scale` | `factor: float` | keeps the layout | `of * factor`. |
+| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step). |
 | `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
-| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
+| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms

@@ -84,10 +84,11 @@ def test_b1_readout_of_a_narrowed_hidden_size_is_refused_at_compile():
 
 
 def test_b2_kl_against_anything_but_a_name_is_refused():
-    """A number, or a flag, is not a distribution."""
-    for op, against in (("kl", 0), ("js", 1.5), ("kl", True)):
-        with pytest.raises(PlanError, match=rf"steps\.h: against {against!r} is not a name, and only a named value is "
-                                            r"a distribution"):
+    """A number is not a distribution, and a flag is not even a value."""
+    for op, against, why in (("kl", 0, "is not a name, and only a named value is a distribution"),
+                             ("js", 1.5, "is not a name, and only a named value is a distribution"),
+                             ("kl", True, "is not a named value or a number")):
+        with pytest.raises(PlanError, match=rf"steps\.h: against:? {against!r} {why}"):
             plan(data={"d": DAYS}, steps={"f": forward({"logits": {"site": HEAD, "pos": -1}}),
                                           "h": {"kind": "op", "op": op, "of": "f.logits", "against": against}})
 
@@ -808,6 +809,34 @@ def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, 
     values = engines(kind, trained.model).execute(trained, batch_size=BATCH_SIZE).results
     scores = values["fit.train.read.scores"]
     assert scores.shape[-1] == 2 and torch.equal(values["fit.train.which"], metrics.ranked(scores, 1)[..., 0])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_o6_a_dose_is_a_named_value_or_a_number_and_the_two_are_the_same_bits(engines, kind):
+    """trial-01: `scale`'s factor and `noise`'s scale took a literal only, so a measured dose was copied by hand.
+    Each takes a `Value`, as `add`'s `with` does: a dose named from a `mean` step writes the bits its number
+    written as a literal does. Anything else is refused by name."""
+    def doses(dose: Any) -> Plan:
+        return plan(data={"d": DAYS}, steps={
+            "base": forward({"h": {"site": LAYER0, "pos": -1}}),
+            "dose": {"kind": "op", "op": "mean", "of": "base.h", "over": ["rows", "pos", "hidden_size"]},
+            "scaled": forward({"w": {"site": LAYER0, "pos": -1, "ops": [{"op": "scale", "factor": dose}]},
+                               "logits": {"site": HEAD, "pos": -1}}),
+            "noisy": forward({"w": {"site": LAYER0, "pos": -1, "ops": [{"op": "noise", "scale": dose, "seed": 3}]},
+                              "logits": {"site": HEAD, "pos": -1}})},
+            saves=["dose", "scaled.w", "scaled.logits", "noisy.w", "noisy.logits"]).compile()
+    named = run(engines, doses("dose"), kind).results
+    assert named["dose"].shape == () and named["dose"].item() != 0
+    literal = run(engines, doses(named["dose"].item()), kind).results
+    assert same(named, literal)
+    assert torch.equal(named["scaled.w"], run(engines, plan(data={"d": DAYS}, steps={
+        "base": forward({"h": {"site": LAYER0, "pos": -1}})}, saves=["base.h"]).compile(), kind).results["base.h"]
+        * named["dose"])
+    for dose, message in ((True, r"factor: True is not a named value or a number"),
+                          ({"x": 1}, r"factor: \{'x': 1\} is not a named value or a number"),
+                          ("nothing", r"factor: 'nothing' names no value produced before this step")):
+        with pytest.raises(PlanError, match=message):
+            doses(dose)
 
 
 # -- refusals that say what to do ---------------------------------------------------------------------------------
