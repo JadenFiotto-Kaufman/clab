@@ -91,7 +91,8 @@ def noise(of: Tensor, scale: float, dims: list[str], seed: int = 0, rows: Tensor
     one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset
     and the token's position alone (in a step over a value that holds no positions, its index along `pos`),
     then moved to the value's device and dtype. So batch size, sweep point and forward call never change it,
-    no two rows or positions share one, and a document draws the same bits on any device. A value with no
+    no two rows or positions share one, a write across layers draws the same bits at each of them (as one
+    entry per layer with one seed does), and a document draws the same bits on any device. A value with no
     rows is one draw from `seed`."""
     lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     if rows is None or not lead:

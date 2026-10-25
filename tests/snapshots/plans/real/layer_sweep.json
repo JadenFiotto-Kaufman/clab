@@ -2367,7 +2367,9 @@
  "compiled": true,
  "sweeps": {
   "layers": {
-   "path": "sites.target.layers",
+   "paths": [
+    "sites.target.layers"
+   ],
    "values": [
     0,
     1,

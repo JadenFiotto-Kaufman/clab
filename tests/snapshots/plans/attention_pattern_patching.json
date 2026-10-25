@@ -430,7 +430,9 @@
  "compiled": true,
  "sweeps": {
   "num_heads": {
-   "path": "sites.one_head.select.num_heads",
+   "paths": [
+    "sites.one_head.select.num_heads"
+   ],
    "values": [
     0,
     1,

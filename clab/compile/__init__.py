@@ -81,8 +81,8 @@ def compile(plan: Plan) -> Plan:
                  f"{', '.join(saveable)}")
     gathered(compiled["steps"], cx.used | set(plan.saves))
     done = Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
-                   "sweeps": {label: {"path": ".".join(map(str, path)), "values": values[label]}
-                              for path, label in sweeps.items()},
+                   "sweeps": {label: {"paths": [".".join(map(str, path)) for path, of in sweeps.items() if of == label],
+                                      "values": values[label]} for label in values},
                    "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
                                 "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)

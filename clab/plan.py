@@ -73,17 +73,18 @@ def documented(cls: type[BaseModel]) -> list[str]:
 
 
 class Sweep(Record):
-    """A value standing for several. Whatever uses it runs once per value, a point each; one sweep reached
-    from two places is one axis."""
+    """A value standing for several. Whatever uses it runs once per value, a point each, on the axis its
+    `label` names (default: the field it stands for); sweeps with one label are one axis."""
     sweep: list[Any] = Field(min_length=1)
+    label: str | None = None
 
     @field_validator("sweep")
     @classmethod
     def _flat(cls, values: list[Any]) -> list[Any]:
-        if '"sweep"' in json.dumps(values):
-            raise ValueError("a sweep's values hold no sweep")
         # A point is keyed by its value, so each value is one a key can hold: a scalar, or a list of them.
         for value in values:
+            if isinstance(value, dict) and "sweep" in value:
+                raise ValueError("a sweep's values hold no sweep")
             if isinstance(value, dict):
                 field, first = next(iter(value.items()), ("<field>", "..."))
                 raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "
@@ -169,7 +170,8 @@ class Site(Record):
     """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
     layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
     it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-    (`{<axis>: <selector>}`, which Components describes)."""
+    (`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+    made at each layer they pick, in one forward."""
     component: str
     layers: Swept[Selector] | None = None
     select: dict[str, Swept[Selector]] | None = None
@@ -411,11 +413,21 @@ class Intervention(Record):
     to write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step
     names it); an entry nothing names only writes, and costs no memory.
 
+    An entry is made at each layer its site's `layers` pick, in one forward: a write at `layers: "2:6"` runs its
+    ops at each of layers 2 to 5 on that layer's live value, in the forward's order, exactly as four entries
+    of one layer each (the same ops, in order) would, and binds its value with a `layers` axis first, labelled
+    with the layers it picks, as a read there does; the ops after its last edit see that axis (`[add, readout,
+    token_prob]` at `layers: ":"` is a probability per layer). An operand with a `layers` axis is aligned by
+    label: at layer L an op takes the operand's slice labelled L, whatever order either lists its layers in (a
+    write at layer 3 takes slice 3), and a layer it does not hold is refused by name before any forward; an
+    operand without one is the same at every layer, as a direction is.
+
     A step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's
     where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
     compose there in order, each on what the one before it left. A name binds once per step: two entries of one
     name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
-    at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
+    at this entry's site or at one the forward reaches before it, at each layer this entry is made at (an
+    operand with a `layers` axis, its read at that layer): it is that entry's value in this batch, at its
     positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
     meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
     i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
@@ -697,8 +709,8 @@ FeaturizerEntry = Annotated[Union[Annotated[Featurizer, Tag("~one")], Annotated[
 
 
 class Axis(Record):
-    """A sweep axis: the document path of its sweep and its values."""
-    path: str
+    """A sweep axis: the document path of every sweep of its label, in document order, and their values."""
+    paths: list[str]
     values: list[Any]
 
 
@@ -749,7 +761,8 @@ class Plan(Record):
     document: str | None = derived(None, "the document file the plan was read from; written relative to its "
                                          "corpus root, where data paths and bundles resolve")
     compiled: bool = derived(False, "whether this is the compiled plan")
-    sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order")
+    sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order: the paths its sweeps stand "
+                                          "at, and their values")
     results: dict[str, Any] = derived(
         {}, "each saved value by name; a swept one is a dict keyed by coordinate", exclude=True)
     run: Run | None = derived(None, "how the plan ran, set by `execute`")

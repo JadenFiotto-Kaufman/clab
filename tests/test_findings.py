@@ -576,14 +576,23 @@ def test_s1_s2_a_published_sae_states_its_site_and_is_checked_against_it(engines
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 
-def test_m1_two_sweeps_of_one_field_say_how_to_vary_both():
-    sites = {"a": {**LAYER0, "layers": {"sweep": [0, 1]}}, "b": {"component": "mlp_output", "layers": {"sweep": [0, 1]}}}
-    with pytest.raises(PlanError, match=r"sites\.b\.layers: label 'layers' is also the sweep at sites\.a\.layers; a "
-                                        r"sweep's label is the name of the field it stands for, so two sweeps of one "
-                                        r"field name cannot cross: sweep one of them and put each value of the "
-                                        r"other in a step of its own"):
-        plan(data={"d": DAYS}, sites=sites, steps={"f": forward({"x": {"site": "a", "pos": -1},
-                                                                 "y": {"site": "b", "pos": -1}})}).compile()
+def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
+    """trial 1, 4: two sweeps of one field name are one label, so one axis: over the same values their points
+    pair up; over different ones they are refused, and the message says what crosses them, a `label` of its
+    own."""
+    def two(b: dict) -> Plan:
+        sites = {"a": {**LAYER0, "layers": {"sweep": [0, 1]}}, "b": {"component": "mlp_output", "layers": b}}
+        return plan(data={"d": DAYS}, sites=sites, steps={"f": forward({"x": {"site": "a", "pos": -1},
+                                                                         "y": {"site": "b", "pos": -1}})}).compile()
+    zipped = two({"sweep": [0, 1]})
+    assert [p.at for p in zipped.steps["f"]] == [{"layers": 0}, {"layers": 1}]
+    assert zipped.sweeps["layers"].paths == ["sites.a.layers", "sites.b.layers"]
+    with pytest.raises(PlanError, match=r"^sites\.b\.layers: label 'layers' is also the sweep at sites\.a\.layers, "
+                                        r"over \[0, 1\]; one label is one axis, whose sweeps pair their points: give "
+                                        r"one of them its own label to cross them \(\{'sweep': \[\.\.\.\], 'label': "
+                                        r"'<name>'\}\), or the same values to pair them$"):
+        two({"sweep": [1, 0]})
+    assert len(two({"sweep": [1, 0], "label": "mlp"}).steps["f"]) == 4
 
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():

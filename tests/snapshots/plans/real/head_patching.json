@@ -11357,7 +11357,9 @@
  "compiled": true,
  "sweeps": {
   "layers": {
-   "path": "sites.one_head.layers",
+   "paths": [
+    "sites.one_head.layers"
+   ],
    "values": [
     10,
     11,
@@ -11365,7 +11367,9 @@
    ]
   },
   "num_heads": {
-   "path": "sites.one_head.select.num_heads",
+   "paths": [
+    "sites.one_head.select.num_heads"
+   ],
    "values": [
     0,
     1,

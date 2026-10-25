@@ -139,7 +139,9 @@
  "compiled": true,
  "sweeps": {
   "layers": {
-   "path": "sites.resid.layers",
+   "paths": [
+    "sites.resid.layers"
+   ],
    "values": [
     0,
     1

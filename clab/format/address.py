@@ -15,9 +15,9 @@ shorter row's own keys a read is NaN and a write changes nothing (its padding's 
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers` that are a slice or a list of picks. A read whose rows hold different numbers of
-positions is as wide as its widest row, NaN past a row's own. How an engine reaches a component is that
-engine's business; the name says only what the value is.
+first under `layers` that are a slice or a list of picks, a write's as a read's. A read whose rows hold
+different numbers of positions is as wide as its widest row, NaN past a row's own. How an engine reaches a
+component is that engine's business; the name says only what the value is.
 """
 
 R = ["batch", "seq", "hidden_size"]

@@ -22,12 +22,12 @@ A bundle is a safetensors file: an instance's `saves` tensors (the first laid ou
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
 `layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
 saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
-fields and the model when the plan compiles, the site at every use, and `width` against the model's size
-before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
-keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
-`sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each other and the site's width:
-nothing in it says what model or site it was made at, so the document states the layer, which every use is
-checked against.
+fields and the model when the plan compiles, the site at every use (at each layer it picks), and `width`
+against the model's size before any forward. A file is clab's when its header's `format` is `clab/...`; one
+that carries clab's header keys under another format is refused. Any other file is a published one, its
+kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each
+other and the site's width: nothing in it says what model or site it was made at, so the document states the
+layer, which every use is checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on

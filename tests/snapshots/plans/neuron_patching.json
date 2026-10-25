@@ -353,7 +353,9 @@
  "compiled": true,
  "sweeps": {
   "intermediate_size": {
-   "path": "sites.target.select.intermediate_size",
+   "paths": [
+    "sites.target.select.intermediate_size"
+   ],
    "values": [
     [
      0,

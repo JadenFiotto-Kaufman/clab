@@ -44,7 +44,8 @@ rows of a file whose `split` column is that.
 A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
 layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
 it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-(`{<axis>: <selector>}`, which Components describes).
+(`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+made at each layer they pick, in one forward.
 
 ### A column read as text
 
@@ -95,11 +96,21 @@ layout (`readout`, a metric, a reduction, an `encode` no `decode` closes): after
 to write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step
 names it); an entry nothing names only writes, and costs no memory.
 
+An entry is made at each layer its site's `layers` pick, in one forward: a write at `layers: "2:6"` runs its
+ops at each of layers 2 to 5 on that layer's live value, in the forward's order, exactly as four entries
+of one layer each (the same ops, in order) would, and binds its value with a `layers` axis first, labelled
+with the layers it picks, as a read there does; the ops after its last edit see that axis (`[add, readout,
+token_prob]` at `layers: ":"` is a probability per layer). An operand with a `layers` axis is aligned by
+label: at layer L an op takes the operand's slice labelled L, whatever order either lists its layers in (a
+write at layer 3 takes slice 3), and a layer it does not hold is refused by name before any forward; an
+operand without one is the same at every layer, as a direction is.
+
 A step's entries run in the order written: the items of a list in turn, a dict's entries in turn, a bundle's
 where its name stands. Entries at different sites act as the forward reaches their sites; two at one site
 compose there in order, each on what the one before it left. A name binds once per step: two entries of one
 name are refused. An operand may name an earlier entry of the same forward (`patched.premix` in `patched`),
-at this entry's site or at one the forward reaches before it: it is that entry's value in this batch, at its
+at this entry's site or at one the forward reaches before it, at each layer this entry is made at (an
+operand with a `layers` axis, its read at that layer): it is that entry's value in this batch, at its
 positions, and so an entry whose ops all write (none after its last edit), in the coordinates the operand
 meets (`space`). An operand read on another input at the write's own positions, with no scope, pairs its
 i-th position with the write's i-th, which on rows whose prompts differ in length is checked conservatively
@@ -339,7 +350,7 @@ scored on the training rows after each epoch.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 
-- `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
+- `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order: the paths its sweeps stand at, and their values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `dims` (the layout of the value the entry binds), `space` (the coordinates that value is in: the encodes its ops leave open, outermost first, each its `featurizer` and `select`; none for the site's own layout), `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it)
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
@@ -455,7 +466,7 @@ stays missing: NaN.
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
-| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
+| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms
@@ -487,9 +498,9 @@ shorter row's own keys a read is NaN and a write changes nothing (its padding's 
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
-first under `layers` that are a slice or a list of picks. A read whose rows hold different numbers of
-positions is as wide as its widest row, NaN past a row's own. How an engine reaches a component is that
-engine's business; the name says only what the value is.
+first under `layers` that are a slice or a list of picks, a write's as a read's. A read whose rows hold
+different numbers of positions is as wide as its widest row, NaN past a row's own. How an engine reaches a
+component is that engine's business; the name says only what the value is.
 
 | component | dims | narrowed by | meaning |
 | --- | --- | --- | --- |
@@ -541,12 +552,12 @@ A bundle is a safetensors file: an instance's `saves` tensors (the first laid ou
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
 `layer`), its `width` and the document's name. Both a `pca` op's value and a fit's trained featurizer are
 saved as one. A document that loads one is checked against it key by key: the tensors and the kind, its
-fields and the model when the plan compiles, the site at every use, and `width` against the model's size
-before any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header
-keys under another format is refused. Any other file is a published one, its kind's to read or refuse: an
-`sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each other and the site's width:
-nothing in it says what model or site it was made at, so the document states the layer, which every use is
-checked against.
+fields and the model when the plan compiles, the site at every use (at each layer it picks), and `width`
+against the model's size before any forward. A file is clab's when its header's `format` is `clab/...`; one
+that carries clab's header keys under another format is refused. Any other file is a published one, its
+kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are checked against each
+other and the site's width: nothing in it says what model or site it was made at, so the document states the
+layer, which every use is checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
@@ -614,10 +625,10 @@ zero). Its `file_path` may name a published SAE, a safetensors file with no clab
 are checked against each other and the site's width, and nothing in it says what model it was trained on, so
 the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
 the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
-site it is used at is, component and layer (`layers: -1` counting as the layer it is). A `site` given for any
-sae is checked so. Its
-scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
-mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|.
+site it is used at is, component and layer, at each layer the site picks (`layers: -1` counting as the
+layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the body read its
+coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and
+`l1`, the mean |z|.
 
 Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term.
 
@@ -724,13 +735,17 @@ columns), and an op takes one dataset's rows.
 
 ## Sweeps
 
-Every `{"sweep": [...]}` standing for a value, by document path, labelled by the last key of its path.
+Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
+the `label` it gives, a name (no dots), else the name of the field it stands for (the last key of its path).
 
 A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-source, or a `file_path`. Two sweeps with one label are refused; one sweep reached from two places (a swept site
-two steps use) is one axis, so its points zip rather than cross. A step that uses a swept thing, or
-references a value that varies, becomes a list of points, one per combination of its axes, each a whole
-step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
+source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
+two steps use); sweeps with one label and different values are refused, and sweeps with different labels
+cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1,
+2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`. A step that uses a swept
+thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+whole step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
 swept step is a dict keyed by coordinate: the axis's value, or a tuple of them in axis order.
 
 ## Saves and the output

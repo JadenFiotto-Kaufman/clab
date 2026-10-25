@@ -15,29 +15,40 @@ UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train",
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:
-    """Every `{"sweep": [...]}` standing for a value, by document path, labelled by the last key of its path.
+    """Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
+    the `label` it gives, a name (no dots), else the name of the field it stands for (the last key of its path).
 
     A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-    source, or a `file_path`. Two sweeps with one label are refused; one sweep reached from two places (a swept site
-    two steps use) is one axis, so its points zip rather than cross. A step that uses a swept thing, or
-    references a value that varies, becomes a list of points, one per combination of its axes, each a whole
-    step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
+    source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+    values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
+    two steps use); sweeps with one label and different values are refused, and sweeps with different labels
+    cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1,
+    2], "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`. A step that uses a swept
+    thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+    whole step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
     swept step is a dict keyed by coordinate: the axis's value, or a tuple of them in axis order.
     """
     found: dict[tuple, str] = {}
+    first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values
 
     def walk(value: Any, path: tuple) -> None:
-        if isinstance(value, dict) and set(value) == {"sweep"}:
+        if isinstance(value, dict) and "sweep" in value and set(value) <= {"sweep", "label"}:
             where = ".".join(map(str, path))
-            label = next(k for k in reversed(path) if isinstance(k, str))
-            if path[0] in ("description", "model") or label in UNSWEPT:
-                raise ValueError(f"{where}: a sweep cannot stand for {label!r}")
-            for other, other_label in found.items():
-                if other_label == label:
-                    raise ValueError(f"{where}: label {label!r} is also the sweep at {'.'.join(map(str, other))}; a "
-                                     "sweep's label is the name of the field it stands for, so two sweeps of one "
-                                     "field name cannot cross: sweep one of them and put each value of the other in "
-                                     "a step of its own (or have both use one swept site or step, which zips them)")
+            field = next(k for k in reversed(path) if isinstance(k, str))
+            if path[0] in ("description", "model") or field in UNSWEPT:
+                raise ValueError(f"{where}: a sweep cannot stand for {field!r}")
+            given = value.get("label")
+            label = field if given is None else given
+            if given is not None and (not isinstance(label, str) or not label or "." in label):
+                raise ValueError(f"{where}.label: {label!r}: a sweep's label is a name, with no dots, which its "
+                                 "points' coordinates are keyed by")
+            if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
+                other, values = first[label]
+                raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
+                                 f"is one axis, whose sweeps pair their points: give one of them its own label to "
+                                 f"cross them ({{'sweep': [...], 'label': '<name>'}}), or the same values to pair "
+                                 "them")
+            first.setdefault(label, (where, value["sweep"]))
             found[path] = label
         elif isinstance(value, dict):
             for k, v in value.items():

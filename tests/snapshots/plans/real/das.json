@@ -626,7 +626,9 @@
  "compiled": true,
  "sweeps": {
   "k": {
-   "path": "featurizers.rot.k",
+   "paths": [
+    "featurizers.rot.k"
+   ],
    "values": [
     1,
     4,

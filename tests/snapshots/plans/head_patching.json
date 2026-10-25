@@ -429,7 +429,9 @@
  "compiled": true,
  "sweeps": {
   "num_heads": {
-   "path": "sites.target.select.num_heads",
+   "paths": [
+    "sites.target.select.num_heads"
+   ],
    "values": [
     0,
     1,
