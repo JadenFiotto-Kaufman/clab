@@ -10,10 +10,10 @@ import pytest
 from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 from clab import Plan
-from clab.compile import positions
+from clab.compile import dataset, positions
 from clab.format import data, selectors
 from clab.format.sweeps import points
-from clab.plan import PlanError
+from clab.plan import Data, PlanError
 
 
 def step(plan: Plan, name: str) -> Any:
@@ -389,6 +389,8 @@ def test_columns_renames_and_keeps_every_other_column():
     assert plan.data["pairs"].rows == [{"label": 1, "input": "a", "answer": " b"},
                                        {"label": 0, "input": "c", "answer": " d"}]
     assert compiled_form(plan)["data"]["pairs"]["columns"] == {"input": "prompt", "answer": "target"}
+    swapped = dataset("", "pairs", Data(rows=rows, columns={"prompt": "target", "target": "prompt"}))
+    assert swapped == [{"label": 1, "prompt": " b", "target": "a"}, {"label": 0, "prompt": " d", "target": "c"}]
     with pytest.raises(PlanError, match=r"steps\.p\.token: dataset 'pairs' has no column 'target' on every row"):
         with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
             "read": read, "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.target"}},
@@ -402,6 +404,9 @@ def test_columns_renames_and_keeps_every_other_column():
     ({"path": "weekdays/data", "take": 0}, r"^data\.pairs: take 0: a dataset keeps at least one row$"),
     ({"path": "weekdays/data", "columns": {"input": "prompt"}},
      r"^data\.pairs\.columns\.input: 'prompt' is not a column of row 0; its columns: answer, base_answer, "),
+    ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},
+     r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this rename would overwrite; "
+     r"rename it too, or name the new column otherwise$"),
     ({"path": "weekdays/data", "template": {"add_generation_prompt": True}},
      r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
      r"of \{'role', 'content'\} messages\) only$"),

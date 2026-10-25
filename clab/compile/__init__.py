@@ -106,6 +106,9 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
         if lacking is not None:
             fail(f"data.{name}.columns.{new}", f"{column!r} is not a column of row {lacking}; its columns: "
                  f"{', '.join(rows[lacking])}")
+        if new not in (d.columns or {}).values() and any(new in r for r in rows):
+            fail(f"data.{name}.columns.{new}", f"{new!r} is a column the rows keep, which this rename would "
+                 "overwrite; rename it too, or name the new column otherwise")
     return data.renamed(rows, d.columns) if d.columns else rows
 
 

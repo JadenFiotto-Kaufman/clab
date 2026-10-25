@@ -147,17 +147,17 @@ class Model(Record):
 
 
 class Data(Record):
-    """A dataset: where its rows come from and how its text renders, never a computation on its values. `path`
-    is `data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the
-    rows of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on
-    every machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns`
-    renames them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its
-    own, every other column as it is (so one file serves a fit's `eval` substitution under the body's column
-    names). `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the
-    dataset renders (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the
-    generation prompt and keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source
-    the rows lack, and a `template` on a dataset no step reads a chat column of. `sha256` and `n_rows` describe
-    the rows these leave."""
+    """A dataset: where its rows come from and how its text renders, never a computation on its values. `path` is
+    `data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the rows
+    of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on every
+    machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns` renames
+    them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its own, every
+    other column as it is (so one file serves a fit's `eval` substitution under the body's column names).
+    `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the dataset renders
+    (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the generation prompt and
+    keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source the rows lack or a name
+    that is a column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no
+    step reads a chat column of. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     split: str | None = None
