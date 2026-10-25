@@ -30,13 +30,15 @@ def rows(root: str, path: str, split: str | None) -> list[dict]:
 
 def hub(d: Data) -> list[dict]:
     """Hub dataset `d.hf` at `d.revision`, in its subset `d.config`: the rows of its split `d.split` (left out, its
-    only split), loaded whole by the `datasets` library (offline, from its cache), each a JSON object. What the hub
-    or the cache refuses is said as it says it, after the dataset; a split it does not have, or several and none
-    named, and a column whose values are not JSON (images, audio, bytes) are refused by name."""
+    only split), loaded whole by the `datasets` library, each a JSON object. Offline the library reads its cache at
+    the commit it last cached, whatever the revision says: a commit `revision` other than that one is refused, and
+    a branch reads as the cache holds it. What the hub or the cache refuses is said as it says it, after the
+    dataset; a split it does not have, or several and none named, and a column whose values are not JSON (images,
+    audio, bytes) are refused by name."""
     import datasets                     # with pyarrow and pandas, which only a hub dataset needs
 
     assert d.hf is not None and d.revision is not None     # the record's check: `hf` comes with its `revision`
-    where = d.hf + (f" (config {d.config!r})" if d.config else "") + f" at revision {d.revision}"
+    where = hub_name(d)
     try:
         found = cast("datasets.DatasetDict", datasets.load_dataset(d.hf, d.config, revision=d.revision))
     except Exception as e:              # whatever the hub, its cache or the library raises, named
@@ -46,15 +48,25 @@ def hub(d: Data) -> list[dict]:
     if split is None:
         raise ValueError(f"{where} has splits {', '.join(splits)}; 'split' names the one to read")
     if split not in found:
-        raise ValueError(f"{where} has no split {split!r}; its splits: {', '.join(splits)}")
+        raise ValueError(f"{where} has no such split; its splits: {', '.join(splits)}")
+    # The library caches a hub dataset under the commit it loaded: offline, the latest it cached.
+    cached = {os.path.basename(os.path.dirname(f["filename"])) for f in found[split].cache_files} - {d.revision}
+    if cached and re.fullmatch(r"[0-9a-f]{40}", d.revision):
+        raise ValueError(f"{where} is not in the cache, which holds it at {', '.join(sorted(cached))}")
     rows = found[split].to_list()
     for column in found[split].column_names:
         try:
             json.dumps([row[column] for row in rows])
         except (TypeError, ValueError):
-            raise ValueError(f"{where}: column {column!r} holds values that are not JSON (images, audio, bytes); "
-                             "a row is JSON: text, numbers, booleans, null, and lists and objects of them") from None
+            raise ValueError(f"{where}: column {column!r} holds values that are not JSON (images, audio, bytes); a "
+                             "row is JSON: text, numbers, booleans, null, and lists and objects of them") from None
     return rows
+
+
+def hub_name(d: Data) -> str:
+    """A hub dataset as a message names it: `nyu-mll/glue (config 'wnli', split 'validation') at revision <r>`."""
+    given = [f"{k} {v!r}" for k, v in (("config", d.config), ("split", d.split)) if v is not None]
+    return f"{d.hf}" + (f" ({', '.join(given)})" if given else "") + f" at revision {d.revision}"
 
 
 def shuffled(rows: list[dict]) -> list[dict]:

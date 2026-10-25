@@ -18,7 +18,7 @@ from clab.compile.state import Compiling, Found
 from clab.format import data
 from clab.format.sweeps import lookup
 from clab.ops.metrics import ONE_ID
-from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, points
+from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, held_rows, points
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -170,7 +170,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                 raise ValueError(f"{where}: {key} names a class of probe {declared(plan, probe)!r}, which is compared "
                                  "exactly; strip and lower compare an answer's tokens")
             dataset, _, column = ref.partition(".")
-            for i, row in enumerate(plan.data[dataset].rows or []):
+            for i, row in enumerate(held_rows(plan, dataset)):
                 if isinstance(row[column], list) or row[column] not in vocabulary:
                     raise ValueError(f"{where}: {key} is {column!r} of {swap.get(dataset, dataset)!r}, whose row {i} "
                                      f"is {row[column]!r}, not one of the classes of probe {declared(plan, probe)!r}: "
@@ -185,7 +185,7 @@ def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Te
 def column_texts(plan: Plan, column: str, rows: slice | None) -> list:
     """A column's value on each of its dataset's rows (a string, or a list of them), sliced to `rows`."""
     name, _, path = column.partition(".")
-    values = [data.lookup(r, path) for r in plan.data[name].rows or []]
+    values = [data.lookup(r, path) for r in held_rows(plan, name)]
     return values[rows] if rows is not None else values
 
 

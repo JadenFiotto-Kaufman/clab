@@ -1,8 +1,8 @@
 """The plan: one model that is a document as written and, compiled, the document resolved for running.
 
-`Plan(path)` reads a document; `plan.compile()` returns it compiled (rows loaded, sites and named
-interventions inlined, bundles loaded, sweeps expanded into points, names resolved); an engine's
-`execute` fills `plan.results` and `plan.run`; `plan.dump(out)` writes a run's output directory and
+`Plan(path)` reads a document; `plan.compile()` returns it compiled (rows loaded (a hub dataset's checked, then
+left out), sites and named interventions inlined, bundles loaded, sweeps expanded into points, names resolved); an
+engine's `execute` fills `plan.results` and `plan.run`; `plan.dump(out)` writes a run's output directory and
 `Plan.load(out)` reads one back. The records (sites, interventions and their ops, positions, steps, datasets,
 featurizers) are the same models in both states; a *derived* field is one compile or the run fills.
 
@@ -151,22 +151,23 @@ class Data(Record):
     come from one of three sources: `path` is `data/<path>.json` under the corpus root, `rows` are inline, and
     `hf` is a dataset on the Hugging Face hub, `<owner>/<name>` at `revision` (a commit, as `model` pins one; a
     branch is passed as written, and the digest catches what it moves to), in its subset `config` where it has
-    several. A file's rows and inline ones travel in the compiled plan; a hub dataset's are held by reference and
-    are never in it: compile loads them to check the document and records their digest, and the run loads them
-    again where it runs (under `ndif`, on the server) and refuses, before any forward, rows whose digest is not
-    that one. Then, in this order: `split` picks which split of the dataset, the hub dataset's split (left out:
-    its only one) or the rows of a file whose `split` column is that; `shuffle` puts the rows in one fixed random
-    order, the same on every machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N);
-    and `columns` renames them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer
-    under its own, every other column as it is (so one file serves a fit's `eval` substitution under the body's
-    column names). `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the
-    dataset renders (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the
-    generation prompt and keep its `turn` scopes. A row is JSON. Refused by name: `hf` beside another source, `hf`
-    without `revision`, and `revision` or `config` without `hf`; a hub dataset the hub (offline, its cache) does
-    not give, a split it does not have (or, of several, none named), and a column of it whose values are not JSON
-    (images, audio, bytes); `take` beyond the rows, a `columns` source the rows lack or a name that is a column
-    they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no step reads a chat
-    column of. `sha256` and `n_rows` describe the rows these leave."""
+    several. A file's and inline rows travel in the compiled plan; a hub dataset's never do: compile loads them to
+    check the document and records their digest, and the run loads them again where it runs (under `ndif`, the
+    server) and refuses other rows before any forward. Then, in this order: `split` picks which split of the
+    dataset, the hub dataset's split (left out: its only one) or the rows of a file whose `split` column is that;
+    `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
+    N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
+    it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
+    fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
+    `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
+    "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes. A row is
+    JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
+    `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
+    than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
+    several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
+    rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
+    keeps neither), and a `template` on a dataset no step reads a chat column of. `sha256` and `n_rows` describe
+    the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None
@@ -183,10 +184,13 @@ class Data(Record):
     @model_validator(mode="after")
     def _one_source(self) -> "Data":
         given = [k for k in ("path", "rows", "hf") if getattr(self, k) is not None]
-        if not given or "hf" in given and len(given) > 1:       # compiled, a file's rows are beside its path
+        # Compiled (compile alone sets `sha256`), a file's rows are beside its path.
+        if not given or len(given) > 1 and (self.sha256 is None or "hf" in given):
             raise ValueError("a dataset's rows come from one of 'path', inline 'rows' and a hub dataset 'hf'"
                              + (f"; it gives {' and '.join(map(repr, given))}" if given else ""))
-        if self.hf is not None and self.revision is None:
+        if self.hf is not None and (len(self.hf.split("/")) != 2 or not all(self.hf.split("/"))):
+            raise ValueError(f"hf {self.hf!r}: a hub dataset is named '<owner>/<name>', as 'nyu-mll/glue' is")
+        if self.hf is not None and not self.revision:
             raise ValueError("'hf' needs 'revision', the commit of the hub dataset to load, as 'model' pins its "
                              "checkpoint's")
         for key, what in (("revision", "pins"), ("config", "is the subset of")):
@@ -867,8 +871,9 @@ class Plan(Record):
         return f"Plan({name(self)}, uncompiled)"
 
     def compile(self) -> "Plan":
-        """This plan compiled: rows loaded, sites and named interventions inlined, bundles loaded, sweeps
-        expanded into points, every name resolved and every value's layout and dataset known."""
+        """This plan compiled: rows loaded (a hub dataset's checked, then left out), sites and named interventions
+        inlined, bundles loaded, sweeps expanded into points, every name resolved and every value's layout and
+        dataset known."""
         from clab.compile import compile
         return compile(self)
 
@@ -984,6 +989,16 @@ def horizon(step: Generate) -> int | None:
     """The most forward calls a generate step's rows make: its `max_new_tokens`, when it gives one."""
     most = (step.model_extra or {}).get("max_new_tokens")
     return most if isinstance(most, int) else None
+
+
+def held_rows(plan: Plan, name: str) -> list[dict]:
+    """Dataset `name`'s rows as the plan holds them, which the run's plan does (`steps.held`); one that holds none
+    (a hub dataset's, a loaded plan's file rows) is refused by name."""
+    rows = plan.data[name].rows
+    if rows is None:
+        fail(f"data.{name}", "the plan holds none of its rows; `compile.materialized` loads them, as the run does "
+             "first (`steps.held`)")
+    return rows
 
 
 def body_view(plan: Plan, fit: str, at: dict[str, int] | None = None, swap: dict[str, str] | None = None) -> Plan:

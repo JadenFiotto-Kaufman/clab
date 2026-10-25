@@ -12,7 +12,7 @@ from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, entries
+from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, entries, held_rows
 from clab.steps.batches import home
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
-    n = len(sources["train"][0].data[datasets(step)[0]].rows or [])
+    n = len(held_rows(sources["train"][0], datasets(step)[0]))
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
@@ -122,7 +122,7 @@ def datasets(step: Fit) -> list[str]:
 
 def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tuple[Plan, Found]:
     """A body's plan and findings over the rows `index` picks of each of its datasets (`names`)."""
-    data = {**plan.data, **{d: plan.data[d].model_copy(update={"rows": [(plan.data[d].rows or [])[i] for i in index]})
+    data = {**plan.data, **{d: plan.data[d].model_copy(update={"rows": [held_rows(plan, d)[i] for i in index]})
                             for d in names}}
     return plan.model_copy(update={"data": data}), Found(
         inputs={k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found.inputs.items()},

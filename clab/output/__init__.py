@@ -9,9 +9,10 @@ fit's trained featurizer) carries the header that featurizer checks; a swept one
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
 `manifest.json` is the compiled plan without the rows it read from files (a hub dataset's never were there; `table`
-loads either again, from its file or the hub, and checks it against its `sha256`) and without bundle tensors, its
-`results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
-step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`.
+loads either again, from its file or the hub, and checks it against its `sha256`, as `dump` does a probe's classes
+dataset for the header of the bundle it saves) and without bundle tensors, its `results` each replaced by
+`{file, step, dims, axes, shape, dtype}`: that is how a result links back to the step that made it. It records the
+document's path relative to the corpus root, and each dataset's `n_rows`.
 `shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
 tokenized, what each generate step's rows generated, and which position (as `pos` counts them: an index into the
 row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
@@ -61,7 +62,7 @@ def dump(plan: Plan, out: str) -> None:
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
         if "path" in d:
-            del d["rows"]
+            d.pop("rows", None)             # a loaded plan's are not there
     with open(os.path.join(out, "manifest.json"), "w") as f:
         json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)
 

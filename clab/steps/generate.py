@@ -12,7 +12,7 @@ from clab.compile.positions import head, place, texts
 from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import lookup, put
-from clab.plan import Generate, Intervention, Plan, Site, entries, horizon, writes
+from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, horizon, writes
 from clab.steps.batches import (
     bind,
     chunked,
@@ -49,7 +49,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
     their EOS to the longest batch's."""
-    eos, rows = set(stops(engine, step)), plan.data[cast(str, step.dataset)].rows or []
+    eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
