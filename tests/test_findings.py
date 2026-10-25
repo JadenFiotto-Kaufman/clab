@@ -574,6 +574,90 @@ def test_s1_s2_a_published_sae_states_its_site_and_is_checked_against_it(engines
     run(engines, compiled.compile())                    # layer -2 of two is layer 0, the one it was trained at
 
 
+BF16 = {**TINY, "dtype": "bfloat16"}
+# 64 rows whose last token is one word, so each row's residual there is near the rows' mean; and an answer that is
+# the most likely token of every row's logits scaled by 200, at a probability near 1.
+MANY = {"rows": [{"input": f"Row {i} says {i * 7 % 13} things", "answer": "Switch", "other": " the"}
+                 for i in range(64)]}
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_d8_o13_s17_a_bf16_models_mean_cosine_and_probability_are_float32(engines, kind):
+    """trial-02's 64-row mean moved in bfloat16 steps, trial-05's cosine rounded to 2⁻⁸ near 1, trial-11's
+    probabilities near 1 to 1.0: each is now the float32 computation, by hand, of the bfloat16 values the model
+    gave, and differs from the same computation in bfloat16."""
+    filled = run(engines, plan(model=BF16, data={"d": MANY}, steps={
+        "f": forward({"resid": {"site": LAYER0, "pos": -1},
+                      "hot": {"site": HEAD, "pos": -1, "ops": [{"op": "scale", "factor": 200.0}]}}),
+        "avg": {"kind": "op", "op": "mean", "of": "f.resid"},
+        "cos": {"kind": "op", "op": "cosine", "of": "f.resid", "with": "avg"},
+        "p": {"kind": "op", "op": "token_prob", "of": "f.hot", "token": "d.answer"}},
+        saves=["f.resid", "f.hot", "avg", "cos", "p"]).compile(), kind)
+    resid, hot, avg, cos, p = (filled.results[k] for k in ("f.resid", "f.hot", "avg", "cos", "p"))
+    assert resid.dtype == hot.dtype == torch.bfloat16 and resid.shape == (64, 1, 16)
+    assert torch.equal(avg, resid.float().mean(dim=[0, 1]))
+    assert not torch.equal(avg, resid.mean(dim=[0, 1]).float())
+    assert torch.equal(cos, torch.nn.functional.cosine_similarity(resid.float(), avg, dim=-1))
+    rounded = torch.nn.functional.cosine_similarity(resid, avg.to(torch.bfloat16), dim=-1).float()
+    assert (cos > 0.99).float().mean() > 0.5 and (rounded * 256 % 1 == 0).all() and (rounded != cos).all()
+    answer = engines(kind, filled.model).tokenizer("Switch", add_special_tokens=False)["input_ids"]
+    assert len(answer) == 1
+    assert torch.equal(p, hot.float().softmax(-1)[..., answer[0]])
+    near = (p > 0.998) & (p < 1)
+    assert near.any() and (hot.softmax(-1)[..., answer[0]][near] == 1).all()       # bfloat16 rounds them to 1
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16(engines, kind):
+    """Each metric and `mean`, `sum`, `min` returns float32 on a bfloat16 model; a value read from the model, and
+    an edit's value, which it writes back, keep the model's dtype, even with a float32 operand."""
+    few = {"rows": MANY["rows"][:4]}
+    metric = {"match": {"expected": "d.answer"}, "logit_diff": {"a": "d.answer", "b": "d.other"},
+              "token_prob": {"token": "d.answer"}, "token_logit": {"token": "d.answer"},
+              "cross_entropy": {"target": "d.answer"}, "kl": {"against": "base.logits"},
+              "js": {"against": "base.logits"}}
+    steps = {"base": forward({"resid": {"site": LAYER0, "pos": -1}, "logits": {"site": HEAD, "pos": -1}}),
+             "avg": {"kind": "op", "op": "mean", "of": "base.resid"},
+             "f": forward({"w": {"site": LAYER0, "pos": -1, "ops": [{"op": "add", "with": "avg"}]},
+                           "logits": {"site": HEAD, "pos": -1}}),
+             **{name: {"kind": "op", "op": name, "of": "f.logits", **args} for name, args in metric.items()},
+             "cosine": {"kind": "op", "op": "cosine", "of": "f.w", "with": "avg"},
+             "sum": {"kind": "op", "op": "sum", "of": "f.w"}, "min": {"kind": "op", "op": "min", "of": "f.w"},
+             "gen": {"kind": "generate", "input": "d.input", "max_new_tokens": 2},
+             "text": {"kind": "op", "op": "detokenize", "of": "gen"},
+             "contains": {"kind": "op", "op": "contains", "of": "text", "text": "d.answer"}}
+    names = [*metric, "avg", "cosine", "sum", "min", "contains"]
+    filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps,
+                               saves=["base.resid", "f.w", "f.logits", *names]).compile(), kind)
+    assert {k: filled.results[k].dtype for k in names} == {k: torch.float32 for k in names}
+    assert {k: filled.results[k].dtype for k in ("base.resid", "f.w", "f.logits")} == \
+        {k: torch.bfloat16 for k in ("base.resid", "f.w", "f.logits")}
+    assert torch.equal(filled.results["f.w"], filled.results["base.resid"] + filled.results["avg"].to(torch.bfloat16))
+
+
+def test_a_reduction_that_removes_no_axis_is_refused_at_compile(engines):
+    """PR 18's bug 1: a `sum` of a `[hidden_size]` mean removed no axis and wrote the grand total into every
+    entry (torch reads no dims as every one). It is refused by name before any forward, with the value's
+    layout; naming the axis in `over` reduces it."""
+    def summed(**over):
+        return plan(data={"d": DAYS}, steps={
+            "f": forward({"h": {"site": LAYER0, "pos": -1}}), "avg": {"kind": "op", "op": "mean", "of": "f.h"},
+            "total": {"kind": "op", "op": "sum", "of": "avg", **over}}, saves=["avg", "total"])
+    with pytest.raises(PlanError, match=r"^steps\.total: a reduction of a value laid out \['hidden_size'\] removes no "
+                                        r"axis of it: by default it removes the rows and positions; name the axes it "
+                                        r"removes in 'over' \(\"over\": \[\"hidden_size\"\]\)$"):
+        summed().compile()
+    with pytest.raises(PlanError, match=r"^steps\.total: a reduction of a value laid out \['hidden_size'\] removes no "
+                                        r"axis of it: 'over' names none; name the axes"):
+        summed(over=[]).compile()
+    with pytest.raises(PlanError, match=r"^steps\.f\.interventions\.h\.ops\[1\]: a reduction of a value laid out "
+                                        r"\['rows', 'hidden_size'\] removes no axis of it"):
+        plan(data={"d": DAYS}, steps={"f": forward({"h": {"site": LAYER0, "pos": -1, "ops": [
+            {"op": "mean", "over": ["pos"]}, {"op": "min", "over": []}]}})}).compile()
+    filled = run(engines, summed(over=["hidden_size"]).compile())
+    assert filled.results["total"].shape == () and torch.equal(filled.results["total"], filled.results["avg"].sum())
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 

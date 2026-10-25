@@ -44,6 +44,12 @@ an entry are what writes back; **transforms** turn each example's value into ano
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
+Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
+float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+rounded to its few bits. A value read from the model keeps the model's dtype, and so does every edit, since an
+edit writes back. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
+float32 is exact.
+
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
 them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of

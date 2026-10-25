@@ -385,6 +385,12 @@ an entry are what writes back; **transforms** turn each example's value into ano
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
+Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
+float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+rounded to its few bits. A value read from the model keeps the model's dtype, and so does every edit, since an
+edit writes back. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
+float32 is exact.
+
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
 them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
@@ -454,9 +460,9 @@ stays missing: NaN.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
-| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
-| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
+| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
+| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits

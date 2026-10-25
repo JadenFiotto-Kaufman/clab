@@ -499,7 +499,7 @@ def test_a_root_value_without_rows_is_the_bodys_to_use():
         d["steps"] = {"lens": {"kind": "forward", "input": "train.input",
                                "interventions": {"h": {"site": {"component": "layer_output", "layers": ":"}, "pos": -1}}},
                       "avg": {"kind": "op", "op": "mean", "of": "lens.h", "over": ["rows", "pos"]}, **d["steps"]}
-        d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg"}
+        d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg", "over": ["hidden_size"]}
     plan = edited("das", change).compile()
     assert dims_of(plan, "avg") == ["layers", "hidden_size"]
 
