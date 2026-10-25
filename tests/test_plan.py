@@ -226,7 +226,7 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
      r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
-     r"data\.pairs: 'split' keeps rows of a file; inline 'rows' are the rows$"),
+     r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),

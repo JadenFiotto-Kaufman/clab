@@ -1,4 +1,4 @@
-"""Rows at compile time; encoding, padding and token columns inside the run."""
+"""Rows from a file or the hub; encoding, padding and token columns inside the run."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import torch
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
 
-    from clab.plan import TextPart
+    from clab.plan import Data, TextPart
 
 INPUT = re.compile(r"^(\w+)\.(\w+)(?:\[(\d+)\])?$")
 
@@ -26,6 +26,35 @@ def rows(root: str, path: str, split: str | None) -> list[dict]:
     with open(file) as f:
         found = json.load(f)
     return [r for r in found if r.get("split") == split] if split is not None else found
+
+
+def hub(d: Data) -> list[dict]:
+    """Hub dataset `d.hf` at `d.revision`, in its subset `d.config`: the rows of its split `d.split` (left out, its
+    only split), loaded whole by the `datasets` library (offline, from its cache), each a JSON object. What the hub
+    or the cache refuses is said as it says it, after the dataset; a split it does not have, or several and none
+    named, and a column whose values are not JSON (images, audio, bytes) are refused by name."""
+    import datasets                     # with pyarrow and pandas, which only a hub dataset needs
+
+    assert d.hf is not None and d.revision is not None     # the record's check: `hf` comes with its `revision`
+    where = d.hf + (f" (config {d.config!r})" if d.config else "") + f" at revision {d.revision}"
+    try:
+        found = cast("datasets.DatasetDict", datasets.load_dataset(d.hf, d.config, revision=d.revision))
+    except Exception as e:              # whatever the hub, its cache or the library raises, named
+        raise ValueError(f"{where}: {e}") from None
+    splits = [str(s) for s in found]
+    split = d.split if d.split is not None else splits[0] if len(splits) == 1 else None
+    if split is None:
+        raise ValueError(f"{where} has splits {', '.join(splits)}; 'split' names the one to read")
+    if split not in found:
+        raise ValueError(f"{where} has no split {split!r}; its splits: {', '.join(splits)}")
+    rows = found[split].to_list()
+    for column in found[split].column_names:
+        try:
+            json.dumps([row[column] for row in rows])
+        except (TypeError, ValueError):
+            raise ValueError(f"{where}: column {column!r} holds values that are not JSON (images, audio, bytes); "
+                             "a row is JSON: text, numbers, booleans, null, and lists and objects of them") from None
+    return rows
 
 
 def shuffled(rows: list[dict]) -> list[dict]:

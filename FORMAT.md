@@ -30,23 +30,35 @@ the model runs (`device`) is a run option, not the document's. The attention int
 
 - `path: str or null = null`
 - `rows: list of dict or null = null`
+- `hf: str or null = null`
+- `revision: str or null = null`
+- `config: str or null = null`
 - `split: str or null = null`
 - `shuffle: bool = false`
 - `take: int or null = null`
 - `columns: object of str or null = null`
 - `template: object of Any or null = null`
 
-A dataset: where its rows come from and how its text renders, never a computation on its values. `path` is
-`data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the rows
-of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on every
-machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns` renames
-them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its own, every
-other column as it is (so one file serves a fit's `eval` substitution under the body's column names).
-`template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the dataset renders
-(`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the generation prompt and
-keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source the rows lack or a name
-that is a column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no
-step reads a chat column of. `sha256` and `n_rows` describe the rows these leave.
+A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
+come from one of three sources: `path` is `data/<path>.json` under the corpus root, `rows` are inline, and
+`hf` is a dataset on the Hugging Face hub, `<owner>/<name>` at `revision` (a commit, as `model` pins one; a
+branch is passed as written, and the digest catches what it moves to), in its subset `config` where it has
+several. A file's rows and inline ones travel in the compiled plan; a hub dataset's are held by reference and
+are never in it: compile loads them to check the document and records their digest, and the run loads them
+again where it runs (under `ndif`, on the server) and refuses, before any forward, rows whose digest is not
+that one. Then, in this order: `split` picks which split of the dataset, the hub dataset's split (left out:
+its only one) or the rows of a file whose `split` column is that; `shuffle` puts the rows in one fixed random
+order, the same on every machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N);
+and `columns` renames them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer
+under its own, every other column as it is (so one file serves a fit's `eval` substitution under the body's
+column names). `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the
+dataset renders (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the
+generation prompt and keep its `turn` scopes. A row is JSON. Refused by name: `hf` beside another source, `hf`
+without `revision`, and `revision` or `config` without `hf`; a hub dataset the hub (offline, its cache) does
+not give, a split it does not have (or, of several, none named), and a column of it whose values are not JSON
+(images, audio, bytes); `take` beyond the rows, a `columns` source the rows lack or a name that is a column
+they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no step reads a chat
+column of. `sha256` and `n_rows` describe the rows these leave.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -804,7 +816,8 @@ nothing else, except that a bundle a featurizer loads (the value of an op that d
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
-`manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
+`manifest.json` is the compiled plan without the rows it read from files (a hub dataset's never were there; `table`
+loads either again, from its file or the hub, and checks it against its `sha256`) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`.
 `shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input

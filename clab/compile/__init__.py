@@ -81,19 +81,21 @@ def compile(plan: Plan) -> Plan:
     done = Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
                    "sweeps": {label: {"paths": [".".join(map(str, path)) for path, of in sweeps.items() if of == label],
                                       "values": values[label]} for label in values},
-                   "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
-                                "n_rows": len(rows[n])} for n in rows}})
+                   "data": {n: {**doc["data"][n], **({} if plan.data[n].hf else {"rows": rows[n]}),
+                                "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
     return done
 
 
 def dataset(root: str, name: str, d: Data) -> list[dict]:
-    """Dataset `name`'s rows as materialized, which its `sha256` and `n_rows` describe: its file's (under `root`)
-    or its inline rows, then its `split`, `shuffle`, `take` and `columns`, in that order (`Data`)."""
+    """Dataset `name`'s rows as materialized, which its `sha256` and `n_rows` describe: its file's (under `root`),
+    its inline rows or its hub split's (`data.hub`), then a file's `split`, `shuffle`, `take` and `columns`, in
+    that order (`Data`). The one way a dataset's rows are made: compile's, and `materialized`'s where they are not
+    in the plan."""
     try:
-        rows = d.rows if d.path is None else data.rows(root, d.path, d.split)
+        rows = data.hub(d) if d.hf else d.rows if d.path is None else data.rows(root, d.path, d.split)
     except ValueError as e:
-        fail(f"data.{name}.path", str(e))
+        fail(f"data.{name}.{'hf' if d.hf else 'path'}", str(e))
     if not rows:
         fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
     rows = data.shuffled(rows) if d.shuffle else rows
@@ -110,6 +112,20 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
             fail(f"data.{name}.columns.{new}", f"{new!r} is a column the rows keep, which this rename would "
                  "overwrite; rename it too, or name the new column otherwise")
     return data.renamed(rows, d.columns) if d.columns else rows
+
+
+def materialized(plan: Plan, name: str) -> list[dict[str, Any]]:
+    """A dataset's rows: the plan's, or, where they are not in it (a hub dataset's, always; a file's, after
+    `Plan.load`), materialized again by `dataset` and checked against the digest compile recorded."""
+    d = plan.data[name]
+    if d.rows is not None:
+        return d.rows
+    rows = dataset(corpus_root(plan), name, d)
+    if data.digest(rows) != d.sha256:
+        fail(f"data.{name}", f"{d.hf} at revision {d.revision} no longer gives these rows (their digest is not the "
+             "one compile recorded)" if d.hf else f"data/{d.path}.json is not what the run read (its rows' digest "
+             "differs)")
+    return rows
 
 
 def get(doc: dict, path: tuple) -> Any:

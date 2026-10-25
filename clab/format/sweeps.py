@@ -11,8 +11,8 @@ if TYPE_CHECKING:
     from clab.plan import Plan
 
 
-UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows",
-           "split", "file_path", "of", "saves")
+UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows", "hf",
+           "revision", "config", "split", "file_path", "of", "saves")
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:

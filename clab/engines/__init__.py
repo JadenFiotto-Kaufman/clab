@@ -10,10 +10,12 @@ where it does not place the model: an NDIF server does) and `options` as given, 
 `execute` records in `plan.run`.
 
 `execute(plan, batch_size=...)` is the single entry point and the only method an engine that ignores
-`clab.steps` must have; it returns the filled plan. The rest is what `steps.run` asks of an engine: one
-batch through the model with its records done (`forward`), a generation (`generate`), the model's own
-unembedding (`readout`), what it cannot serve (`unserved`), where a component falls in its forward (`rank`, any
-sortable value), its sizes, its tokenizer, and the ids its generation stops on (`eos`).
+`clab.steps` must have; it returns the filled plan. A hub dataset's rows are not in the plan: `steps.run` loads
+them where it runs (`steps.held`), and an engine that ignores it loads them as that does, by
+`compile.materialized`. The rest is what `steps.run` asks of an engine: one batch through the model with its
+records done (`forward`), a generation (`generate`), the model's own unembedding (`readout`), what it cannot
+serve (`unserved`), where a component falls in its forward (`rank`, any sortable value), its sizes, its
+tokenizer, and the ids its generation stops on (`eos`).
 
 The records are one list in the order a step's entries run: a write (it has `ops`) or a read (it has none),
 each at a site. A forward visits the sites in its own forward order and does each site's records there in

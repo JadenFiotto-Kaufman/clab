@@ -8,7 +8,8 @@ nothing else, except that a bundle a featurizer loads (the value of an op that d
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
-`manifest.json` is the compiled plan without the rows it read from files and without bundle tensors, its
+`manifest.json` is the compiled plan without the rows it read from files (a hub dataset's never were there; `table`
+loads either again, from its file or the hub, and checks it against its `sha256`) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the
 step that made it. It records the document's path relative to the corpus root, and each dataset's `n_rows`.
 `shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
@@ -26,11 +27,12 @@ from safetensors.torch import load_file, save
 from torch import Tensor
 
 from clab import ops
+from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import selectors
 from clab.format.sweeps import coordinate, labelled
-from clab.output.table import materialized, provenance
+from clab.output.table import provenance
 from clab.plan import Entry, Plan, Site, Step, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
 from clab.plan import name as named
 
@@ -170,8 +172,8 @@ def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | No
         reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
     else:
         return None
-    classes = labels({n: materialized(plan, n) for n in plan.data}, fields["classes"]) \
-        if "classes" in fields else None
+    dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
+    classes = labels({dataset: materialized(plan, dataset)}, fields["classes"]) if dataset else None
     site, reads = (counted(plan, s) for s in (site, reads))
     return bundles.header(kind, fields, plan.model, classes, site, KINDS[kind].width(value), named(plan), reads)
 

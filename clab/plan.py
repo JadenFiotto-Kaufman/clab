@@ -147,19 +147,31 @@ class Model(Record):
 
 
 class Data(Record):
-    """A dataset: where its rows come from and how its text renders, never a computation on its values. `path` is
-    `data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the rows
-    of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on every
-    machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns` renames
-    them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its own, every
-    other column as it is (so one file serves a fit's `eval` substitution under the body's column names).
-    `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the dataset renders
-    (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the generation prompt and
-    keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source the rows lack or a name
-    that is a column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no
-    step reads a chat column of. `sha256` and `n_rows` describe the rows these leave."""
+    """A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
+    come from one of three sources: `path` is `data/<path>.json` under the corpus root, `rows` are inline, and
+    `hf` is a dataset on the Hugging Face hub, `<owner>/<name>` at `revision` (a commit, as `model` pins one; a
+    branch is passed as written, and the digest catches what it moves to), in its subset `config` where it has
+    several. A file's rows and inline ones travel in the compiled plan; a hub dataset's are held by reference and
+    are never in it: compile loads them to check the document and records their digest, and the run loads them
+    again where it runs (under `ndif`, on the server) and refuses, before any forward, rows whose digest is not
+    that one. Then, in this order: `split` picks which split of the dataset, the hub dataset's split (left out:
+    its only one) or the rows of a file whose `split` column is that; `shuffle` puts the rows in one fixed random
+    order, the same on every machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N);
+    and `columns` renames them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer
+    under its own, every other column as it is (so one file serves a fit's `eval` substitution under the body's
+    column names). `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the
+    dataset renders (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the
+    generation prompt and keep its `turn` scopes. A row is JSON. Refused by name: `hf` beside another source, `hf`
+    without `revision`, and `revision` or `config` without `hf`; a hub dataset the hub (offline, its cache) does
+    not give, a split it does not have (or, of several, none named), and a column of it whose values are not JSON
+    (images, audio, bytes); `take` beyond the rows, a `columns` source the rows lack or a name that is a column
+    they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no step reads a chat
+    column of. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
+    hf: str | None = None
+    revision: str | None = None
+    config: str | None = None
     split: str | None = None
     shuffle: bool = False
     take: int | None = None
@@ -170,10 +182,18 @@ class Data(Record):
 
     @model_validator(mode="after")
     def _one_source(self) -> "Data":
-        if self.path is None and self.rows is None:
-            raise ValueError("a dataset is a 'path' or inline 'rows'")
-        if self.path is None and self.split is not None:
-            raise ValueError("'split' keeps rows of a file; inline 'rows' are the rows")
+        given = [k for k in ("path", "rows", "hf") if getattr(self, k) is not None]
+        if not given or "hf" in given and len(given) > 1:       # compiled, a file's rows are beside its path
+            raise ValueError("a dataset's rows come from one of 'path', inline 'rows' and a hub dataset 'hf'"
+                             + (f"; it gives {' and '.join(map(repr, given))}" if given else ""))
+        if self.hf is not None and self.revision is None:
+            raise ValueError("'hf' needs 'revision', the commit of the hub dataset to load, as 'model' pins its "
+                             "checkpoint's")
+        for key, what in (("revision", "pins"), ("config", "is the subset of")):
+            if self.hf is None and getattr(self, key) is not None:
+                raise ValueError(f"'{key}' {what} a hub dataset ('hf'); a file's rows and inline ones have none")
+        if self.path is None and self.hf is None and self.split is not None:
+            raise ValueError("'split' is which split of a file or a hub dataset; inline 'rows' are the rows")
         if self.take is not None and self.take < 1:
             raise ValueError(f"take {self.take}: a dataset keeps at least one row")
         if "tokenize" in (self.template or {}):
