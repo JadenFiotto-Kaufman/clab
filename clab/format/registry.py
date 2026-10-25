@@ -38,8 +38,8 @@ def check(fn: Callable, args: dict[str, Any], supplied: tuple[str, ...], what: s
     """`args` (document spelling) bound to `fn`'s signature: every key a parameter, every required one given,
     and every literal of its annotated type. An `Annotated` parameter names a thing (a value, a column, a
     featurizer), which compile resolves, a `Value` given a number instead; a `{"sweep": ...}` stands for a value
-    and is checked per point. A
-    function with a `**` catch-all takes any other key, which it passes on to be checked where it lands."""
+    and is checked per point. A function with a `**` catch-all takes any other key, which it passes on to be
+    checked where it lands."""
     params = spelled(fn, supplied)
     try:
         inspect.signature(fn).bind(**{p: None for p in supplied if p in inspect.signature(fn).parameters},

@@ -71,16 +71,16 @@ A column read as text, where a scope searches for it or a metric scores it: `"<d
 whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
 rewrite the data: `strip` makes its surrounding whitespace optional, `lower` compares lowercased. A scope
 searches the input for the text as they compare it (under `strip` without its surrounding whitespace), its
-positions the original's. An answer scored against logits is tokenized as written and keeps every token, and each of its
-tokens stands for its class: every token of the vocabulary whose text (what it adds after another token, so
-a leading space is its own) compares the same. `lower` compares texts lowercased. `strip` compares the
-answer's first token without its leading whitespace and its last without its trailing, a one-token answer's
-without either (` Yes`, ` yes`, `yes` and `YES` under both flags); a token between them compares with its
-whitespace, and a whitespace-only token stands for itself wherever it is (`" New York"` is `▁New ▁York`,
-`▁New` standing for `New` too and `▁York` for its spellings with trailing whitespace; `" 42"` on a tokenizer
-that splits digits is `▁ 4 2`, its `▁` itself alone). Without a flag, or for a token that is part of a
-character, the class is the token alone. A row's value may be a list of strings: a set, any of which is the
-answer.
+positions the original's. An answer scored against logits is tokenized as written and keeps every token, and
+each of its tokens stands for its class: every token of the vocabulary whose text (what it adds after another
+token, so a leading space is its own) compares the same. `lower` compares texts lowercased. `strip` compares
+the answer's first token without its leading whitespace and its last without its trailing, a one-token
+answer's without either (` Yes`, ` yes`, `yes` and `YES` under both flags); a token between them compares
+with its whitespace, and a whitespace-only token stands for itself wherever it is (`" New York"` is `▁New
+▁York`, `▁New` standing for `New` too and `▁York` for its spellings with trailing whitespace; `" 42"` on a
+tokenizer that splits digits is `▁ 4 2`, its `▁` itself alone). Without a flag, or for a token that is part
+of a character, the class is the token alone. A row's value may be a list of strings: a set, any of which is
+the answer.
 
 ### A literal in a list `input`
 

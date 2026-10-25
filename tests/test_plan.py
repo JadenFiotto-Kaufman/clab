@@ -381,16 +381,18 @@ def test_shuffle_is_one_fixed_permutation_then_take_samples_from_it():
 
 def test_columns_renames_and_keeps_every_other_column():
     rows = [{"prompt": "a", "target": " b", "label": 1}, {"prompt": "c", "target": " d", "label": 0}]
+    read = {"kind": "forward", "input": "pairs.input",
+            "interventions": {"x": {"site": {"component": "lm_head_output"}, "pos": -1}}}
     plan = with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
-        "read": {"kind": "forward", "input": "pairs.input", "interventions": {"x": {"site": {"component": "lm_head_output"}, "pos": -1}}},
-        "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.answer"}}, saves=["p"]).compile()
+        "read": read, "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.answer"}},
+        saves=["p"]).compile()
     assert plan.data["pairs"].rows == [{"label": 1, "input": "a", "answer": " b"},
                                        {"label": 0, "input": "c", "answer": " d"}]
     assert compiled_form(plan)["data"]["pairs"]["columns"] == {"input": "prompt", "answer": "target"}
     with pytest.raises(PlanError, match=r"steps\.p\.token: dataset 'pairs' has no column 'target' on every row"):
         with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
-            "read": {"kind": "forward", "input": "pairs.input", "interventions": {"x": {"site": {"component": "lm_head_output"}, "pos": -1}}},
-            "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.target"}}, saves=["p"]).compile()
+            "read": read, "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.target"}},
+            saves=["p"]).compile()
 
 
 @pytest.mark.parametrize("d, message", [
