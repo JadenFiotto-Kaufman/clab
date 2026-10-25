@@ -324,21 +324,22 @@ Train the featurizers `train` names, inside the run, through the frozen model.
 
 Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
 optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
-`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
-and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
-weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
-featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
-model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
-back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
-in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
-that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
-is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
-the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
-"test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on (a dataset
-read as another renders its chats with its own `template`, so the two have the same one). The
-body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
-the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
-history is empty, `[0]`.
+`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed` and
+the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the weighted sum
+`objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained featurizer's
+scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as every metric
+is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's dtype.
+Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
+optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
+After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
+op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
+`<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+(without `early_stop`, the last's) are restored, and the body runs once, scored, per named substitution of
+`eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
+`test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
+so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
+size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
+exactly, a null control), and each history is empty, `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
