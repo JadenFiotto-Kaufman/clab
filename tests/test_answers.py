@@ -180,10 +180,10 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name, and a row with none is missing."""
     of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True, [[" T", "ues", "day"]]), of,
+        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of,
                  ["rows", "pos", "vocab_size"], None)
     missing = torch.full((1, 3, 5), float("nan"))
-    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True, [[" T", "ues", "day"]]), missing,
+    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
                     ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
 
 
@@ -272,10 +272,11 @@ def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_strip_and_lower_at_the_point_of_use(engines, kind):
     """The proposal's example E: `"  New York "` finds `New York` in the input under lower and strip. As an
-    answer it keeps every token, `▁ ▁New ▁York ▁`, which does not line up with that scope, and the refusal names
-    the answer's whitespace-only token; `" New York"` is `▁New ▁York`, which does, each scored against its class:
-    `▁New` without its leading whitespace, `▁York` without its trailing, both lowercased."""
-    rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York ", "near": " New York"}]
+    answer it drops its whitespace-only token at the end and keeps the one at the start, `▁ ▁New ▁York`, which
+    does not line up with that scope, and the refusal names that token; `" New York "` is `▁New ▁York`, which
+    does, each scored against its class: `▁New` without its leading whitespace, `▁York` without its trailing,
+    both lowercased."""
+    rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York ", "near": " New York "}]
 
     def scored(answer: dict) -> Plan:
         return Plan(model=TINY, data={"days": {"rows": rows}}, steps={
@@ -285,10 +286,10 @@ def test_strip_and_lower_at_the_point_of_use(engines, kind):
             "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": answer}},
             saves=["hit", "p", "read.logits"]).compile()
     city = {"column": "days.city", "strip": True, "lower": True}
-    refused_before_any_forward(engines, scored(city), r"^hit: days\.city row 0: '  New York ' is 4 tokens; the read "
-                                                      r"has 2 positions on that row; .*; the answer's token 0, ' ', is "
-                                                      r"whitespace only: an answer keeps every token as written, and a "
-                                                      r"scope under strip covers no whitespace at its text's ends$")
+    refused_before_any_forward(engines, scored(city), r"^hit: days\.city row 0: '  New York ' is 3 tokens; the read "
+                                                      r"has 2 positions on that row; .*; its token 0, ' ', is "
+                                                      r"whitespace only, which an answer keeps and a scope under strip "
+                                                      r"does not cover: scope the column without strip$")
     filled = run(engines, scored({"column": "days.near", "strip": True, "lower": True}), kind)
     assert record(filled).positions["read.logits"] == [[8, 9]]
     tokenizer = engines(kind, filled.model).tokenizer
