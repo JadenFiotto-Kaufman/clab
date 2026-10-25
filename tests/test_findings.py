@@ -688,6 +688,26 @@ def test_s16_renormalize_by_sum_keeps_a_knocked_out_pattern_row_a_distribution(e
     assert not torch.allclose(by_l2.nansum(-1), clean.nansum(-1))
 
 
+@pytest.mark.parametrize("norm", ["sum", "l2"])
+def test_s16_knocking_out_the_sink_at_every_position_spreads_no_nan(engines, norm):
+    """Key 0 knocked out at every position: the first position's row holds key 0 alone, so its sum and norm are
+    zero, and `renormalize` leaves it as it is, zero, rather than dividing by zero; no row's logits are NaN."""
+    eager = {**TINY, "attn_implementation": "eager"}
+    pattern, every = {"component": "attention_probabilities", "layers": 0}, {"index": ":"}
+    filled = run(engines, plan(model=eager, data={"d": DAYS}, steps={
+        "clean": forward({"p": {"site": pattern, "pos": every}}),
+        "sink": forward({"knock": {"site": {**pattern, "select": {"key": 0}}, "pos": every,
+                                   "ops": [{"op": "scale", "factor": 0.0}]},
+                         "renorm": {"site": pattern, "pos": every, "ops": [{"op": "renormalize", "norm": norm}]},
+                         "logits": {"site": HEAD, "pos": every}})},
+        saves=["clean.p", "sink.renorm", "sink.logits"]).compile())
+    clean, renorm, logits = (filled.results[k] for k in ("clean.p", "sink.renorm", "sink.logits"))
+    assert torch.equal(renorm.isnan(), clean.isnan())          # [rows, pos, num_heads, key]: only the ragged tail
+    assert (renorm[:, 0].nan_to_num() == 0).all()             # position 0 attends to key 0 alone: left zero
+    own = (~logits.isnan().all(-1)).sum(-1)                     # each row's positions, NaN past them
+    assert own.tolist() == [9, 9, 4, 5] and not any(logits[r, :n].isnan().any() for r, n in enumerate(own))
+
+
 QWEN = {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM", "revision": "25bb9b8963688237e94750f6f3e48f1947d3c7a3"}
 
 

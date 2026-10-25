@@ -69,11 +69,13 @@ def renormalize(of: Tensor, original: Value, norm: Literal["l2", "sum"] = "l2") 
     """Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row
     of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry,
     the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the
-    entries that are there (`present`)."""
-    before = present(original.to(of.device))
-    if norm == "sum":
-        return of * (before.sum(-1, keepdim=True) / present(of).sum(-1, keepdim=True))
-    return of * (before.norm(dim=-1, keepdim=True) / present(of).norm(dim=-1, keepdim=True))
+    entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose
+    every key was knocked out stays zero)."""
+    def size(x: Tensor) -> Tensor:
+        return x.sum(-1, keepdim=True) if norm == "sum" else x.norm(dim=-1, keepdim=True)
+    now = size(present(of))
+    zero = now == 0
+    return of * torch.where(zero, 1.0, size(present(original.to(of.device))) / now.masked_fill(zero, 1))
 
 
 @op("edits")
