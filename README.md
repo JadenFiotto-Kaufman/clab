@@ -121,7 +121,7 @@ generation the forward `call` that holds it), the point's coordinates `at` when 
 dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
 `alignment_missing` in place of a value. Aligned output cuts long cells short;
 `--csv` keeps them whole. Both are `Plan.load(out)` and one call, run from the corpus root (where the
-dataset files are).
+dataset files are; a hub dataset's rows load again from the hub, or offline from its cache).
 
 ## From Python
 
@@ -205,7 +205,8 @@ named in every error.
 
 One file per saved name: `<name>.safetensors` when the value is a tensor or a dict of tensors, `<name>.json`
 otherwise. A swept value is one file keyed by coordinate (`pos=-1`, `pos=-2`, ...). `manifest.json` is the
-plan itself, without the rows it read from files, with each result replaced by where it is and what it is:
+plan itself, without the rows it read from files (a hub dataset's never were in the plan), with each result
+replaced by where it is and what it is:
 
 ```json
 "results": {"iia": {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": ["pos"],
@@ -248,7 +249,8 @@ Offline, the suite needs these checkpoints in the local Hugging Face cache, at t
 tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`), `hf-internal-testing/tiny-random-gpt2`
 (`71034c5d`) and `trl-internal-testing/tiny-Qwen3ForCausalLM` (`25bb9b89`, the chat cases); `Qwen/Qwen3-8B`'s
 tokenizer (`b968826d`) where it is cached, which one test checks the tiny Qwen3's template against and skips
-without; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B` (`4e20de36`).
+without; the dataset `nyu-mll/glue` (`bcdcba79`, its `wnli` and `ax` configs), which `tests/test_hub.py` reads
+and says how to fetch; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B` (`4e20de36`).
 
 Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
 longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's
