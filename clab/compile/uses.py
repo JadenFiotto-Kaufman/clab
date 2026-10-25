@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from clab.featurizers import KINDS, Kind, labels, make
+from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
 from clab.format.selectors import Selector, made_at, selected
 from clab.plan import (
@@ -46,16 +46,19 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
 
 
 def bundled_sites(plan: Plan) -> None:
-    """A bundle's header names the site it was made at, its layer counted from the first; every site its
-    featurizer is used at is that one, at each layer it picks. A layer counted from the last, and a site that
-    picks several, are the model's to resolve, and preflight checks each layer."""
+    """A bundle's header names the component it was made at and the layers, counted from the first
+    (`bundles.recorded`); every site its featurizer is used at is that component, and each layer it picks is one
+    of those. A layer counted from the last, and a site that picks several, are the model's to resolve, and
+    preflight checks each layer."""
     for name, records in uses(plan).items():
         for where, site, at, _, _ in records:
             f = agreeing(plan.featurizers[name], at)
-            resolved = address.stacks(site.layers) or isinstance(site.layers, int) and site.layers < 0
-            layer = [] if resolved else [("layer", str(site.layers))]
-            for key, value in [("component", site.component), *layer]:
-                if f.header is not None and f.header.get(key) != value:
+            if f.header is None:
+                continue
+            known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
+            for key, ok in (("component", f.header.get("component") == site.component),
+                            ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
+                if not ok:
                     fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
                          f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
                          f"{site.layers} ({where})")
@@ -97,7 +100,8 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
                     raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
                                      f"{stated['layers']} (its site); this use is {site.component} layer "
                                      f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
-                if f.header is not None and site.layers is not None and f.header.get("layer") != str(layer):
+                if f.header is not None and site.layers is not None and \
+                        layer not in bundles.recorded(f.header.get("layer")):
                     raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                      f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                      f"layer {site.layers!r}, which {which}")
@@ -147,8 +151,8 @@ def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, layer: int
                          f"(with), and this use gives no 'with'; give 'with' an entry at {recorded} layer "
                          f"{recorded_layer}")
     site = entry_of(scope(plan, where), given, at)[1].site
-    made = str(layer) if address.stacks(site.layers) else at_layer(site.layers, n)
-    if (site.component, made) != (recorded, recorded_layer):
+    made = layer if address.stacks(site.layers) else made_at(site, n)[0]
+    if site.component != recorded or made not in bundles.recorded(recorded_layer):
         raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {recorded_layer} "
                          f"(with), and this use's with {given!r} is {site.component} layer {made}")
 

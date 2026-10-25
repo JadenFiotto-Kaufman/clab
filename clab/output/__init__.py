@@ -177,7 +177,9 @@ def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | No
 
 
 def counted(plan: Plan, site: Site | None) -> Site | None:
-    """A site whose one layer is counted from the first, as a header records it."""
-    if site is not None and isinstance(site.layers, int) and plan.run is not None and plan.run.num_layers is not None:
-        return site.model_copy(update={"layers": selectors.select(site.layers, plan.run.num_layers)[0]})
-    return site
+    """A site with the layers it was made at counted from the first, as a header records them: one int for one
+    layer, a list for several."""
+    if site is None or site.layers is None or plan.run is None or plan.run.num_layers is None:
+        return site
+    made = selectors.made_at(site, plan.run.num_layers)
+    return site.model_copy(update={"layers": made[0] if len(made) == 1 else made})

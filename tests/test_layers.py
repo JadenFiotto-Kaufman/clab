@@ -327,6 +327,47 @@ def test_an_edit_steps_operand_is_aligned_and_laid_out_as_its_of(engines):
     refused(engines, sub("f.n", "g.h"), r"^d: operand 'g\.h' has a layers axis, and this op acts at no layer")
 
 
+def test_a_bundle_made_across_layers_is_used_at_any_of_them(engines, tmp_path):
+    """das trained at layers `[0, 1]` of tiny GPT-2 saves a subspace whose header says `layer: [0, 1]`; das_apply
+    loads it at `[0, 1]` and at `1`, and at layer 3 it is refused by name as the plan compiles. A pca of a read
+    at every layer of the tiny Llama says its layers so too, and pca_control loads it at every layer and at
+    one."""
+    shutil.copytree(DOCUMENTS, tmp_path / "documents")
+    os.symlink(os.path.join(ROOT, "data"), tmp_path / "data")
+
+    def document(name: str, change, model: dict | None = GPT2) -> Plan:
+        path = tmp_path / "documents" / f"{name}.json"
+        with open(path) as f:
+            doc = json.load(f)
+        if model is not None:
+            doc["model"] = {**model, "dtype": "float32"}
+            doc["data"] = {k: {"path": "counting/train"} for k in doc["data"]}
+        change(doc)
+        return Plan(**doc, document=str(path)).compile()
+
+    def train(d):
+        d["sites"]["target"]["layers"] = [0, 1]
+        d["steps"]["fit"].update(epochs=1, eval={"train": {}})
+        del d["steps"]["fit"]["early_stop"]
+        d["saves"] = ["fit.rot"]
+    artifacts = str(tmp_path / "documents" / "artifacts")
+    both(engines, document("das", train)).dump(artifacts)
+    with safe_open(os.path.join(artifacts, "fit.rot.safetensors"), "pt") as f:
+        assert (f.metadata()["component"], f.metadata()["layer"]) == ("layer_output", "[0, 1]")
+    for layers in ([0, 1], 1):
+        both(engines, document("das_apply", lambda d, layers=layers: d["sites"]["target"].update(layers=layers)))
+    with pytest.raises(PlanError, match=r"^featurizers\.rot\.file_path: documents/artifacts/fit\.rot\.safetensors: "
+                                        r"header 'layer' is '\[0, 1\]'; this document uses 'rot' at layer_output layer "
+                                        r"3 \(counterfactual\.v_cf\)$"):
+        document("das_apply", lambda d: d["sites"]["target"].update(layers=3))
+    both(engines, document("pca_harvest", lambda d: d["sites"]["target"].update(layers=":"), None)).dump(artifacts)
+    with safe_open(os.path.join(artifacts, "basis.safetensors"), "pt") as f:
+        assert f.metadata()["layer"] == "[0, 1]"
+    for layers in (":", 1):
+        both(engines, document("pca_control", lambda d, layers=layers: d["sites"]["target"].update(layers=layers),
+                               None))
+
+
 # -- sweep labels --------------------------------------------------------------------------------------
 
 
