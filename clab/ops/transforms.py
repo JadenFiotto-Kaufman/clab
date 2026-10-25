@@ -12,7 +12,7 @@ from torch import Tensor
 from clab import featurizers
 from clab.format import selectors
 from clab.format.registry import Featurizer
-from clab.ops import op
+from clab.ops import VOCABULARY, op
 from clab.ops.metrics import ranked
 
 if TYPE_CHECKING:       # the engines sit later in the chain, so only the checker sees them
@@ -93,16 +93,19 @@ def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
 
 @op("transforms", layout=ranking_k)
 def top_k(of: Tensor, k: int, dims: list[str], over: str = "vocab_size") -> dict[str, Tensor]:
-    """The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices
-    along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as
-    a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an
-    `encode`; over `classes`, a probe's scores. Along a ragged axis (a pattern's `key`) the entries that are there
-    are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s
-    first is `argmax`'s."""
+    """The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a
+    vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis
+    `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits
+    (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after
+    an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past
+    them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s."""
     x = of.movedim(dims.index(over), -1)
     ids, gone = picked(x, k)
-    probs = x.masked_fill(x.isnan(), -math.inf).softmax(-1).gather(-1, ids)
-    return {"ids": ids.masked_fill(gone, -1), "probs": probs.masked_fill(gone, float("nan"))}
+    if over in VOCABULARY:
+        second = {"probs": x.float().masked_fill(x.isnan(), -math.inf).softmax(-1).gather(-1, ids)}
+    else:
+        second = {"values": x.gather(-1, ids)}
+    return {"ids": ids.masked_fill(gone, -1), **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
 
 
 @op("transforms", layout=ranking)

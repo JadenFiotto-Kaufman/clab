@@ -30,7 +30,7 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
 own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
-giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+giving it id -1 (`top_k` NaN `probs` or `values` and no token text). Reductions skip it: `mean` is the mean over the
 rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
@@ -51,7 +51,9 @@ Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever t
 float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
 rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
 to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
-(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact.
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
+over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
+`values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns

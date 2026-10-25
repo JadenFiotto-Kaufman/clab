@@ -630,11 +630,16 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
              "gen": {"kind": "generate", "input": "d.input", "max_new_tokens": 2},
              "text": {"kind": "op", "op": "detokenize", "of": "gen"},
              "contains": {"kind": "op", "op": "contains", "of": "text", "text": "d.answer"},
-             "out": {"kind": "op", "op": "project_out", "of": "base.resid", "direction": "avg"}}
+             "out": {"kind": "op", "op": "project_out", "of": "base.resid", "direction": "avg"},
+             "top": {"kind": "op", "op": "top_k", "of": "f.logits", "k": 3}}
     names = [*metric, "avg", "cosine", "sum", "min", "contains"]
     kept = ["base.resid", "f.w", "f.logits", "out"]
-    filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps, saves=[*kept, *names]).compile(), kind)
+    filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps, saves=[*kept, *names, "top"]).compile(),
+                 kind)
     assert {k: filled.results[k].dtype for k in names} == {k: torch.float32 for k in names}
+    top = filled.results["top"]
+    assert top["probs"].dtype == torch.float32 and torch.equal(
+        top["probs"], filled.results["f.logits"].float().softmax(-1).gather(-1, top["ids"]))
     assert {k: filled.results[k].dtype for k in kept} == {k: torch.bfloat16 for k in kept}
     resid, avg = filled.results["base.resid"], filled.results["avg"]
     assert torch.equal(filled.results["f.w"], (resid.float() + avg).to(torch.bfloat16))
@@ -823,7 +828,8 @@ def test_o2_argmax_and_top_k_over_a_patterns_key_axis_rank_each_rows_own_keys(en
     assert most[:, 0, 0].tolist() == [1, 1, 1, 0]
     assert torch.equal(most, p.nan_to_num(nan=-1).argmax(-1))
     assert torch.equal(top["ids"][..., 0], most) and (top["ids"][2, ..., 4:] == -1).all()  # row 2 has four keys
-    assert top["probs"][2, ..., 4:].isnan().all() and not top["probs"][:2].isnan().any()
+    assert set(top) == {"ids", "values"} and torch.equal(top["values"][:2], p[:2].topk(6).values)
+    assert top["values"][2, ..., 4:].isnan().all() and not top["values"][2, ..., :4].isnan().any()
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -837,10 +843,10 @@ def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, 
         "best": {"kind": "op", "op": "argmax", "of": "f.z", "over": "features"}},
         saves=["f.z", "top", "best"]).compile(), kind)
     z, top, best = filled.results["f.z"], filled.results["top"], filled.results["best"]
-    assert set(top) == {"ids", "probs"} and top["ids"].shape == (4, 1, 20) and best.shape == (4, 1)
+    assert set(top) == {"ids", "values"} and top["ids"].shape == (4, 1, 20) and best.shape == (4, 1)
     assert (z == 0).sum(-1).min() > 12                     # each row's top 20 runs into its zeros
     assert torch.equal(top["ids"], metrics.ranked(z, 20)) and torch.equal(best, top["ids"][..., 0])
-    assert torch.equal(top["probs"], z.softmax(-1).gather(-1, top["ids"]))
+    assert torch.equal(top["values"], z.gather(-1, top["ids"]))           # the latents, not a softmax of them
     for ids, values in zip(top["ids"][:, 0], z[:, 0].gather(-1, top["ids"][:, 0])):
         assert ids[values == 0].tolist() == sorted(ids[values == 0].tolist())    # the tied zeros in index order
 

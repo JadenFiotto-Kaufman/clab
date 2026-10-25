@@ -389,7 +389,7 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
 own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
-giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+giving it id -1 (`top_k` NaN `probs` or `values` and no token text). Reductions skip it: `mean` is the mean over the
 rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
@@ -410,7 +410,9 @@ Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever t
 float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
 rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
 to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
-(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact.
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
+over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
+`values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
@@ -509,7 +511,7 @@ stays missing: NaN.
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
-| `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`; over `classes`, a probe's scores. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
+| `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
 | `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
 | `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
