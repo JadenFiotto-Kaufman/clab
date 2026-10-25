@@ -37,8 +37,9 @@ def described(fn: Callable) -> dict[str, str]:
 def check(fn: Callable, args: dict[str, Any], supplied: tuple[str, ...], what: str) -> None:
     """`args` (document spelling) bound to `fn`'s signature: every key a parameter, every required one given,
     and every literal of its annotated type. An `Annotated` parameter names a thing (a value, a column, a
-    featurizer), which compile resolves; a `{"sweep": ...}` stands for a value and is checked per point. A
-    function with a `**` catch-all takes any other key, which it passes on to be checked where it lands."""
+    featurizer), which compile resolves, a `Value` given a number instead; a `{"sweep": ...}` stands for a value
+    and is checked per point. A function with a `**` catch-all takes any other key, which it passes on to be
+    checked where it lands."""
     params = spelled(fn, supplied)
     try:
         inspect.signature(fn).bind(**{p: None for p in supplied if p in inspect.signature(fn).parameters},
@@ -50,11 +51,13 @@ def check(fn: Callable, args: dict[str, Any], supplied: tuple[str, ...], what: s
         missing = [k for k, p in params.items() if p.default is p.empty and k not in args]
         raise ValueError(f"{what} needs {missing[0]!r}") from None
     for key, value in args.items():
-        if key not in params:
+        if key not in params or isinstance(value, dict) and "sweep" in value:
             continue
         annotation = params[key].annotation
-        named = get_origin(thing(annotation)) is Annotated
-        if named or annotation is Any or isinstance(value, dict) and "sweep" in value:
+        number = isinstance(value, (int, float)) and not isinstance(value, bool)
+        if thing(annotation) == Value and not (isinstance(value, str) or number):
+            raise ValueError(f"{key}: {value!r} is not a named value or a number")
+        if get_origin(thing(annotation)) is Annotated or annotation is Any:
             continue
         try:
             TypeAdapter(annotation).validate_python(value, strict=True)

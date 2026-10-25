@@ -147,11 +147,24 @@ class Model(Record):
 
 
 class Data(Record):
-    """A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline; `split` keeps the
-    rows of a file whose `split` column is that."""
+    """A dataset: where its rows come from and how its text renders, never a computation on its values. `path` is
+    `data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the rows
+    of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on every
+    machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns` renames
+    them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its own, every
+    other column as it is (so one file serves a fit's `eval` substitution under the body's column names).
+    `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the dataset renders
+    (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the generation prompt and
+    keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source the rows lack or a name
+    that is a column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no
+    step reads a chat column of. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     split: str | None = None
+    shuffle: bool = False
+    take: int | None = None
+    columns: dict[str, str] | None = None
+    template: dict[str, Any] | None = None
     sha256: str | None = derived(None, "the digest of the rows, which a re-materialization must match")
     n_rows: int | None = derived(None, "how many rows the dataset has")
 
@@ -161,6 +174,10 @@ class Data(Record):
             raise ValueError("a dataset is a 'path' or inline 'rows'")
         if self.path is None and self.split is not None:
             raise ValueError("'split' keeps rows of a file; inline 'rows' are the rows")
+        if self.take is not None and self.take < 1:
+            raise ValueError(f"take {self.take}: a dataset keeps at least one row")
+        if "tokenize" in (self.template or {}):
+            raise ValueError("template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'")
         return self
 
 
@@ -195,14 +212,22 @@ class Site(Record):
 class Column(Record):
     """A column read as text, where a scope searches for it or a metric scores it: `"<dataset>.<column>"`, or
     `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
-    whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
-    rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
-    the input for the text so compared, its positions the original's. An answer scored against logits is
-    tokenized as written, under `strip` without its whitespace-only tokens at either end (`"  New York "` is
-    `▁New ▁York`), and each of its tokens stands for its class: every token of the vocabulary whose text (what
-    it adds after another token, so a leading space is its own), so compared, is the same (` Yes`, ` yes`,
-    `yes` and `YES` under both flags); without a flag, or for a token that is part of a character, the class
-    is the token alone. A row's value may be a list of strings: a set, any of which is the answer."""
+    whole: `pairs.counterfactual_inputs_variables[0].entity`). A row's value may be a list of strings: a set, any
+    of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
+    lowercased, and `strip` makes its surrounding whitespace optional.
+
+    A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
+    whitespace, its positions the original's.
+
+    An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
+    token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
+    the same; without a flag, or for a token that is part of a character, the token alone. Under `strip`
+    whitespace-only tokens at the end are dropped, since what follows an answer is not scored, and one at the
+    start is kept, since a tokenizer that writes a number's space as its own token makes it a token the model
+    says (`" 42"` is `▁ 4 2`, its `▁` itself alone); the first token then compares without leading whitespace and
+    the last without trailing, a one-token answer's without either (` Yes`, ` yes`, `yes` and `YES` under both
+    flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
+    `▁New ▁York`, `▁New` standing for `New` too)."""
     column: str
     strip: bool = False
     lower: bool = False
@@ -488,10 +513,12 @@ class Forward(Record):
     `<step>.<name>`, in the order written.
 
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
-    template without a generation prompt, so the rendered prompt ends with the template's close of the last
-    message (`[/INST]` on Llama-2-style templates, `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no
-    scope is that close's last token, a marker or not, and `{"scope": {"turn": "user", "occurrence": 1}}` names
-    the second user message's own tokens.
+    template, given its dataset's `template` as arguments. Without one there is no generation prompt, so the
+    rendered prompt ends with the template's close of the last message (`[/INST]` on Llama-2-style templates,
+    `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no scope is that close's last token, a marker or not.
+    With `{"add_generation_prompt": true}` it ends with the assistant's header, whose tokens are positions like
+    any other and belong to no `turn`, and a generate from it continues after the header. Either way
+    `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
     Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
     row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
@@ -616,20 +643,22 @@ class Fit(Record):
 
     Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
     optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
-    `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
-    and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
-    weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
-    featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
-    model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
-    back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
-    in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
-    that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
-    is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
-    the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
-    "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-    body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
-    the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
-    history is empty, `[0]`.
+    `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed` and
+    the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the weighted sum
+    `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained featurizer's
+    scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as every metric
+    is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's dtype.
+    Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
+    optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
+    After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
+    op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
+    `<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+    (without `early_stop`, the last's) are restored, and the body runs once, scored, per named substitution of
+    `eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
+    `test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
+    so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
+    size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
+    exactly, a null control), and each history is empty, `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
     name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses

@@ -2,6 +2,7 @@
 
 import hashlib
 import itertools
+from typing import Literal
 
 import torch
 from torch import Tensor
@@ -29,9 +30,9 @@ def sub(of: Tensor, with_: Value) -> Tensor:
 
 
 @op("edits")
-def scale(of: Tensor, factor: float) -> Tensor:
-    """`of * factor`."""
-    return of * factor
+def scale(of: Tensor, factor: Value) -> Tensor:
+    """`of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step)."""
+    return of * torch.as_tensor(factor, device=of.device)
 
 
 @op("edits")
@@ -64,10 +65,17 @@ def present(x: Tensor) -> Tensor:
 
 
 @op("edits")
-def renormalize(of: Tensor, original: Value) -> Tensor:
-    """Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's
-    writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`)."""
-    return of * (present(original.to(of.device)).norm(dim=-1, keepdim=True) / present(of).norm(dim=-1, keepdim=True))
+def renormalize(of: Tensor, original: Value, norm: Literal["l2", "sum"] = "l2") -> Tensor:
+    """Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row
+    of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry,
+    the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the
+    entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose
+    every key was knocked out stays zero)."""
+    def size(x: Tensor) -> Tensor:
+        return x.sum(-1, keepdim=True) if norm == "sum" else x.norm(dim=-1, keepdim=True)
+    now = size(present(of))
+    zero = now == 0
+    return of * torch.where(zero, 1.0, size(present(original.to(of.device))) / now.masked_fill(zero, 1))
 
 
 @op("edits")
@@ -85,16 +93,17 @@ def project_out(of: Tensor, direction: Value) -> Tensor:
 
 
 @op("edits")
-def noise(of: Tensor, scale: float, dims: list[str], seed: int = 0, rows: Tensor | None = None,
+def noise(of: Tensor, scale: Value, dims: list[str], seed: int = 0, rows: Tensor | None = None,
           positions: Tensor | None = None) -> Tensor:
-    """`of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is
-    one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset
-    and the token's position alone (in a step over a value that holds no positions, its index along `pos`),
-    then moved to the value's device and dtype. So batch size, sweep point and forward call never change it,
-    no two rows or positions share one, a write across layers draws the same bits at each of them (as one
-    entry per layer with one seed does), and a document draws the same bits on any device. A value with no
-    rows is one draw from `seed`."""
+    """`of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise
+    standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes
+    from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a
+    step over a value that holds no positions, its index along `pos`), then moved to the value's device. So
+    batch size, sweep point and forward call never change it, no two rows or positions share one, a write across
+    layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws
+    the same bits on any device. A value with no rows is one draw from `seed`."""
     lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
+    scale = torch.as_tensor(scale, device=of.device)
     if rows is None or not lead:
         return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
     shape = [of.shape[i] for i in lead]

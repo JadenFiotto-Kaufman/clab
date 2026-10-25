@@ -231,6 +231,8 @@ def operands(path: str, found: dict[str, Known], own: list[str], space: list[dic
                      f"laid out on this write's {lead}" + ("" if whole else ", and a ragged write's is an entry of "
                                                            "its own forward"))
             continue
+        if not dims:                        # one number (at each layer), broadcast in any coordinates as a literal
+            continue
         if info.space != space:
             fail(f"{path}.{key}", f"{info.name!r} is in {said(info.space)}; this "
                  f"{'bracket' if space else 'write'} is in {said(space)}, so an operand is encoded as it is")

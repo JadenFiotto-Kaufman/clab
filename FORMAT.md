@@ -31,9 +31,22 @@ the model runs (`device`) is a run option, not the document's. The attention int
 - `path: str or null = null`
 - `rows: list of dict or null = null`
 - `split: str or null = null`
+- `shuffle: bool = false`
+- `take: int or null = null`
+- `columns: object of str or null = null`
+- `template: object of Any or null = null`
 
-A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline; `split` keeps the
-rows of a file whose `split` column is that.
+A dataset: where its rows come from and how its text renders, never a computation on its values. `path` is
+`data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the rows
+of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on every
+machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns` renames
+them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its own, every
+other column as it is (so one file serves a fit's `eval` substitution under the body's column names).
+`template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the dataset renders
+(`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the generation prompt and
+keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source the rows lack or a name
+that is a column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), and a `template` on a dataset no
+step reads a chat column of. `sha256` and `n_rows` describe the rows these leave.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -55,14 +68,22 @@ made at each layer they pick, in one forward.
 
 A column read as text, where a scope searches for it or a metric scores it: `"<dataset>.<column>"`, or
 `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
-whole: `pairs.counterfactual_inputs_variables[0].entity`). The flags say how its text compares and never
-rewrite the data: `strip` drops its surrounding whitespace, `lower` compares lowercased. A scope searches
-the input for the text so compared, its positions the original's. An answer scored against logits is
-tokenized as written, under `strip` without its whitespace-only tokens at either end (`"  New York "` is
-`▁New ▁York`), and each of its tokens stands for its class: every token of the vocabulary whose text (what
-it adds after another token, so a leading space is its own), so compared, is the same (` Yes`, ` yes`,
-`yes` and `YES` under both flags); without a flag, or for a token that is part of a character, the class
-is the token alone. A row's value may be a list of strings: a set, any of which is the answer.
+whole: `pairs.counterfactual_inputs_variables[0].entity`). A row's value may be a list of strings: a set, any
+of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
+lowercased, and `strip` makes its surrounding whitespace optional.
+
+A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
+whitespace, its positions the original's.
+
+An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
+token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
+the same; without a flag, or for a token that is part of a character, the token alone. Under `strip`
+whitespace-only tokens at the end are dropped, since what follows an answer is not scored, and one at the
+start is kept, since a tokenizer that writes a number's space as its own token makes it a token the model
+says (`" 42"` is `▁ 4 2`, its `▁` itself alone); the first token then compares without leading whitespace and
+the last without trailing, a one-token answer's without either (` Yes`, ` yes`, `yes` and `YES` under both
+flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
+`▁New ▁York`, `▁New` standing for `New` too).
 
 ### A literal in a list `input`
 
@@ -236,10 +257,12 @@ name, a dict of entries, or a list of either) are what it reads and writes, each
 `<step>.<name>`, in the order written.
 
 A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
-template without a generation prompt, so the rendered prompt ends with the template's close of the last
-message (`[/INST]` on Llama-2-style templates, `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no
-scope is that close's last token, a marker or not, and `{"scope": {"turn": "user", "occurrence": 1}}` names
-the second user message's own tokens.
+template, given its dataset's `template` as arguments. Without one there is no generation prompt, so the
+rendered prompt ends with the template's close of the last message (`[/INST]` on Llama-2-style templates,
+`<|im_end|>` and a newline on Qwen3's): `pos: -1` with no scope is that close's last token, a marker or not.
+With `{"add_generation_prompt": true}` it ends with the assistant's header, whose tokens are positions like
+any other and belong to no `turn`, and a generate from it continues after the header. Either way
+`{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
 row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
@@ -301,20 +324,22 @@ Train the featurizers `train` names, inside the run, through the frozen model.
 
 Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
 optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
-`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed`
-and the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the
-weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
-featurizer's scalar, `<featurizer>.<scalar>`). Gradients are taken for the featurizers' tensors alone; the
-model's weights are never touched. After each optimizer step a featurizer with a constraint is projected
-back onto it (an sae's decoder rows to unit norm). After each epoch the body runs over every training row
-in scoring mode (gates hard, no gradients): each body op's mean and each trained featurizer's scalar is
-that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
-is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
-the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
-"test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
-body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
-the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
-history is empty, `[0]`.
+`steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed` and
+the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the weighted sum
+`objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained featurizer's
+scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as every metric
+is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's dtype.
+Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
+optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
+After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
+op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
+`<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+(without `early_stop`, the last's) are restored, and the body runs once, scored, per named substitution of
+`eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
+`test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
+so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
+size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
+exactly, a null control), and each history is empty, `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
@@ -369,12 +394,13 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
 own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
-giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+giving it id -1 (`top_k` NaN `probs` or `values` and no token text). Reductions skip it: `mean` is the mean over the
 rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
-there, so a row's own keys are edited as the row has them, and its tail stays NaN.
+there, so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over
+`key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
@@ -384,6 +410,14 @@ over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renor
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
+
+Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
+float32 (`pca` works in double and returns the value's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
+to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
+over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
+`values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
@@ -410,14 +444,15 @@ operand does not hold is refused by name before any forward, and so is such an o
 layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
 every layer, as a direction is.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
-(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
-vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
-else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
-at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
-batch, at its positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
+value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
+reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
+tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
+axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
+positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -454,9 +489,9 @@ stays missing: NaN.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
-| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
-| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
+| `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
+| `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
 
 ### Edits
@@ -466,13 +501,13 @@ stays missing: NaN.
 | `swap` | `with: Value` | keeps the layout | Replace the value with `with`, broadcast over its rows and positions. |
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
-| `scale` | `factor: float` | keeps the layout | `of * factor`. |
-| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`). |
+| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step). |
+| `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose every key was knocked out stays zero). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
-| `noise` | `scale: float`, `seed: int = 0` | keeps the layout | `of + scale * noise`, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
+| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms
@@ -481,8 +516,8 @@ stays missing: NaN.
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
-| `top_k` | `k: int` | needs vocab_size; removes vocab_size; adds k | The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so `top_k`'s first is `argmax`'s token. |
-| `argmax` | — | needs vocab_size; removes vocab_size | The id of the most likely token (-1 where the value is missing), ranked by its logit; an exact tie goes to the lower id, as in `top_k`. |
+| `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
+| `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
 | `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
 ## Components

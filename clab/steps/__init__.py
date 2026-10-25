@@ -169,8 +169,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_size: int, found: Found) -> None:
     """The op over the whole value `of` names, given each of its rows' dataset row, at the layers `of` is at
-    (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value also holds its tokens,
-    decoded."""
+    (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value over a vocabulary's
+    tokens also holds them, decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
     dims = dims_of(plan, step.of)
@@ -181,7 +181,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_s
                                         vocabulary, dims=dims, layers=acts_at(plan, step.of, step.at, sizes),
                                         sizes=sizes), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
-    if step.op == "top_k":
+    if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
 

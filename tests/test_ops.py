@@ -66,6 +66,26 @@ def test_add_sub_scale():
 def test_renormalize_restores_the_original_norm():
     out = edits.renormalize(X * 3 + 1, original=X)
     torch.testing.assert_close(out.norm(dim=-1), X.norm(dim=-1))
+    edited = X * 3 + 1                  # norm "l2", the default, is the rescaling it always was, to the bit
+    assert torch.equal(edits.renormalize(edited, original=X, norm="l2"), out)
+    assert torch.equal(out, edited * (X.norm(dim=-1, keepdim=True) / edited.norm(dim=-1, keepdim=True)))
+
+
+def test_renormalize_by_sum_restores_each_rows_sum_over_the_entries_that_are_there():
+    """`norm: "sum"` divides so each vector sums to what `original`'s did: a pattern row with a key knocked out
+    is a distribution again, and the keys past a row's own (NaN) stay missing."""
+    pattern = torch.rand(2, 3, 6).softmax(-1)
+    pattern[1, :, 4:] = float("nan")                    # row 1 has four keys
+    pattern[1, :, :4] = pattern[1, :, :4].softmax(-1)
+    knocked = pattern.clone()
+    knocked[..., 0] = 0
+    out = edits.renormalize(knocked, original=pattern, norm="sum")
+    torch.testing.assert_close(out.nansum(-1), torch.ones(2, 3))
+    assert out[1, :, 4:].isnan().all() and not out[:, :, :4].isnan().any() and (out[..., 0] == 0).all()
+    torch.testing.assert_close(out[0], knocked[0] / knocked[0].sum(-1, keepdim=True))
+    assert not torch.allclose(edits.renormalize(knocked, original=pattern).nansum(-1), torch.ones(2, 3))
+    with pytest.raises(ValueError, match=r"^norm: 'l1' is not one of 'l2', 'sum'$"):
+        ops.check("renormalize", {"norm": "l1"})
 
 
 def test_normalize_and_project_out():
@@ -252,10 +272,20 @@ def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
 
 
 def test_top_k_and_argmax():
-    got = transforms.top_k(LOGITS, k=2)
+    d = ["rows", "pos", "vocab_size"]
+    got = transforms.top_k(LOGITS, k=2, dims=d)
     assert got["ids"].shape == got["probs"].shape == (3, 1, 2)
-    assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS))
+    assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS, d))
     torch.testing.assert_close(got["probs"][..., 0], LOGITS.softmax(-1).max(-1).values)
+
+
+def test_top_k_and_argmax_rank_the_axis_over_names_wherever_it_is():
+    """`over` names the axis ranked; the result keeps the others in order, `top_k`'s `k` last."""
+    assert torch.equal(transforms.argmax(X, DIMS, over="pos"), X.argmax(1))
+    got = transforms.top_k(X, 2, DIMS, over="rows")
+    assert got["ids"].shape == (2, 5, 2) and torch.equal(got["ids"], X.movedim(0, -1).topk(2).indices)
+    assert ops.out_dims("top_k", DIMS, {"k": 2, "over": "rows"}) == ["pos", "hidden_size", "k"]
+    assert ops.out_dims("argmax", DIMS, {"over": "hidden_size"}) == ["rows", "pos"]
 
 
 class Tokenizer:
@@ -289,8 +319,9 @@ def test_a_missing_row_is_missing_all_the_way_down():
     hit = metrics.match(logits, logits.nan_to_num().argmax(-1)[:, :1], d)
     assert hit[[0, 2]].eq(1).all() and hit[1].isnan().all()
     assert metrics.token_prob(logits, ONE, d)[1].isnan().all() and metrics.logit_diff(logits, ONE, ONE, d)[1].isnan().all()
-    assert transforms.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
-    top = transforms.top_k(logits, 2)
+    assert transforms.argmax(logits, d).tolist() == [[LOGITS[0, 0].argmax().item()], [-1],
+                                                     [LOGITS[2, 0].argmax().item()]]
+    top = transforms.top_k(logits, 2, d)
     assert top["ids"][1].eq(-1).all() and top["probs"][1].isnan().all() and top["ids"][0].ge(0).all()
     assert torch.equal(reductions.mean(hit, dims=["rows", "pos"]), torch.tensor(1.0))
     x = X.clone()

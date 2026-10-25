@@ -28,6 +28,22 @@ def rows(root: str, path: str, split: str | None) -> list[dict]:
     return [r for r in found if r.get("split") == split] if split is not None else found
 
 
+def shuffled(rows: list[dict]) -> list[dict]:
+    """`rows` in one fixed random order, the same on every machine and version: each row's index ranked by a
+    blake2b hash of seed 0 and the index."""
+    def key(i: int) -> bytes:
+        return hashlib.blake2b(repr((0, i)).encode(), digest_size=8).digest()
+    return [rows[i] for i in sorted(range(len(rows)), key=key)]
+
+
+def renamed(rows: list[dict], columns: dict[str, str]) -> list[dict]:
+    """Each row with each name `columns` maps the column it maps to, that column no longer under its own name,
+    and every other column as it is."""
+    sources = set(columns.values())
+    return [{**{k: v for k, v in row.items() if k not in sources}, **{name: row[c] for name, c in columns.items()}}
+            for row in rows]
+
+
 def digest(rows: list[dict]) -> str:
     return hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
 
@@ -86,24 +102,27 @@ def lookup(row: dict, path: str) -> object:
 MARKER = "\ue000clab\ue001"
 
 
-def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict]) -> dict:
+def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template: dict | None) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.
 
     Text is tokenized as the tokenizer does by default, BOS added where it adds one. A chat is rendered through
-    the checkpoint's own template without a generation prompt, and the rendered text tokenized adding nothing,
-    since the template writes its own BOS and markers. Every token either way is a position. A message's text is
-    searched for from where its own content begins, which the template rendered with that content held by a
-    marker shows, so a message that says its role's name (`user`) is not found in its role's header.
+    the checkpoint's own template, given its dataset's `template` as arguments (none by default: no generation
+    prompt), and the rendered text tokenized adding nothing, since the template writes its own BOS and markers.
+    Every token either way is a position, a generation prompt's among them, which belong to no message. A
+    message's text is searched for from where its own content begins, which the template rendered (with the same
+    arguments) with that content held by a marker shows, so a message that says its role's name (`user`) is not
+    found in its role's header.
     """
     turns = []
     if isinstance(value, str):
         text, adds = value, True
     else:
-        text, adds, cursor = cast(str, tokenizer.apply_chat_template(value, tokenize=False)), False, 0
+        given = template or {}
+        text, adds, cursor = cast(str, tokenizer.apply_chat_template(value, tokenize=False, **given)), False, 0
         for i, message in enumerate(value):
             held = [{**m, "content": MARKER} if j == i else m for j, m in enumerate(value)]
-            own = cast(str, tokenizer.apply_chat_template(held, tokenize=False)).find(MARKER, cursor)
+            own = cast(str, tokenizer.apply_chat_template(held, tokenize=False, **given)).find(MARKER, cursor)
             start = text.find(message["content"], max(cursor, own))
             if start < 0:
                 raise ValueError(f"message {i} ({message['role']}) {message['content']!r} is not where the chat "
@@ -127,8 +146,8 @@ def pad(tokenizer: PreTrainedTokenizerBase, ids: list[list[int]], width: int) ->
 
 
 def compared(text: str, strip: bool, lower: bool) -> str:
-    """`text` as the flags compare it, wherever text is compared (a scope's search, an answer's class,
-    `contains`): stripped of surrounding whitespace under `strip`, lowercased under `lower` a character at a
-    time, each kept as it is where lowering would change its length, so a span of the result is the text's."""
+    """`text` as the flags compare it, wherever text is compared (a scope's search, `contains`, and the lowering
+    of an answer's class): stripped of surrounding whitespace under `strip`, lowercased under `lower` a character
+    at a time, each kept as it is where lowering would change its length, so a span of the result is the text's."""
     text = text.strip() if strip else text
     return "".join(c.lower() if len(c.lower()) == 1 else c for c in text) if lower else text

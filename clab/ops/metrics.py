@@ -1,5 +1,5 @@
 """Metrics: logits (or a probe's scores, or a residual-stream value for `cosine`) in, one number per row and
-position out."""
+position out, computed in float32 whatever the value's dtype (`ops.ABOUT`)."""
 
 import math
 
@@ -60,34 +60,34 @@ def _one(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
 def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
     """1 where the most likely token is `expected` (any of its class or set), else 0; the most likely token is
     `argmax`'s, an exact tie to the lower id."""
-    hit = (ranked(of, 1) == _aligned(expected, of, dims)).any(-1).to(of.dtype)
+    hit = (ranked(of, 1) == _aligned(expected, of, dims)).any(-1).float()
     return hit.masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
     """The logit of `a` less the logit of `b`."""
-    return _one(of, a, dims) - _one(of, b, dims)
+    return _one(of, a, dims).float() - _one(of, b, dims).float()
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The probability of `token` (of a class or a set, its members' summed)."""
-    p, real = _gather(of.softmax(-1), token, dims)
+    p, real = _gather(of.float().softmax(-1), token, dims)
     return p.masked_fill(~real, 0.0).sum(-1).masked_fill(missing(of), float("nan"))
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def token_logit(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The logit of `token`."""
-    return _one(of, token, dims)
+    return _one(of, token, dims).float()
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
 def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     """The negative log-probability of `target` (of a class or a set, of its members' summed probability), in
     nats."""
-    logp, real = _gather(of.log_softmax(-1), target, dims)
+    logp, real = _gather(of.float().log_softmax(-1), target, dims)
     return -logp.masked_fill(~real, -math.inf).logsumexp(-1).masked_fill(missing(of), float("nan"))
 
 
@@ -102,14 +102,14 @@ def distribution(args: dict) -> None:
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
 def kl(of: Tensor, against: Value) -> Tensor:
     """KL(of ‖ against) between the two next-token distributions, in nats."""
-    p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)
+    p, q = of.float().log_softmax(-1), against.to(of.device).float().log_softmax(-1)
     return (p.exp() * (p - q)).sum(-1)
 
 
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, check=distribution)
 def js(of: Tensor, against: Value) -> Tensor:
     """The Jensen–Shannon divergence between the two distributions, in nats (at most log 2)."""
-    p, q = of.log_softmax(-1), against.to(of.device).log_softmax(-1)
+    p, q = of.float().log_softmax(-1), against.to(of.device).float().log_softmax(-1)
     m = torch.logaddexp(p, q) - math.log(2)
     return 0.5 * (p.exp() * (p - m)).sum(-1) + 0.5 * (q.exp() * (q - m)).sum(-1)
 
@@ -117,7 +117,7 @@ def js(of: Tensor, against: Value) -> Tensor:
 @op("metrics", needs=("hidden_size",), removes=("hidden_size",))
 def cosine(of: Tensor, with_: Value) -> Tensor:
     """The cosine similarity of each vector and `with`'s, over `hidden_size`."""
-    return torch.nn.functional.cosine_similarity(of, torch.as_tensor(with_, dtype=of.dtype, device=of.device), dim=-1)
+    return torch.nn.functional.cosine_similarity(of.float(), torch.as_tensor(with_, device=of.device).float(), dim=-1)
 
 
 @op("metrics", needs=("rows",))

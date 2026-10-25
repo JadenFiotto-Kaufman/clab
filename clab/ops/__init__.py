@@ -13,6 +13,8 @@ parameter's document spelling (`with_` is `"with"`).
 import inspect
 from typing import Any, Callable
 
+from torch import Tensor
+
 from clab.format import registry
 from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (each read as ops.<name>)
 
@@ -28,12 +30,13 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
 own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
-giving it id -1 (`top_k` NaN probabilities and no token text). Reductions skip it: `mean` is the mean over the
+giving it id -1 (`top_k` NaN `probs` or `values` and no token text). Reductions skip it: `mean` is the mean over the
 rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
-there, so a row's own keys are edited as the row has them, and its tail stays NaN.
+there, so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over
+`key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
@@ -43,6 +46,14 @@ over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renor
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
+
+Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
+float32 (`pca` works in double and returns the value's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
+to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
+over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
+`values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
@@ -69,14 +80,15 @@ operand does not hold is refused by name before any forward, and so is such an o
 layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
 every layer, as a direction is.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
-(a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
-vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything
-else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an
-`encode`, its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or
-at one the forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this
-batch, at its positions.
+An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
+value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
+reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
+tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
+axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
+positions.
 
 A metric lines an answer up with the read it scores, row by row. Each row's answer is tokenized exactly as
 written, without special tokens (`" Friday"` and `"Friday"` are different tokens on most tokenizers), to k
@@ -157,10 +169,15 @@ def check(name: str, args: dict) -> None:
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
     """Run op `name` on `value` with `args` (document spelling, checked and bound to tensors) and those of the
-    run's `supplied` values its signature names."""
+    run's `supplied` values its signature names. An edit runs on `value` and every floating tensor it is given
+    in float32, and its result is cast to `value`'s dtype once (`ABOUT`)."""
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
-    return fn(value, **{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names})
+    given = {**{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names}}
+    if DECLARED[name]["group"] != "edits" or not isinstance(value, Tensor):
+        return fn(value, **given)
+    up = {k: v.float() if isinstance(v, Tensor) and v.is_floating_point() else v for k, v in given.items()}
+    return fn(value.float(), **up).to(value.dtype)
 
 
 def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:
@@ -172,11 +189,8 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
     for axis in axes["needs"]:
         either = axis if isinstance(axis, tuple) else (axis,)
         if not set(either) & set(dims):
-            ranks = "; it ranks a vocabulary's tokens, and over another axis (an sae's features, a probe's classes) " \
-                "it is not an op yet: save the value and rank it after the run" if axis == "vocab_size" and \
-                name in ("argmax", "top_k") else ""
             raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, either))} axis; this one is "
-                             f"{dims}{ranks}")
+                             f"{dims}")
     return [a for a in dims if a not in axes["removes"]] + list(axes["adds"])
 
 

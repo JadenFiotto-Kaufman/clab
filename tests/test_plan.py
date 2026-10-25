@@ -10,10 +10,10 @@ import pytest
 from conftest import NAMES, REAL, document, edited, plan_of, snapshot
 
 from clab import Plan
-from clab.compile import positions
-from clab.format import selectors
+from clab.compile import dataset, positions
+from clab.format import data, selectors
 from clab.format.sweeps import points
-from clab.plan import PlanError
+from clab.plan import Data, PlanError
 
 
 def step(plan: Plan, name: str) -> Any:
@@ -330,3 +330,89 @@ def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():
     """`"-2:3"` picks something of three things and nothing of five: it has no static width, and is a selector."""
     assert selectors.fixed("-2:3") is None and selectors.select("-2:3", 3) == [1, 2]
     edited("generate_probe", lambda d: d["sites"]["target"].update(layers="-2:3"))
+
+
+# -- a dataset's options --------------------------------------------------------------------------------------
+
+
+def with_data(d: dict, **more) -> Plan:
+    """patching.json with dataset `pairs` as `d`."""
+    def change(doc):
+        doc["data"]["pairs"] = d
+        doc.update(more)
+    return edited("patching", change)
+
+
+def file_rows(path: str, split: str | None = None) -> list[dict]:
+    with open(os.path.join(os.path.dirname(os.path.dirname(document("patching"))), "data", f"{path}.json")) as f:
+        found = json.load(f)
+    return [r for r in found if split is None or r["split"] == split]
+
+
+def test_take_keeps_the_first_rows_and_the_digest_is_of_those():
+    every = file_rows("weekdays/data")
+    taken = with_data({"path": "weekdays/data", "take": 3}).compile()
+    assert taken.data["pairs"].rows == every[:3] and taken.data["pairs"].n_rows == 3
+    assert taken.data["pairs"].sha256 == data.digest(every[:3])
+    assert compiled_form(taken)["data"]["pairs"] == {"path": "weekdays/data", "take": 3,
+                                                     "sha256": data.digest(every[:3]), "n_rows": 3}
+    split = with_data({"path": "weekdays/data", "split": "test", "take": 1}).compile()
+    assert split.data["pairs"].rows == file_rows("weekdays/data", "test")[:1]
+    inline = with_data({"rows": every, "take": 2}).compile()
+    assert inline.data["pairs"].rows == every[:2]
+
+
+def test_shuffle_is_one_fixed_permutation_then_take_samples_from_it():
+    """Seed 0, by a hash of each row's index alone: the same order on every machine, twice the same, not the
+    file's; `take` after it is a random sample of N. The plan shows the flag, the digest the rows' order."""
+    def permutation(n: int) -> list[int]:
+        return [r["i"] for r in data.shuffled([{"i": i} for i in range(n)])]
+    assert permutation(8) == [0, 3, 2, 4, 7, 6, 5, 1]
+    every = file_rows("weekdays/data")
+    shuffled = with_data({"path": "weekdays/data", "shuffle": True}).compile()
+    again = with_data({"path": "weekdays/data", "shuffle": True}).compile()
+    order = permutation(len(every))
+    assert shuffled.data["pairs"].rows == again.data["pairs"].rows == [every[i] for i in order]
+    assert order != sorted(order) and shuffled.data["pairs"].sha256 != data.digest(every)
+    assert compiled_form(shuffled)["data"]["pairs"]["shuffle"] is True
+    sample = with_data({"path": "weekdays/data", "shuffle": True, "take": 2}).compile()
+    assert sample.data["pairs"].rows == [every[i] for i in order[:2]] and sample.data["pairs"].n_rows == 2
+
+
+def test_columns_renames_and_keeps_every_other_column():
+    rows = [{"prompt": "a", "target": " b", "label": 1}, {"prompt": "c", "target": " d", "label": 0}]
+    read = {"kind": "forward", "input": "pairs.input",
+            "interventions": {"x": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+    plan = with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
+        "read": read, "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.answer"}},
+        saves=["p"]).compile()
+    assert plan.data["pairs"].rows == [{"label": 1, "input": "a", "answer": " b"},
+                                       {"label": 0, "input": "c", "answer": " d"}]
+    assert compiled_form(plan)["data"]["pairs"]["columns"] == {"input": "prompt", "answer": "target"}
+    swapped = dataset("", "pairs", Data(rows=rows, columns={"prompt": "target", "target": "prompt"}))
+    assert swapped == [{"label": 1, "prompt": " b", "target": "a"}, {"label": 0, "prompt": " d", "target": "c"}]
+    with pytest.raises(PlanError, match=r"steps\.p\.token: dataset 'pairs' has no column 'target' on every row"):
+        with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
+            "read": read, "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": "pairs.target"}},
+            saves=["p"]).compile()
+
+
+@pytest.mark.parametrize("d, message", [
+    ({"path": "weekdays/data", "split": "test", "take": 3},
+     r"^data\.pairs\.take: take 3, and the dataset has 2 rows in split 'test'; take keeps at most as many as there "
+     r"are$"),
+    ({"path": "weekdays/data", "take": 0}, r"^data\.pairs: take 0: a dataset keeps at least one row$"),
+    ({"path": "weekdays/data", "columns": {"input": "prompt"}},
+     r"^data\.pairs\.columns\.input: 'prompt' is not a column of row 0; its columns: answer, base_answer, "),
+    ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},
+     r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this rename would overwrite; "
+     r"rename it too, or name the new column otherwise$"),
+    ({"path": "weekdays/data", "template": {"add_generation_prompt": True}},
+     r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
+     r"of \{'role', 'content'\} messages\) only$"),
+    ({"path": "weekdays/data", "template": {"tokenize": True}},
+     r"^data\.pairs: template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'$"),
+])
+def test_a_dataset_option_that_cannot_apply_is_refused_by_name(d, message):
+    with pytest.raises(PlanError, match=message):
+        with_data(d).compile()
