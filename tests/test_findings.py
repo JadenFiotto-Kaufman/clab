@@ -658,6 +658,30 @@ def test_a_reduction_that_removes_no_axis_is_refused_at_compile(engines):
     assert filled.results["total"].shape == () and torch.equal(filled.results["total"], filled.results["avg"].sum())
 
 
+def test_s16_renormalize_by_sum_keeps_a_knocked_out_pattern_row_a_distribution(engines):
+    """trial-10 §4.1: after a key knockout `renormalize` rescaled each row to its L2 norm, and rows summed 0.73 to
+    2.31. With `norm: "sum"` a `scale 0` of key 0 then a renormalize of the whole row leaves each row summing to
+    what it did before, 1, over its own keys, its tail past them NaN as the read has it."""
+    eager = {**TINY, "attn_implementation": "eager"}
+    pattern = {"component": "attention_probabilities", "layers": 0}
+
+    def knocked(norm: str) -> dict:
+        return forward({"knock": {"site": {**pattern, "select": {"key": 0}}, "pos": -1,
+                                  "ops": [{"op": "scale", "factor": 0.0}]},
+                        "renorm": {"site": pattern, "pos": -1, "ops": [{"op": "renormalize", "norm": norm}]}})
+    filled = run(engines, plan(model=eager, data={"d": DAYS}, steps={
+        "clean": forward({"p": {"site": pattern, "pos": -1}}), "sum": knocked("sum"), "l2": knocked("l2")},
+        saves=["clean.p", "sum.renorm", "l2.renorm"]).compile())
+    clean, by_sum, by_l2 = (filled.results[k] for k in ("clean.p", "sum.renorm", "l2.renorm"))
+    assert clean[2:].isnan().any() and torch.equal(by_sum.isnan(), clean.isnan())  # rows 2 and 3 are shorter
+    torch.testing.assert_close(clean.nansum(-1), torch.ones_like(clean[..., 0]))
+    torch.testing.assert_close(by_sum.nansum(-1), clean.nansum(-1))
+    out = clean.clone()
+    out[..., 0] = 0
+    torch.testing.assert_close(by_sum, out / out.nansum(-1, keepdim=True), equal_nan=True)
+    assert not torch.allclose(by_l2.nansum(-1), clean.nansum(-1))
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 

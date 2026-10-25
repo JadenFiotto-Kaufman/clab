@@ -473,7 +473,7 @@ stays missing: NaN.
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
 | `scale` | `factor: float` | keeps the layout | `of * factor`. |
-| `renormalize` | — | keeps the layout | Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`). |
+| `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |

@@ -66,6 +66,26 @@ def test_add_sub_scale():
 def test_renormalize_restores_the_original_norm():
     out = edits.renormalize(X * 3 + 1, original=X)
     torch.testing.assert_close(out.norm(dim=-1), X.norm(dim=-1))
+    edited = X * 3 + 1                  # norm "l2", the default, is the rescaling it always was, to the bit
+    assert torch.equal(edits.renormalize(edited, original=X, norm="l2"), out)
+    assert torch.equal(out, edited * (X.norm(dim=-1, keepdim=True) / edited.norm(dim=-1, keepdim=True)))
+
+
+def test_renormalize_by_sum_restores_each_rows_sum_over_the_entries_that_are_there():
+    """`norm: "sum"` divides so each vector sums to what `original`'s did: a pattern row with a key knocked out
+    is a distribution again, and the keys past a row's own (NaN) stay missing."""
+    pattern = torch.rand(2, 3, 6).softmax(-1)
+    pattern[1, :, 4:] = float("nan")                    # row 1 has four keys
+    pattern[1, :, :4] = pattern[1, :, :4].softmax(-1)
+    knocked = pattern.clone()
+    knocked[..., 0] = 0
+    out = edits.renormalize(knocked, original=pattern, norm="sum")
+    torch.testing.assert_close(out.nansum(-1), torch.ones(2, 3))
+    assert out[1, :, 4:].isnan().all() and not out[:, :, :4].isnan().any() and (out[..., 0] == 0).all()
+    torch.testing.assert_close(out[0], knocked[0] / knocked[0].sum(-1, keepdim=True))
+    assert not torch.allclose(edits.renormalize(knocked, original=pattern).nansum(-1), torch.ones(2, 3))
+    with pytest.raises(ValueError, match=r"^norm: 'l1' is not one of 'l2', 'sum'$"):
+        ops.check("renormalize", {"norm": "l1"})
 
 
 def test_normalize_and_project_out():

@@ -2,6 +2,7 @@
 
 import hashlib
 import itertools
+from typing import Literal
 
 import torch
 from torch import Tensor
@@ -64,10 +65,15 @@ def present(x: Tensor) -> Tensor:
 
 
 @op("edits")
-def renormalize(of: Tensor, original: Value) -> Tensor:
-    """Each vector rescaled to the norm of `original`'s: inside an entry, the value at the site before the step's
-    writes (inside an `encode`, its coordinates). Norms take the entries that are there (`present`)."""
-    return of * (present(original.to(of.device)).norm(dim=-1, keepdim=True) / present(of).norm(dim=-1, keepdim=True))
+def renormalize(of: Tensor, original: Value, norm: Literal["l2", "sum"] = "l2") -> Tensor:
+    """Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row
+    of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry,
+    the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the
+    entries that are there (`present`)."""
+    before = present(original.to(of.device))
+    if norm == "sum":
+        return of * (before.sum(-1, keepdim=True) / present(of).sum(-1, keepdim=True))
+    return of * (before.norm(dim=-1, keepdim=True) / present(of).norm(dim=-1, keepdim=True))
 
 
 @op("edits")

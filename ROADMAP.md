@@ -2,9 +2,6 @@
 
 What is agreed but not built, in no order. Bring an item up when the owner asks for open items.
 
-- **`renormalize`** gains `norm: "l2" | "sum"`, default `l2` (today's: the written value rescaled to the
-  original's L2 norm); `sum` divides so the row sums to what it summed to before, the attention-pattern
-  meaning (trial 10).
 - **`strip` on an answer** trims whitespace at the two ends of the whole answer only: an interior
   whitespace token stays itself (no 441-id class), and a number's leading space token is kept (trial 11).
 - **Dataset options**, all describing where rows come from and how text renders, never computing on
