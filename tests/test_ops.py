@@ -272,10 +272,20 @@ def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
 
 
 def test_top_k_and_argmax():
-    got = transforms.top_k(LOGITS, k=2)
+    d = ["rows", "pos", "vocab_size"]
+    got = transforms.top_k(LOGITS, k=2, dims=d)
     assert got["ids"].shape == got["probs"].shape == (3, 1, 2)
-    assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS))
+    assert torch.equal(got["ids"][..., 0], transforms.argmax(LOGITS, d))
     torch.testing.assert_close(got["probs"][..., 0], LOGITS.softmax(-1).max(-1).values)
+
+
+def test_top_k_and_argmax_rank_the_axis_over_names_wherever_it_is():
+    """`over` names the axis ranked; the result keeps the others in order, `top_k`'s `k` last."""
+    assert torch.equal(transforms.argmax(X, DIMS, over="pos"), X.argmax(1))
+    got = transforms.top_k(X, 2, DIMS, over="rows")
+    assert got["ids"].shape == (2, 5, 2) and torch.equal(got["ids"], X.movedim(0, -1).topk(2).indices)
+    assert ops.out_dims("top_k", DIMS, {"k": 2, "over": "rows"}) == ["pos", "hidden_size", "k"]
+    assert ops.out_dims("argmax", DIMS, {"over": "hidden_size"}) == ["rows", "pos"]
 
 
 class Tokenizer:
@@ -309,8 +319,9 @@ def test_a_missing_row_is_missing_all_the_way_down():
     hit = metrics.match(logits, logits.nan_to_num().argmax(-1)[:, :1], d)
     assert hit[[0, 2]].eq(1).all() and hit[1].isnan().all()
     assert metrics.token_prob(logits, ONE, d)[1].isnan().all() and metrics.logit_diff(logits, ONE, ONE, d)[1].isnan().all()
-    assert transforms.argmax(logits).tolist() == [[LOGITS[0, 0].argmax().item()], [-1], [LOGITS[2, 0].argmax().item()]]
-    top = transforms.top_k(logits, 2)
+    assert transforms.argmax(logits, d).tolist() == [[LOGITS[0, 0].argmax().item()], [-1],
+                                                     [LOGITS[2, 0].argmax().item()]]
+    top = transforms.top_k(logits, 2, d)
     assert top["ids"][1].eq(-1).all() and top["probs"][1].isnan().all() and top["ids"][0].ge(0).all()
     assert torch.equal(reductions.mean(hit, dims=["rows", "pos"]), torch.tensor(1.0))
     x = X.clone()

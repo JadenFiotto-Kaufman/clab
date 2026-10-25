@@ -1,7 +1,8 @@
 """Transforms: ops that turn each example's value into another of a different layout. The model's own readout,
-`encode`, which turns a value into a featurizer's coordinates, the ones over logits (`top_k`, `argmax`), and
-`detokenize`, which turns generated ids into text."""
+`encode`, which turns a value into a featurizer's coordinates, the ranks along an axis (`top_k`, `argmax`, by
+default over logits), and `detokenize`, which turns generated ids into text."""
 
+import json
 from typing import TYPE_CHECKING, Annotated
 
 import torch
@@ -66,19 +67,38 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
     return out
 
 
-@op("transforms", needs=("vocab_size",), removes=("vocab_size",), adds=("k",))
-def top_k(of: Tensor, k: int) -> dict[str, Tensor]:
-    """The `k` most likely tokens, `{"ids", "probs"}`, most likely first; as a step, its value also holds their
-    `tokens`, decoded. Tokens are ranked by their logits, and an exact tie goes to the lower id (`ranked`), so
-    `top_k`'s first is `argmax`'s token."""
-    ids = ranked(of, k)
-    probs = of.softmax(-1).gather(-1, ids)
-    gone = missing(of)[..., None]
+def ranking(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """removes the axis `over` names, which it ranks: by default `vocab_size`"""
+    over = args.get("over", "vocab_size")
+    if over not in dims:
+        hint = f' ("over": {json.dumps(dims[-1])})' if dims else ""
+        raise ValueError(f"it ranks the value's {over!r} axis, and the value is laid out {dims}; 'over' names the "
+                         f"axis it ranks, one the value has{hint}")
+    return [a for a in dims if a != over]
+
+
+def ranking_k(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k`"""
+    return ranking(dims, args) + ["k"]
+
+
+@op("transforms", layout=ranking_k)
+def top_k(of: Tensor, k: int, dims: list[str], over: str = "vocab_size") -> dict[str, Tensor]:
+    """The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices
+    along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as
+    a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an
+    `encode`; over `classes`, a probe's scores. An exact tie goes to the lower index (`ranked`), so `top_k`'s
+    first is `argmax`'s."""
+    x = of.movedim(dims.index(over), -1)
+    ids = ranked(x, k)
+    probs = x.softmax(-1).gather(-1, ids)
+    gone = missing(x)[..., None]
     return {"ids": ids.masked_fill(gone, -1), "probs": probs.masked_fill(gone, float("nan"))}
 
 
-@op("transforms", needs=("vocab_size",), removes=("vocab_size",))
-def argmax(of: Tensor) -> Tensor:
-    """The id of the most likely token (-1 where the value is missing), ranked by its logit; an exact tie goes to
-    the lower id, as in `top_k`."""
-    return ranked(of, 1)[..., 0].masked_fill(missing(of), -1)
+@op("transforms", layout=ranking)
+def argmax(of: Tensor, dims: list[str], over: str = "vocab_size") -> Tensor:
+    """The index of the largest along the axis `over` names (-1 where the value is missing): by default the id of
+    the most likely token, ranked by its logit. An exact tie goes to the lower index, as in `top_k`."""
+    x = of.movedim(dims.index(over), -1)
+    return ranked(x, 1)[..., 0].masked_fill(missing(x), -1)

@@ -178,11 +178,8 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
     for axis in axes["needs"]:
         either = axis if isinstance(axis, tuple) else (axis,)
         if not set(either) & set(dims):
-            ranks = "; it ranks a vocabulary's tokens, and over another axis (an sae's features, a probe's classes) " \
-                "it is not an op yet: save the value and rank it after the run" if axis == "vocab_size" and \
-                name in ("argmax", "top_k") else ""
             raise ValueError(f"{name!r} needs a value with a {' or '.join(map(repr, either))} axis; this one is "
-                             f"{dims}{ranks}")
+                             f"{dims}")
     return [a for a in dims if a not in axes["removes"]] + list(axes["adds"])
 
 

@@ -110,8 +110,9 @@ def test_b4_argmax_top_k_and_match_break_an_exact_tie_the_same_way():
     the same probability; `top_k` ranks by the logits, so its first is still `argmax`'s. A tie at the k-th place
     with an id the top-k left out keeps the lower ids, and ties inside the top-k are in id order."""
     tied = torch.tensor([[[0.0, 2.0, -1.0, 2.0, 1.0]]])
-    assert transforms.argmax(tied).item() == 1
-    assert transforms.top_k(tied, 2)["ids"].tolist() == [[[1, 3]]]
+    dims = ["rows", "pos", "vocab_size"]
+    assert transforms.argmax(tied, dims).item() == 1
+    assert transforms.top_k(tied, 2, dims)["ids"].tolist() == [[[1, 3]]]
     assert metrics.match(tied, torch.tensor([[1]]), ["rows", "pos", "vocab_size"]).item() == 1.0
     assert metrics.match(tied, torch.tensor([[3]]), ["rows", "pos", "vocab_size"]).item() == 0.0
     close = torch.zeros(1, 1, 10, dtype=torch.bfloat16)
@@ -119,12 +120,12 @@ def test_b4_argmax_top_k_and_match_break_an_exact_tie_the_same_way():
     probs = close.softmax(-1)
     assert probs[0, 0, 5] == probs[0, 0, 2]                     # the probabilities tie; the logits do not
     assert probs.topk(1).indices.item() == 5                    # which a top-k of the probabilities ranks first
-    assert transforms.argmax(close).item() == 2 == transforms.top_k(close, 1)["ids"].item()
+    assert transforms.argmax(close, dims).item() == 2 == transforms.top_k(close, 1, dims)["ids"].item()
     many = torch.tensor([[9.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0], [3.0, 3.0, 3.0, 5.0, 0.0, 0.0, 0.0]])
     assert metrics.ranked(many, 3).tolist() == [[0, 1, 2], [3, 0, 1]]
     assert metrics.ranked(many, 1).tolist() == [[0], [3]]
     for name in ("argmax", "top_k"):
-        assert "an exact tie goes to the lower id" in " ".join((ops.OPS[name].__doc__ or "").split()), name
+        assert "an exact tie goes to the lower index" in " ".join((ops.OPS[name].__doc__ or "").split()).lower(), name
 
 
 def test_b5_a_sweep_of_objects_is_refused_at_compile():
@@ -779,6 +780,36 @@ def test_d6_a_chats_template_carries_the_generation_prompt_and_keeps_its_turns(e
     assert run(engines, plain, kind).run.tokens["d.chat"][0][-2:] == ["<|im_end|>", "Ċ"]
 
 
+SAE = {"kind": "sae", "file_path": "documents/artifacts/sae.safetensors"}
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, kind):
+    """trial-04: ranking an sae's latents went to Python. `top_k` with `over: "features"` after an encode of the
+    fixture sae is its k largest latents, by index, an exact tie (the zeros a ReLU leaves) to the lower one, with
+    no tokens to decode; `argmax` with `over: "classes"` is a probe's most likely class."""
+    filled = run(engines, plan(data={"d": DAYS}, featurizers={"sae": SAE}, steps={
+        "f": forward({"z": {"site": LAYER0, "pos": -1, "ops": [{"op": "encode", "featurizer": "sae"}]}}),
+        "top": {"kind": "op", "op": "top_k", "of": "f.z", "k": 20, "over": "features"},
+        "best": {"kind": "op", "op": "argmax", "of": "f.z", "over": "features"}},
+        saves=["f.z", "top", "best"]).compile(), kind)
+    z, top, best = filled.results["f.z"], filled.results["top"], filled.results["best"]
+    assert set(top) == {"ids", "probs"} and top["ids"].shape == (4, 1, 20) and best.shape == (4, 1)
+    assert (z == 0).sum(-1).min() > 12                     # each row's top 20 runs into its zeros
+    assert torch.equal(top["ids"], metrics.ranked(z, 20)) and torch.equal(best, top["ids"][..., 0])
+    assert torch.equal(top["probs"], z.softmax(-1).gather(-1, top["ids"]))
+    for ids, values in zip(top["ids"][:, 0], z[:, 0].gather(-1, top["ids"][:, 0])):
+        assert ids[values == 0].tolist() == sorted(ids[values == 0].tolist())    # the tied zeros in index order
+
+    from test_fit import probe
+    trained = probe(lambda d: (d["steps"]["fit"]["steps"].update(which={"kind": "op", "op": "argmax",
+                                                                       "of": "read.scores", "over": "classes"}),
+                               d["saves"].append("fit.train.which")))
+    values = engines(kind, trained.model).execute(trained, batch_size=BATCH_SIZE).results
+    scores = values["fit.train.read.scores"]
+    assert scores.shape[-1] == 2 and torch.equal(values["fit.train.which"], metrics.ranked(scores, 1)[..., 0])
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 
@@ -834,14 +865,20 @@ def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differ
                                       "ops": [{"op": "swap", "with": "abc.v"}]}})}).compile()
 
 
-def test_m5_argmax_over_features_says_it_ranks_a_vocabulary_only():
-    with pytest.raises(PlanError, match=r"steps\.top: 'argmax' needs a value with a 'vocab_size' axis; this one is "
-                                        r"\['rows', 'pos', 'features'\]; it ranks a vocabulary's tokens, and over "
-                                        r"another axis \(an sae's features, a probe's classes\) it is not an op yet: "
-                                        r"save the value and rank it after the run"):
-        plan(data={"d": DAYS}, featurizers={"rot": {"kind": "subspace", "k": 4}}, steps={
+def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refused():
+    """trial-04 r01: `argmax` over an encode's features said it ranks a vocabulary only; `over` names the axis it
+    ranks, `vocab_size` by default, and one the value lacks is refused by name."""
+    def top(**over) -> Plan:
+        return plan(data={"d": DAYS}, featurizers={"rot": {"kind": "subspace", "k": 4}}, steps={
             "f": forward({"z": {"site": LAYER0, "pos": -1, "ops": [{"op": "encode", "featurizer": "rot"}]}}),
-            "top": {"kind": "op", "op": "argmax", "of": "f.z"}}).compile()
+            "top": {"kind": "op", "op": "argmax", "of": "f.z", **over}})
+    with pytest.raises(PlanError, match=r"^steps\.top: it ranks the value's 'vocab_size' axis, and the value is laid "
+                                        r"out \['rows', 'pos', 'features'\]; 'over' names the axis it ranks, one the "
+                                        r"value has \(\"over\": \"features\"\)$"):
+        top().compile()
+    with pytest.raises(PlanError, match=r"^steps\.top: it ranks the value's 'classes' axis"):
+        top(over="classes").compile()
+    assert dims_of(top(over="features").compile(), "top") == ["rows", "pos"]
 
 
 def test_m6_take_on_a_file_keeps_its_first_rows():
