@@ -76,14 +76,14 @@ A scope searches the input for the text as the flags compare it, under `strip` w
 whitespace, its positions the original's.
 
 An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
-token of the vocabulary whose text (what it adds after another token, so a leading space is its own)
-compares the same; without a flag, or for a token that is part of a character, the token alone. Under
-`strip` the answer's whitespace-only tokens at its end are dropped, since what follows an answer is not
-scored; its first token then compares without its leading whitespace and its last without its trailing, a
-one-token answer's without either (` Yes`, ` yes`, `yes` and `YES` under both flags); a token between them
-compares with its whitespace, and a whitespace-only token, at the start or between, stands for itself
-(`" New York "` is `▁New ▁York`, `▁New` standing for `New` too; `" 42"`, on a tokenizer that splits digits,
-is `▁ 4 2`, its `▁` itself alone).
+token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
+the same; without a flag, or for a token that is part of a character, the token alone. Under `strip`
+whitespace-only tokens at the end are dropped, since what follows an answer is not scored, and one at the
+start is kept, since a tokenizer that writes a number's space as its own token makes it a token the model
+says (`" 42"` is `▁ 4 2`, its `▁` itself alone); the first token then compares without leading whitespace and
+the last without trailing, a one-token answer's without either (` Yes`, ` yes`, `yes` and `YES` under both
+flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
+`▁New ▁York`, `▁New` standing for `New` too).
 
 ### A literal in a list `input`
 
