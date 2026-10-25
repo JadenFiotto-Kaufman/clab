@@ -13,6 +13,8 @@ parameter's document spelling (`with_` is `"with"`).
 import inspect
 from typing import Any, Callable
 
+from torch import Tensor
+
 from clab.format import registry
 from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (each read as ops.<name>)
 
@@ -46,9 +48,9 @@ transform, metric or reduction of its entry, or, after an `encode`, before the `
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
 float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
-rounded to its few bits. A value read from the model keeps the model's dtype, and so does every edit, since an
-edit writes back. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
-float32 is exact.
+rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
+to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
@@ -164,10 +166,15 @@ def check(name: str, args: dict) -> None:
 
 def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
     """Run op `name` on `value` with `args` (document spelling, checked and bound to tensors) and those of the
-    run's `supplied` values its signature names."""
+    run's `supplied` values its signature names. An edit runs on `value` and every floating tensor it is given
+    in float32, and its result is cast to `value`'s dtype once (`ABOUT`)."""
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
-    return fn(value, **{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names})
+    given = {**{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names}}
+    if DECLARED[name]["group"] != "edits" or not isinstance(value, Tensor):
+        return fn(value, **given)
+    up = {k: v.float() if isinstance(v, Tensor) and v.is_floating_point() else v for k, v in given.items()}
+    return fn(value.float(), **up).to(value.dtype)
 
 
 def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) -> list[str]:

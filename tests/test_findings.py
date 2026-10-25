@@ -613,7 +613,8 @@ def test_d8_o13_s17_a_bf16_models_mean_cosine_and_probability_are_float32(engine
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16(engines, kind):
     """Each metric and `mean`, `sum`, `min` returns float32 on a bfloat16 model; a value read from the model, and
-    an edit's value, which it writes back, keep the model's dtype, even with a float32 operand."""
+    an edit's value, which it writes back, keep the model's dtype, even with a float32 operand: the edit runs in
+    float32 and rounds once (`add` of the float32 mean, `project_out` of it as a step)."""
     few = {"rows": MANY["rows"][:4]}
     metric = {"match": {"expected": "d.answer"}, "logit_diff": {"a": "d.answer", "b": "d.other"},
               "token_prob": {"token": "d.answer"}, "token_logit": {"token": "d.answer"},
@@ -628,14 +629,16 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
              "sum": {"kind": "op", "op": "sum", "of": "f.w"}, "min": {"kind": "op", "op": "min", "of": "f.w"},
              "gen": {"kind": "generate", "input": "d.input", "max_new_tokens": 2},
              "text": {"kind": "op", "op": "detokenize", "of": "gen"},
-             "contains": {"kind": "op", "op": "contains", "of": "text", "text": "d.answer"}}
+             "contains": {"kind": "op", "op": "contains", "of": "text", "text": "d.answer"},
+             "out": {"kind": "op", "op": "project_out", "of": "base.resid", "direction": "avg"}}
     names = [*metric, "avg", "cosine", "sum", "min", "contains"]
-    filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps,
-                               saves=["base.resid", "f.w", "f.logits", *names]).compile(), kind)
+    kept = ["base.resid", "f.w", "f.logits", "out"]
+    filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps, saves=[*kept, *names]).compile(), kind)
     assert {k: filled.results[k].dtype for k in names} == {k: torch.float32 for k in names}
-    assert {k: filled.results[k].dtype for k in ("base.resid", "f.w", "f.logits")} == \
-        {k: torch.bfloat16 for k in ("base.resid", "f.w", "f.logits")}
-    assert torch.equal(filled.results["f.w"], filled.results["base.resid"] + filled.results["avg"].to(torch.bfloat16))
+    assert {k: filled.results[k].dtype for k in kept} == {k: torch.bfloat16 for k in kept}
+    resid, avg = filled.results["base.resid"], filled.results["avg"]
+    assert torch.equal(filled.results["f.w"], (resid.float() + avg).to(torch.bfloat16))
+    assert torch.equal(filled.results["out"], ops.edits.project_out(resid.float(), avg).to(torch.bfloat16))
 
 
 def test_a_reduction_that_removes_no_axis_is_refused_at_compile(engines):
@@ -812,12 +815,14 @@ def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, 
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_o6_a_dose_is_a_named_value_or_a_number_and_the_two_are_the_same_bits(engines, kind):
+@pytest.mark.parametrize("dtype", ["float32", "bfloat16"])
+def test_o6_a_dose_is_a_named_value_or_a_number_and_the_two_are_the_same_bits(engines, kind, dtype):
     """trial-01: `scale`'s factor and `noise`'s scale took a literal only, so a measured dose was copied by hand.
     Each takes a `Value`, as `add`'s `with` does: a dose named from a `mean` step writes the bits its number
-    written as a literal does. Anything else is refused by name."""
+    written as a literal does, on a bfloat16 model too, where the edit runs in float32 and rounds once. Anything
+    else is refused by name."""
     def doses(dose: Any) -> Plan:
-        return plan(data={"d": DAYS}, steps={
+        return plan(model={**TINY, "dtype": dtype}, data={"d": DAYS}, steps={
             "base": forward({"h": {"site": LAYER0, "pos": -1}}),
             "dose": {"kind": "op", "op": "mean", "of": "base.h", "over": ["rows", "pos", "hidden_size"]},
             "scaled": forward({"w": {"site": LAYER0, "pos": -1, "ops": [{"op": "scale", "factor": dose}]},
@@ -826,12 +831,12 @@ def test_o6_a_dose_is_a_named_value_or_a_number_and_the_two_are_the_same_bits(en
                               "logits": {"site": HEAD, "pos": -1}})},
             saves=["dose", "scaled.w", "scaled.logits", "noisy.w", "noisy.logits"]).compile()
     named = run(engines, doses("dose"), kind).results
-    assert named["dose"].shape == () and named["dose"].item() != 0
+    assert named["dose"].shape == () and named["dose"].dtype == torch.float32 and named["dose"].item() != 0
     literal = run(engines, doses(named["dose"].item()), kind).results
-    assert same(named, literal)
-    assert torch.equal(named["scaled.w"], run(engines, plan(data={"d": DAYS}, steps={
+    assert same(named, literal) and named["scaled.w"].dtype == named["noisy.w"].dtype == getattr(torch, dtype)
+    h = run(engines, plan(model={**TINY, "dtype": dtype}, data={"d": DAYS}, steps={
         "base": forward({"h": {"site": LAYER0, "pos": -1}})}, saves=["base.h"]).compile(), kind).results["base.h"]
-        * named["dose"])
+    assert torch.equal(named["scaled.w"], (h.float() * named["dose"]).to(h.dtype))
     for dose, message in ((True, r"factor: True is not a named value or a number"),
                           ({"x": 1}, r"factor: \{'x': 1\} is not a named value or a number"),
                           ("nothing", r"factor: 'nothing' names no value produced before this step")):

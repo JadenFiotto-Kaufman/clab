@@ -32,7 +32,7 @@ def sub(of: Tensor, with_: Value) -> Tensor:
 @op("edits")
 def scale(of: Tensor, factor: Value) -> Tensor:
     """`of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step)."""
-    return of * torch.as_tensor(factor, dtype=of.dtype, device=of.device)
+    return of * torch.as_tensor(factor, device=of.device)
 
 
 @op("edits")
@@ -96,12 +96,12 @@ def noise(of: Tensor, scale: Value, dims: list[str], seed: int = 0, rows: Tensor
     """`of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise
     standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes
     from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a
-    step over a value that holds no positions, its index along `pos`), then moved to the value's device and
-    dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a
-    write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a
-    document draws the same bits on any device. A value with no rows is one draw from `seed`."""
+    step over a value that holds no positions, its index along `pos`), then moved to the value's device. So
+    batch size, sweep point and forward call never change it, no two rows or positions share one, a write across
+    layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws
+    the same bits on any device. A value with no rows is one draw from `seed`."""
     lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
-    scale = torch.as_tensor(scale, dtype=of.dtype, device=of.device)
+    scale = torch.as_tensor(scale, device=of.device)
     if rows is None or not lead:
         return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
     shape = [of.shape[i] for i in lead]

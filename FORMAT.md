@@ -407,9 +407,9 @@ transform, metric or reduction of its entry, or, after an `encode`, before the `
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
 float32 (`pca` works in double), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
-rounded to its few bits. A value read from the model keeps the model's dtype, and so does every edit, since an
-edit writes back. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
-float32 is exact.
+rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
+to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
 space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
@@ -499,7 +499,7 @@ stays missing: NaN.
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
-| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device and dtype. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
+| `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
 ### Transforms
