@@ -85,25 +85,32 @@ def aligned(path: str, of: tuple[str | None, str], found: dict[str, Known]) -> s
     return next(iter(datasets), None)
 
 
-def paired(path: str, name: str, dims: list[str], width: int | None, found: dict[str, Known]) -> None:
-    """A metric's operand (`kl`'s `against`, `cosine`'s `with`) is laid out as the value it scores, as many
-    positions wide, or is one vector of its features; one without a static width lines up with nothing."""
-    if ops.DECLARED[name]["group"] != "metrics":
+def paired(path: str, name: str, dims: list[str], width: int | None, found: dict[str, Known],
+           step: bool = False) -> None:
+    """A metric's operand (`kl`'s `against`, `cosine`'s `with`), and in a step an edit's (inside an entry
+    `operands` checks those), is laid out as the value the op acts on, as many positions wide, or is one vector of
+    its features, each at one layer: a `layers` axis of either aligns by label (`acts_at`). One without a static
+    width lines up with nothing."""
+    group = ops.DECLARED[name]["group"]
+    if group != "metrics" and not (step and group == "edits"):
         return
+    dims = address.unstacked(dims)
     one = [a for a in dims if a not in address.EXAMPLE_AXES]
+    verb = "scores" if group == "metrics" else "acts on"
     for key, info in found.items():
-        if info.kind != "value":
+        if info.kind != "value" or (name == "apply" and key == "with"):
             continue
         if "pos" in info.dims and info.width is None:
             fail(f"{path}.{key}", f"{info.name!r} holds a different number of positions on each row, which pair "
                  f"with no other value's; read both at a static index (pos -1, or {{'index': '-3:'}})")
-        if info.dims not in (dims, one):
-            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {name!r} scores a value laid out "
-                 f"{dims}, so its {key!r} is laid out so too, or is one vector {one}")
-        if "pos" in dims and info.dims == dims and info.width != width:
+        if address.unstacked(info.dims) not in (dims, one):
+            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {name!r} {verb} a value laid out "
+                 f"{dims}, so its {key!r} is laid out so too, or is one vector {one} (either with a layers axis "
+                 "first)")
+        if "pos" in dims and address.unstacked(info.dims) == dims and info.width != width:
             fail(f"{path}.{key}", f"{info.name!r} holds {info.width} position(s) per row and the value "
-                 f"{name!r} scores holds {width}; position i scores against position i, so both are read at as "
-                 "many (a pos axis broadcasts no more than a layers axis does)")
+                 f"{name!r} {verb} holds {width}; position i {'scores against' if group == 'metrics' else 'meets'} "
+                 "position i, so both are read at as many (a pos axis does not broadcast)")
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:

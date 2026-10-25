@@ -81,8 +81,8 @@ def compile(plan: Plan) -> Plan:
                  f"{', '.join(saveable)}")
     gathered(compiled["steps"], cx.used | set(plan.saves))
     done = Plan(**{**doc, **compiled, "sites": {}, "interventions": {}, "compiled": True, "document": plan.document,
-                   "sweeps": {label: {"path": ".".join(map(str, path)), "values": values[label]}
-                              for path, label in sweeps.items()},
+                   "sweeps": {label: {"paths": [".".join(map(str, path)) for path, of in sweeps.items() if of == label],
+                                      "values": values[label]} for label in values},
                    "data": {n: {**doc["data"][n], "rows": rows[n], "sha256": data.digest(rows[n]),
                                 "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
@@ -235,7 +235,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
     kind = called(cx, plan, path, spec.op, args)
     found = references(cx, path, spec.op, args, "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
-    paired(path, spec.op, of.dims, of.width, found)
+    paired(path, spec.op, of.dims, of.width, found, step=True)
     if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)

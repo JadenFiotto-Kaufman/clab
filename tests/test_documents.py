@@ -484,14 +484,16 @@ def test_a_bundle_made_at_a_layer_counted_from_the_last_says_the_layer_it_is(eng
 
 
 def test_a_metrics_operand_is_laid_out_as_the_value_it_scores():
-    """A metric (`cosine` here, `kl` and `js` alike) scores a value against another laid out as it is, or
-    against one vector; a stacked or ragged operand beside a one-layer, rectangular value is refused by name."""
+    """A metric (`cosine` here, `kl` and `js` alike) scores a value against another laid out as it is at each
+    layer, or against one vector (a layers axis of either aligns by label, as test_layers.py pins); another
+    layout, or a ragged operand beside a rectangular value, is refused by name."""
     def change(d, op, operand_site, pos):
         d["steps"]["clean"]["interventions"]["other"] = {"site": operand_site, "pos": pos}
         d["steps"]["similarity"] = {"kind": "op", "op": op, "of": "patched.resid", "with": "clean.other"}
-    stacked = {"component": "layer_output", "layers": [0, 2]}
-    for site, pos, message in ((stacked, {"index": "-2:"}, r"is laid out \['layers', 'rows', 'pos', 'hidden_size'\]; "
-                                                            r"'cosine' scores a value laid out \['rows', 'pos', 'hidden_size'\]"),
+    heads = {"component": "attention_premix", "layers": [0, 2]}
+    for site, pos, message in ((heads, {"index": "-2:"}, r"is laid out \['layers', 'rows', 'pos', 'num_heads', "
+                                                          r"'head_dim'\]; 'cosine' scores a value laid out \['rows', "
+                                                          r"'pos', 'hidden_size'\]"),
                                ({"component": "layer_output", "layers": 0}, {"index": ":"},
                                 r"holds a different number of positions on each row, which pair with no other "
                                 r"value's; read both at a static index")):

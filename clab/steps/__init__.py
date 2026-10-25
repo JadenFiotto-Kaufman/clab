@@ -24,6 +24,7 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile.answers import probe_of
+from clab.compile.interventions import acts_at
 from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
@@ -151,31 +152,34 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
     """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
     rows.
 
-    An entry whose `layers` are a slice or picks is one read per layer, the ops after its last edit run on
-    each, stacked layer-first; one whose rows hold different numbers of positions is as wide as the widest,
-    NaN past a row's own."""
+    An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
+    after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
+    positions is as wide as the widest, NaN past a row's own."""
     parts = []
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
         got = engine.forward(batch, records)
         parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
-                                                 state, step.at, found.answers)
+                                                 state, step.at, found.answers, layer)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
     joined(state, name, step, parts)
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_size: int, found: Found) -> None:
-    """The op over the whole value `of` names, given each of its rows' dataset row. `top_k`'s value also holds
-    its tokens, decoded."""
+    """The op over the whole value `of` names, given each of its rows' dataset row, at the layers `of` is at
+    (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value also holds its tokens,
+    decoded."""
     of = lookup(state, step.of, step.at)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
     dims = dims_of(plan, step.of)
     vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims else None
     rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    sizes = engine.sizes()
     value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, found.answers, of,
-                                        vocabulary, dims=dims), engine=engine, dims=dims,
+                                        vocabulary, dims=dims, layers=acts_at(plan, step.of, step.at, sizes),
+                                        sizes=sizes), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k":
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

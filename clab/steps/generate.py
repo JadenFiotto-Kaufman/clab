@@ -25,7 +25,6 @@ from clab.steps.batches import (
     site,
     stacked,
     with_ops,
-    write_name,
 )
 
 if TYPE_CHECKING:
@@ -65,7 +64,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
                               encoded[chunk], rows[chunk], eos, most)
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
         out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk, state,
-                                          step.at, found.answers) for layer in layers(engine, record)])
+                                          step.at, found.answers, layer) for layer in layers(engine, record)])
                for key, record in every.items() if key in first and record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
         for key, record in after.items():
@@ -74,7 +73,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
             if record.gathered:
                 out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(read_name(key, layer, True)),
                                                      got[read_name(key, layer)], where, encoded[chunk], chunk, state,
-                                                     step.at, head(step, record), most, found.answers)
+                                                     step.at, head(step, record), most, found.answers, layer)
                                             for layer in layers(engine, record)])
         parts.append(out)
         new.append(ids)
@@ -91,26 +90,26 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
 def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
            found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
            eos: set[int], most: int | None) -> list[dict]:
-    """An entry past the prefill as the engine takes it in one batch, in parts: a write's prefill part, where
-    its frame holds the prompt, and its decode part (`calls`: the frame's own, or None for every decode call;
-    a write with a text scope goes to every call with each row's texts, `online`, and lands where
-    `positions.landing` says); then a gathered entry's whole prefill (which of its positions it means can
+    """An entry past the prefill as the engine takes it in one batch, in parts: at each layer it is made at, a
+    write's prefill part, where its frame holds the prompt, and its decode part (`calls`: the frame's own, or None
+    for every decode call; a write with a text scope goes to every call with each row's texts, `online`, and lands
+    where `positions.landing` says); then a gathered entry's whole prefill (which of its positions it means can
     depend on what the row says) and its decode calls, one read per layer, each at the call's one position."""
     pos = positions.parse(record.pos)
     holds, calls, _ = positions.reach(pos, most)
-    head_only, layer = head(step, record), layers(engine, record)[0]
+    head_only = head(step, record)
     prompts = [len(e["ids"]) for e in encoded]
     out = []
     if writes(record):
-        edits = edit(plan, record, state, step.at, chunk, found.answers)
-        if holds:
-            where = [positions.prompted(p, head_only) for p in prompts]
-            out.append({**site(record, picks, where, pads, padded, head_only), "name": write_name(key, True),
-                        "layer": layer, "ops": edits})
         online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
             if pos["scope"] else {}
-        out.append({**decoding(record, picks, prompts), "name": write_name(key), "layer": layer, "ops": edits,
-                    "calls": None if online else calls, **online})
+        where = [positions.prompted(p, head_only) for p in prompts]
+        for layer in layers(engine, record):
+            edits = edit(plan, record, state, step.at, chunk, found.answers, layer, engine.sizes())
+            if holds:
+                out.append({**site(record, picks, where, pads, padded, head_only), "layer": layer, "ops": edits})
+            out.append({**decoding(record, picks, prompts), "layer": layer, "ops": edits,
+                        "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
             whole = [positions.prompted(p) for p in prompts]
@@ -155,7 +154,7 @@ def generated(engine: Engine, name: str, batch: dict, records: list[dict], optio
 
 def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whole: Tensor | None,
              values: list[Tensor], where: list, encoded: list[dict], rows: slice, state: dict, at: dict,
-             head_only: bool, most: int | None, answers: dict) -> Any:
+             head_only: bool, most: int | None, answers: dict, layer: int | None) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
@@ -163,7 +162,7 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whol
     asked for that the batch made); then the ops after its last edit; `picks` is what its `select` keeps. The
     value is `[rows, width, ...]`, `width` the record's, or the most positions a row resolved to, NaN past a
     row's own and on a row it does not reach. `most` is the step's `max_new_tokens`, which bounds the calls it
-    asked for."""
+    asked for; `layer` is the layer this is the value at."""
     pos = positions.parse(record.pos)
     _, asked, _ = positions.reach(pos, most)
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
@@ -187,4 +186,4 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whol
         for j, p in enumerate(got):
             value[i, j] = at_position(i, p)
     places = torch.tensor([got + [-1] * (width - len(got)) for got in found], dtype=torch.long).reshape(len(where), width)
-    return with_ops(engine, plan, record, value, state, at, rows, places, answers)
+    return with_ops(engine, plan, record, value, state, at, rows, places, answers, layer)

@@ -60,6 +60,15 @@ open, a `decode` with no `encode` open, one of another featurizer than the open 
 of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
 adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.
 
+An op acts at the layers of the value it meets: inside an entry, at each layer the entry is made at in turn; as
+a step, at the layers `of`'s `layers` axis is labelled with, or at the one layer a value without that axis was
+read at. An operand with a `layers` axis is aligned to them by label: at layer L the op takes the operand's slice
+labelled L, whatever order either lists its layers in, so a `kl` step between lenses at `[0, 1, 2]` and
+`[2, 1, 0]` pairs layer with layer, and an entry at layer 3 takes slice 3; a layer the op acts at that the
+operand does not hold is refused by name before any forward, and so is such an operand where the op acts at no
+layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
+every layer, as a direction is.
+
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column
 (a `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a

@@ -617,7 +617,9 @@
  "compiled": true,
  "sweeps": {
   "mask.mask": {
-   "path": "steps.fit.objective.mask.mask",
+   "paths": [
+    "steps.fit.objective.mask.mask"
+   ],
    "values": [
     0.0001,
     0.002,

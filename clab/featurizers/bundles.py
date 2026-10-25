@@ -23,9 +23,9 @@ OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "laye
 def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None, site: Site | None = None,
            width: int | None = None, document: str | None = None, reads: Site | None = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
-    list), the model, and, when written, the site it was used at, its width and the document's name, and the
-    site it read its input at when that was another (`reads`, a cross-site adapter's `with`: `with.component`,
-    `with.layer`)."""
+    list), the model, and, when written, the site it was used at (its `layer` the one int, or the list, of the
+    layers it was made at, counted from the first), its width and the document's name, and the site it read its
+    input at when that was another (`reads`, a cross-site adapter's `with`: `with.component`, `with.layer`)."""
     params = inspect.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
     # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
@@ -39,6 +39,18 @@ def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None,
     if reads is not None:
         found.update({"with.component": reads.component, "with.layer": str(reads.layers)})
     return found
+
+
+def recorded(layer: str | None) -> list[int | None]:
+    """The layers a header's `layer` (or `with.layer`) says a bundle was made at: its one int, or its list's; None
+    for a model's own value. A header that says neither records none."""
+    if layer == "None":
+        return [None]
+    try:
+        found = json.loads(layer or "")
+    except ValueError:
+        return []
+    return [found] if isinstance(found, int) else found if isinstance(found, list) else []
 
 
 def load(root: str, kind: str, fields: dict[str, Any], model: Model, labels: list | None

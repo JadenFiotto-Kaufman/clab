@@ -133,7 +133,7 @@ def test_decode_runs_only_inside_the_entry_that_encodes():
 
 def test_an_operand_names_an_earlier_entry_whose_ops_all_write():
     """An operand from the same forward is taken off the model as the forward reaches it, so it names an
-    earlier entry, with no op after its last edit, at one layer."""
+    earlier entry, with no op after its last edit."""
     def operand(entries):
         def change(d):
             step = d["steps"]["patched"]

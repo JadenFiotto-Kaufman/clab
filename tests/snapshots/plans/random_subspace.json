@@ -393,7 +393,9 @@
  "compiled": true,
  "sweeps": {
   "seed": {
-   "path": "featurizers.rot.seed",
+   "paths": [
+    "featurizers.rot.seed"
+   ],
    "values": [
     0,
     1,

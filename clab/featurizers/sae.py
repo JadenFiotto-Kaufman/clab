@@ -33,10 +33,10 @@ class Sae(Kind):
     are checked against each other and the site's width, and nothing in it says what model it was trained on, so
     the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
     the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
-    site it is used at is, component and layer (`layers: -1` counting as the layer it is). A `site` given for any
-    sae is checked so. Its
-    scalars, over every vector the body read its coordinates of in that run of the body: `reconstruction`, the
-    mean of ‖h − (z @ W_dec + b_dec)‖², and `l1`, the mean |z|."""
+    site it is used at is, component and layer, at each layer the site picks (`layers: -1` counting as the
+    layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the body read its
+    coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and
+    `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
     scalars = ("reconstruction", "l1")

@@ -254,7 +254,9 @@
  "compiled": true,
  "sweeps": {
   "pos": {
-   "path": "steps.patched.interventions.patch.pos",
+   "paths": [
+    "steps.patched.interventions.patch.pos"
+   ],
    "values": [
     -1,
     -2,

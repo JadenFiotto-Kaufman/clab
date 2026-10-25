@@ -227,7 +227,9 @@
  "compiled": true,
  "sweeps": {
   "frame": {
-   "path": "steps.patched.interventions.logits.pos.frame",
+   "paths": [
+    "steps.patched.interventions.logits.pos.frame"
+   ],
    "values": [
     0,
     1,

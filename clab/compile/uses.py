@@ -6,9 +6,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-from clab.featurizers import KINDS, Kind, labels, make
+from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
-from clab.format.selectors import Selector, selected
+from clab.format.selectors import Selector, made_at, selected
 from clab.plan import (
     Featurizer,
     Op,
@@ -46,15 +46,19 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
 
 
 def bundled_sites(plan: Plan) -> None:
-    """A bundle's header names the site it was made at, its layer counted from the first; every site its
-    featurizer is used at is that one. A layer counted from the last is the model's to resolve, and preflight
-    checks it."""
+    """A bundle's header names the component it was made at and the layers, counted from the first
+    (`bundles.recorded`); every site its featurizer is used at is that component, and each layer it picks is one
+    of those. A layer counted from the last, and a site that picks several, are the model's to resolve, and
+    preflight checks each layer."""
     for name, records in uses(plan).items():
         for where, site, at, _, _ in records:
             f = agreeing(plan.featurizers[name], at)
-            layer = [] if isinstance(site.layers, int) and site.layers < 0 else [("layer", str(site.layers))]
-            for key, value in [("component", site.component), *layer]:
-                if f.header is not None and f.header.get(key) != value:
+            if f.header is None:
+                continue
+            known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
+            for key, ok in (("component", f.header.get("component") == site.component),
+                            ("layer", not known or site.layers in bundles.recorded(f.header.get("layer")))):
+                if not ok:
                     fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
                          f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
                          f"{site.layers} ({where})")
@@ -88,17 +92,20 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
                     raise ValueError(f"{where}: featurizer {name!r} has {field} {count}, and it is used at width "
                                      f"{width} ({site.component}), which has no more than {width} directions; "
                                      f"{field} is at most {width}")
-            layer = selectors.select(site.layers, sizes["num_layers"]) if isinstance(site.layers, int) else None
             stated = (f.model_extra or {}).get("site")
-            if stated is not None and (stated["component"], at_layer(stated["layers"], sizes["num_layers"])) != \
-                    (site.component, at_layer(site.layers, sizes["num_layers"])):
-                raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
-                                 f"{stated['layers']} (its site); this use is {site.component} layer {site.layers}")
-            if f.header is not None and layer and f.header.get("layer") != str(layer[0]):
-                raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
-                                 f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
-                                 f"layer {site.layers}, which is layer {layer[0]}")
-            read_with(plan, where, at, f, o, sizes["num_layers"])
+            for layer in made_at(site, sizes["num_layers"]):         # each layer the use is made at
+                which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
+                if stated is not None and (stated["component"], at_layer(stated["layers"], sizes["num_layers"])) != \
+                        (site.component, str(layer)):
+                    raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
+                                     f"{stated['layers']} (its site); this use is {site.component} layer "
+                                     f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
+                if f.header is not None and site.layers is not None and \
+                        layer not in bundles.recorded(f.header.get("layer")):
+                    raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
+                                     f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
+                                     f"layer {site.layers!r}, which {which}")
+                read_with(plan, where, at, f, o, layer, sizes["num_layers"])
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
@@ -123,14 +130,16 @@ def at_layer(layers: object, n: int) -> str:
     return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
-def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, n: int) -> None:
+def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, layer: int | None, n: int) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
-    `with.component` and `with.layer`) is used reading it there, and one made without reads none: the width check
-    alone would pass an o_proj adapter fed its own output, whose width can equal the premix's. A featurizer
-    with no clab header (drawn, or a published file) records neither."""
+    `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
+    `with` that stacks is read there at that layer), and one made without reads none: the width check alone would
+    pass an o_proj adapter fed its own output, whose width can equal the premix's. A featurizer with no clab
+    header (drawn, or a published file) records neither."""
     if f.header is None:
         return
-    given, recorded, layer = arguments(o).get("with"), f.header.get("with.component"), f.header.get("with.layer")
+    given, recorded, recorded_layer = arguments(o).get("with"), f.header.get("with.component"), \
+        f.header.get("with.layer")
     file = (f.model_extra or {})["file_path"]
     if recorded is None and given is not None:
         raise ValueError(f"{where}: {file}'s header records no input site (with.component): it was trained on its "
@@ -138,12 +147,14 @@ def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, n: int) ->
     if recorded is None:
         return
     if given is None:
-        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and "
-                         f"this use gives no 'with'; give 'with' an entry at {recorded} layer {layer}")
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {recorded_layer} "
+                         f"(with), and this use gives no 'with'; give 'with' an entry at {recorded} layer "
+                         f"{recorded_layer}")
     site = entry_of(scope(plan, where), given, at)[1].site
-    if (site.component, at_layer(site.layers, n)) != (recorded, layer):
-        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {layer} (with), and "
-                         f"this use's with {given!r} is {site.component} layer {at_layer(site.layers, n)}")
+    made = layer if address.stacks(site.layers) else made_at(site, n)[0]
+    if site.component != recorded or made not in bundles.recorded(recorded_layer):
+        raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {recorded_layer} "
+                         f"(with), and this use's with {given!r} is {site.component} layer {made}")
 
 
 def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device: str = "cpu") -> Kind:

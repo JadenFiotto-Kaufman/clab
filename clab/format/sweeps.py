@@ -4,6 +4,7 @@ point."""
 from __future__ import annotations
 
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -15,33 +16,49 @@ UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train",
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:
-    """Every `{"sweep": [...]}` standing for a value, by document path, labelled by the last key of its path.
+    """Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
+    the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
+    else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
 
     A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-    source, or a `file_path`. Two sweeps with one label are refused; one sweep reached from two places (a swept site
-    two steps use) is one axis, so its points zip rather than cross. A step that uses a swept thing, or
-    references a value that varies, becomes a list of points, one per combination of its axes, each a whole
-    step whose `at` gives its index on each axis; a step no sweep touches runs once. A saved value of a
-    swept step is a dict keyed by coordinate: the axis's value, or a tuple of them in axis order.
+    source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+    values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
+    two steps use); sweeps with one label and different values are refused, and sweeps with different labels
+    cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
+    "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}`
+    each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
+    of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
+    points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
+    sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
+    tuple of them in axis order.
     """
     found: dict[tuple, str] = {}
+    first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values
 
     def walk(value: Any, path: tuple) -> None:
-        if isinstance(value, dict) and set(value) == {"sweep"}:
+        if isinstance(value, dict) and "sweep" in value and set(value) <= {"sweep", "label"}:
             where = ".".join(map(str, path))
-            label = next(k for k in reversed(path) if isinstance(k, str))
-            if path[0] in ("description", "model") or label in UNSWEPT:
-                raise ValueError(f"{where}: a sweep cannot stand for {label!r}")
-            for other, other_label in found.items():
-                if other_label == label:
-                    raise ValueError(f"{where}: label {label!r} is also the sweep at {'.'.join(map(str, other))}; a "
-                                     "sweep's label is the name of the field it stands for, so two sweeps of one "
-                                     "field name cannot cross: sweep one of them and put each value of the other in "
-                                     "a step of its own (or have both use one swept site or step, which zips them)")
+            field = next(k for k in reversed(path) if isinstance(k, str))
+            if path[0] in ("description", "model") or field in UNSWEPT:
+                raise ValueError(f"{where}: a sweep cannot stand for {field!r}")
+            given = value.get("label")
+            label = field if given is None else given
+            if given is not None and not (isinstance(label, str) and re.fullmatch(r"\w+", label)):
+                raise ValueError(f"{where}.label: {label!r}: a sweep's label is letters, digits and underscores, "
+                                 "since its points are keyed `<label>=<value>`, joined by commas")
+            if holds_sweep(value["sweep"]):
+                raise ValueError(f"{where}: a sweep's values hold no sweep")
+            if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
+                other, values = first[label]
+                raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
+                                 f"is one axis, whose sweeps pair their points: give one of them its own label to "
+                                 f"cross them ({{'sweep': [...], 'label': '<name>'}}), or the same values to pair "
+                                 "them")
+            first.setdefault(label, (where, value["sweep"]))
             found[path] = label
         elif isinstance(value, dict):
             for k, v in value.items():
-                if k not in ("results", "run", "sweeps"):
+                if path or k not in ("results", "run", "sweeps"):        # a plan's own derived fields hold none
                     walk(v, path + (k,))
         elif isinstance(value, list):
             for i, v in enumerate(value):
@@ -49,6 +66,13 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
     walk(document, ())
     return found
+
+
+def holds_sweep(value: Any) -> bool:
+    """Whether `value` is, or holds anywhere inside it, a `{"sweep": ...}`."""
+    if isinstance(value, dict):
+        return "sweep" in value or any(map(holds_sweep, value.values()))
+    return isinstance(value, list) and any(map(holds_sweep, value))
 
 
 def points(entry: Any) -> list:

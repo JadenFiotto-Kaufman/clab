@@ -398,7 +398,9 @@
  "compiled": true,
  "sweeps": {
   "features": {
-   "path": "steps.zeroed.interventions.ablate.ops.0.select.features",
+   "paths": [
+    "steps.zeroed.interventions.ablate.ops.0.select.features"
+   ],
    "values": [
     0,
     1,

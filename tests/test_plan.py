@@ -31,7 +31,7 @@ def compiled_form(plan: Plan) -> dict:
 
 
 def test_the_corpus_is_the_31_documents_and_the_examples_since():
-    assert len(NAMES) == 31 + 13 and {"sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
+    assert len(NAMES) == 31 + 14 and {"direction_ablation", "sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
                                       "clamp_write", "cosine_metric", "forced_answer", "answer_spellings",
                                       "generated_contains", "generated_confidence"} <= set(NAMES)
     assert REAL == ["real/behavior", "real/das", "real/head_patching", "real/layer_sweep", "real/pattern_patching"]
@@ -253,8 +253,8 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
                                                    r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
     (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' names no step's value; a save is a step or a step's member"),
-    (lambda d: d["sites"]["target"].update(layers=":"),
-     r"steps\.patched\.interventions\.patch\.site: an entry that writes names its layer"),
+    (lambda d: d["sites"]["target"].update(layers="0:0"),
+     r"sites\.target\.layers: '0:0' picks nothing, however many things there are"),
 ])
 def test_a_compile_error_names_the_path(change, message):
     with pytest.raises(PlanError, match=message):

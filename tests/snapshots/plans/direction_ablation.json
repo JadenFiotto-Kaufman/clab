@@ -1,0 +1,106 @@
+{
+ "description": "A direction ablated at every layer in one entry: each layer's mean residual stream at the prompts' last token (`direction`, one vector per layer, its layers axis labelled 0 to 4) is projected out of every token's residual stream at every layer, `layers: \":\"`. At layer L the write takes the direction's slice labelled L, in one forward, so the one entry means the five entries of one layer each that it replaces, to the bit. After its edit the entry scores what each layer's stream keeps along its own direction (`cosine`, zero to within rounding), so its value has the layers axis first. The logit difference after the ablation is saved beside it.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-gpt2",
+  "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"
+ },
+ "data": {
+  "pairs": {
+   "path": "counting/train",
+   "sha256": "a6dddab9ac905ac91c29a904980cf2005c547c02e1b2611988915ee992a8e9b9",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "harvest": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "interventions": {
+    "acts": {
+     "site": {
+      "component": "layer_output",
+      "layers": ":"
+     },
+     "pos": -1,
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "pairs"
+  },
+  "direction": {
+   "kind": "op",
+   "op": "mean",
+   "of": "harvest.acts",
+   "dataset": "pairs",
+   "dims": [
+    "layers",
+    "hidden_size"
+   ]
+  },
+  "ablated": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "interventions": {
+    "ablate": {
+     "site": {
+      "component": "layer_output",
+      "layers": ":"
+     },
+     "ops": [
+      {
+       "op": "project_out",
+       "direction": "direction"
+      },
+      {
+       "op": "cosine",
+       "with": "direction"
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos"
+     ],
+     "gathered": true
+    },
+    "logits": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "pairs"
+  },
+  "ablated_ld": {
+   "kind": "op",
+   "op": "logit_diff",
+   "of": "ablated.logits",
+   "dataset": "pairs",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer"
+  }
+ },
+ "saves": [
+  "ablated_ld",
+  "ablated.ablate"
+ ],
+ "document": "documents/direction_ablation.json",
+ "compiled": true
+}
