@@ -2,8 +2,6 @@
 
 What is agreed but not built, in no order. Bring an item up when the owner asks for open items.
 
-- **`strip` on an answer** trims whitespace at the two ends of the whole answer only: an interior
-  whitespace token stays itself (no 441-id class), and a number's leading space token is kept (trial 11).
 - **Dataset options**, all describing where rows come from and how text renders, never computing on
   values: `template` (a dict passed through to `apply_chat_template`, so a generate from a chat can carry
   the generation prompt and `enable_thinking` and keep `turn` scopes), `take` (first N rows, any source),

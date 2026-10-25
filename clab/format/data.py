@@ -127,8 +127,8 @@ def pad(tokenizer: PreTrainedTokenizerBase, ids: list[list[int]], width: int) ->
 
 
 def compared(text: str, strip: bool, lower: bool) -> str:
-    """`text` as the flags compare it, wherever text is compared (a scope's search, an answer's class,
-    `contains`): stripped of surrounding whitespace under `strip`, lowercased under `lower` a character at a
-    time, each kept as it is where lowering would change its length, so a span of the result is the text's."""
+    """`text` as the flags compare it, wherever text is compared (a scope's search, `contains`, and lowercased
+    an answer's class): stripped of surrounding whitespace under `strip`, lowercased under `lower` a character at
+    a time, each kept as it is where lowering would change its length, so a span of the result is the text's."""
     text = text.strip() if strip else text
     return "".join(c.lower() if len(c.lower()) == 1 else c for c in text) if lower else text

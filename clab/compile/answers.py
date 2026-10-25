@@ -99,7 +99,9 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
                 raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
                                  f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
             if aligned and placed is not None and len(placed[r]) != len(row):
-                raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}")
+                read = None if forced is None else [(p, vocabulary(engine.tokenizer)[forced[r][p + 1]])
+                                                    for p in placed[r]]
+                raise ValueError(f"{where}: {unaligned(column, r, value, got.texts[r], len(placed[r]), read)}")
         if forced is None or placed is None:
             continue
         for r, at in enumerate(placed):
@@ -116,12 +118,14 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
 @dataclass
 class Answer:
     """A column reference's answers, resolved once per findings: each row's `values`, per token the ids it may
-    be (`sets`), the `column`, and whether its rows line up with the read (`aligned`: some row is several
-    tokens; else every row is one, which scores every position of its row)."""
+    be (`sets`), the `column`, whether its rows line up with the read (`aligned`: some row is several tokens;
+    else every row is one, which scores every position of its row), and each row's tokens as text (`texts`, a
+    set's first member's), which a refusal names."""
     values: list
     sets: list
     column: str
     aligned: bool
+    texts: list[list[str]]
 
 
 def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str) -> Answer:
@@ -134,7 +138,9 @@ def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str
             sets = answers(engine.tokenizer, values, column, strip, lower)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
-        found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets))
+        texts = [[vocabulary(engine.tokenizer)[i] for i in engine.tokenizer(
+            v[0] if isinstance(v, list) else v, add_special_tokens=False)["input_ids"]] for v in values]
+        found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets), texts)
     return found.answers[key]
 
 
@@ -208,9 +214,10 @@ def answered(answer: Answer, of: Tensor | None, dims: list[str], rows: slice | N
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    for r, (value, row, n) in enumerate(zip(answer.values[part], sets, present(of, dims))):
+    for r, (value, texts, row, n) in enumerate(zip(answer.values[part], answer.texts[part], sets,
+                                                   present(of, dims))):
         if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
-            raise ValueError(unaligned(column, (part.start or 0) + r, value, len(row), n))
+            raise ValueError(unaligned(column, (part.start or 0) + r, value, texts, n, None))
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 
@@ -221,51 +228,67 @@ def present(of: Tensor, dims: list[str]) -> list[int]:
     return (~x.reshape(*x.shape[:2], -1).isnan().all(-1)).sum(1).tolist()
 
 
-def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:
-    """Why a row's answer does not line up with the read a metric scores."""
-    return (f"{column} row {row}: {value!r} is {k} token{'s' * (k != 1)}; the read has {n} position"
-            f"{'s' * (n != 1)} on that row; "
-            "token i of an answer scores the read's position i, so the read carries one per token (a scope with "
-            "\"before\": true reads the positions that predict the answer's tokens)")
+def unaligned(column: str, row: int, value: object, texts: list[str], n: int,
+              read: list[tuple[int, str]] | None) -> str:
+    """Why a row's answer, its tokens `texts`, does not line up with the `n` positions the read a metric scores
+    has on the row; and, where the side with more holds a whitespace-only token at an end (which an answer
+    keeps and a scope under strip does not cover), that side's: the answer's, or the read's, whose positions
+    and the text of the token each predicts are `read` where the read is `before` on the step's input."""
+    k = len(texts)
+    why = (f"{column} row {row}: {value!r} is {k} token{'s' * (k != 1)}; the read has {n} position"
+           f"{'s' * (n != 1)} on that row; "
+           "token i of an answer scores the read's position i, so the read carries one per token (a scope with "
+           "\"before\": true reads the positions that predict the answer's tokens)")
+    longer = texts if k > n else [text for _, text in read or []]
+    blank = [i for i in sorted({0, len(longer) - 1}) if longer and not longer[i].strip()]
+    if not blank:
+        return why
+    if k > n:
+        return why + (f"; the answer's token {blank[0]}, {texts[blank[0]]!r}, is whitespace only: an answer keeps "
+                      "every token as written, and a scope under strip covers no whitespace at its text's ends")
+    p, text = (read or [])[blank[0]]
+    return why + f"; the read's position {p} predicts {text!r}, whitespace only, which the answer has no token for"
 
 
 def answers(tokenizer: PreTrainedTokenizerBase, values: list, column: str, strip: bool,
             lower: bool) -> list[list[list[int]]]:
     """Each row's answer as, per token, the ids it may be. A row's value is a string or a set of them (a list),
-    each tokenized exactly as written without special tokens (`" Friday"` and `"Friday"` are different tokens
-    on most tokenizers; the column says which), and under `strip` without its whitespace-only tokens at either
-    end; a set's members are one width, and its token i is any of theirs. Under `strip` or `lower` a token
-    stands for its class (`spellings`). Each position's ids are in first-met order, each once."""
+    each tokenized exactly as written without special tokens, every token kept (`" Friday"` and `"Friday"` are
+    different tokens on most tokenizers; the column says which); a set's members are one width, and its token i
+    is any of theirs. Each token stands for its class (`spelled`). Each position's ids are in first-met order,
+    each once."""
     out = []
     for row, value in enumerate(values):
         members = value if isinstance(value, list) else [value]
-        tokenized = [trimmed(tokenizer, tokenizer(m, add_special_tokens=False)["input_ids"], strip) for m in members]
+        tokenized = [tokenizer(m, add_special_tokens=False)["input_ids"] for m in members]
         if len({len(t) for t in tokenized}) > 1 or not tokenized[0]:
             raise ValueError(f"{column} row {row}: " + (f"{value!r} is no tokens" if not tokenized[0] else
                              "its members are " + ", ".join(f"{m!r} {len(t)}" for m, t in zip(members, tokenized))
                              + " tokens; a set's members are one width, the positions its read aligns"))
-        out.append([list(dict.fromkeys(i for t in tokenized for i in spelled(tokenizer, t[k], strip, lower)))
+        out.append([list(dict.fromkeys(i for t in tokenized for i in spelled(tokenizer, t, k, strip, lower)))
                     for k in range(len(tokenized[0]))])
     return out
 
 
-def trimmed(tokenizer: PreTrainedTokenizerBase, ids: list[int], strip: bool) -> list[int]:
-    """`ids` without the whitespace-only tokens at either end under `strip` (`"  New York "`: `ĠNew ĠYork`)."""
-    texts = vocabulary(tokenizer)
-    while strip and ids and not texts[ids[0]].strip():
-        ids = ids[1:]
-    while strip and ids and not texts[ids[-1]].strip():
-        ids = ids[:-1]
-    return ids
+def spelled(tokenizer: PreTrainedTokenizerBase, ids: list[int], at: int, strip: bool, lower: bool) -> list[int]:
+    """The ids token `at` of an answer's `ids` stands for: the one place a token's class is decided. Its class
+    is every id whose text compares the same (`classed`): under `strip` the answer's first token without its
+    leading whitespace and its last without its trailing (a one-token answer's without either), under `lower`
+    lowercased. A token between the ends compares with its whitespace; under `strip` a whitespace-only token,
+    and anywhere a token that is part of a character (its text is U+FFFD), stands for itself, as every token
+    does without a flag."""
+    text = vocabulary(tokenizer)[ids[at]]
+    lead, trail = strip and at == 0, strip and at == len(ids) - 1
+    if "\ufffd" in text or strip and not text.strip() or not (lead or trail or lower):
+        return [ids[at]]
+    return spellings(tokenizer, lead, trail, lower)[classed(text, lead, trail, lower)]
 
 
-def spelled(tokenizer: PreTrainedTokenizerBase, token: int, strip: bool, lower: bool) -> list[int]:
-    """The ids a token stands for: under `strip` or `lower`, its class, every id whose text compares the same
-    (`compared`); else the token alone. A token that is part of a character (its text is U+FFFD) is its own."""
-    text = vocabulary(tokenizer)[token]
-    if not (strip or lower) or "\ufffd" in text:
-        return [token]
-    return spellings(tokenizer, strip, lower)[data.compared(text, strip, lower)]
+def classed(text: str, lead: bool, trail: bool, lower: bool) -> str:
+    """A token's text as its class compares it: without its leading whitespace under `lead`, its trailing under
+    `trail`, lowercased under `lower` (`data.compared`)."""
+    text = text.lstrip() if lead else text
+    return data.compared(text.rstrip() if trail else text, False, lower)
 
 
 @functools.cache
@@ -278,11 +301,11 @@ def vocabulary(tokenizer: PreTrainedTokenizerBase) -> list[str]:
 
 
 @functools.cache
-def spellings(tokenizer: PreTrainedTokenizerBase, strip: bool, lower: bool) -> dict[str, list[int]]:
-    """Every id of the vocabulary but a part of a character by its text as `strip` and `lower` compare it: the
-    classes an answer's tokens stand for. Made once per tokenizer and flags."""
+def spellings(tokenizer: PreTrainedTokenizerBase, lead: bool, trail: bool, lower: bool) -> dict[str, list[int]]:
+    """Every id of the vocabulary but a part of a character by its text as its class compares it (`classed`):
+    the classes an answer's tokens stand for. Made once per tokenizer and flags."""
     found: dict[str, list[int]] = {}
     for i, text in enumerate(vocabulary(tokenizer)):
         if "\ufffd" not in text:
-            found.setdefault(data.compared(text, strip, lower), []).append(i)
+            found.setdefault(classed(text, lead, trail, lower), []).append(i)
     return found

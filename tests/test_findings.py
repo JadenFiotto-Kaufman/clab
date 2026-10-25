@@ -13,9 +13,10 @@ import torch
 from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, same
 from safetensors import safe_open
 from safetensors.torch import save_file
+from transformers import AutoTokenizer
 
 from clab import Plan, ops
-from clab.compile import positions
+from clab.compile import answers, positions
 from clab.format import data
 from clab.format.sweeps import points
 from clab.ops import metrics, reductions, transforms
@@ -680,6 +681,63 @@ def test_s16_renormalize_by_sum_keeps_a_knocked_out_pattern_row_a_distribution(e
     out[..., 0] = 0
     torch.testing.assert_close(by_sum, out / out.nansum(-1, keepdim=True), equal_nan=True)
     assert not torch.allclose(by_l2.nansum(-1), clean.nansum(-1))
+
+
+QWEN = {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM", "revision": "25bb9b8963688237e94750f6f3e48f1947d3c7a3"}
+
+
+def test_s18_an_answer_under_strip_keeps_every_token_and_widens_only_its_ends():
+    """trial-11 §4.3: under `strip` an interior whitespace token stood for all 441 whitespace-only ids, and a
+    number's leading ` ` was dropped. An answer keeps every token: its first stands for its spellings without
+    leading whitespace, its last for those without trailing, a token between them and a whitespace-only one for
+    itself. A one-token answer's class is the one it always had: every spelling stripped both ways."""
+    tokenizer = AutoTokenizer.from_pretrained(QWEN["key"], revision=QWEN["revision"])
+    texts = answers.vocabulary(tokenizer)
+
+    def classes(value: str, lower: bool = False) -> list[list[str]]:
+        return [[texts[i] for i in ids] for ids in answers.answers(tokenizer, [value], "d.a", True, lower)[0]]
+    blank = [i for i, t in enumerate(texts) if not t.strip() and "�" not in t]
+    assert len(blank) == 441
+    assert classes(" 42") == [[" "], ["4"], ["2"]]                  # this tokenizer splits digits: ` 42` is three
+    first, york, dot = classes(" New York.")
+    assert first == [" New", "New"] and york == [" York"] and {".", ".\n", ".\n\n"} <= set(dot) and " ." not in dot
+    assert all(t.rstrip() == "." for t in dot)
+    assert classes(" New York ") == [[" New", "New"], [" York"], [" "]]
+    assert classes(" New  York") == [[" New", "New"], [" "], [" York"]]
+    for word in (" Yes", "Yes", " Paris", "YES", " the"):
+        for lower in (False, True):
+            ids = tokenizer(word, add_special_tokens=False)["input_ids"]
+            assert len(ids) == 1
+            key = data.compared(texts[ids[0]], True, lower)              # the rule for one token before this PR
+            before = [i for i, t in enumerate(texts) if "�" not in t and data.compared(t, True, lower) == key]
+            assert answers.answers(tokenizer, [word], "d.a", True, lower)[0] == [before]
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_s18_a_strip_answer_and_scope_that_do_not_line_up_name_the_whitespace_only_token(engines, kind):
+    """` 1776` keeps its leading ` ` token as an answer, and a scope under strip covers `1776` alone: refused,
+    naming the answer's token; a scope on ` 1776` with an answer `1776` is refused naming the read's position.
+    The answer under strip with the scope on its text as written lines up, the space its first token's own."""
+    rows = [{"input": "The year was 1776", "year": " 1776", "plain": "1776"}]
+    year = {"column": "d.year", "strip": True}
+
+    def scored(answer: Any, scope: dict) -> Plan:
+        return plan(model=QWEN, data={"d": {"rows": rows}}, steps={
+            "read": forward({"logits": {"site": HEAD, "pos": {"scope": {**scope, "before": True}}}}),
+            "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": answer}},
+            saves=["p", "read.logits"]).compile()
+    refused_before_any_forward(engines, scored(year, {"column": year}),
+                               r"^p: d\.year row 0: ' 1776' is 5 tokens; the read has 4 positions on that row; .*; the "
+                               r"answer's token 0, ' ', is whitespace only: an answer keeps every token as written, "
+                               r"and a scope under strip covers no whitespace at its text's ends$")
+    refused_before_any_forward(engines, scored("d.plain", {"text": " 1776"}),
+                               r"^p: d\.plain row 0: '1776' is 4 tokens; the read has 5 positions on that row; .*; the "
+                               r"read's position 2 predicts ' ', whitespace only, which the answer has no token for$")
+    filled = run(engines, scored(year, {"column": "d.year"}), kind)
+    assert filled.run.positions["read.logits"] == [[2, 3, 4, 5, 6]]
+    space = engines(kind, filled.model).tokenizer(" ", add_special_tokens=False)["input_ids"]
+    probs = filled.results["read.logits"][0, 0].softmax(-1)
+    assert len(space) == 1 and filled.results["p"][0, 0] == probs[space[0]]
 
 
 # -- refusals that say what to do ---------------------------------------------------------------------------------

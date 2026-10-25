@@ -96,7 +96,7 @@ def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
         saves=["clean.logits", "p", "any", "nll", "hit"]).compile()
     filled = run(engines, plan, kind)
     tokenizer = engines(kind, plan.model).tokenizer
-    spelled = answers.spellings(tokenizer, True, True)["yes"]
+    spelled = answers.spellings(tokenizer, True, True, True)["yes"]
     assert sorted(tokenizer.convert_ids_to_tokens(spelled)) == \
         sorted(["▁Yes", "▁yes", "▁YES", "Yes", "yes", "YES"])
     probs = filled.results["clean.logits"][0, 0].softmax(-1)
@@ -180,10 +180,10 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name, and a row with none is missing."""
     of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of, ["rows", "pos", "vocab_size"],
-                 None)
+        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True, [[" T", "ues", "day"]]), of,
+                 ["rows", "pos", "vocab_size"], None)
     missing = torch.full((1, 3, 5), float("nan"))
-    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
+    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True, [[" T", "ues", "day"]]), missing,
                     ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
 
 
@@ -271,20 +271,31 @@ def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_strip_and_lower_at_the_point_of_use(engines, kind):
-    """The proposal's example E: `"  New York "` finds `New York` in the input under lower and strip, and is
-    scored as ▁New ▁York (its whitespace-only end tokens dropped), each against its class."""
-    rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York "}]
+    """The proposal's example E: `"  New York "` finds `New York` in the input under lower and strip. As an
+    answer it keeps every token, `▁ ▁New ▁York ▁`, which does not line up with that scope, and the refusal names
+    the answer's whitespace-only token; `" New York"` is `▁New ▁York`, which does, each scored against its class:
+    `▁New` without its leading whitespace, `▁York` without its trailing, both lowercased."""
+    rows = [{"input": "The Statue of Liberty stands in New York", "city": "  New York ", "near": " New York"}]
+
+    def scored(answer: dict) -> Plan:
+        return Plan(model=TINY, data={"days": {"rows": rows}}, steps={
+            "read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {
+                "site": HEAD, "pos": {"scope": {"column": city, "before": True}}}}},
+            "hit": {"kind": "op", "op": "match", "of": "read.logits", "expected": answer},
+            "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": answer}},
+            saves=["hit", "p", "read.logits"]).compile()
     city = {"column": "days.city", "strip": True, "lower": True}
-    plan = Plan(model=TINY, data={"days": {"rows": rows}}, steps={
-        "read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {
-            "site": HEAD, "pos": {"scope": {"column": city, "before": True}}}}},
-        "hit": {"kind": "op", "op": "match", "of": "read.logits", "expected": city},
-        "p": {"kind": "op", "op": "token_prob", "of": "read.logits", "token": city}},
-        saves=["hit", "p", "read.logits"]).compile()
-    filled = run(engines, plan, kind)
+    refused_before_any_forward(engines, scored(city), r"^hit: days\.city row 0: '  New York ' is 4 tokens; the read "
+                                                      r"has 2 positions on that row; .*; the answer's token 0, ' ', is "
+                                                      r"whitespace only: an answer keeps every token as written, and a "
+                                                      r"scope under strip covers no whitespace at its text's ends$")
+    filled = run(engines, scored({"column": "days.near", "strip": True, "lower": True}), kind)
     assert record(filled).positions["read.logits"] == [[8, 9]]
-    tokenizer = engines(kind, plan.model).tokenizer
-    classes = [answers.spellings(tokenizer, True, True)[w] for w in ("new", "york")]
+    tokenizer = engines(kind, filled.model).tokenizer
+    classes = [answers.spellings(tokenizer, True, False, True)["new"],
+               answers.spellings(tokenizer, False, True, True)[" york"]]
+    assert sorted(tokenizer.convert_ids_to_tokens(classes[0])) == ["NEW", "New", "new", "▁NEW", "▁New", "▁new"]
+    assert tokenizer.convert_ids_to_tokens(classes[1]) == ["▁York"]
     probs = filled.results["read.logits"][0].softmax(-1)
     torch.testing.assert_close(filled.results["p"][0], torch.stack([probs[i, c].sum() for i, c in
                                                                     enumerate(classes)]))
@@ -312,4 +323,4 @@ def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
     tokenizer = engines("nnterp", plan_of("gpt2_reach").model).tokenizer
     parts = [i for i, text in enumerate(answers.vocabulary(tokenizer)) if "�" in text]
     assert len(parts) > 1
-    assert all(answers.spelled(tokenizer, i, True, True) == [i] for i in parts)
+    assert all(answers.spelled(tokenizer, [i], 0, True, True) == [i] for i in parts)
