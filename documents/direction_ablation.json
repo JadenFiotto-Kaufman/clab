@@ -1,0 +1,40 @@
+{
+  "description": "A direction ablated at every layer in one entry: each layer's mean residual stream at the prompts' last token (`direction`, one vector per layer, its layers axis labelled 0 to 4) is projected out of every token's residual stream at every layer, `layers: \":\"`. At layer L the write takes the direction's slice labelled L, in one forward, so the one entry is the five entries of one layer each that it replaces, to the bit (test_layers.py runs both). After its edit the entry scores what each layer's stream keeps along its own direction (`cosine`, zero to within rounding), so its value has the layers axis first. The logit difference before and after is saved.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-gpt2",
+    "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "counting/train"}},
+  "sites": {
+    "every": {"component": "layer_output", "layers": ":"},
+    "head": {"component": "lm_head_output"}
+  },
+  "steps": {
+    "harvest": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {"acts": {"site": "every", "pos": -1}}
+    },
+    "direction": {"kind": "op", "op": "mean", "of": "harvest.acts"},
+    "clean": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {"logits": {"site": "head", "pos": -1}}
+    },
+    "ablated": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "ablate": {"site": "every", "pos": {"index": ":"}, "ops": [
+          {"op": "project_out", "direction": "direction"},
+          {"op": "cosine", "with": "direction"}
+        ]},
+        "logits": {"site": "head", "pos": -1}
+      }
+    },
+    "clean_ld": {"kind": "op", "op": "logit_diff", "of": "clean.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"},
+    "ablated_ld": {"kind": "op", "op": "logit_diff", "of": "ablated.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
+  },
+  "saves": ["clean_ld", "ablated_ld", "ablated.ablate"]
+}

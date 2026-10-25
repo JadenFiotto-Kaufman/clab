@@ -17,6 +17,7 @@ from safetensors.torch import save_file
 from clab import Plan, ops
 from clab.compile import positions
 from clab.format import data
+from clab.format.sweeps import points
 from clab.ops import metrics, reductions, transforms
 from clab.plan import PlanError, dims_of
 
@@ -585,14 +586,14 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
         return plan(data={"d": DAYS}, sites=sites, steps={"f": forward({"x": {"site": "a", "pos": -1},
                                                                          "y": {"site": "b", "pos": -1}})}).compile()
     zipped = two({"sweep": [0, 1]})
-    assert [p.at for p in zipped.steps["f"]] == [{"layers": 0}, {"layers": 1}]
+    assert [p.at for p in points(zipped.steps["f"])] == [{"layers": 0}, {"layers": 1}]
     assert zipped.sweeps["layers"].paths == ["sites.a.layers", "sites.b.layers"]
     with pytest.raises(PlanError, match=r"^sites\.b\.layers: label 'layers' is also the sweep at sites\.a\.layers, "
                                         r"over \[0, 1\]; one label is one axis, whose sweeps pair their points: give "
                                         r"one of them its own label to cross them \(\{'sweep': \[\.\.\.\], 'label': "
                                         r"'<name>'\}\), or the same values to pair them$"):
         two({"sweep": [1, 0]})
-    assert len(two({"sweep": [1, 0], "label": "mlp"}).steps["f"]) == 4
+    assert len(points(two({"sweep": [1, 0], "label": "mlp"}).steps["f"])) == 4
 
 
 def test_m2_a_metric_over_two_reads_without_a_static_width_says_to_read_at_a_static_index():

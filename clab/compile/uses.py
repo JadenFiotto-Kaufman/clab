@@ -95,12 +95,12 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
                 if stated is not None and (stated["component"], at_layer(stated["layers"], sizes["num_layers"])) != \
                         (site.component, str(layer)):
                     raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
-                                     f"{stated['layers']} (its site); this use is {site.component} layer {site.layers}"
-                                     + (f", which {which}" if address.stacks(site.layers) else ""))
+                                     f"{stated['layers']} (its site); this use is {site.component} layer "
+                                     f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
                 if f.header is not None and site.layers is not None and f.header.get("layer") != str(layer):
                     raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                      f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
-                                     f"layer {site.layers}, which {which}")
+                                     f"layer {site.layers!r}, which {which}")
                 read_with(plan, where, at, f, o, layer, sizes["num_layers"])
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
