@@ -2,15 +2,6 @@
 
 What is agreed but not built, in no order. Bring an item up when the owner asks for open items.
 
-- **Writes across layers.** A write's `layers` may be a slice or a list of picks, meaning one write per
-  layer in one spelling. An operand with a `layers` axis is aligned to the write's layers by label (a read at
-  `layers: ":"` into a write at `layers: ":"` pairs layer by layer); an operand without one is broadcast, as a
-  direction already is. Refused: a `layers` selection the operand's axis does not cover. Replaces the
-  hand-unrolled one-write-per-layer documents (trial 1's 3,300-write window grid, trial 5's 108-write
-  all-layer ablation).
-- **Sweep labels.** A sweep object may carry `"label": "<name>"`; the default label stays the field name.
-  Same label zips, different labels cross, exactly today's rule with one more way to name a sweep, so a
-  source-layer × target-layer grid is one step. The "rename one" refusal names `label`.
 - **Float32 metrics and reductions.** `mean`, `sum`, `min`, `cosine`, `kl`, `js`, `token_prob`,
   `token_logit`, `logit_diff`, `cross_entropy`, `match` compute in float32 whatever the model's dtype and
   return float32; values read from the model keep the model's dtype. bf16 `mean` moved in steps of 0.0625,

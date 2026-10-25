@@ -1,13 +1,13 @@
 # clab
 
 clab runs mechanistic-interpretability experiments on transformer language models from declarative JSON
-documents. A document names a pinned checkpoint, its datasets, the forwards and generations to run with
-their interventions on the model's internals (each entry a site, its positions and the ops it runs there:
-an entry with an edit among its ops writes back, and every entry's value is readable by name), the ops that
-score or reduce what they take, and what to save. clab reads it
-into a `Plan`, compiles the plan (rows loaded, names resolved, sweeps expanded into points), runs it inside one
-nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved value
-to a directory with a manifest.
+documents. A document names a pinned checkpoint, its datasets, the forwards and generations to run with their
+interventions on the model's internals (each entry a site, its positions and the ops it runs there, at each
+layer the site picks: an entry with an edit among its ops writes back, and every entry's value is readable by
+name), the ops that score or reduce what they take, and what to save. clab reads it into a `Plan`, compiles
+the plan (rows loaded, names resolved, sweeps expanded into points, one axis per sweep label), runs it inside
+one nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved
+value to a directory with a manifest.
 
 Three engines ship: `nnterp` (primary: nnterp's standardized names on every architecture), `hooks` (plain
 HuggingFace with forward hooks, for module-boundary components) and `ndif` (the nnterp engine over a
@@ -231,7 +231,7 @@ arguments and axis behaviour (grouped as metrics, reductions and edits), every c
 the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
 within their tokens, `index` positions within that, every input token a position), names and scoping, sweeps and the output. It is generated from the code (`clab describe
 --markdown`); a test fails when it is stale.
-`documents/` holds the corpus: the 31 original documents and the example documents added since (44 in all),
+`documents/` holds the corpus: the 31 original documents and the example documents added since (45 in all),
 and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
 
 ## Tests
