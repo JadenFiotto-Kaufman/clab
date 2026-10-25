@@ -41,7 +41,8 @@ class Compiling:
     `names` is its own scope; it shares `refs`, since what the body references is what the fit references,
     `axes_of` and `used`, and maps each featurizer it trains to the name it resolves to there (`aliases`:
     `rot` is `<fit>.rot`, the instance being trained). `points` holds each point of the document built so far,
-    by its coordinates (`point`)."""
+    by its coordinates (`point`), and `chats` each dataset a step reads a chat column of (shared with a body),
+    which a `template` needs."""
     doc: dict
     root: str
     rows: dict[str, list[dict]]
@@ -53,6 +54,7 @@ class Compiling:
     used: set[str]
     aliases: dict[str, str] = field(default_factory=dict)
     points: dict[tuple, Plan] = field(default_factory=dict)
+    chats: set[str] = field(default_factory=set)
 
 
 @dataclass

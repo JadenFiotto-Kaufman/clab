@@ -6,7 +6,7 @@ from typing import Any
 
 from torch import Tensor
 
-from clab.compile import positions
+from clab.compile import dataset, positions
 from clab.format import address, data, selectors
 from clab.format.sweeps import by_point, labelled
 from clab.plan import Plan, arguments, body_view, corpus_root, dims_of, entries, entry_of, points, walk
@@ -220,12 +220,12 @@ def located(plan: Plan, source: str, at: dict[str, int]) -> dict[str, Any]:
 
 
 def materialized(plan: Plan, name: str) -> list[dict[str, Any]]:
-    """A dataset's rows: the plan's, or, after `Plan.load`, read again from its file and checked against the
-    digest the run recorded."""
+    """A dataset's rows: the plan's, or, after `Plan.load`, materialized again from its file and checked against
+    the digest the run recorded."""
     d = plan.data[name]
     if d.rows is not None:
         return d.rows
-    rows = data.rows(corpus_root(plan), d.path or "", d.split)
+    rows = dataset(corpus_root(plan), name, d)
     if data.digest(rows) != d.sha256:
         raise ValueError(f"data.{name}: data/{d.path}.json is not what the run read (its rows' digest differs)")
     return rows

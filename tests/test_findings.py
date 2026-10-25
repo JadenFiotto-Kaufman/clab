@@ -740,6 +740,45 @@ def test_s18_a_strip_answer_and_scope_that_do_not_line_up_name_the_whitespace_on
     assert len(space) == 1 and filled.results["p"][0, 0] == probs[space[0]]
 
 
+CHAT = [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "Say hi."}]
+# The tokens Qwen3's non-thinking generation prompt puts after the last message.
+HEADER = ["<|im_end|>", "Ċ", "<|im_start|>", "assistant", "Ċ", "<think>", "ĊĊ", "</think>", "ĊĊ"]
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_d6_a_chats_template_carries_the_generation_prompt_and_keeps_its_turns(engines, kind):
+    """trial-01, trial-05: a chat rendered without a generation prompt, so a generation from it was pre-rendered
+    by hand and lost its `turn` scopes. A dataset's `template` goes to `apply_chat_template`: the chat ends in
+    the assistant's header, as the pre-rendered prompt does, token for token; the header's tokens are positions
+    (`pos: -1` its last) and no message's (no `assistant` turn); `turn` scopes still find their messages; and a
+    generate from it says what one from the pre-rendered prompt says."""
+    tokenizer = AutoTokenizer.from_pretrained(QWEN["key"], revision=QWEN["revision"])
+    template = {"add_generation_prompt": True, "enable_thinking": False}
+    rows = [{"chat": CHAT, "prompt": tokenizer.apply_chat_template(CHAT, tokenize=False, **template)}]
+
+    def chat(**more) -> Plan:
+        return plan(model=QWEN, data={"d": {"rows": rows, "template": template}}, steps={
+            "f": forward({"user": {"site": LAYER0, "pos": {"scope": {"turn": "user"}}},
+                          "system": {"site": LAYER0, "pos": {"scope": {"turn": "system"}}},
+                          "last": {"site": LAYER0, "pos": -1}, **more}, input="d.chat"),
+            "chat": {"kind": "generate", "input": "d.chat", "max_new_tokens": 3, "do_sample": False},
+            "text": {"kind": "generate", "input": "d.prompt", "max_new_tokens": 3, "do_sample": False}},
+            saves=["chat", "text", "f.last"]).compile()
+    filled = run(engines, chat(), kind)
+    tokens = filled.run.tokens
+    assert tokens["d.chat"] == tokens["d.prompt"] and tokens["d.chat"][0][-9:] == HEADER
+    where = filled.run.positions
+    assert [tokens["d.chat"][0][p] for p in where["f.user"][0]] == ["Say", "Ġhi", "."]
+    assert [tokens["d.chat"][0][p] for p in where["f.system"][0]] == ["Be", "Ġbrief", "."]
+    assert where["f.last"] == [[len(tokens["d.chat"][0]) - 1]]
+    assert torch.equal(filled.results["chat"], filled.results["text"]) and tokens["chat"] == tokens["text"]
+    refused_before_any_forward(engines, chat(header={"site": LAYER0, "pos": {"scope": {"turn": "assistant"}}}),
+                               r"^f\.header: .*the row has no 'assistant' message")
+    plain = plan(model=QWEN, data={"d": {"rows": rows}}, steps={
+        "f": forward({"last": {"site": LAYER0, "pos": -1}}, input="d.chat")}, saves=["f.last"]).compile()
+    assert run(engines, plain, kind).run.tokens["d.chat"][0][-2:] == ["<|im_end|>", "Ċ"]
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 
@@ -805,9 +844,13 @@ def test_m5_argmax_over_features_says_it_ranks_a_vocabulary_only():
             "top": {"kind": "op", "op": "argmax", "of": "f.z"}}).compile()
 
 
-def test_m6_take_on_a_file_is_an_unknown_field():
-    with pytest.raises(PlanError, match=r"data\.d: unknown field 'take'; valid: path, rows, split"):
-        plan(data={"d": {"path": "weekdays/data", "take": 2}}, steps={})
+def test_m6_take_on_a_file_keeps_its_first_rows():
+    """trial-03: `take` on a path dataset said it belonged to hub datasets; it is an option of any dataset."""
+    compiled = plan(data={"d": {"path": "weekdays/data", "take": 2}}, steps={}).compile()
+    assert compiled.data["d"].n_rows == 2
+    with pytest.raises(PlanError, match=r"data\.d: unknown field 'repeat'; valid: path, rows, split, shuffle, take, "
+                                        r"columns, template$"):
+        plan(data={"d": {"path": "weekdays/data", "repeat": 2}}, steps={})
 
 
 def test_m7_a_featurizer_named_as_an_operand_says_it_is_one_and_how_to_reach_it():

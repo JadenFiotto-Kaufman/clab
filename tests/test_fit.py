@@ -608,3 +608,31 @@ def test_inside_the_body_a_trained_featurizers_two_names_are_one_space(engines):
     engine = engines("hooks", plan.model)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
                 engine.execute(edited("das", lambda d: None).compile(), batch_size=BATCH_SIZE).results)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_fits_eval_reads_a_file_whose_columns_are_renamed_to_the_bodys(engines, tmp_path, kind):
+    """das's held-out rows as a file of other column names, renamed back by `columns`: the rows it materializes
+    are the split's, digest included, and the eval under them scores the same, to the bit."""
+    shutil.copytree(DOCUMENTS, tmp_path / "documents")
+    shutil.copytree(os.path.join(ROOT, "data"), tmp_path / "data")
+    names = {"input": "prompt", "cf_answer": "target", "base_answer": "baseline", "counterfactual_inputs": "cfs"}
+    with open(tmp_path / "data" / "weekdays" / "data.json") as f:
+        held = [r for r in json.load(f) if r["split"] == "test"]
+    os.makedirs(tmp_path / "data" / "renamed")
+    with open(tmp_path / "data" / "renamed" / "held.json", "w") as f:
+        json.dump([{names.get(k, k): v for k, v in r.items()} for r in held], f)        # `prompt` for `input`, ...
+
+    def das(change=None) -> Plan:
+        with open(tmp_path / "documents" / "das.json") as f:
+            doc = json.load(f)
+        if change:
+            change(doc)
+        return Plan(**doc, document=str(tmp_path / "documents" / "das.json")).compile()
+    renamed = das(lambda d: d["data"].update(test={"path": "renamed/held", "columns": names}))
+    original = das()
+    assert renamed.data["test"].rows == original.data["test"].rows == held
+    assert renamed.data["test"].sha256 == original.data["test"].sha256
+    engine = engines(kind, original.model)
+    assert same(engine.execute(renamed, batch_size=BATCH_SIZE).results,
+                engine.execute(original, batch_size=BATCH_SIZE).results)

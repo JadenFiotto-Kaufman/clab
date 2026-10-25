@@ -2,11 +2,6 @@
 
 What is agreed but not built, in no order. Bring an item up when the owner asks for open items.
 
-- **Dataset options**, all describing where rows come from and how text renders, never computing on
-  values: `template` (a dict passed through to `apply_chat_template`, so a generate from a chat can carry
-  the generation prompt and `enable_thinking` and keep `turn` scopes), `take` (first N rows, any source),
-  `shuffle: true` (seed 0, recorded in the run), `columns` (a rename map so one file serves a fit's `eval`
-  substitution). No `repeat`.
 - **Op arguments.** `argmax` and `top_k` take `over` (an axis name, default `vocab_size`) so they rank a
   featurizer's coordinates or a probe's classes; `scale`'s `factor` and `noise`'s `scale` accept a named
   value as well as a literal (the `Value` kind `with` already has), so a dose can be a measured norm.

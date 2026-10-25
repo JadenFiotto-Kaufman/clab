@@ -117,7 +117,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 encoded = []
                 for i, r in enumerate(rows):
                     try:
-                        encoded.append(data.encode(tokenizer, data.field(r, step.input)))
+                        encoded.append(data.encode(tokenizer, data.field(r, step.input),
+                                                   plan.data[step.dataset].template))
                     except ValueError as e:
                         raise ValueError(f"{name}: {source} row {i}: {e}") from None
                 found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}

@@ -31,9 +31,22 @@ the model runs (`device`) is a run option, not the document's. The attention int
 - `path: str or null = null`
 - `rows: list of dict or null = null`
 - `split: str or null = null`
+- `shuffle: bool = false`
+- `take: int or null = null`
+- `columns: object of str or null = null`
+- `template: object of Any or null = null`
 
-A dataset: `path` is `data/<path>.json` under the corpus root, or `rows` are inline; `split` keeps the
-rows of a file whose `split` column is that.
+A dataset: where its rows come from and how its text renders, never a computation on its values. `path`
+is `data/<path>.json` under the corpus root, or `rows` are inline. Then, in this order: `split` keeps the
+rows of a file whose `split` column is that; `shuffle` puts the rows in one fixed random order, the same on
+every machine (seed 0); `take` keeps the first N (after `shuffle`, a random sample of N); and `columns`
+renames them, `{"<name>": "<column as the source has it>"}`, each name that column and no longer under its
+own, every other column as it is (so one file serves a fit's `eval` substitution under the body's column
+names). `template` is passed to the checkpoint's `apply_chat_template` wherever a chat column of the
+dataset renders (`{"add_generation_prompt": true, "enable_thinking": false}`), so a chat can end in the
+generation prompt and keep its `turn` scopes. Refused by name: `take` beyond the rows, a `columns` source
+the rows lack, and a `template` on a dataset no step reads a chat column of. `sha256` and `n_rows` describe
+the rows these leave.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -241,10 +254,12 @@ name, a dict of entries, or a list of either) are what it reads and writes, each
 `<step>.<name>`, in the order written.
 
 A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
-template without a generation prompt, so the rendered prompt ends with the template's close of the last
-message (`[/INST]` on Llama-2-style templates, `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no
-scope is that close's last token, a marker or not, and `{"scope": {"turn": "user", "occurrence": 1}}` names
-the second user message's own tokens.
+template, given its dataset's `template` as arguments. Without one there is no generation prompt, so the
+rendered prompt ends with the template's close of the last message (`[/INST]` on Llama-2-style templates,
+`<|im_end|>` and a newline on Qwen3's): `pos: -1` with no scope is that close's last token, a marker or not.
+With `{"add_generation_prompt": true}` it ends with the assistant's header, whose tokens are positions like
+any other and belong to no `turn`, and a generate from it continues after the header. Either way
+`{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
 row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its

@@ -144,6 +144,23 @@ def test_a_table_labels_each_row(filled, tmp_path, monkeypatch):
         filled["hooks"].table("patched.logits")
 
 
+def test_a_loaded_plan_tables_the_rows_a_datasets_options_left(engines, tmp_path, monkeypatch):
+    """A file read shuffled, taken and renamed is materialized again the same way when a loaded plan tables it,
+    and checked against the digest the run recorded."""
+    def change(d):
+        d["data"]["pairs"].update(shuffle=True, take=3, columns={"target": "cf_answer"})
+        d["steps"]["iia"]["expected"] = d["steps"]["logit_diff"]["a"] = "pairs.target"
+    plan = edited("patching", change).compile()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    filled.dump(str(tmp_path))
+    monkeypatch.chdir(ROOT)
+    back = Plan.load(str(tmp_path))
+    assert back.data["pairs"].rows is None and back.data["pairs"].n_rows == 3
+    rows = back.table("iia")
+    assert [r["input"] for r in rows] == [r["input"] for r in plan.data["pairs"].rows or []]
+    assert [r["target"] for r in rows] == [r["target"] for r in plan.data["pairs"].rows or []]
+
+
 def test_clab_run_takes_a_path_or_a_plan_and_a_name_or_an_engine(engines, filled, tmp_path):
     plan = clab.run(document("patching"), engine="hooks", out=str(tmp_path / "a"), batch_size=BATCH_SIZE)
     again = clab.run(Plan(document("patching")), engine=engines("hooks", plan.model), out=str(tmp_path / "b"),
