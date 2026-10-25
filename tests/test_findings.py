@@ -895,6 +895,29 @@ def test_o6_a_dose_is_a_named_value_or_a_number_and_the_two_are_the_same_bits(en
             doses(dose)
 
 
+def test_d6_an_eval_reads_a_dataset_as_another_only_where_their_templates_agree():
+    """A dataset read as another under a fit's `eval` renders its chats with its own `template`, so an eval
+    between datasets whose templates differ would score chats rendered another way than the body trained on."""
+    template = {"add_generation_prompt": True, "enable_thinking": False}
+    rows = [{"chat": [{"role": "user", "content": f"Is {d} a weekday?"}], "label": d[0]} for d in ("Monday", "Sunday")]
+
+    def fit(other: dict) -> Plan:
+        return plan(model=QWEN, data={"days": {"rows": rows, "template": template}, "other": {"rows": rows, **other}},
+                    featurizers={"probe": {"kind": "linear", "classes": "days.label"}}, steps={"fit": {
+                        "kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 2,
+                        "seed": 0, "optimizer": {"name": "adam", "lr": 0.5}, "eval": {"plain": {"days": "other"}},
+                        "steps": {"read": forward({"scores": {"site": LAYER0, "pos": -1, "ops": [
+                            {"op": "encode", "featurizer": "fit.probe"}]}}, input="days.chat"),
+                            "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores",
+                                   "target": "days.label"}}}}, saves=["fit.plain.ce"])
+    with pytest.raises(PlanError, match=r"^steps\.fit\.eval\.plain: dataset 'days' is read as 'other', and their "
+                                        r"templates differ \('days': \{'add_generation_prompt': True, "
+                                        r"'enable_thinking': False\}, 'other': None\); a chat renders with its own "
+                                        r"dataset's template, so give the two the same one$"):
+        fit({}).compile()
+    assert fit({"template": template}).compile().data["other"].template == template
+
+
 # -- refusals that say what to do ---------------------------------------------------------------------------------
 
 

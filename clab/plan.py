@@ -653,7 +653,8 @@ class Fit(Record):
     that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and `early_stop`
     is judged on it. The best epoch's featurizer tensors (without `early_stop`, the last's) are restored, and
     the body runs once, scored, per named substitution of `eval`, in listed order: `{"held_out": {"train":
-    "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on. The
+    "test"}, "train": {}}` runs it with dataset `train` read as `test`, then on the data it trained on (a dataset
+    read as another renders its chats with its own `template`, so the two have the same one). The
     body's forwards run in batches of `batch_size`, whatever the run's batch size. `epochs: 0` trains nothing:
     the featurizers are scored as drawn (an untrained lora is the identity exactly, a null control), and each
     history is empty, `[0]`.

@@ -380,7 +380,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             for d in (a, b):
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
-            if a in cx.chats:                   # read as `a`, its chats render with its own template
+            if plan.data[a].template != plan.data[b].template:
+                fail(where, f"dataset {a!r} is read as {b!r}, and their templates differ ({a!r}: "
+                     f"{plan.data[a].template}, {b!r}: {plan.data[b].template}); a chat renders with its own "
+                     "dataset's template, so give the two the same one")
+            if a in cx.chats:                   # read as `a`, its chats render with the template they share
                 cx.chats.add(b)
     for label, side in {"": {}, **spec.eval}.items():
         counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.get("dataset") for s in body.values()} - {None}}
