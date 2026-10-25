@@ -807,6 +807,25 @@ def test_d6_a_chats_template_carries_the_generation_prompt_and_keeps_its_turns(e
 SAE = {"kind": "sae", "file_path": "documents/artifacts/sae.safetensors"}
 
 
+def test_o2_argmax_and_top_k_over_a_patterns_key_axis_rank_each_rows_own_keys(engines):
+    """A pattern's keys past a shorter row's own are NaN; ranking over `key` takes the row's own (they were all
+    -1 when a NaN anywhere made the vector missing), and a pick past them is id -1 and NaN."""
+    eager = {**TINY, "attn_implementation": "eager"}
+    pattern = {"component": "attention_probabilities", "layers": 0}
+    filled = run(engines, plan(model=eager, data={"d": DAYS}, steps={
+        "f": forward({"p": {"site": pattern, "pos": -1}}),
+        "most": {"kind": "op", "op": "argmax", "of": "f.p", "over": "key"},
+        "top": {"kind": "op", "op": "top_k", "of": "f.p", "over": "key", "k": 6}},
+        saves=["f.p", "most", "top"]).compile())
+    p, most, top = filled.results["f.p"], filled.results["most"], filled.results["top"]
+    assert dims_of(filled, "most") == ["rows", "pos", "num_heads"]
+    assert (~p[:, 0, 0].isnan()).sum(-1).tolist() == [9, 9, 4, 5]            # each row's own keys
+    assert most[:, 0, 0].tolist() == [1, 1, 1, 0]
+    assert torch.equal(most, p.nan_to_num(nan=-1).argmax(-1))
+    assert torch.equal(top["ids"][..., 0], most) and (top["ids"][2, ..., 4:] == -1).all()  # row 2 has four keys
+    assert top["probs"][2, ..., 4:].isnan().all() and not top["probs"][:2].isnan().any()
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, kind):
     """trial-04: ranking an sae's latents went to Python. `top_k` with `over: "features"` after an encode of the

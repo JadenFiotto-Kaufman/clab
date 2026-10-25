@@ -394,7 +394,8 @@ rows and positions that have a value, and `pca` is fitted on them. A featurizer'
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
-there, so a row's own keys are edited as the row has them, and its tail stays NaN.
+there, so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over
+`key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
@@ -508,8 +509,8 @@ stays missing: NaN.
 | --- | --- | --- | --- |
 | `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
-| `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`; over `classes`, a probe's scores. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
-| `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names (-1 where the value is missing): by default the id of the most likely token, ranked by its logit. An exact tie goes to the lower index, as in `top_k`. |
+| `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`; over `classes`, a probe's scores. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
+| `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
 | `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
 
 ## Components

@@ -35,7 +35,8 @@ rows and positions that have a value, and `pca` is fitted on them. A featurizer'
 missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
-there, so a row's own keys are edited as the row has them, and its tail stays NaN.
+there, so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over
+`key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);

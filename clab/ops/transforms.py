@@ -3,6 +3,7 @@
 default over logits), and `detokenize`, which turns generated ids into text."""
 
 import json
+import math
 from typing import TYPE_CHECKING, Annotated
 
 import torch
@@ -12,7 +13,7 @@ from clab import featurizers
 from clab.format import selectors
 from clab.format.registry import Featurizer
 from clab.ops import op
-from clab.ops.metrics import missing, ranked
+from clab.ops.metrics import ranked
 
 if TYPE_CHECKING:       # the engines sit later in the chain, so only the checker sees them
     from clab.engines import Engine
@@ -82,23 +83,32 @@ def ranking_k(dims: list[str], args: dict, kind: str | None = None) -> list[str]
     return ranking(dims, args) + ["k"]
 
 
+def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
+    """The ids of the `k` largest of the entries of `x`'s last axis that are there, a missing one (NaN) ranked
+    below every other, and which of them pick no entry that is there: past a vector's own along a ragged axis,
+    or every one of a vector that is missing whole."""
+    ids = ranked(x.masked_fill(x.isnan(), -math.inf), k)
+    return ids, x.gather(-1, ids).isnan()
+
+
 @op("transforms", layout=ranking_k)
 def top_k(of: Tensor, k: int, dims: list[str], over: str = "vocab_size") -> dict[str, Tensor]:
     """The `k` largest along the axis `over` names, `{"ids", "probs"}`, the largest first: `ids` their indices
     along it, `probs` the softmax over it there. By default the most likely tokens, ranked by their logits (as
     a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an
-    `encode`; over `classes`, a probe's scores. An exact tie goes to the lower index (`ranked`), so `top_k`'s
+    `encode`; over `classes`, a probe's scores. Along a ragged axis (a pattern's `key`) the entries that are there
+    are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s
     first is `argmax`'s."""
     x = of.movedim(dims.index(over), -1)
-    ids = ranked(x, k)
-    probs = x.softmax(-1).gather(-1, ids)
-    gone = missing(x)[..., None]
+    ids, gone = picked(x, k)
+    probs = x.masked_fill(x.isnan(), -math.inf).softmax(-1).gather(-1, ids)
     return {"ids": ids.masked_fill(gone, -1), "probs": probs.masked_fill(gone, float("nan"))}
 
 
 @op("transforms", layout=ranking)
 def argmax(of: Tensor, dims: list[str], over: str = "vocab_size") -> Tensor:
-    """The index of the largest along the axis `over` names (-1 where the value is missing): by default the id of
-    the most likely token, ranked by its logit. An exact tie goes to the lower index, as in `top_k`."""
-    x = of.movedim(dims.index(over), -1)
-    return ranked(x, 1)[..., 0].masked_fill(missing(x), -1)
+    """The index of the largest along the axis `over` names: by default the id of the most likely token, ranked
+    by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing
+    value). An exact tie goes to the lower index, as in `top_k`."""
+    ids, gone = picked(of.movedim(dims.index(over), -1), 1)
+    return ids[..., 0].masked_fill(gone[..., 0], -1)
