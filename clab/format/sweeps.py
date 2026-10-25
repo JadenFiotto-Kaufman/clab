@@ -52,7 +52,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
             found[path] = label
         elif isinstance(value, dict):
             for k, v in value.items():
-                if k not in ("results", "run", "sweeps"):
+                if path or k not in ("results", "run", "sweeps"):        # a plan's own derived fields hold none
                     walk(v, path + (k,))
         elif isinstance(value, list):
             for i, v in enumerate(value):
