@@ -13,7 +13,7 @@ For changing clab itself: read architecture first, then the page for the part yo
 
 ## How clab is built
 
-- [architecture](architecture.md) — How clab is built: the chain from format to output, the import direction, one concept per module, and the five constraints that keep a document running the same everywhere.
+- [architecture](architecture.md) — How clab is built: the chain from document to output directory, the import direction, one concept per module, and where the code holds the five constraints that keep a document running the same everywhere.
 - [compile-and-run](compile-and-run.md) — The two passes and the run: compile's checks with the document alone, preflight's with the model, how steps.run walks a plan and visits sites, and what belongs to the engine.
 - [engines](engines.md) — The engine protocol and how to add an engine: what execute must do, what steps.run asks for, records by site, live operands, and refusing by name.
 

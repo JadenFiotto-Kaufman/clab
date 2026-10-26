@@ -17,7 +17,7 @@ A metric that scores a column (`match`, `token_prob`, `token_logit`, `logit_diff
 - `logit_diff` and `token_logit` read one id's logit. A set (a row's list of strings) or a class (`strip`, `lower`) stands for several ids, which `match`, `token_prob` and `cross_entropy` score together.
 - A set's members are tokenized alone and have the same number of tokens.
 
-[ops.md](../usage/ops.md) covers metrics; [data.md](../usage/data.md) covers column references and their flags.
+[ops.md](../usage/ops.md) covers metrics; [data.md](../usage/data.md#answer-columns) covers column references and their flags; [generation-experiments.md](../patterns/generation-experiments.md) uses forced answers and answer spellings in a technique.
 
 `documents/forced_answer.json` is the canonical multi-token case: each prompt with its answer appended, the head read before each answer token, one score per token, summed per row:
 
@@ -35,7 +35,7 @@ A metric that scores a column (`match`, `token_prob`, `token_logit`, `logit_diff
 iia: pairs.ans row 0: ' Tuesday' is 3 tokens; the read has 1 position on that row; token i of an answer scores the read's position i, so the read carries one per token (a scope with "before": true reads the positions that predict the answer's tokens)
 ```
 
-The answer is several tokens and the read is one position (`pos: -1`). Teacher-force the answer as above, or give the column an answer of one token per row. On BPE tokenizers a missing leading space is a common cause: GPT-2 writes `three` as `th`, `ree` and ` three` as one token, so a column holding `three` is refused where ` three` would score.
+The answer is several tokens and the read is one position (`pos: -1`). Teacher-force the answer as above, or give the column an answer of one token per row. On byte-level BPE tokenizers a missing leading space is a common cause: the corpus's GPT-2 tokenizer writes `three` as `th`, `ree` and ` three` as one token, so a column holding `three` is refused where ` three` would score.
 
 One ending names a whitespace-only token as the difference:
 
@@ -83,7 +83,7 @@ Under `strip` an answer's whitespace-only tokens at its end are dropped, and an 
 nll: days.base_answer row 0: position 11 predicts 'Ġ3' in the input, which is not token 0 of '3' as it tokenizes alone (['3']); the answer is scored as it tokenizes, so the input says it the same way
 ```
 
-Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. On GPT-2 the prompt `next is ` followed by `3` tokenizes as `Ġ3`, while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
+Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. A byte-level BPE tokenizer merges a space into the token after it: on GPT-2's, the prompt `next is ` followed by `3` tokenizes as `Ġ3`, while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
 
 ## A probe's classes
 
@@ -98,10 +98,4 @@ The classes are the distinct values of the probe's `classes` column. Drop the fl
 
 ## Pitfalls that are not refused
 
-An answer that is one token in either spelling is scored as written: on GPT-2 `a` and ` a` are two different one-token answers, and `strip` or `lower` makes the answer a class whose probabilities add up. Both run, and [symptom-index.md](symptom-index.md) lists them.
-
-## Related
-
-- [index.md](index.md): every refusal by message.
-- [ops.md](../usage/ops.md): metrics and their arguments.
-- [generation-experiments.md](../patterns/generation-experiments.md): forced answers and answer spellings in a technique.
+An answer that is one token in either spelling is scored as written: on a byte-level BPE tokenizer `a` and ` a` are two different one-token answers, and `strip` or `lower` makes the answer a class whose probabilities add up. Both run, and [symptom-index.md](symptom-index.md#answers-and-metrics) lists them.

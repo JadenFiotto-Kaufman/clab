@@ -1,6 +1,6 @@
 ---
 title: Logit Lens
-one_liner: "The logit lens in one forward: readout over a layers selector, kl between lenses aligned by layer label, and top_k to see what each layer would say."
+one_liner: "The logit lens in one forward: readout over a layers selector, a kl check against the model's logits, kl between lenses aligned by layer label, and top_k to see what each layer would say."
 tags: [patterns, lens, logit-lens, readout, layers, kl, top_k]
 related: [docs/usage/sites.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/sweeps.md, docs/usage/positions.md]
 sources: [clab/ops/transforms.py, clab/format/address.py, clab/compile/interventions.py, clab/engines/nnterp.py]
@@ -29,7 +29,7 @@ The logit lens decodes a layer's residual stream through the model's own final n
 
 `lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, one forward per layer; the numbers are equal to the bit ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
 
-`readout` takes a residual-stream component whole: `token_embeddings`, `layer_input`, `layer_mid`, `attention_output`, `mlp_output` or `layer_output`. Another component, or a site that selects part of `hidden_size`, is refused inside an entry:
+`readout` takes a residual-stream component whole ([ops.md](../usage/ops.md#transforms) lists them). Another component, or a site that selects part of `hidden_size`, is refused inside an entry:
 
 ```text
 clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one

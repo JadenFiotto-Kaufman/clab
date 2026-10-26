@@ -57,13 +57,13 @@ A block's component needs `layers`; the model's own values (`token_embeddings`, 
 - **A list keeps its order, and the order is positional.** `{"num_heads": [3, 1]}` puts head 3 at index 0. An operand must carry the same picks in the same order as the write it meets, or it is refused; an `argmax` or `top_k` over the selected axis returns indices into the selection, not head numbers. Build every site of a head set from one sorted list. See [values-and-layout.md](../concepts/values-and-layout.md#select-keeps-the-axis).
 - **A write selects on one axis.** A read may select heads and dimensions together; a write is refused with `an entry that writes selects on one axis; this one selects num_heads, head_dim`.
 - **`key` counts from the start.** A key selector picks the same keys of every row (`0` for BOS, `[0, 2]`, `"0:3"`); `-1` is refused, since rows differ in length. The `key` axis is each row's own tokens, as positions count them.
-- **`readout` needs the whole stream.** Selecting `hidden_size` and then `readout` is refused, since the final norm needs every dimension; read the site whole, `readout`, then narrow the logits.
+- **`readout` needs the whole stream.** Selecting `hidden_size` and then `readout` is refused, since the final norm needs every dimension; read the site whole, `readout`, then narrow the logits. Which components `readout` takes is in [ops.md](ops.md#transforms).
 
 A pick outside the axis is refused: `select num_heads [4] outside the model's 4`. A `select` may be swept, as in the canonical example.
 
 ## Attention needs eager
 
-Six components are read inside the attention's forward: `attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities` and `attention_head_outputs`. Fused attention (`sdpa`, which the corpus model loads by default) computes them inside one call, and the nnterp engine refuses them before any forward:
+Six components are read inside the attention's forward: `attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities` and `attention_head_outputs`. Fused attention (`sdpa`, which the corpus model loads by default) computes them inside one call, and both engines refuse them before any forward with the same reason:
 
 ```text
 clab: f.x: the nnterp engine does not serve attention_probabilities: read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'
@@ -75,7 +75,7 @@ Load the model with eager attention, in the `model` block, as `documents/attenti
 "model": {"key": "...", "revision": "...", "dtype": "float32", "attn_implementation": "eager"}
 ```
 
-`attention_premix`, the output projection's input, needs no eager; on the corpus Llama it equals `attention_head_outputs` to the bit. The hooks engine reaches only module boundaries and refuses these six by name, eager or not; `attention_premix` and the MLP's interior it serves ([engines.md](engines.md)).
+`attention_premix`, the output projection's input, needs no eager; on the corpus Llama it equals `attention_head_outputs` to the bit. Under eager the hooks engine still refuses these six, since it reaches module boundaries only; `attention_premix` and the MLP's interior it serves ([engines.md](engines.md#cross-checking-with-hooks)).
 
 ## The layout of a site's value
 

@@ -104,10 +104,4 @@ A read and a write at the same unscoped `pos` on two inputs pair position i with
 
 A write to an attention pattern or its scores needs the two inputs to tokenize to the same length on every row, since its `key` axis counts the row's tokens.
 
-Rows of equal length are not checked: a window there pairs whatever tokens share an index. That case runs and is listed in [symptom-index.md](symptom-index.md).
-
-## Related
-
-- [index.md](index.md): every refusal by message.
-- [interventions.md](../usage/interventions.md): entries, operands and `with`.
-- [ops.md](../usage/ops.md): what each op takes.
+Rows of equal length are not checked: a window there pairs whatever tokens share an index. That case runs, and [symptom-index.md](symptom-index.md#a-window-between-rows-of-equal-length) shows it.

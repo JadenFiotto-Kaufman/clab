@@ -1,6 +1,6 @@
 ---
 title: Activation Patching
-one_liner: "Interchange interventions: swap one position or a window from a counterfactual run into a base run, score with match and logit_diff, map layer by position with sweeps, and corrupt and restore with noise."
+one_liner: "Interchange interventions: swap one position, a window or an entity's token from a counterfactual run into a base run, score with match and logit_diff, map layer by position with paired sweeps, and corrupt and restore with noise."
 tags: [patterns, patching]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md]
 sources: [clab/ops/edits.py, clab/ops/metrics.py, clab/compile/interventions.py]
@@ -24,7 +24,7 @@ Activation patching asks whether a component, at a position, carries what decide
 "logit_diff": {"kind": "op", "op": "logit_diff", "of": "patched.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
 ```
 
-```
+```text
 uv run clab run documents/patching.json --out out/patching
 uv run clab table out/patching iia logit_diff
 ```
@@ -64,7 +64,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
           "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-`index: -1` takes the entity's last token, one position on every row whatever the entity's length, so read and write pair up. [positions](../usage/positions.md) has the scope recipes.
+`index: -1` takes the entity's last token, one position on every row whatever the entity's length, so read and write pair up. [positions](../usage/positions.md) has the scope recipes. Rows whose two prompts tokenize to the same length are not checked: there a counted position pairs whatever tokens share it ([symptom index](../errors/symptom-index.md#a-window-between-rows-of-equal-length)), so scope the patch unless the data is built to align.
 
 ## A layer by position map
 
@@ -97,7 +97,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
 
 `data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. Eight points, `clab table <out> mean_ld`:
 
-```
+```text
 at                     value
 {"layers":0,"pos":-1}  -0.0029188443440943956
 {"layers":0,"pos":-2}  -0.0026546120643615723
@@ -140,5 +140,5 @@ with the sites `embed` (`token_embeddings`) and `head` (`lm_head_output`) declar
 ## Pitfalls
 
 - A `layers` selector on the swap (`":"`) patches every layer in one forward; a per-layer result needs `"layers": {"sweep": [...]}`.
-- A write's `pos` swept alone moves where the counterfactual's value lands, not where it was read.
+- A write's `pos` swept alone moves where the counterfactual's value lands, not where it was read; sweep the read's `pos` with it.
 - `match` on a model that rarely puts the counterfactual answer on top is 0 everywhere; read `logit_diff` or `token_prob` beside it.

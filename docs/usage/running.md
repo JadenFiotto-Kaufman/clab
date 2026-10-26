@@ -1,6 +1,6 @@
 ---
 title: Running a Document
-one_liner: "Running a document from the command line or Python: clab run and its options, choosing batch size, bit reproducibility, where output goes, and the four calls behind clab.run."
+one_liner: "Running a document from the command line or Python: clab run and its options, choosing batch size, bit reproducibility, where output goes and the corpus root, and the four calls behind clab.run."
 tags: [usage, running, cli, python, batch-size, reproducibility]
 related: [docs/usage/engines.md, docs/usage/output.md, docs/usage/writing-a-document.md, docs/usage/bundles.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
 sources: [clab/cli.py, clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/format/data.py]
@@ -56,7 +56,9 @@ Give the scratch directory a `data/` (a copy or a link to the repo's) and put th
 
 `--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory grows with the batch size times that longest row.
 
-**Results reproduce to the bit at a fixed batch size.** Two runs of one document at one batch size write byte-identical value files. A different batch size can change the last bits: a row's numbers do not depend on which rows share its batch, but they do depend on the batch's shape. `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
+**Results reproduce to the bit at a fixed batch size.** Two runs of one document at one batch size write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
+
+On a CPU running several threads, a row padded well past its own length can also move in the last bits with which rows share its batch (about 1e-8 on prompts of 1 to 12 tokens at two threads); with one thread it does not. So a reordered or reshuffled dataset compares row for row to the bit only single-threaded.
 
 A fit's body runs at the fit's own `batch_size`, whatever the run's ([fit.md](fit.md)).
 

@@ -12,7 +12,7 @@ In the prefill (frame 0, and the one call of every `forward` step), the data alo
 
 ## See the row's tokens
 
-Each message names a row. A row's positions are its input tokens, BOS first and a chat template's markers included, as [positions.md](../usage/positions.md) explains. A refusal writes no output directory, but the compiled plan already holds every input's tokens by then, so the step-by-step calls show the row that failed:
+Each message names a row. A row's positions are its input tokens, BOS first and a chat template's markers included, as [positions.md](../usage/positions.md) explains and [concepts/positions.md](../concepts/positions.md) says why. A refusal writes no output directory, but the compiled plan already holds every input's tokens by then, so the step-by-step calls show the row that failed:
 
 ```python
 from clab import Plan
@@ -67,7 +67,7 @@ Read the logits of earlier prompt positions in a `forward` step on the same inpu
 patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write
 ```
 
-An index with an open end (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: it holds nothing on those rows, its values are NaN and `clab table` leaves the rows out ([symptom-index.md](symptom-index.md)).
+An index with an open end (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: it holds nothing on those rows, its values are NaN and `clab table` leaves the rows out ([symptom-index.md](symptom-index.md#positions-and-selections)).
 
 ## `… begins the row, at position 0, which no position comes before`
 
@@ -87,10 +87,4 @@ A `turn` scope names a role of the chat in that row; check the role's spelling a
 
 ## Skipping a row instead
 
-In the prefill a row cannot be skipped: the data decided, so change the data (a `split`, `take`, or a dataset of only the rows that fit). Beyond the prefill (decode frames of a `generate` step) a row the `pos` does not reach is `alignment_missing`: its values are NaN and reductions leave it out, which [symptom-index.md](symptom-index.md) lists among the cases that run quietly.
-
-## Related
-
-- [index.md](index.md): every refusal by message.
-- [positions.md](../usage/positions.md): `pos` recipes; [concepts/positions.md](../concepts/positions.md): the position model.
-- [alignment-missing.md](alignment-missing.md): the same miss beyond the prefill.
+In the prefill a row cannot be skipped: the data decided, so change the data (a `split`, `take`, or a dataset of only the rows that fit). Beyond the prefill (decode frames of a `generate` step) a row the `pos` does not reach is `alignment_missing`: its values are NaN and reductions leave it out, as [alignment-missing.md](alignment-missing.md) explains.

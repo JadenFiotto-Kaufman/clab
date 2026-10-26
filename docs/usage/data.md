@@ -103,7 +103,6 @@ Without a template the prompt ends with the template's close of the last message
 
 ## Answer columns
 
-<a id="columns-as-text-and-as-answers"></a>
 Where a field takes a column, as an answer to score or as text to find (a metric's answer, `contains`'s text, a scope's `column`), write `"<dataset>.<column>"`, or the object with flags:
 
 ```json

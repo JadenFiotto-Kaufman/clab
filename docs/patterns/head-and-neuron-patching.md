@@ -1,6 +1,6 @@
 ---
 title: Head and Neuron Patching
-one_liner: "Patching one head or a few neurons at a time: select on attention_premix and mlp_activation, cross a layers sweep with a heads sweep, head sets, and the positional meaning of select lists."
+one_liner: "Patching one head or a few neurons at a time: select on attention_premix, mlp_activation versus mlp_neurons, cross a layers sweep with a heads sweep, head sets, and the positional meaning of select lists."
 tags: [patterns, heads]
 related: [docs/patterns/activation-patching.md, docs/usage/sites.md, docs/usage/sweeps.md, docs/usage/interventions.md, docs/patterns/attention.md, docs/usage/engines.md]
 sources: [clab/compile/interventions.py, clab/steps/batches.py, clab/format/address.py]
@@ -18,9 +18,9 @@ sources: [clab/compile/interventions.py, clab/steps/batches.py, clab/format/addr
 "target": {"component": "attention_premix", "layers": 0, "select": {"num_heads": {"sweep": [0, 1, 2, 3]}}}
 ```
 
-`attention_premix` is every head's result as the attention's output projection takes it, laid out `(rows, pos, num_heads, head_dim)`. A head's result is one index of `num_heads`, and the output projection is linear, so patching that index changes exactly that head's share of what attention adds to the stream. The read on the counterfactual prompt and the write on the base prompt use the same site, and the sweep makes one point per head, each a whole plan with its own read and write:
+`attention_premix` is every head's result as the attention's output projection takes it, laid out `(rows, pos, num_heads, head_dim)`. A head's result is one index of `num_heads`, and the output projection is linear, so patching that index changes exactly that head's share of what attention adds to the stream. The read on the counterfactual prompt and the write on the base prompt use the same site, and the sweep makes one point per head, each with its own read and write, so the counterfactual forward runs once per head too ([sweeps](../usage/sweeps.md#what-a-sweep-costs)):
 
-```
+```text
 at               row  pos  pos_token  input                              cf_answer  base_answer  value
 {"num_heads":0}  0    10   ▁is        If today is Thursday, tomorrow is   Sunday     Friday      -0.027985602617263794
 ...
@@ -52,13 +52,7 @@ Each point's coordinate is the list (`num_heads=[0,1]`). Heads that back each ot
 
 ## Select lists are positional
 
-A narrowed axis keeps its indices in the order the list writes them: a read with `{"num_heads": [3, 1]}` holds head 3 at index 0 and head 1 at index 1. An operand's indices on that axis must be the write's, in the same order, and preflight refuses anything else before any forward:
-
-```text
-patched.patch: operand 'counterfactual.v_cf' holds num_heads [3, 1], and this write's selection holds [1, 3]; a select list is positional, so they would trade places: select num_heads [1, 3] at the read
-```
-
-A one-head read written into a two-head selection is refused too: an operand broadcasts over rows and positions, never over heads. Declaring one site and naming it in both the read and the write, as the corpus does, makes the two agree by construction. A write narrows one axis: `{"num_heads": [1], "head_dim": [0, 1]}` on a write is refused. The general rule is in [sites](../usage/sites.md).
+A narrowed axis keeps its indices in the order the list writes them, so `{"num_heads": [3, 1]}` holds head 3 at index 0, and an operand must hold the write's heads in the write's order or preflight refuses it ([sites](../usage/sites.md#select) has the rule, [operand-does-not-fit](../errors/operand-does-not-fit.md#a-select-list-is-positional) the refusals). Declaring one site and naming it in both the read and the write, as the corpus does, makes the two agree by construction.
 
 ## Neurons
 
@@ -78,5 +72,4 @@ Which MLP component is "the neuron" matters on a gated MLP (Llama's `down(act(ga
 ## Pitfalls
 
 - A `layers` selector on a head patch patches that head at every layer at once; sweep `layers` for a layer by head grid.
-- The read and the write must select the same heads in the same order; one site used for both guarantees it.
 - A head's result (`attention_premix`) and its pattern (`attention_probabilities`) answer different questions: what it writes versus where it looks ([attention](attention.md)).

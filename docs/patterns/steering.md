@@ -69,7 +69,7 @@ A direction for a behavior is usually the difference between mean activations on
 
 The means come from two datasets, which is allowed because a mean has no rows. `base` runs once; `steered` and the steps after it run once per dose. `clab table <out> drift effect`:
 
-```
+```text
 at             drift                   effect
 {"dose":0.0}   0.0                     0.0009160377085208893
 {"dose":0.02}  0.00020074972417205572  0.0005409605801105499
@@ -79,7 +79,7 @@ at             drift                   effect
 
 How to read and choose the doses:
 
-- **Dose 0 is the null.** `add` at `"scale": 0.0` leaves every logit bit-identical to the unsteered run, so its `drift` is exactly 0 and its `effect` is the baseline.
+- **Dose 0 is the null** ([interventions](../usage/interventions.md#the-null-control)). `add` at `"scale": 0.0` leaves every logit bit-identical to the unsteered run, so its `drift` is exactly 0 and its `effect` is the baseline.
 - **Doses are lengths against the activation's norm.** `base.resid` is saved so the norm can be read back: about 0.075 here, so the doses run from about a quarter of the activation's length to four times it. A dose far below the norm does nothing; one far above it replaces the activation.
 - **`effect` is the target, `drift` the cost.** `kl` against the unsteered logits measures how far the whole distribution moved. The useful band is where the target metric moves while the drift stays small; past it the model is being broken, not steered. On a real model, generate at each dose and read the text as well.
 - **Check the difference before using it.** `difference` is saved for its norm. Two prompt sets that are the same prompts in another order (the base and counterfactual columns of `data/weekdays/train.json` are) give a difference of rounding noise, about 4e-9, which `normalize` turns into a unit vector pointing nowhere in particular; a difference of exactly zero makes `normalize` NaN, and every dose of it, 0 included, NaN.
@@ -105,7 +105,7 @@ In a `generate` step a write's `pos` names forward calls by its `frame` ([genera
                               "ops": [{"op": "add", "with": "direction", "scale": 8.0}]}}}
 ```
 
-`{"frame": ":"}` is every prompt token in the prefill and each generated token at its decode call; `{"frame": "1:"}` is the generated tokens alone. On the tiny model, the same dose at `pos: -1` leaves all six generated tokens as they were, while at `{"frame": ":"}` it changes five of them; at `"scale": 0.0` the ids equal the unsteered generation's. Score the text with `detokenize` and `contains` ([generation experiments](generation-experiments.md)), and keep `do_sample: false` so the steered and unsteered runs differ by the write alone.
+`{"frame": ":"}` is every prompt token in the prefill and each generated token at its decode call; `{"frame": "1:"}` is the generated tokens alone. To steer the prompt's last token and every generated token, and no other prompt token, write two entries, `{"frame": 0, "index": -1}` and `{"frame": "1:"}` ([generate](../usage/generate.md#writes-during-generation)). On the tiny model, the same dose at `pos: -1` leaves all six generated tokens as they were, while at `{"frame": ":"}` it changes five of them; at `"scale": 0.0` the ids equal the unsteered generation's. Score the text with `detokenize` and `contains` ([generation experiments](generation-experiments.md)), and keep `do_sample: false` so the steered and unsteered runs differ by the write alone.
 
 ## Pitfalls
 

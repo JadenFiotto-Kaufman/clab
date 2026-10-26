@@ -1,6 +1,6 @@
 ---
 title: Probing
-one_liner: "Linear probes: train a linear featurizer on a label column, score its classes with the same metrics as logits, and sweep layers to see where a variable is decodable."
+one_liner: "Linear probes: train a linear featurizer on a label column, score its classes with the same metrics as logits, and sweep layers to see where a variable is decodable, against the floor of an untrained probe."
 tags: [patterns, probing, linear-probe, classes, decodability]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/positions.md, docs/usage/bundles.md, docs/patterns/trained-subspaces.md]
 sources: [clab/featurizers/linear.py, clab/featurizers/__init__.py, clab/steps/fit.py]
@@ -80,7 +80,7 @@ What each part does:
 
 A metric scores a probe's `classes` axis against a column whose values are classes, exactly as it scores a `vocab_size` axis against a column of tokens ([ops.md](../usage/ops.md)): `match` (the highest score is the row's label), `cross_entropy`, `token_prob` (the softmax over classes), and `logit_diff` between two columns' classes. `argmax` and `top_k` rank `vocab_size` by default, so they need `"over": "classes"`; `top_k` then gives `probs`, a softmax over the classes, and its `ids` index the sorted class list.
 
-Two refusals guard the class list. Every value of the `classes` column is one type (all strings, all ints, all floats or all booleans):
+Classes compare exactly, with no `strip` or `lower`: a column holding `yes` and `Yes` makes two classes. Two refusals guard the class list. Every value of the `classes` column is one type (all strings, all ints, all floats or all booleans):
 
 ```text
 clab: featurizers.probe.classes: classes column 'train.entity' holds str (row 0 is 'a'), int (row 1 is 1); a probe's classes are one type, all strings, all ints, all floats or all booleans: write them in one
@@ -94,7 +94,7 @@ clab: fit: eval 'held_out', with dataset 'train' read as 'test' (a row is the ev
 
 ## The floor
 
-At `epochs: 0` the probe is untrained: every class scores 0, and `match` breaks an exact tie to the lower class id, so the accuracy is the share of rows whose label sorts first. For this document that is 1 of 19 held-out rows (0.053) and 6 of 30 training rows (0.2). A probe is decoding something only where it clears its floor. Read at the prompt's last token (`"pos": -1`) instead of at the day, the same fit ends at exactly the floor on both layers of this model.
+At `epochs: 0` the probe is untrained and its accuracy is the share of rows whose label sorts first ([fit.md](../usage/fit.md#epochs-0-is-a-null-control) says why). For this document that is 1 of 19 held-out rows (0.053) and 6 of 30 training rows (0.2). A probe is decoding something only where it clears its floor. Read at the prompt's last token (`"pos": -1`) instead of at the day, the same fit ends at exactly the floor on both layers of this model.
 
 ## Loading a trained probe
 

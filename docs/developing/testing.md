@@ -51,7 +51,7 @@ CLAB_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_documents.py -q
 git diff tests/snapshots/
 ```
 
-The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the corpus count in `tests/test_plan.py` `test_the_corpus_is_the_31_documents_and_the_examples_since` changes with it.
+The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the corpus count in `tests/test_plan.py` changes with it.
 
 ## GPU real-model tests
 

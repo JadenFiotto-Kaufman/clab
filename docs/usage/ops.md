@@ -34,7 +34,7 @@ An entry sees one batch, so an op that aggregates over rows is refused there (`'
 
 ## Metrics
 
-A metric returns one number per row and position, in float32. Most take logits (or a probe's scores) and an answer column. How a column becomes answer tokens (exact spelling, leading spaces, `strip`, `lower`, sets) is on [data](data.md); here is the choice of metric.
+A metric returns one number per row and position, in float32. Most take logits (or a probe's scores) and an answer column. How a column becomes answer tokens (exact spelling, leading spaces, `strip`, `lower`, sets) is on [data](data.md#answer-columns); here is the choice of metric.
 
 - `match`: 1 where the most likely token is the answer, else 0, an exact tie going to the lower id. The interchange accuracy of patching.
 - `logit_diff`: one answer's logit less another's. Use it for a contrast between two answers: a single logit carries an offset shared by every token, which the softmax ignores and a difference cancels.

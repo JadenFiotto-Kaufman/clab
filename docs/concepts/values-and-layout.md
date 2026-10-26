@@ -70,16 +70,8 @@ A write's operand meets the write's own picks, rows and positions as [usage/inte
 
 ## Dtypes
 
-A value read from the model keeps the model's dtype. Ops that compute a number from it upcast first: metrics and the reductions `mean`, `sum` and `min` compute in float32 and return float32, so averaging or scoring a bfloat16 model's values does not round to its few bits. An edit also computes in float32, every operand upcast, and rounds once, back to the value's dtype, because what it computes is written into the model. `readout` and `top_k`'s `values` keep the dtype of what they rank or project, `top_k`'s `probs` are float32, and ids are int64. From a bfloat16 run of `documents/faithfulness.json` with its reads saved:
-
-| value | dtype |
-|---|---|
-| `counterfactual.v_cf`, `patched.patch` (a write's value), `patched.logits`, a `readout` | bfloat16 |
-| `kl`, `js`, `p_answer`, a `mean` | float32 |
-| `argmax`, `top_k`'s `ids` | int64 |
-
-Which ops this protects and what it means for a bfloat16 model's numbers is the float32 rule in [usage/ops.md](../usage/ops.md).
+A value's dtype is recorded beside its layout (`results.<name>.dtype` in the manifest). A read is the model's own tensor, so it has the model's dtype. An op that scores or averages upcasts what it is given before computing, and since every bfloat16 or float16 number is exact in float32, the upcast loses nothing: the only rounding left in a score or a mean is float32's. An edit computes the same way and then rounds its result once, to the value's dtype, because inside an entry that result is written back into the model. Which ops do which, the dtype each kind of value comes back in, and what that means for a bfloat16 model's numbers are the float32 rule in [usage/ops.md](../usage/ops.md#the-float32-rule).
 
 ## Why batch shape moves the last bits
 
-Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest row, with an attention mask over the padding and position ids that count each row's real tokens. A row's numbers therefore do not depend on which rows share its batch. They do depend on the batch's shape: a different number of rows is a different matrix multiply, whose sums may be ordered differently, and a generation's decode calls are `[batch, 1, ...]` multiplies. On the corpus Llama in float32 that moves logits by about 1e-7 and residual-stream values by about 2e-9 between batch sizes 1 and 6; two runs at one batch size are equal to the bit. Choosing a batch size and comparing runs is [usage/running.md](../usage/running.md#batch-size-and-reproducibility).
+Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest row, with an attention mask over the padding and position ids that count each row's real tokens. With one CPU thread a row's numbers therefore do not depend on which rows share its batch; with several, a row padded well past its own length can move in the last bits (about 1e-8) with its companions. Every row's numbers depend on the batch's shape: a different number of rows is a different matrix multiply, whose sums may be ordered differently, and a generation's decode calls are `[batch, 1, ...]` multiplies. On the corpus Llama in float32 that moves logits by about 1e-7 and residual-stream values by about 2e-9 between batch sizes 1 and 6; two runs at one batch size are equal to the bit. Choosing a batch size and comparing runs is [usage/running.md](../usage/running.md#batch-size-and-reproducibility).

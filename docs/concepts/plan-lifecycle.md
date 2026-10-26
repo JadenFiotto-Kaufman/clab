@@ -1,6 +1,6 @@
 ---
 title: Plan Lifecycle
-one_liner: "What happens between a document and its results: Plan, compile with the document alone, preflight with the model, the run inside one session, results and the output directory, and which stage refuses what."
+one_liner: "What happens between a document and its results: Plan, compile with the document alone, preflight with the model, the run inside one session, results and the output directory, and how to tell from a refusal's message which stage raised it."
 tags: [concepts, lifecycle, compile, preflight, refusals]
 related: [docs/usage/running.md, docs/usage/engines.md, docs/concepts/one-session.md, docs/usage/output.md, docs/errors/index.md, docs/developing/compile-and-run.md]
 sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/engines/__init__.py, clab/steps/__init__.py, clab/output/__init__.py]
@@ -10,7 +10,7 @@ sources: [clab/plan.py, clab/compile/__init__.py, clab/compile/preflight.py, cla
 
 ## The idea
 
-A document reaches its results through six stages. Each stage knows more than the one before it, decides what that knowledge allows, and refuses whatever it is the first stage able to check. Once you know which stage refused, you know what was wrong and how much had already happened. `clab run` and `clab.run` go through every stage. The calls behind them, for stopping partway in Python, are in [running.md](../usage/running.md).
+A document reaches its results through six stages. Each stage knows more than the one before it, decides what that knowledge allows, and refuses whatever it is the first stage able to check. Once you know which stage refused, you know what was wrong and how much had already happened. `clab run` and `clab.run` go through every stage. The calls behind them, for stopping partway in Python, are in [running.md](../usage/running.md#the-four-calls-behind-clabrun); how each stage is built is [developing/compile-and-run.md](../developing/compile-and-run.md).
 
 ```text
 document ─Plan(path)─▶ plan ─compile()─▶ compiled plan ─engines.load()─▶ engine
@@ -112,9 +112,3 @@ Under nnterp and hooks, every stage runs in your process. Under ndif, Plan, comp
 | `data.<name>:` saying the rows are not what compile read | the run, or `plan.table` on a loaded plan | the data changed after compile |
 
 Each refusal, with its cause and fix, is listed by message in [errors/index.md](../errors/index.md).
-
-## Related
-
-- [running.md](../usage/running.md): the calls behind `clab run`.
-- [one-session.md](one-session.md): why preflight and the run sit inside one session.
-- [developing/compile-and-run.md](../developing/compile-and-run.md): how compile, preflight and `steps.run` are built.
