@@ -88,8 +88,8 @@ def test_the_logit_lens_on_llama_under_nf4_is_close_to_float32():
         agree[layer] = (p.argmax(-1) == q.argmax(-1)).float().mean().item()
     last = max(kl)
     said = (f"nf4 against float32 over 42 prompts: at the last layer KL {kl[last]:.4f}, top-1 agreement "
-            f"{agree[last]:.3f}; over all 16 layers mean KL {sum(kl.values()) / 16:.4f} (at most {max(kl.values()):.4f}), "
-            f"top-1 agreement {sum(agree.values()) / 16:.3f}")
+            f"{agree[last]:.3f}; over all 16 layers mean KL {sum(kl.values()) / 16:.4f} (at most "
+            f"{max(kl.values()):.4f}), top-1 agreement {sum(agree.values()) / 16:.3f}")
     assert kl[last] < 0.2 and agree[last] >= 0.9 and max(kl.values()) < 0.5, said
 
 

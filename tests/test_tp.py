@@ -42,9 +42,9 @@ def unloadable(monkeypatch):
 
 
 def test_tp_outside_torchrun_is_refused_with_the_command(unloadable):
-    with pytest.raises(ValueError, match=r"^tp 2 shards the model over 2 processes, one per rank, that torchrun starts: "
-                                         r"`torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; "
-                                         r"this process is not one of them \(WORLD_SIZE is unset\)$"):
+    with pytest.raises(ValueError, match=r"^tp 2 shards the model over 2 processes, one per rank, that torchrun "
+                                         r"starts: `torchrun --nproc-per-node=2 --no-python clab run <document> "
+                                         r"-o tp=2`; this process is not one of them \(WORLD_SIZE is unset\)$"):
         load("nnterp", plan_of("patching").model, tp=2)
     with pytest.raises(ValueError, match="^tp 0: tensor parallelism shards the model over at least one rank$"):
         load("nnterp", plan_of("patching").model, tp=0)

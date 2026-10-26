@@ -196,8 +196,8 @@ def sharded(tp: int, device: str) -> dict[str, Any]:
                             "on the CPU, no GPU being visible, so the device is 'cpu'"))
     here = int(os.environ.get("LOCAL_WORLD_SIZE", tp))
     if kind == "cuda" and here > torch.cuda.device_count():
-        raise ValueError(f"tp {tp}: each rank holds its shard on its own GPU, and torchrun started {here} ranks on this "
-                         f"node, which shows {torch.cuda.device_count()} (CUDA_VISIBLE_DEVICES)")
+        raise ValueError(f"tp {tp}: each rank holds its shard on its own GPU, and torchrun started {here} ranks on "
+                         f"this node, which shows {torch.cuda.device_count()} (CUDA_VISIBLE_DEVICES)")
     return {"distributed_config": DistributedConfig(tp_size=tp)}
 
 
