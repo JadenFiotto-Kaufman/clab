@@ -248,11 +248,11 @@ def test_the_stand_in_server_stops_where_the_client_would(engines, monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_a_stopped_forward_leaves_no_frame_of_the_models_for_the_collector(engines, kind):
-    """A forward stopped after block 0 on the tiny Llama: once it returns, nothing unreachable holds a frame of the
-    model's forward, whose locals are its activations (nnsight's stop holds them in a cycle that the nnterp engine
-    breaks; on a GPU, forwards of 16 rows of 512 tokens stopped at Llama-3.2-1B's block 8 ran it out of memory in a
-    dozen). The engine has run once, so what it makes once is made."""
+def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
+    """A forward stopped after block 0 on the tiny Llama: once it returns, nothing unreachable holds a frame, the
+    model's (whose locals are its activations) or the run's (nnsight's stop holds both in cycles that the nnterp
+    engine breaks; on a GPU, forwards of 16 rows of 512 tokens stopped at Llama-3.2-1B's block 8 ran it out of memory
+    in a dozen). The engine has run once, so what it makes once is made."""
     plan = plan_of("sae_train")
     engine = engines(kind, plan.model)
     engine.execute(plan, batch_size=BATCH_SIZE)
@@ -264,8 +264,7 @@ def test_a_stopped_forward_leaves_no_frame_of_the_models_for_the_collector(engin
     try:
         engine.forward(batch, ending([]))
         gc.collect()
-        frames = [o.f_code.co_name for o in gc.garbage if isinstance(o, types.FrameType)
-                  and "transformers" in o.f_code.co_filename]
+        frames = [f"{o.f_code.co_filename}:{o.f_code.co_name}" for o in gc.garbage if isinstance(o, types.FrameType)]
     finally:
         gc.set_debug(0)
         gc.garbage.clear()
