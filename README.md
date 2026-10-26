@@ -1,260 +1,171 @@
 # clab
 
-clab runs mechanistic-interpretability experiments on transformer language models from declarative JSON
-documents. A document names a pinned checkpoint, its datasets, the forwards and generations to run with their
-interventions on the model's internals (each entry a site, its positions and the ops it runs there, at each
-layer the site picks: an entry with an edit among its ops writes back, and every entry's value is readable by
-name), the ops that score or reduce what they take, and what to save. clab reads it into a `Plan`, compiles
-the plan (rows loaded (a hub dataset's checked, then left out), names resolved, sweeps expanded into points, one
-axis per sweep label), runs it inside one nnsight session (so the same document runs locally or on a remote
-nnsight server), and writes each saved value to a directory with a manifest.
+clab runs interpretability experiments on transformer language models. An experiment is one JSON document:
+the checkpoint, the data, the forwards and generations to run, the reads and writes on the model's internals,
+the ops that score what comes out, and what to save. The same document runs unchanged on a model loaded
+locally or on an [NDIF](https://ndif.us/) server. A run writes each saved value to a directory with a
+manifest, which a person reads as a table and a script loads back as tensors. clab runs on
+[nnsight](https://github.com/ndif-team/nnsight) and names a model's components in
+[nnterp](https://github.com/ndif-team/nnterp)'s vocabulary.
 
-Three engines ship: `nnterp` (primary: nnterp's standardized names on every architecture), `hooks` (plain
-HuggingFace with forward hooks, for module-boundary components) and `ndif` (the nnterp engine over a
-weightless model, its session run on the NDIF server nnsight is configured for). Under `ndif` a hub dataset
-loads on the server, which therefore needs `datasets`, the hub or its cache, and a token for a gated dataset.
+## The idea
 
-## Install
+`documents/patching.json`, without its description, is a complete activation-patching experiment:
 
-```
-uv sync
-```
-
-## Run a document
-
-```
-uv run clab run documents/patching.json                  # writes out/patching/
-uv run clab run documents/patching.json --engine hooks --out out/patching-hooks --batch-size 2
-uv run clab run documents/patching.json --engine ndif                # on NDIF (nnsight's CONFIG or env)
-uv run clab run documents/patching.json --engine ndif -o remote=local # nnsight's in-process simulation of it
-uv run clab run documents/patching.json --device cuda                 # run options: --engine, --batch-size,
-uv run clab run documents/patching.json --device auto                 # --device, and -o for the engine's own
-uv run clab run documents/generated_answer.json --batch-size 2
-```
-
-## Train a featurizer, then apply it
-
-A `fit` step trains featurizers (a rotation's subspace, a mask over units, a probe) inside the run, through
-the frozen model: its body is the experiment, run over minibatches, and what it trains is saved as a bundle
-another document loads. `das.json` trains a rank-8 rotation and saves it as `fit.rot`; `das_apply.json`
-loads that bundle and scores it on the held-out split, checking its header (model, site, kind, `k`, width)
-key by key first:
-
-```
-uv run clab run documents/das.json --batch-size 2 --out documents/artifacts    # writes fit.rot.safetensors
-uv run clab run documents/das_apply.json --batch-size 2                        # loads it
-uv run clab table out/das_apply iia                                            # das's held-out iia, to the bit
-```
-
-`pca_control.json` loads what `pca_harvest.json` writes the same way, and `sae_train_ablation.json` the
-sparse autoencoder `sae_train.json` trains on every token of the weekday prompts after BOS:
-
-```
-uv run clab run documents/sae_train.json --batch-size 2 --out documents/artifacts   # fit.dictionary.safetensors
-uv run clab run documents/sae_train_ablation.json --batch-size 2                     # ablates latents 0 to 3
+```json
+{
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "weekdays/train"}},
+  "sites": {"target": {"component": "layer_output", "layers": 0}},
+  "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "pairs.counterfactual_inputs[0]",
+      "interventions": {"v_cf": {"site": "target", "pos": -1}}
+    },
+    "patched": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]},
+        "logits": {"site": {"component": "lm_head_output"}, "pos": -1}
+      }
+    },
+    "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
+    "logit_diff": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "patched.logits",
+      "a": "pairs.cf_answer",
+      "b": "pairs.base_answer"
+    }
+  },
+  "saves": ["iia", "logit_diff"]
+}
 ```
 
-A LoRA is a featurizer kind too: `lora_train.json` trains a rank-4 adapter at layer 0's output to say each
-training prompt's counterfactual answer, and `lora_apply.json` loads it and keeps it on as one named
-intervention, `adapted`, which the steps that should run the adapted model name (a forward and a generation)
-and the others leave out:
+`model` pins a checkpoint at a revision and a dtype, and `data` names a dataset under `data/`: four rows, each
+a base prompt ("If today is Thursday, tomorrow is"), a counterfactual prompt with another day, and both
+answers. `sites` names a place in the model, a component at some layers: `target` is the residual stream
+leaving block 0. `steps` run in order and name each other's values: `counterfactual` reads `target` at the
+last token of the counterfactual prompt, `patched` swaps that value into the base prompt at the same place and
+reads the logits, and the two `op` steps score them. `saves` lists what the run writes.
 
-```
-uv run clab run documents/lora_train.json --batch-size 2 --out documents/artifacts  # fit.lora.safetensors
-uv run clab run documents/lora_apply.json --batch-size 2                            # clean vs adapted, and text
-```
-
-A featurizer is reached by three ops inside an entry: `encode` gives its coordinates of the value (`select:
-{"features": ...}` keeps some), `decode` closes the most recent `encode` of it and writes the change of
-coordinates back, and `apply` is its version of the value, an edit (`{"op": "apply", "featurizer":
-"fit.lora"}`). The ops between an `encode` and its `decode` act on the coordinates, so `das.json`'s patch is
-`[encode fit.rot, swap, decode fit.rot]`; brackets nest, so a gate trains over PCA coordinates as
-`[encode pc, encode fit.mask, swap, decode fit.mask, decode pc]`. An adapter across sites (o_proj) reads
-`attention_premix` in an earlier entry of the same forward and applies at `attention_output`, naming that
-entry as `with`.
-
-A fit's `eval` names its runs after training: `das.json`'s `{"held_out": {"train": "test"}, "train": {}}`
-gives `fit.held_out.iia` and `fit.train.iia`. `documents/artifacts/sae.safetensors`,
-the dictionary `sae_feature_ablation.json` loads, is a committed fixture (`uv run python tests/fixtures/sae.py`
-writes it again). A fit's members are saved like any value; `fit.history.<op>` is a body op's mean on the
-training rows after each epoch:
-
-```python
-plan = clab.run("documents/dbm.json", batch_size=2)
-plan.results["fit.mask"][0.05]       # the gate trained at L1 weight 0.05: {"theta": tensor [16]}
-(plan.results["fit.mask"][0.05]["theta"] > 0).sum()    # the units its hard mask keeps
-plan.results["fit.held_out.iia"][0.05]                  # its iia on the test split
+```text
+$ uv run clab run documents/patching.json
+patching on nnterp (batch size 8, device cpu) -> out/patching
+  iia.safetensors              iia              [4, 1]
+  logit_diff.safetensors       logit_diff       [4, 1]
+  out/patching/manifest.json
+$ uv run clab table out/patching iia logit_diff
+row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
+0    10   ▁is        If today is Thursday, tomorrow is   Sunday    0.0   Friday      -0.027417995035648346
+1    8    ▁is        If today is Friday, tomorrow is     Monday    0.0   Saturday    0.18085992336273193
+2    8    ▁is        If today is Saturday, tomorrow is   Friday    0.0   Sunday      0.03514503687620163
+3    8    ▁is        If today is Sunday, tomorrow is     Saturday  0.0   Monday      -0.19330616295337677
 ```
 
-## Real models
+`iia` is 1 where the patched model's most likely next token is the counterfactual answer, and `logit_diff` is
+the counterfactual answer's logit less the base answer's. The corpus checkpoint has random weights, so these
+numbers show the mechanics, not a finding. `pos` and `pos_token` say where the scored read landed: "Thursday"
+is three tokens, so row 0's last token is at position 10.
 
-`documents/real/` holds five experiments on `meta-llama/Llama-3.2-1B` in float32, over the 42 weekday pairs
-of `data/weekdays_full`: `behavior` (the model answers every prompt), `layer_sweep` (where the day is, block
-by block, at the day's token and at the last), `head_patching` (each head of layers 10 to 12: layer 12's head
-28 alone moves the answer), `pattern_patching` (that layer's attention patterns, which move nothing) and `das`
-(a trained subspace at layer 8, its held-out accuracy by rank). They are ordinary documents, which want a GPU:
-
-```
-uv run clab run documents/real/head_patching.json --device cuda --batch-size 16
-uv run clab run documents/real/das.json --engine hooks --device cuda --batch-size 16
-uv run clab run documents/real/layer_sweep.json --engine ndif --batch-size 16     # on the NDIF server nnsight names
-```
-
-Through `ndif`, the server must serve the checkpoint at the document's revision in float32. `pattern_patching`
-reads the attention pattern, which needs eager attention: the hooks engine refuses it by name, and so does an
-NDIF deployment that runs sdpa. A document in a directory under `documents/` reads the corpus's `data/` as
-the others do. `tests/test_real.py` pins their numbers on a GPU, on both engines (its docstring has the
-command); the CPU-only suite compiles them against their snapshots and runs none of them.
-
-## Look at a run
-
-```
-uv run clab show out/generate_probe                      # each result: its step, dims, axes, shape; how it ran
-uv run clab table out/generate_probe p_answer patched    # the saved values as one table, joined on row and step
-uv run clab table out/generate_probe p_answer --csv      # the same as CSV on stdout, every cell whole
-```
-
-`show` prints the run's engine, device and options, batch size, start time and seconds, the served dtype and
-devices, the versions, then one line per
-saved value: the step that made it, its `dims`, its sweep axes and its shape (per coordinate when swept).
-`table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
-generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
-dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
-`alignment_missing` in place of a value. Aligned output cuts long cells short;
-`--csv` keeps them whole. Both are `Plan.load(out)` and one call, run from the corpus root (where the
-dataset files are; a hub dataset's rows load again from the hub, or offline from its cache).
-
-## From Python
+From Python, `clab.run` returns the filled plan:
 
 ```python
 import clab
 from clab import Plan
 
-plan = clab.run("documents/patching.json", engine="nnterp", out="out/patching")
-plan.results["iia"]                  # tensor [4, 1]: 1 where the patched model's top token is the answer
-plan                                 # Plan(patching, run on nnterp, 2 results)
+plan = clab.run("documents/patching.json")      # writes out/patching
+plan                                            # Plan(patching, run on nnterp, 2 results)
+plan.results["logit_diff"][:, 0]                # tensor([-0.0274,  0.1809,  0.0351, -0.1933])
 
-swept = clab.run("documents/pos_sweep.json")
-swept.results["iia"][-2]             # the point where the patch landed at pos -2: tensor [4, 1]
+swept = clab.run("documents/pos_sweep.json")    # the same patch written at positions -1, -2 and -3
+list(swept.results["iia"])                      # [-1, -2, -3]: one [4, 1] tensor per point
 
-back = Plan.load("out/patching")     # the filled plan again, from its directory
-back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token, iia, logit_diff, the columns used
+Plan.load("out/patching").table("iia", "logit_diff")[0]
+# {'row': 0, 'pos': 10, 'pos_token': '▁is', 'input': 'If today is Thursday, tomorrow is', 'cf_answer': ' Sunday', 'iia': 0.0, 'base_answer': ' Friday', 'logit_diff': -0.027417995035648346}
 ```
 
-`clab.run(plan_or_path, engine=..., out=None, batch_size=8, device="cpu", **options)` is the four steps of a
-run (`options` are the engine's own: `clab describe engines` lists them), which are also there to take one at
-a time:
+[docs/usage/running.md](docs/usage/running.md) has the run options and the four calls behind `clab.run`, and
+[docs/usage/output.md](docs/usage/output.md) reads a run back.
 
-```python
-from clab.engines import load
+## What you can do
 
-plan = Plan("documents/pos_sweep.json")       # Plan(pos_sweep, uncompiled): the document as a model
-compiled = plan.compile()                     # Plan(pos_sweep, compiled, 3 points)
-engine = load("nnterp", compiled.model)       # loads the checkpoint; one engine serves many plans
-filled = engine.execute(compiled, batch_size=8)
-filled.dump("out/pos_sweep")
+Each technique has a page with documents that run:
+
+- [Activation patching](docs/patterns/activation-patching.md): swap a position, a window or an entity's tokens from a counterfactual run, and map layer by position.
+- [Head and neuron patching](docs/patterns/head-and-neuron-patching.md): patch one attention head or a few MLP neurons at a time.
+- [Ablation](docs/patterns/ablation.md): zero, mean, resample, noise and direction ablation.
+- [Attention](docs/patterns/attention.md): knock out a head or keys, patch a head's pattern, read queries and keys after RoPE.
+- [Logit lens](docs/patterns/logit-lens.md): decode every layer's residual stream in one forward.
+- [Steering](docs/patterns/steering.md): add a harvested direction at a dose, sweep the dose, keep it on through generation.
+- [Generation experiments](docs/patterns/generation-experiments.md): score what the model says, its confidence as it says it, and teacher-forced answers.
+- [Trained subspaces](docs/patterns/trained-subspaces.md): DAS and DBM, against PCA and random subspaces of matched rank.
+- [Sparse autoencoders](docs/patterns/sae.md): splice in a published dictionary, ablate its features, or train one.
+- [Probing](docs/patterns/probing.md): train a linear probe per layer on a label column.
+- [LoRA](docs/patterns/lora.md): train a low-rank adapter through the frozen model and turn it on in chosen steps.
+
+Across techniques:
+
+- [Sweeps](docs/usage/sweeps.md): `{"sweep": [...]}` where a value goes runs the document at each value on one model load; labels zip or cross two sweeps.
+- [Generation](docs/usage/generate.md): a `generate` step reads and writes at the prefill and at each decode call.
+- [Fits](docs/usage/fit.md): a `fit` step trains featurizers inside the run, through the frozen model.
+- [Bundles](docs/usage/bundles.md): a trained featurizer is saved as a file that another document loads, its header checked against that document before anything runs.
+- [Engines](docs/usage/engines.md): `nnterp` (the default), `hooks` (plain transformers with forward hooks, to cross-check) and `ndif`.
+
+## Install
+
+clab is not on PyPI. From a checkout of this repository:
+
+```bash
+uv sync
 ```
 
-A plan's methods are views and serialization, never execution: `compile`, `dump`, `Plan.load`, `write` (the
-plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, batch size,
-device and every engine option; the versions, dtype and devices where the model was; timing; how each input
-tokenized). `clab.describe()` prints the format's tables.
+It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
+`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the documents under `documents/` run on CPU
+on tiny random-weight checkpoints, and those under `documents/real/` run Llama-3.2-1B, a gated checkpoint, and
+want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
+`HF_HUB_OFFLINE=1` runs it from the local cache.
 
-## The package
+## Run on an NDIF server
 
-Seven packages and one hub module, read as a chain from what a document says to what comes out; each
-imports only from the ones before it, and each module owns one concept end to end (its checks at compile, its resolution in the run,
-its labels in the output), so a change to a feature stays in its module:
+`--engine ndif` sends the whole run as one request to the NDIF server nnsight is configured for (`NDIF_HOST`
+and `NDIF_API_KEY`, or `nnsight.CONFIG`), and writes the output directory locally from what comes back. The
+server needs clab installed at your version and the document's checkpoint deployed at its revision.
+`-o remote=local` makes the same trip in this process without a server, and on `documents/patching.json` it
+gives the nnterp engine's numbers to the bit:
 
-| package | holds |
-| --- | --- |
-| `format/` | the vocabulary a document is written in: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`) |
-| `featurizers/`, `ops/` | the featurizer kinds and their bundles (`bundles`); the op vocabulary, one plain function per op, which names the kinds |
-| `plan.py` | the records a document is made of and the `Plan` that holds them: the hub every layer above imports, sitting above the ops and kinds its records validate |
-| `compile/` | what it means, decided before any forward: the compile driver, `preflight` (the second pass, with the model in hand), their state (`state`), and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands), `uses` (a featurizer's uses in a plan: its width at every site, its bundle's header against them, the instance the run makes) |
-| `steps/` | the run inside the session: the driver with the forward and op kinds, `batches` (everything an engine calls: an entry bound to a batch, `visit`, and what a generation does at each call), `generate`, `fit` |
-| `engines/` | the protocol and the three engines, each holding a model and nothing else |
-| `output/` | a run's directory and back, and `table` |
-| `cli.py`, `docs.py` | the command line; `describe` and FORMAT.md |
-
-## Extending clab
-
-Every extensible thing is a plain function or class under its name, registered by a decorator (ops: declared
-by one, and listed in order at the end of `ops/__init__.py`), and its signature is its contract: what a document may write, checked by `inspect.signature` with the valid choices
-named in every error.
-
-- **Ops** (`clab/ops/`, one file per group): `@op(group, needs=..., removes=..., adds=..., bundle=None,
-  check=None)` declares the function's group (`metrics`, `reductions`, `edits`, `transforms`), the axes the
-  input must carry, the axes it removes (a tuple, or the name of the argument that lists them) and appends,
-  when its value is a bundle a featurizer loads, that featurizer's kind, and a rule its arguments keep beyond
-  their types; the ordered list at the end of `ops/__init__.py` registers it, and that order is the tables'.
-  A parameter annotated `Value`, `Tokens` or
-  `Featurizer` names a thing the run binds; `engine`, `original` and `dims` are filled by the run, never by
-  a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
-- **Featurizer kinds** (`clab/featurizers/`, one module each) are classes on the `Kind` protocol,
-  registered under their lowercase name: class attributes declare what their bundle holds and what a fit
-  trains, the constructor's signature is the document's fields, and the ops it serves are its methods
-  `encode`, `replace` (what `decode` runs) and `apply`, `OPS` saying which method each op runs.
-- **Step kinds** (`clab/steps/`, one function each in `KINDS`) and
-  **engines** (`clab/engines/`, `@engine("<name>")`). An engine loads its checkpoint in `__init__` from a
-  plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
-  `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists
-  each option with what its docstring says it takes (on nnterp and hooks `device` is one torch device, `cpu`
-  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
-
-## The output
-
-One file per saved name: `<name>.safetensors` when the value is a tensor or a dict of tensors, `<name>.json`
-otherwise. A swept value is one file keyed by coordinate (`pos=-1`, `pos=-2`, ...). `manifest.json` is the
-plan itself, without the rows it read from files (a hub dataset's never were in the plan), with each result
-replaced by where it is and what it is:
-
-```json
-"results": {"iia": {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": ["pos"],
-                    "shape": {"pos=-1": [4, 1], "pos=-2": [4, 1], "pos=-3": [4, 1]}, "dtype": {...}}}
+```bash
+uv run clab run documents/patching.json --engine ndif -o remote=local
 ```
 
-`step` names the step that made the value, and the manifest's `steps` hold that step as compiled (its entries
-one dict in execution order, each marked `gathered` when the run takes its value off the model), so a result
-links back to what computed it. `run.tokens` holds each input's tokens per row and `run.positions` the token
-every entry resolved to, which is how `table` labels `pos_token`.
+[docs/usage/engines.md](docs/usage/engines.md) has what each engine serves, devices, and what a server must have.
 
-A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
-`pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an
-appended EOS included. A
-document's `pos`, `run.positions`, `table`'s `pos` and `key`, an attention pattern's
-`key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
-the same way.
+## Documentation
 
-## The format
+[docs/index.md](docs/index.md) is the router: find the section, then the one page for the task.
 
-`FORMAT.md` is the one-page reference: root keys, every record and its fields, step kinds, every op with its
-arguments and axis behaviour (grouped as metrics, reductions and edits), every component, featurizer kinds,
-the `pos` grammar (three stages: `frame` picks forward calls, the prefill or decode calls, `scope` text
-within their tokens, `index` positions within that, every input token a position), names and scoping, sweeps and the output. It is generated from the code (`clab describe
---markdown`); a test fails when it is stale.
-`documents/` holds the corpus: the 31 original documents and the example documents added since (45 in all),
-and under `documents/real/` the five on a real checkpoint; `data/` their datasets.
+- [docs/usage/](docs/usage/index.md): one page per part of the format and per stage of a run; start with [writing-a-document](docs/usage/writing-a-document.md).
+- [docs/patterns/](docs/patterns/index.md): one technique per page, each with documents that run.
+- [docs/concepts/](docs/concepts/index.md): why it behaves as it does: the plan's lifecycle, one session per run, positions, values and layout, names and sweeps.
+- [docs/errors/](docs/errors/index.md): refusals by their message, and [the symptom index](docs/errors/symptom-index.md) for wrong numbers nothing refused.
+- [docs/reference/](docs/reference/index.md): the CLI, the Python API and the glossary.
+- [docs/developing/](docs/developing/index.md): how clab is built ([architecture](docs/developing/architecture.md)), how to add an op, a featurizer kind, a component or a step kind ([extending](docs/developing/extending.md)), the engine protocol, testing and contributing.
+- [FORMAT.md](FORMAT.md): every field, step kind, op, component, featurizer kind and engine option, generated from the code by `clab describe --markdown`; `uv run clab describe ops` prints one of its tables.
 
-## Tests
+## Agents
 
-```
-CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
-uvx pyright
-```
+[CLAUDE.md](CLAUDE.md) is the agent guide for this repository: it starts at [docs/index.md](docs/index.md),
+maps tasks to pages, and lists the mistakes that run without a refusal and cost a conclusion.
+[AGENTS.md](AGENTS.md) points to it.
 
-`CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
-command its docstring gives.
+## Contributing
 
-Offline, the suite needs these checkpoints and one dataset in the local Hugging Face cache, at the revisions the
-documents and tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`),
-`hf-internal-testing/tiny-random-gpt2` (`71034c5d`) and `trl-internal-testing/tiny-Qwen3ForCausalLM` (`25bb9b89`,
-the chat cases); `Qwen/Qwen3-8B`'s tokenizer (`b968826d`) where it is cached, which one test checks the tiny
-Qwen3's template against and skips without; the dataset `nyu-mll/glue` (`bcdcba79`, its `wnli` and `ax` configs),
-which `tests/test_hub.py` reads and says how to fetch; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B`
-(`4e20de36`).
-
-Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
-longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's
-shape, and a trailing partial batch (a smaller matrix) can differ in the last bits. The snapshots pin the
-batch size for that reason.
+[docs/developing/contributing.md](docs/developing/contributing.md) has the conventions, the rules a format
+change follows, and what to run before a pull request. Docs change in the same pull request as the code that
+invalidates them.
