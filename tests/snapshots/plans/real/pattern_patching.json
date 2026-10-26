@@ -67,7 +67,9 @@
      "num_heads": 1
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -95,7 +97,9 @@
      "num_heads": 2
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -123,7 +127,9 @@
      "num_heads": 3
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -151,7 +157,9 @@
      "num_heads": 4
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -179,7 +187,9 @@
      "num_heads": 5
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -207,7 +217,9 @@
      "num_heads": 6
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -235,7 +247,9 @@
      "num_heads": 7
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -263,7 +277,9 @@
      "num_heads": 8
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -291,7 +307,9 @@
      "num_heads": 9
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -319,7 +337,9 @@
      "num_heads": 10
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -347,7 +367,9 @@
      "num_heads": 11
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -375,7 +397,9 @@
      "num_heads": 12
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -403,7 +427,9 @@
      "num_heads": 13
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -431,7 +457,9 @@
      "num_heads": 14
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -459,7 +487,9 @@
      "num_heads": 15
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -487,7 +517,9 @@
      "num_heads": 16
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -515,7 +547,9 @@
      "num_heads": 17
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -543,7 +577,9 @@
      "num_heads": 18
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -571,7 +607,9 @@
      "num_heads": 19
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -599,7 +637,9 @@
      "num_heads": 20
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -627,7 +667,9 @@
      "num_heads": 21
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -655,7 +697,9 @@
      "num_heads": 22
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -683,7 +727,9 @@
      "num_heads": 23
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -711,7 +757,9 @@
      "num_heads": 24
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -739,7 +787,9 @@
      "num_heads": 25
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -767,7 +817,9 @@
      "num_heads": 26
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -795,7 +847,9 @@
      "num_heads": 27
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -823,7 +877,9 @@
      "num_heads": 28
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -851,7 +907,9 @@
      "num_heads": 29
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -879,7 +937,9 @@
      "num_heads": 30
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -907,7 +967,9 @@
      "num_heads": 31
     },
     "dataset": "days",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    }
   ],
   "patched": [

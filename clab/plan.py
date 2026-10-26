@@ -553,9 +553,9 @@ class Forward(Record):
     interventions: Interventions = {}
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
-    shares: str | None = derived(None, "the coordinate (`layers=0`) of the step's first point that differs from this "
-                                       "one only in entries that do not write, whose forward serves both; none where "
-                                       "the point runs its own")
+    shares: dict[str, int] | None = derived(None, "the `at` of the step's first point that differs from this one "
+                                                  "only in entries that do not write, whose forward serves both; "
+                                                  "none where the point runs its own")
 
     @model_validator(mode="before")
     @classmethod
@@ -781,9 +781,9 @@ class Run(Record):
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
     and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
-    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one); a
-    point that shares another's forward (`shares`) made none, and costs the `seconds` of its own ops after it
-    alone, with no `memory`."""
+    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one).
+    Points that share one forward (`shares`) record what the whole group cost at the point that runs it, its
+    `memory` the group's peak, and `seconds` 0, `forwards` 0, `tokens` 0 and `memory` null at each other."""
     engine: str
     batch_size: int
     device: str | None

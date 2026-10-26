@@ -23,7 +23,7 @@ OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch
 
 
 def fit(engine: Engine, plan: Plan, name: str, group: list[Fit], state: dict, batch_size: int,
-        found: Found) -> list[Counter]:
+        found: Found) -> Counter:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means), at `group`'s one point. The optimizer and every trained featurizer are made here, inside the
     run; each minibatch's gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone,
@@ -99,7 +99,7 @@ def fit(engine: Engine, plan: Plan, name: str, group: list[Fit], state: dict, ba
         put(state, f"{name}.{f}", step.at, inst)
     for key, values in history.items():         # `epochs: 0` scores the untrained draw: an empty history
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
-    return [count]
+    return count
 
 
 def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[str, Kind], source: tuple[Plan, Found],
@@ -119,7 +119,7 @@ def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[st
     count = Counter()
     with torch.set_grad_enabled(index is not None):
         for n, s in step.steps.items():
-            count += KINDS[cast(Step, s).kind](engine, plan, n, [s], body, step.batch_size, found)[0]
+            count += KINDS[cast(Step, s).kind](engine, plan, n, [s], body, step.batch_size, found)
     return body, count
 
 

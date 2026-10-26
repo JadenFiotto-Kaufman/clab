@@ -84,7 +84,9 @@
      "layers": 1
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -121,7 +123,9 @@
      "layers": 2
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -158,7 +162,9 @@
      "layers": 3
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -195,7 +201,9 @@
      "layers": 4
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -232,7 +240,9 @@
      "layers": 5
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -269,7 +279,9 @@
      "layers": 6
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -306,7 +318,9 @@
      "layers": 7
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -343,7 +357,9 @@
      "layers": 8
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -380,7 +396,9 @@
      "layers": 9
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -417,7 +435,9 @@
      "layers": 10
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -454,7 +474,9 @@
      "layers": 11
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -491,7 +513,9 @@
      "layers": 12
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -528,7 +552,9 @@
      "layers": 13
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -565,7 +591,9 @@
      "layers": 14
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    },
    {
     "kind": "forward",
@@ -602,7 +630,9 @@
      "layers": 15
     },
     "dataset": "days",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    }
   ],
   "at_day": [

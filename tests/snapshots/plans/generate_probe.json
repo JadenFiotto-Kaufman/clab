@@ -123,7 +123,9 @@
      "frame": 1
     },
     "dataset": "pairs",
-    "shares": "frame=0",
+    "shares": {
+     "frame": 0
+    },
     "max_new_tokens": 3,
     "min_new_tokens": 3,
     "do_sample": false
@@ -170,7 +172,9 @@
      "frame": 2
     },
     "dataset": "pairs",
-    "shares": "frame=0",
+    "shares": {
+     "frame": 0
+    },
     "max_new_tokens": 3,
     "min_new_tokens": 3,
     "do_sample": false

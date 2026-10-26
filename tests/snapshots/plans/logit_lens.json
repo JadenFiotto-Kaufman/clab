@@ -68,7 +68,9 @@
      "layers": 1
     },
     "dataset": "prompts",
-    "shares": "layers=0"
+    "shares": {
+     "layers": 0
+    }
    }
   ],
   "p_answer": [

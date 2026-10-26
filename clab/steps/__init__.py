@@ -8,9 +8,9 @@ generated, up to its first EOS. Under the nnterp and ndif engines it runs inside
 under ndif); under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
 frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
 A forward or generate step's points that share one forward (`Forward.shares`, which compile decides) run as one
-group (`groups`), every point's entries bound to it under the point's own coordinates. Each step kind returns what
-each point it ran cost, the model calls it made and the tokens they fed (`batches.fed`), which `run` records with
-the time and memory (`measured`).
+group (`groups`), every point's entries bound to it under the point's own coordinates. Each step kind returns the
+model calls its group made and the tokens they fed (`batches.fed`), which `run` records with the group's time and
+memory (`measured`) at the point that runs the forward.
 """
 
 from __future__ import annotations
@@ -34,23 +34,10 @@ from clab.compile.interventions import acts_at
 from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
-from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, put
-from clab.plan import Entry, Forward, OpStep, Plan, Run, Step, arguments, dims_of, entries, points
+from clab.format.sweeps import by_coordinate, coordinate, lookup, put
+from clab.plan import Entry, Forward, OpStep, Plan, Run, Step, arguments, dims_of, points
 from clab.steps import fit, generate
-from clab.steps.batches import (
-    bind,
-    bound,
-    chunked,
-    clock,
-    fed,
-    gpus,
-    home,
-    joined,
-    layers,
-    read,
-    read_name,
-    stacked,
-)
+from clab.steps.batches import bind, bound, chunked, fed, home, joined, reads
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -73,9 +60,10 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, a group of points that share a forward together (`groups`), over
-    the plan `held`, without gradients except where a fit trains, each point's cost `measured` into
-    `plan.run.costs`; then each saved value into `plan.results` (a trained featurizer as its bundle's tensors), and
-    what served the run: the dtypes and devices of the model's parameters (`placed`)."""
+    the plan `held`, without gradients except where a fit trains, each group's cost `measured` into
+    `plan.run.costs` at the point that runs the forward, and `SHARING` at each other; then each saved value into
+    `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the dtypes and devices
+    of the model's parameters (`placed`)."""
     plan = held(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
@@ -84,10 +72,11 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     costs: dict = {}
     with torch.no_grad():
         for name, entry in plan.steps.items():
-            for group in groups(plan, entry):
-                for step, cost in zip(group, measured(engine, lambda: KINDS[group[0].kind](
-                        engine, plan, name, group, state, batch_size, found))):
-                    put(costs, name, step.at, cost)
+            for group in groups(entry):
+                cost = measured(engine, lambda: KINDS[group[0].kind](engine, plan, name, group, state, batch_size,
+                                                                       found))
+                for step in group:
+                    put(costs, name, step.at, cost if step is group[0] else dict(SHARING))
     plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
     for name in plan.saves:
         entry = plan.steps[name.partition(".")[0]]
@@ -105,34 +94,45 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     plan.run.dtype, plan.run.devices = placed(engine.model)
 
 
-def groups(plan: Plan, entry: Entry) -> list[list[Step]]:
+def groups(entry: Entry) -> list[list[Step]]:
     """A step's points as they run, in order: each point that runs a forward, a generation, an op or a fit, with
-    the points that share its forward after it (`Forward.shares`, its coordinate)."""
-    out: dict[str, list[Step]] = {}
+    the points that share its forward after it (`Forward.shares`, its `at`)."""
+    out: dict[tuple, list[Step]] = {}
     for step in points(entry):
-        out.setdefault((step.shares if isinstance(step, Forward) else None) or labelled(plan, step.at), []).append(step)
+        served = (step.shares if isinstance(step, Forward) else None) or step.at
+        out.setdefault(tuple(served.items()), []).append(step)
     return list(out.values())
 
 
-def measured(engine: Engine, call: Callable[[], list[Counter]]) -> list[dict[str, Any]]:
-    """What each of a group's points cost: `call`, which runs them, timed with the model's CUDA devices (`gpus`)
-    synchronized at both ends (`clock`); the peak memory allocated on each of them while it ran, weights included,
-    in bytes by device (None where the model is not on CUDA); and the model calls each point made and the tokens
-    they fed, which `call` returns (`forwards`, `tokens`) with the nanoseconds each point's own ops after the
-    forward took. A point that shares the forward costs those `seconds` alone and no `memory`; the first, which
-    runs it, the rest of the time and the peak. A remote engine's run makes no CUDA call and its `memory` is None:
-    on an NDIF server the process is the server's, whose own per-request accounting a reset of the peak would
-    clobber, and its sandbox's runner would measure its own tensors."""
+# What a point records whose forward another point of its group runs, which records the group's cost.
+SHARING = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0}
+
+
+def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:
+    """What a step cost: `call`, which runs it, timed (`seconds`), with the model's CUDA devices (`gpus`)
+    synchronized at both ends; the peak memory allocated on each of them while it ran, weights included, in bytes
+    by device (`memory`, None where the model is not on CUDA); and the model calls it made and the tokens they
+    fed, which `call` returns (`forwards`, `tokens`). A remote engine's run makes no CUDA call and its `memory`
+    is None: on an NDIF server the process is the server's, whose own per-request accounting a reset of the
+    peak would clobber, and its sandbox's runner would measure its own tensors."""
     devices = [] if engine.remote else gpus(engine)
-    started = clock(devices)
     for device in devices:
+        torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)
-    counts = call()
-    took = clock(devices) - started
+    started = time.perf_counter()
+    count = call()
+    for device in devices:
+        torch.cuda.synchronize(device)
+    seconds = round(time.perf_counter() - started, 3)
     memory = {d: torch.cuda.max_memory_allocated(d) for d in devices} or None
-    after = [c["nanoseconds"] for c in counts[1:]]
-    return [{"seconds": round(ns / 1e9, 3), "memory": peak, "forwards": c["forwards"], "tokens": c["tokens"]}
-            for c, ns, peak in zip(counts, [took - sum(after), *after], [memory] + [None] * len(after))]
+    return {"seconds": seconds, "memory": memory, "forwards": count["forwards"], "tokens": count["tokens"]}
+
+
+def gpus(engine: Engine) -> list[str]:
+    """The CUDA devices the model is on: where its parameters are (a meta shell's, which loads its weights at its
+    first forward, where the engine places it: `home`)."""
+    devices = dict.fromkeys(home(engine) if d == "meta" else d for d in placed(engine.model)[1])
+    return [d for d in devices if d.startswith("cuda")]
 
 
 def held(plan: Plan) -> Plan:
@@ -212,36 +212,28 @@ def version() -> str:
 
 
 def forward(engine: Engine, plan: Plan, name: str, group: list[Forward], state: dict, batch_size: int,
-            found: Found) -> list[Counter]:
+            found: Found) -> Counter:
     """The step's input in consecutive batches, each through `engine.forward` once for the points of `group`
-    (those that share the forward; one point where none does);
-    each point's gathered entries joined along rows. Returns what each point cost: the first, the model calls the
-    forward made and the tokens they fed (`fed`); each, the nanoseconds its own ops after the forward took.
+    (those that share the forward; one point where none does); each point's gathered entries joined along rows.
+    Returns the model calls it made and the tokens they fed (`fed`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
     positions is as wide as the widest, NaN past a row's own."""
-    parts, count, devices = [[] for _ in group], [Counter() for _ in group], [] if engine.remote else gpus(engine)
+    parts, count = [[] for _ in group], Counter()
     for chunk, batch, pads in chunked(engine, group[0], found, batch_size):
         sites, records = bind(engine, plan, name, group, state, found, chunk, pads)
         got = engine.forward(batch, records)
-        count[0] += fed(batch, pads)
+        count += fed(batch, pads)
         for i, step in enumerate(group):
-            started = clock(devices)
-            parts[i].append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer, point=i)],
-                                                        sites[i][key], chunk, state, step.at, found.answers, layer)
-                                                   for layer in layers(engine, record)])
-                             for key, record in entries(step).items() if record.gathered})
-            count[i]["nanoseconds"] += clock(devices) - started
-    for i, step in enumerate(group):
-        started = clock(devices)
-        joined(state, name, step, parts[i])
-        count[i]["nanoseconds"] += clock(devices) - started
+            parts[i].append(reads(engine, plan, step, i, got, sites[i], chunk, state, found.answers))
+    for step, part in zip(group, parts):
+        joined(state, name, step, part)
     return count
 
 
 def op(engine: Engine, plan: Plan, name: str, group: list[OpStep], state: dict, batch_size: int,
-       found: Found) -> list[Counter]:
+       found: Found) -> Counter:
     """The op over the whole value `of` names, given each of its rows' dataset row, at the layers `of` is at
     (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value over a vocabulary's
     tokens also holds them, decoded. It calls no model; `group` is its one point."""
@@ -259,7 +251,7 @@ def op(engine: Engine, plan: Plan, name: str, group: list[OpStep], state: dict, 
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = decoded(engine.tokenizer, value["ids"])
     put(state, name, step.at, value)
-    return [Counter()]
+    return Counter()
 
 
 def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
@@ -270,5 +262,6 @@ def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
 
 
 # The step kinds, each run as `(engine, plan, name, group, state, batch_size, found)` over a group of the step's
-# points (`groups`: those that share a forward, else one) and returning what each point cost (`measured`).
+# points (`groups`: those that share a forward, else one) and returning the model calls it made and the tokens they
+# fed (`batches.fed`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}

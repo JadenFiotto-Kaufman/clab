@@ -1,9 +1,8 @@
-"""A step's input in batches, an entry bound to one batch (its site in the padded batch, the ops it writes with,
-its value with the ops after its last edit applied), and what a batch costs (`fed`, timed by `clock`)."""
+"""A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
+with, its value with the ops after its last edit applied."""
 
 from __future__ import annotations
 
-import time
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 
@@ -214,6 +213,16 @@ def read(engine: Engine, plan: Plan, record: Intervention, value: Tensor, site: 
     return with_ops(engine, plan, record, value, state, at, rows, site["tok"], answers, layer)
 
 
+def reads(engine: Engine, plan: Plan, step: Forward, point: int, got: dict, sites: dict[str, dict], rows: slice,
+          state: dict, answers: dict, among: set[str] | None = None) -> dict:
+    """The value of each gathered prefill entry of `step` (those `among`, default every one), the `point`-th of the
+    group that shares its forward, in one batch: its reads in `got` (named under the point, `read_name`), one per
+    layer it is made at (`read`), stacked (`stacked`)."""
+    return {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer, point=point)], sites[key], rows,
+                                       state, step.at, answers, layer) for layer in layers(engine, record)])
+            for key, record in entries(step).items() if record.gathered and (among is None or key in among)}
+
+
 def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, state: dict, at: dict, rows: slice,
              places: Tensor | None, answers: dict, layer: int | None) -> Any:
     """An entry's value at one of its layers (`layer`) taken off the model with the ops after its last edit
@@ -388,22 +397,6 @@ def live(got: dict, operand: dict) -> Tensor:
         raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
                          "reached the write; it reads it at a later site")
     return got[operand["live"]]
-
-
-def clock(devices: list[str]) -> int:
-    """The time, in nanoseconds (`time.perf_counter_ns`), once the CUDA `devices` the model is on (`gpus`) have done
-    what was queued on them."""
-    for device in devices:
-        torch.cuda.synchronize(device)
-    return time.perf_counter_ns()
-
-
-def gpus(engine: Engine) -> list[str]:
-    """The CUDA devices the model is on: where its parameters are (a meta shell's, which loads its weights at its
-    first forward, where the engine places it: `home`)."""
-    placed = dict.fromkeys(str(p.device) for p in engine.model.parameters())
-    devices = dict.fromkeys(home(engine) if d == "meta" else d for d in placed)
-    return [d for d in devices if d.startswith("cuda")]
 
 
 def home(engine: Engine) -> str:

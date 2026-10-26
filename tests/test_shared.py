@@ -4,11 +4,12 @@ Compile decides it from the points alone (`Forward.shares`): points of one forwa
 input, options and writes share the first one's forward, which carries every point's reads, each bound at its own
 point. Each point's values are then those its own forward gives, to the bit (`unshared` is the run as it was
 before points shared: every `shares` cleared), on every engine, under `remote="local"` and through the stand-in
-server; the point that runs the forward records its calls and tokens and every other point none. A sweep on a
-write (its operand, positions or layer) runs a forward per write, as does one reached by a write and a read (zip);
-a grid of a swept write and a swept read shares within each write; a write whose operand is an earlier entry of its
-forward shares while that entry does not vary; a generation shares as a forward does; a bundle pulled into two steps
-shares within each step, never across them; and a later step or a fit's body reads each point's value as before.
+server; the point that runs the forward records the group's time, memory, calls and tokens, every other point
+zeros (`clab show` names the point it shares). A sweep on a write (its operand, positions or layer) runs a forward
+per write, as does one reached by a write and a read (zip); a grid of a swept write and a swept read shares within
+each write; a write whose operand is an earlier entry of its forward shares while that entry does not vary; a
+generation shares as a forward does; a bundle pulled into two steps shares within each step, never across them;
+and a later step or a fit's body reads each point's value as before.
 """
 
 import os
@@ -32,7 +33,7 @@ def unshared(plan: Plan) -> Plan:
     return plan
 
 
-def shares(plan: Plan, name: str) -> list[str | None]:
+def shares(plan: Plan, name: str) -> list[dict[str, int] | None]:
     return [p.shares for p in points(plan.steps[name])]
 
 
@@ -102,8 +103,7 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     point's (each point alone runs to its own; the ndif engine runs every forward whole); each point's value is
     its own forward's to the bit."""
     plan = gpt2(READS[axis])
-    first = labelled(plan, points(plan.steps["lens"])[0].at)
-    assert first == f"{axis}={0 if axis == 'layers' else -1}" and shares(plan, "lens") == [None] + [first] * 4
+    assert shares(plan, "lens") == [None] + [{axis: 0}] * 4
     engine = engines(kind, plan.model, **ENGINES[kind])
     shared, ran = counted(engine, plan, 4)
     alone, ran_alone = counted(engine, unshared(gpt2(READS[axis])), 4)
@@ -112,7 +112,8 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     assert shared.run is not None and alone.run is not None
     costs = list(shared.run.costs["lens"].values())
     assert calls(shared, "lens") == [1, 0, 0, 0, 0] and calls(alone, "lens") == [1] * 5
-    assert [c["tokens"] for c in costs][1:] == [0] * 4 and all(c["memory"] is None for c in costs)
+    assert costs[1:] == [{"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0}] * 4
+    assert costs[0]["memory"] is None and costs[0]["seconds"] > 0
     assert same(shared.results, alone.results) and shared.run.positions == alone.run.positions
     values = list(shared.results["lens.read"].values())
     assert not any(same(values[0], v) for v in values[1:])
@@ -163,7 +164,8 @@ def test_a_grid_of_a_swept_write_and_a_swept_read_shares_within_each_write(engin
     value is its own forward's."""
     plan = gpt2(GRID)
     assert list(plan.sweeps) == ["src", "dst"]
-    assert shares(plan, "lens") == [None, None, "src=2,dst=0", "src=2,dst=1", "src=2,dst=0", "src=2,dst=1"]
+    assert shares(plan, "lens") == [None, None, {"src": 0, "dst": 0}, {"src": 0, "dst": 1}, {"src": 0, "dst": 0},
+                                    {"src": 0, "dst": 1}]
     shared, alone = twice(engines(kind, plan.model), lambda: gpt2(GRID), batch_size=4)
     assert shared.run is not None
     assert list(shared.run.costs["lens"]) == [labelled(plan, p.at) for p in points(plan.steps["lens"])]
@@ -197,7 +199,7 @@ def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_do
     is every point's; with that entry swept over blocks 0 and 1 instead, the write varies, and each point runs its
     own forward."""
     plan = live()
-    assert shares(plan, "lens") == [None, "layers=2", "layers=2"]
+    assert shares(plan, "lens") == [None, {"layers": 0}, {"layers": 0}]
     shared, alone = twice(engines(kind, plan.model), live, batch_size=4)
     assert calls(shared, "lens") == [1, 0, 0]
     assert same(shared.results, alone.results)
@@ -220,7 +222,7 @@ def test_a_generations_read_only_sweep_shares_the_generation(engines, kind):
     share one generation (two batches of three calls), and the ids, the text, each row's tokens and where each
     read landed are each point's own generation's."""
     plan = probe()
-    assert shares(plan, "patched") == [None, "frame=0", "frame=0"]
+    assert shares(plan, "patched") == [None, {"frame": 0}, {"frame": 0}]
     shared, alone = twice(engines(kind, plan.model), probe)
     assert shared.run is not None and alone.run is not None
     assert calls(shared, "patched") == [6, 0, 0] and calls(alone, "patched") == [6, 6, 6]
@@ -243,7 +245,7 @@ def test_a_bundle_pulled_into_two_steps_shares_within_each_step_alone(engines):
     """Each step's three points share that step's own forward, so the run makes two forwards, one per step,
     though the two are alike."""
     plan = bundled()
-    assert shares(plan, "first") == shares(plan, "second") == [None, "layers=0", "layers=0"]
+    assert shares(plan, "first") == shares(plan, "second") == [None, {"layers": 0}, {"layers": 0}]
     shared, alone = twice(engines("nnterp", plan.model), bundled, batch_size=4)
     assert calls(shared, "first") == calls(shared, "second") == [1, 0, 0]
     assert same(shared.results, alone.results)
@@ -273,7 +275,7 @@ def test_a_later_step_and_a_fit_body_read_each_points_own_value_of_a_shared_forw
     `center`, each read it at their own point: every result is what each point's own forward gives, and the
     two points' fits differ."""
     plan = centered()
-    assert shares(plan, "base") == [None, "src=0"]
+    assert shares(plan, "base") == [None, {"src": 0}]
     assert [p.at for p in points(plan.steps["fit"])] == [{"src": 0}, {"src": 1}]
     shared, alone = twice(engines("nnterp", plan.model), centered)
     assert calls(shared, "base") == [1, 0] and calls(alone, "base") == [1, 1]

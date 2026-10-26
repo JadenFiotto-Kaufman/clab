@@ -17,15 +17,13 @@ from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, ho
 from clab.steps.batches import (
     bind,
     chunked,
-    clock,
     decoding,
     edit,
     fed,
-    gpus,
     joined,
     layers,
-    read,
     read_name,
+    reads,
     site,
     stacked,
     with_ops,
@@ -44,7 +42,7 @@ def stops(engine: Engine, step: Generate) -> list[int]:
 
 
 def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state: dict, batch_size: int,
-             found: Found) -> list[Counter]:
+             found: Found) -> Counter:
     """The step's input in consecutive batches, each through `engine.generate` once for the points of `group`
     (those that share the generation; one point where none does) with the step's own keys as its options; each
     point's gathered entries joined along rows, and the new ids, the same for each, joined into its value.
@@ -54,11 +52,10 @@ def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state
     stopped before a call a write selects is not written there and is recorded as missing. The resolution is
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
-    their EOS to the longest batch's. Returns what each point cost: the first, the model calls the generation
-    made, one per new token of each batch (its prefill, then a decode call for each token after the first), and
-    the tokens they fed (`fed`): the prompts', then each row's generated tokens but its last, which is its EOS (fed
-    to it on the call after it says it, and not counted, as the padding after it is not) or the generation's last
-    token, which no call is fed; each, the nanoseconds its own ops after the generation took."""
+    their EOS to the longest batch's. Returns the model calls it made, one per new token of each batch (its
+    prefill, then a decode call for each token after the first), and the tokens they fed (`fed`): the
+    prompts', then each row's generated tokens but its last, which is its EOS (fed to it on the call after it says
+    it, and not counted, as the padding after it is not) or the generation's last token, which no call is fed."""
     step = group[0]
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
@@ -67,7 +64,7 @@ def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state
     picks = [{key: lookup(found.selects, f"{name}.{key}", p.at) for key in after} for p, after in zip(group, afters)]
     parts: list[list] = [[] for _ in group]
     resolved = [{f"{name}.{key}": [] for key in after} for after in afters]
-    new, count, most, devices = [], [Counter() for _ in group], horizon(step), [] if engine.remote else gpus(engine)
+    new, count, most = [], Counter(), horizon(step)
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, group, state, found, chunk, pads, firsts)
         for key in entries(step):
@@ -77,13 +74,9 @@ def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state
                                       padded, encoded[chunk], rows[chunk], eos, most, i)
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
         said = [positions.continuation(x, eos) for x in ids.tolist()]
-        count[0] += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
+        count += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
         for i, (p, first, after) in enumerate(zip(group, firsts, afters)):
-            started = clock(devices)
-            out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer, point=i)], sites[i][key],
-                                              chunk, state, p.at, found.answers, layer)
-                                         for layer in layers(engine, record)])
-                   for key, record in entries(p).items() if key in first and record.gathered}
+            out = reads(engine, plan, p, i, got, sites[i], chunk, state, found.answers, first)
             for key, record in after.items():
                 where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(p, record))
                 resolved[i][f"{name}.{key}"] += where
@@ -95,19 +88,16 @@ def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state
                                                          layer)
                                                 for layer in layers(engine, record)])
             parts[i].append(out)
-            count[i]["nanoseconds"] += clock(devices) - started
         new.append(ids)
     width = max(x.shape[1] for x in new)
     ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
     tokens = [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()]
     for i, p in enumerate(group):
-        started = clock(devices)
         joined(state, name, p, parts[i])
         put(state, name, p.at, ids)
         for where, per_row in resolved[i].items():
             put(found.positions, where, p.at, per_row)
         put(found.said, name, p.at, tokens)
-        count[i]["nanoseconds"] += clock(devices) - started
     return count
 
 

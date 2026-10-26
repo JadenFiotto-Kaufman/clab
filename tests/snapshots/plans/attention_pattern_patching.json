@@ -67,7 +67,9 @@
      "num_heads": 1
     },
     "dataset": "pairs",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -95,7 +97,9 @@
      "num_heads": 2
     },
     "dataset": "pairs",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    },
    {
     "kind": "forward",
@@ -123,7 +127,9 @@
      "num_heads": 3
     },
     "dataset": "pairs",
-    "shares": "num_heads=0"
+    "shares": {
+     "num_heads": 0
+    }
    }
   ],
   "patched": [

@@ -111,7 +111,9 @@
      "seed": 1
     },
     "dataset": "pairs",
-    "shares": "seed=0"
+    "shares": {
+     "seed": 0
+    }
    },
    {
     "kind": "forward",
@@ -146,7 +148,9 @@
      "seed": 2
     },
     "dataset": "pairs",
-    "shares": "seed=0"
+    "shares": {
+     "seed": 0
+    }
    }
   ],
   "patched": [

@@ -27,7 +27,7 @@ from clab.compile.state import Compiling, Known
 from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data
-from clab.format.sweeps import agreeing, find_sweeps, labelled
+from clab.format.sweeps import agreeing, find_sweeps
 from clab.plan import (
     Data,
     Entry,
@@ -180,14 +180,14 @@ def point(cx: Compiling, at: dict[str, int]) -> Plan:
 
 def shared(plan: Plan) -> None:
     """Each point of a forward or generate step whose forward an earlier point of the step serves too: the first
-    with the same `forwarded` key, whose coordinate the point `shares`. The run groups the points by it."""
+    with the same `forwarded` key, whose `at` the point `shares`. The run groups the points by it."""
     for name, entry in plan.steps.items():
         first: dict[str, Forward] = {}
         for step in points(entry):
             if isinstance(step, Forward):
                 key = forwarded(plan, name, step)
                 if key in first:
-                    step.shares = labelled(plan, first[key].at)
+                    step.shares = dict(first[key].at)
                 else:
                     first[key] = step
 
