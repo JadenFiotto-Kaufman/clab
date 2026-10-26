@@ -8,8 +8,8 @@ server; the point that runs the forward records the group's time, memory, calls 
 zeros (`clab show` names the point it shares). A sweep on a write (its operand, positions or layer) runs a forward
 per write, as does one reached by a write and a read (zip); a grid of a swept write and a swept read shares within
 each write; a write whose operand is an earlier entry of its forward shares while that entry does not vary; a
-generation shares as a forward does; a bundle pulled into two steps shares within each step, never across them;
-and a later step or a fit's body reads each point's value as before.
+generation shares as a forward does, a sampled one's points reading one sample; a bundle pulled into two steps
+shares within each step, never across them; and a later step or a fit's body reads each point's value as before.
 """
 
 import os
@@ -228,6 +228,20 @@ def test_a_generations_read_only_sweep_shares_the_generation(engines, kind):
     assert calls(shared, "patched") == [6, 0, 0] and calls(alone, "patched") == [6, 6, 6]
     assert same(shared.results, alone.results)
     assert shared.run.tokens == alone.run.tokens and shared.run.positions == alone.run.positions
+
+
+def test_a_sampled_generations_points_read_one_sample(engines):
+    """generate_probe's patched generation sampled (`do_sample`): its points still share it, so each reads the one
+    continuation, where each point's own generation would have drawn another."""
+    def sampled() -> Plan:
+        def change(d):
+            d["steps"]["patched"]["do_sample"] = True
+        return edited("generate_probe", change).compile()
+    plan = sampled()
+    assert shares(plan, "patched") == [None, {"frame": 0}, {"frame": 0}]
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    ids = list(filled.results["patched"].values())
+    assert same(ids[0], ids[1]) and same(ids[0], ids[2])
 
 
 def bundled() -> Plan:

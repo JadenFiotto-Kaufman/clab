@@ -610,7 +610,9 @@ class Generate(Forward):
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
-    batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
+    batch sizes 4 and 2 already differ by about 1e-7 at call 0. Points of a swept step that share one generation
+    (`shares`) share its sample too: under `do_sample` each reads the one continuation, where its own generation
+    would draw another."""
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]

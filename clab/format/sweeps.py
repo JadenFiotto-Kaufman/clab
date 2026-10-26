@@ -34,10 +34,14 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
     Points of one `forward` or `generate` step that differ only in entries that do not write share one forward:
     they have one `input`, the same options and the same writes, each write its site, positions, ops up to its
-    last edit and operands (one from a swept step the same only at the same point of it), while what they read,
-    and the ops after a write's last edit, may differ. Compile writes the first such point's coordinate in each
-    other's `shares`, and the run makes that forward once with every point's reads, each bound at its own point,
-    so each point's values are those its own forward would give, to the bit (a read never changes a forward).
+    last edit and operands, while what they read, and the ops after a write's last edit, may differ. An operand
+    from a swept step or featurizer is the same only at the same point of it (of the whole step, so a value of a
+    step swept only in another of its entries counts as varying), and one from an earlier entry of the same
+    forward is that entry's site and positions. Compile writes the first such point's `at` in the `shares` of
+    each later one, and the run makes that forward once with every point's reads, each bound at its own point, so
+    each point's values are those its own forward would give, to the bit (a read never changes a forward). A
+    sampled generation (`do_sample`) is the one exception: its points read one sample, where each point's own
+    generation would draw its own.
     """
     found: dict[tuple, str] = {}
     first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values

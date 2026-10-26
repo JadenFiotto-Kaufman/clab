@@ -311,7 +311,9 @@ runs, naming the step.
 
 Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
 projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
-batch sizes 4 and 2 already differ by about 1e-7 at call 0.
+batch sizes 4 and 2 already differ by about 1e-7 at call 0. Points of a swept step that share one generation
+(`shares`) share its sample too: under `do_sample` each reads the one continuation, where its own generation
+would draw another.
 
 ### `op`
 
@@ -809,10 +811,14 @@ tuple of them in axis order.
 
 Points of one `forward` or `generate` step that differ only in entries that do not write share one forward:
 they have one `input`, the same options and the same writes, each write its site, positions, ops up to its
-last edit and operands (one from a swept step the same only at the same point of it), while what they read,
-and the ops after a write's last edit, may differ. Compile writes the first such point's coordinate in each
-other's `shares`, and the run makes that forward once with every point's reads, each bound at its own point,
-so each point's values are those its own forward would give, to the bit (a read never changes a forward).
+last edit and operands, while what they read, and the ops after a write's last edit, may differ. An operand
+from a swept step or featurizer is the same only at the same point of it (of the whole step, so a value of a
+step swept only in another of its entries counts as varying), and one from an earlier entry of the same
+forward is that entry's site and positions. Compile writes the first such point's `at` in the `shares` of
+each later one, and the run makes that forward once with every point's reads, each bound at its own point, so
+each point's values are those its own forward would give, to the bit (a read never changes a forward). A
+sampled generation (`do_sample`) is the one exception: its points read one sample, where each point's own
+generation would draw its own.
 
 ## Saves and the output
 
