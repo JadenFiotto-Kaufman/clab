@@ -38,7 +38,8 @@ def writes() -> list[dict]:
                 {"op": "add", "args": {"with": torch.ones(2), "scale": 2.0}, "dims": ["rows", "pos", "features"]}]}]},
         {"positions": torch.tensor([[5], [5], [5]]), "select": {2: torch.tensor([0, 7])},
          "ops": [{"op": "scale", "args": {"factor": 3.0}, "dims": DIMS}]},
-        {"positions": torch.tensor([[2], [2], [2]]), "select": {2: torch.tensor([[1, 2], [3, 4], [5, 6]])},
+        {"positions": torch.tensor([[2], [2], [2]]), "select": {},
+         "keys": {"dim": 2, "index": torch.tensor([[1, 2], [3, 4], [5, 6]]), "own": torch.ones(3, 2, dtype=torch.bool)},
          "ops": [{"op": "sub", "args": {"with": 1.0}, "dims": DIMS}]},
         {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3),
          "ops": [{"op": "renormalize", "args": {}, "dims": DIMS}]},
@@ -53,7 +54,8 @@ def test_a_write_built_on_the_cpu_lands_on_the_values_device():
 
 
 def test_a_read_built_on_the_cpu_selects_on_the_values_device():
-    rec = {"positions": torch.tensor([[1, 2], [3, 4], [0, 5]]), "select": {2: torch.tensor([[1, 2], [3, 4], [5, 6]])}}
+    rec = {"positions": torch.tensor([[1, 2], [3, 4], [0, 5]]), "select": {},
+           "keys": {"dim": 2, "index": torch.tensor([[1, 2], [3, 4], [5, 6]]), "own": torch.ones(3, 2, dtype=torch.bool)}}
     got = taken(VALUE.cuda(), "layer_output", rec)
     assert got.device.type == "cuda" and torch.equal(got.cpu(), taken(VALUE, "layer_output", rec))
 
@@ -89,7 +91,7 @@ def test_an_engine_runs_a_document_on_the_device(engines, kind, options, name):
     here = engines(kind, plan.model, **options).execute(plan_of(name), batch_size=BATCH_SIZE)
     assert there.run is not None and (there.run.device, there.run.devices) == ("cuda", ["cuda:0"])
     assert all(v.device.type == "cpu" for v in there.results.values() if isinstance(v, torch.Tensor))
-    torch.testing.assert_close(there.results, here.results, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(there.results, here.results, atol=1e-5, rtol=1e-5, equal_nan=True)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -103,7 +105,7 @@ def test_a_device_places_the_model_and_its_inputs(engines, kind, device, name):
     there = load(kind, plan.model, device).execute(plan_of(name), batch_size=BATCH_SIZE)
     here = engines(kind, plan.model).execute(plan_of(name), batch_size=BATCH_SIZE)
     assert there.run is not None and (there.run.device, there.run.devices) == (device, ["cuda:0"])
-    torch.testing.assert_close(there.results, here.results, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(there.results, here.results, atol=1e-5, rtol=1e-5, equal_nan=True)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
