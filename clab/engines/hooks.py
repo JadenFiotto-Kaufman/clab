@@ -82,10 +82,14 @@ class HooksEngine:
         return self.config["sizes"]
 
     def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One call of the model, under the records' hooks (`hooked`)."""
+        """One call of the model, under the records' hooks (`hooked`), ended where the hook at a `stop` record
+        raises `_Stopped`."""
         got: dict[str, Tensor] = {}
         with self.hooked(records, got):
-            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+            try:
+                self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+            except _Stopped:
+                pass
         return got
 
     def generate(self, batch: dict[str, Tensor], records: list[dict],
@@ -120,10 +124,15 @@ class HooksEngine:
         return head(norm(hidden))
 
 
+class _Stopped(Exception):
+    """What the hook at a `stop` record raises once the site's records are done, ending the forward there."""
+
+
 def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
          calls: list[Tensor]) -> RemovableHandle:
     """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
-    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far)."""
+    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far); then, where one
+    of them is a `stop`, raises `_Stopped`."""
     reach = engine.config["sites"][component]
     module = engine.model.get_submodule(reach["paths"][layer])
     shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
@@ -135,6 +144,8 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
         value, wrote = batches.visit(value, component, records, got)
+        if any("stop" in r for r in records):
+            raise _Stopped
         return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":

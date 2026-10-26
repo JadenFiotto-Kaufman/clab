@@ -77,12 +77,16 @@ class NnterpEngine:
         return {k: getattr(self.model, k) for k in SIZES}
 
     def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One trace over the batch, its one forward call done as `visited` says."""
+        """One trace over the batch, its one forward call done as `visited` says, and stopped (nnsight's
+        `tracer.stop()`) after the last site, the `stop` record's, where there is one."""
         sites = by_site(records)
         order = sorted(sites, key=lambda s: self.rank(*s))
         got: dict[str, Tensor] = {}
-        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
+        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
+                                     batches.home(self))) as tracer:
             self.visited(order, sites, 0, [], got)
+            if any("stop" in r for r in records):
+                tracer.stop()
         return got
 
     def generate(self, batch: dict[str, Tensor], records: list[dict],
