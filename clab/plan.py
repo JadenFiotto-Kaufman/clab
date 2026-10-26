@@ -773,7 +773,7 @@ class Run(Record):
     read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt
     tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept
     step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
-    `layers` axis's labels are `selectors.select(site.layers, num_layers)`. `steps` holds what each step cost, by
+    `layers` axis's labels are `selectors.select(site.layers, num_layers)`. `costs` holds what each step cost, by
     name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak device `memory` allocated
     during it in bytes (null where the model is not on CUDA), the model calls it made in `forwards` (each
     forward, each call of a generation, its prefill and every decode call, and every forward a fit's body
@@ -790,7 +790,7 @@ class Run(Record):
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
     num_layers: int | None = None
-    steps: dict[str, Any] = {}
+    costs: dict[str, Any] = {}
 
 
 class Plan(Record):

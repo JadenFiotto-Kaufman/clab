@@ -1,6 +1,6 @@
 """What a run costs, and where a forward ends.
 
-`plan.run.steps` holds every step's and point's seconds, peak memory (null off CUDA), model calls and input
+`plan.run.costs` holds every step's and point's seconds, peak memory (null off CUDA), model calls and input
 tokens, exact for a forward, a swept step, an op and a fit, and the server's under ndif, which come home in the run
 record; `clab show` prints them. (A generation's are pinned in test_generate.py.)
 
@@ -39,24 +39,24 @@ def test_every_step_and_point_has_a_cost_and_a_forward_one_call_per_batch(engine
     an op calls no model; off CUDA no memory is measured."""
     plan = plan_of("logit_lens")
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
-    assert list(run.steps) == list(plan.steps)
+    assert list(run.costs) == list(plan.steps)
     for name, entry in plan.steps.items():
-        costs = run.steps[name]
+        costs = run.costs[name]
         assert list(costs) == [labelled(plan, p.at) for p in points(entry)] == ["layers=0", "layers=1"]
         for cost in costs.values():
             assert set(cost) == COST and cost["memory"] is None and cost["seconds"] >= 0
     prompts = lengths(run, "prompts.input")
     assert prompts == 38
-    assert [(c["forwards"], c["tokens"]) for c in run.steps["lens"].values()] == [(2, prompts)] * 2
+    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts)] * 2
     assert all((c["forwards"], c["tokens"]) == (0, 0) for name in ("p_answer", "top1")
-               for c in run.steps[name].values())
+               for c in run.costs[name].values())
 
 
 def test_a_forward_feeds_the_same_tokens_at_every_batch_size(engines):
     """Padding is not fed: four rows in batches of 1, 2 and 4 make 4, 2 and 1 calls of the same 38 tokens."""
     plan = plan_of("logit_lens")
     engine = engines("hooks", plan.model)
-    lens = {size: engine.execute(plan, batch_size=size).run.steps["lens"]["layers=0"] for size in (1, 2, 4)}
+    lens = {size: engine.execute(plan, batch_size=size).run.costs["lens"]["layers=0"] for size in (1, 2, 4)}
     assert {size: (c["forwards"], c["tokens"]) for size, c in lens.items()} == {1: (4, 38), 2: (2, 38), 4: (1, 38)}
 
 
@@ -81,8 +81,8 @@ def test_a_fit_counts_every_forward_its_body_makes(engines):
     train = lengths(run, "train.counterfactual_inputs[0]") + lengths(run, "train.input")
     test = lengths(run, "test.counterfactual_inputs[0]") + lengths(run, "test.input")
     epochs, minibatches, body = 3, 2, 2
-    assert run.steps["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body + 2 * body == 32
-    assert run.steps["fit"]["tokens"] == epochs * 2 * train + train + test
+    assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body + 2 * body == 32
+    assert run.costs["fit"]["tokens"] == epochs * 2 * train + train + test
 
 
 def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
@@ -94,9 +94,9 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
     assert trip == TRIP
     assert came.run is not None
     for run in (there, came.run):
-        assert list(run.steps) == ["fit"] and set(run.steps["fit"]) == COST and run.steps["fit"]["memory"] is None
-        assert {k: run.steps["fit"][k] for k in ("forwards", "tokens")} == \
-            {k: local.steps["fit"][k] for k in ("forwards", "tokens")}
+        assert list(run.costs) == ["fit"] and set(run.costs["fit"]) == COST and run.costs["fit"]["memory"] is None
+        assert {k: run.costs["fit"][k] for k in ("forwards", "tokens")} == \
+            {k: local.costs["fit"][k] for k in ("forwards", "tokens")}
 
 
 def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
@@ -231,7 +231,7 @@ def test_a_generation_runs_whole_at_every_call(engines, kind):
         d["saves"] = ["answer.early"]
     plan = edited("generated_answer", change).compile()
     filled, ran = counted(engines(kind, plan.model), plan)
-    assert filled.run is not None and filled.run.steps["answer"]["forwards"] == 12
+    assert filled.run is not None and filled.run.costs["answer"]["forwards"] == 12
     assert ran == (through(2) + ["N", "H"]) * 12
 
 
@@ -241,7 +241,7 @@ def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
     block 0 alone."""
     plan = plan_of("sae_train")
     filled, ran = counted(engines(kind, plan.model), plan)
-    assert filled.run is not None and filled.run.steps["fit"]["forwards"] == 82 and ran == through(1) * 82
+    assert filled.run is not None and filled.run.costs["fit"]["forwards"] == 82 and ran == through(1) * 82
 
 
 def test_the_ndif_engine_runs_every_forward_whole_with_the_same_values(engines, monkeypatch):

@@ -58,7 +58,7 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, over the plan `held`, without gradients except where a fit trains,
-    each one's cost `measured` into `plan.run.steps`; then each saved value into `plan.results` (a trained
+    each one's cost `measured` into `plan.run.costs`; then each saved value into `plan.results` (a trained
     featurizer as its bundle's tensors), and what served the run: the dtypes and devices of the model's parameters
     (`placed`)."""
     plan = held(plan)
@@ -72,7 +72,7 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
             for step in points(entry):
                 put(costs, name, step.at, measured(engine, lambda: KINDS[step.kind](
                     engine, plan, name, step, state, batch_size, found)))
-    plan.run.steps = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
+    plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
     for name in plan.saves:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}

@@ -159,7 +159,7 @@ filled.dump("out/pos_sweep")
 A plan's methods are views and serialization, never execution: `compile`, `dump`, `Plan.load`, `write` (the
 plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, batch size,
 device and every engine option; the versions, dtype and devices where the model was; timing, and each step's
-seconds, peak memory, model calls and tokens in `plan.run.steps`; how each input tokenized). `clab.describe()` prints the format's tables.
+seconds, peak memory, model calls and tokens in `plan.run.costs`; how each input tokenized). `clab.describe()` prints the format's tables.
 
 ## The package
 
