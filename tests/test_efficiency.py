@@ -24,7 +24,9 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 
 from clab import Plan
 from clab.cli import main
-from clab.format.sweeps import labelled, points
+from clab.format.sweeps import labelled, points, put
+from clab.plan import entries
+from clab.steps.batches import edit
 
 COST = {"seconds", "memory", "forwards", "tokens"}
 
@@ -323,3 +325,28 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
         gc.garbage.clear()
         gc.enable()
     assert frames == [] and got["read"].shape == (2, 1, 16)
+
+
+def test_binding_a_write_leaves_nothing_for_the_collector():
+    """`batches.edit` binds patching's swap to one batch from a namespace that nothing else holds once it returns
+    (a fit's minibatch namespace, with the featurizers it trains and the values it made, is one): nothing of it,
+    and no function, is left in a cycle for the collector."""
+    plan = plan_of("patching")
+    record = entries(points(plan.steps["patched"])[0])["patch"]
+
+    def bound() -> None:
+        state: dict = {}
+        put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
+        edit(plan, record, state, {}, slice(0, 2), {}, 0, {})
+    gc.collect()
+    gc.disable()
+    gc.set_debug(gc.DEBUG_SAVEALL)
+    try:
+        bound()
+        gc.collect()
+        left = [type(o).__name__ for o in gc.garbage if isinstance(o, (torch.Tensor, types.FunctionType))]
+    finally:
+        gc.set_debug(0)
+        gc.garbage.clear()
+        gc.enable()
+    assert left == []

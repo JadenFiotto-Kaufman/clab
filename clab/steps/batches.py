@@ -96,7 +96,9 @@ def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, a
                     out[-1]["features"] = torch.tensor(selectors.select(select["features"], f.size()))
                 out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
         return out
-    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(cast(Site, record.site).component))
+    edits = bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(cast(Site, record.site).component))
+    del bind            # it refers to itself, a cycle that would hold `state` until the collector ran
+    return edits
 
 
 def chunked(engine: Engine, step: Forward, found: Found, batch_size: int) -> Iterator[tuple[slice, dict, list[int]]]:
