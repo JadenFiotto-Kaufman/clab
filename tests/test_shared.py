@@ -5,9 +5,10 @@ input, options and writes share the first one's forward, which carries every poi
 point. Each point's values are then those its own forward gives, to the bit (`unshared` is the run as it was
 before points shared: every `shares` cleared), on every engine, under `remote="local"` and through the stand-in
 server; the point that runs the forward records its calls and tokens and every other point none. A sweep on a
-write (its operand, positions or layer) runs a forward per write; a grid of a swept write and a swept read shares
-within each write; a generation shares as a forward does; a bundle pulled into two steps shares within each step,
-never across them; and a later step or a fit's body reads each point's value as before.
+write (its operand, positions or layer) runs a forward per write, as does one reached by a write and a read (zip);
+a grid of a swept write and a swept read shares within each write; a write whose operand is an earlier entry of its
+forward shares while that entry does not vary; a generation shares as a forward does; a bundle pulled into two steps
+shares within each step, never across them; and a later step or a fit's body reads each point's value as before.
 """
 
 import os
@@ -177,6 +178,32 @@ def test_one_sweep_reached_by_a_read_and_a_write_shares_nothing(engines):
     assert list(plan.sweeps) == ["layers"] and shares(plan, "lens") == [None] * 3
     filled = engines("nnterp", plan.model).execute(plan, batch_size=4)
     assert calls(filled, "lens") == [1, 1, 1]
+
+
+LIVE = {"premix": {"site": {"component": "layer_output", "layers": 0}, "pos": -1},
+        "added": {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
+                  "ops": [{"op": "add", "with": "lens.premix"}]}}
+
+
+def live() -> Plan:
+    """Tiny GPT-2: a write at block 1 that adds what an earlier entry of its forward read at block 0, beside a read
+    swept over blocks 2 to 4."""
+    return gpt2({**LIVE, "read": {"site": {"component": "layer_output", "layers": {"sweep": [2, 3, 4]}}, "pos": -1}})
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_does_not_vary(engines, kind):
+    """The three points share the forward, whose write takes the first point's read of the earlier entry, which
+    is every point's; with that entry swept over blocks 0 and 1 instead, the write varies, and each point runs its
+    own forward."""
+    plan = live()
+    assert shares(plan, "lens") == [None, "layers=2", "layers=2"]
+    shared, alone = twice(engines(kind, plan.model), live, batch_size=4)
+    assert calls(shared, "lens") == [1, 0, 0]
+    assert same(shared.results, alone.results)
+    swept = gpt2({**LIVE, "premix": {"site": {"component": "layer_output", "layers": {"sweep": [0, 1]}}, "pos": -1},
+                  "read": at("layer_output", 3)})
+    assert shares(swept, "lens") == [None, None]
 
 
 def probe() -> Plan:
