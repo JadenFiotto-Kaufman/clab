@@ -147,21 +147,6 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, foun
     return sites, records
 
 
-# The components past the last block, which a forward that stops after one never reaches.
-PAST = ("final_norm_output", "lm_head_output", "logits")
-
-
-def ending(records: list[dict]) -> list[dict]:
-    """A forward's records, then where it ends, the one place that is decided: unless one of them is past the
-    last block (`PAST`), a record with `stop` at the output of the deepest block they are at (block 0 when
-    none is in one), which every other is at or before. An engine ends the forward after that site, which
-    leaves every value they read or write as it was; a generation runs whole."""
-    if any(r["component"] in PAST for r in records):
-        return records
-    deepest = max((r["layer"] for r in records if r["layer"] is not None), default=0)
-    return [*records, {"component": "layer_output", "layer": deepest, "stop": True}]
-
-
 def layers(engine: Engine, record: Intervention) -> list[int] | list[None]:
     """The layers a record is made at, a read's and a write's alike, the one place they are decided: those its
     site's `layers` select among the model's, in the order they pick them (an int's one; None for a model's own
@@ -336,15 +321,13 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     padded to one width; only the positions its `keep` marks are written. A `key` axis is each row's own keys in
     order, NaN past them (`owned`), to a read and to a write's ops alike, and a write writes those alone
     (`unowned`). Every index, mask and result moves to the value's device, and a result to its dtype, where it
-    meets the value. A `stop` record (`ending`) does nothing here: the engine ends the forward after the site.
+    meets the value.
     """
     axis = pos_axis(component)
     before = x = value.movedim(axis, 1)
     rows = torch.arange(x.shape[0], device=x.device)[:, None]
     wrote = False
     for w in records:
-        if "stop" in w:
-            continue
         if "ops" not in w:
             if "calls" in w:
                 got[w["name"]].append(taken(x, w))

@@ -20,12 +20,12 @@ stops on (`eos`).
 The records are one list in the order a step's entries run: a write (it has `ops`) or a read (it has none),
 each at a site. A forward visits the sites in its own forward order and does each site's records there in
 turn, a write on the value as the records before it left it and a read taking that value, with
-`batches.visit(value, component, records, got)`; it gathers nothing a record does not ask for. A forward's
-records may end in a `stop` (`batches.ending`), at the output of a block every other record is at or before:
-the engine ends the forward after that site (one that runs it whole returns the same values, later). A write's
-op argument may be `{"live": <read name>}`: the value of a read the same call has already made
-(`got[<read name>]`), which `batches.visit` resolves. Preflight has checked, by `rank`, that the read's site comes first; an engine that runs
-the plan without `clab.steps` must resolve such an argument the same way. An engine holds its model and
+`batches.visit(value, component, records, got)`; it gathers nothing a record does not ask for, and computes
+nothing past its deepest site, by `rank`: it stops right after it (an engine that runs on returns the same
+values, later); a generation runs whole. A write's op argument may be `{"live": <read name>}`: the value of a
+read the same call has already made (`got[<read name>]`), which `batches.visit` resolves. Preflight has
+checked, by `rank`, that the read's site comes first; an engine that runs the plan without `clab.steps` must
+resolve such an argument the same way. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
 block it loaded, `name` the name it registered under, `device` and `options` how it loaded.
 """

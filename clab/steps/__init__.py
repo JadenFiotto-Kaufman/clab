@@ -35,7 +35,7 @@ from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
 from clab.plan import Forward, OpStep, Plan, Run, arguments, dims_of, entries, points
 from clab.steps import fit, generate
-from clab.steps.batches import bind, bound, chunked, ending, fed, home, joined, layers, read, read_name, stacked
+from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, read, read_name, stacked
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -192,9 +192,8 @@ def version() -> str:
 
 def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, batch_size: int,
             found: Found) -> Counter:
-    """The step's input in consecutive batches, each through `engine.forward` with its records `ending` where
-    the forward stops; each gathered entry joined along rows. Returns the model calls it made and the tokens
-    they fed (`fed`).
+    """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
+    rows. Returns the model calls it made and the tokens they fed (`fed`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -203,7 +202,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
-        got = engine.forward(batch, ending(records))
+        got = engine.forward(batch, records)
         count += fed(batch, pads)
         parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
                                                  state, step.at, found.answers, layer)

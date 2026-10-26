@@ -399,7 +399,7 @@ def test_an_entry_nothing_uses_is_not_gathered(engines, kind, monkeypatch):
     seen, forward = [], engine.forward
 
     def recording(batch, records):
-        seen.extend(r["name"] for r in records if "ops" not in r and "stop" not in r)
+        seen.extend(r["name"] for r in records if "ops" not in r)
         return forward(batch, records)
     monkeypatch.setattr(engine, "forward", recording)
     filled = engine.execute(plan, batch_size=BATCH_SIZE)

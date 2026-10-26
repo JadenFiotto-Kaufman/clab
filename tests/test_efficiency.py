@@ -4,11 +4,11 @@
 tokens, exact for a forward, a swept step, an op and a fit, and the server's under ndif, which come home in the run
 record; `clab show` prints them. (A generation's are pinned in test_generate.py.)
 
-A forward ends after the deepest block its entries are at (`batches.ending`), on every engine, under
-`remote="local"` and through the stand-in server: the blocks after it never run (a hook on each block counts the
-ones that do), and every value it reads or writes is the full forward's to the bit. A forward that reaches past the
-blocks, and a generation, run whole; a fit's body forward ends where its own entries do. A stopped forward leaves
-none of its frames (and so none of its activations) for the garbage collector.
+A forward stops right after its deepest site, by the engine's `rank`, on every engine, under `remote="local"` and
+through the stand-in server: nothing after it runs (a hook on each block, MLP, the final norm and the head watches
+what does), and every value it reads or writes is the whole forward's to the bit. A generation runs whole; a fit's
+body forward stops where its own entries do. A stopped forward leaves none of its frames (and so none of its
+activations) for the garbage collector.
 """
 
 import gc
@@ -24,7 +24,6 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 from clab import Plan
 from clab.cli import main
 from clab.format.sweeps import labelled, points
-from clab.steps.batches import PAST, ending
 
 COST = {"seconds", "memory", "forwards", "tokens"}
 
@@ -115,26 +114,35 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     assert shown[10].split() == ["result", "step", "dims", "axes", "shape"]
 
 
-def blocks(engine) -> list[torch.nn.Module]:
-    """The model's blocks, in order, as the engine runs them: the hooks engine's native modules, nnterp's layers'."""
+def watched(engine) -> dict[Any, torch.nn.Module]:
+    """The modules a test watches run, by tag: each block by its index, its MLP as `m<i>`, the final norm as `N` and
+    the head as `H` (the hooks engine's native modules; under nnterp, its envoys' own)."""
     if engine.name == "hooks":
-        paths = engine.config["sites"]["layer_output"]["paths"]
-        return [engine.model.get_submodule(paths[i]) for i in sorted(paths)]
-    return [layer._module for layer in engine.model.layers]
+        paths = {c: engine.config["sites"][c]["paths"] for c in ("layer_output", "mlp_output", "final_norm_output",
+                                                                 "lm_head_output")}
+        module, n = engine.model.get_submodule, len(paths["layer_output"])
+        return {**{i: module(paths["layer_output"][i]) for i in range(n)},
+                **{f"m{i}": module(paths["mlp_output"][i]) for i in range(n)},
+                "N": module(paths["final_norm_output"][None]), "H": module(paths["lm_head_output"][None])}
+    layers = engine.model.layers
+    return {**{i: layer._module for i, layer in enumerate(layers)}, **{f"m{i}": layer.mlp._module for i, layer in
+            enumerate(layers)}, "N": engine.model.norm._module, "H": engine.model.lm_head._module}
 
 
 @contextmanager
-def counting(engine) -> Iterator[list[int]]:
-    """Each block that runs on real tensors while inside, by index, in the order they run: not in nnterp's
-    measure of its forward order, an nnsight scan on fake tensors (which a server makes once per request)."""
-    ran: list[int] = []
+def counting(engine) -> Iterator[list[Any]]:
+    """The tag of each watched module that is called on real tensors while inside, in the order they are called:
+    not in nnterp's measure of its forward order, an nnsight scan on fake tensors (which a server makes once per
+    request). A module is counted when it is called, before it runs, so a block the forward stops inside counts
+    and its MLP shows whether it got that far."""
+    ran: list[Any] = []
 
-    def noted(i: int):
+    def noted(tag: Any):
         def note(module, args, kwargs) -> None:
             if not any(isinstance(v, FakeTensor) for v in (*args, *kwargs.values())):
-                ran.append(i)
+                ran.append(tag)
         return note
-    handles = [b.register_forward_pre_hook(noted(i), with_kwargs=True) for i, b in enumerate(blocks(engine))]
+    handles = [m.register_forward_pre_hook(noted(tag), with_kwargs=True) for tag, m in watched(engine).items()]
     try:
         yield ran
     finally:
@@ -142,108 +150,111 @@ def counting(engine) -> Iterator[list[int]]:
             handle.remove()
 
 
-def counted(engine, plan: Plan) -> tuple[Plan, list[int]]:
-    """`plan` run on `engine`, and each block that ran. It runs once first, uncounted, so that a meta shell (ndif
-    under `remote="local"`, which loads its weights at its first forward) has the blocks a hook counts."""
+def counted(engine, plan: Plan) -> tuple[Plan, list[Any]]:
+    """`plan` run on `engine`, and each watched module that ran. It runs once first, uncounted, so that a meta shell
+    (ndif under `remote="local"`, which loads its weights at its first forward) has the modules a hook watches."""
     engine.execute(plan, batch_size=BATCH_SIZE)
     with counting(engine) as ran:
         filled = engine.execute(plan, batch_size=BATCH_SIZE)
     return filled, ran
 
 
-def at(layer: int, ops: list | None = None) -> dict:
-    """An entry at the last token of the residual stream leaving block `layer`, with `ops`."""
-    return {"site": {"component": "layer_output", "layers": layer}, "pos": -1, **({"ops": ops} if ops else {})}
+def through(n: int) -> list[Any]:
+    """Blocks 0 to `n - 1` called, each with its MLP."""
+    return [tag for i in range(n) for tag in (i, f"m{i}")]
 
 
-HEAD = {"site": {"component": "lm_head_output"}, "pos": -1}
+WHOLE = through(5) + ["N", "H"]           # tiny GPT-2's whole forward
+
+
+def at(component: str, layer: int | None = None, ops: list | None = None) -> dict:
+    """An entry at the last token of `component` (at block `layer`, for a block's), with `ops`."""
+    site = {"component": component, **({} if layer is None else {"layers": layer})}
+    return {"site": site, "pos": -1, **({"ops": ops} if ops else {})}
 
 
 def gpt2(entries: dict[str, dict]) -> Plan:
     """Tiny GPT-2 (five blocks) over gpt2_reach's four pairs: `early`, a forward with `entries`, then `whole`, the
-    same forward reading the head as well, which runs every block; the read saved from both, and the head's. (An
-    entry nothing saves or uses is not read, so it would not hold the forward up.)"""
+    same forward reading the head as well, which leaves nothing after its deepest site; the read saved from both,
+    and the head's. (An entry nothing saves or uses is not read, so it would not hold the forward up.)"""
     def change(d):
         d["steps"] = {"early": {"kind": "forward", "input": "pairs.input", "interventions": entries},
                       "whole": {"kind": "forward", "input": "pairs.input",
-                                "interventions": {**entries, "logits": HEAD}}}
+                                "interventions": {**entries, "logits": at("lm_head_output")}}}
         d["saves"] = ["early.read", "whole.read", "whole.logits"]
     return edited("gpt2_reach", change).compile()
 
 
+ZERO = [{"op": "swap", "with": 0.0}]
+# Each case: its entries, what of the forward runs per batch, and what runs after it (a `readout` runs the final
+# norm and the head itself, on the value read).
 CASES = {
-    "a read at block 2": ({"read": at(2)}, 2),
-    "a write at block 1, then a read at block 3": ({"zero": at(1, [{"op": "swap", "with": 0.0}]), "read": at(3)}, 3),
-    "a readout of a read at block 2": ({"read": at(2, [{"op": "readout"}])}, 2),
+    "a read at block 2": ({"read": at("layer_output", 2)}, through(3), []),
+    "a write at block 1, then a read at block 3": ({"zero": at("layer_output", 1, ZERO),
+                                                    "read": at("layer_output", 3)}, through(4), []),
+    "a readout of a read at block 2": ({"read": at("layer_output", 2, [{"op": "readout"}])}, through(3), ["N", "H"]),
+    "a read of block 2's attention, before its MLP": ({"read": at("attention_output", 2)}, through(2) + [2], []),
+    "a read of the embeddings": ({"read": at("token_embeddings")}, [], []),
+    "a read of the stream entering block 0": ({"read": at("layer_input", 0)}, [0], []),
+    "a read of the final norm": ({"read": at("final_norm_output")}, through(5) + ["N"], []),
+    "a read of the logits": ({"read": at("logits")}, WHOLE, []),
 }
 ENGINES = {"nnterp": {}, "hooks": {}, "ndif": {"remote": "local"}}
 
 
 @pytest.mark.parametrize("kind", ENGINES)
 @pytest.mark.parametrize("case", CASES)
-def test_a_forward_stops_after_its_deepest_block_and_reads_what_the_whole_one_does(engines, kind, case):
-    """Each of the step's two batches runs the blocks up to the deepest its entries are at, and no further; the one
-    that also reads the head runs all five. The values are the whole forward's to the bit: a write before the stop
-    lands, and a `readout` runs the final norm and the head itself, on the value read."""
-    entries, deepest = CASES[case]
+def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_one_does(engines, kind, case):
+    """Each of the step's two batches runs up to its deepest site and no further (block 2 without its MLP after its
+    attention, no block for the embeddings, block 0 without its body for the stream entering it, no head for the
+    final norm), and the one that also reads the head runs whole. The values are the whole forward's to the bit: a write before the stop lands, and
+    a `readout` runs the final norm and the head on the value read."""
+    entries, ran_early, after = CASES[case]
     plan = gpt2(entries)
     filled, ran = counted(engines(kind, plan.model, **ENGINES[kind]), plan)
-    assert ran == [*range(deepest + 1)] * 2 + [*range(5)] * 2
+    assert ran == (ran_early + after) * 2 + (WHOLE + after) * 2
     assert same(filled.results["early.read"], filled.results["whole.read"])
 
 
 def test_the_write_before_the_stop_changes_the_read_after_it(engines):
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
-    clean = gpt2({"read": at(3)})
+    clean = gpt2({"read": at("layer_output", 3)})
     engine = engines("nnterp", plan.model)
     written, unwritten = (engine.execute(p, batch_size=BATCH_SIZE).results["early.read"] for p in (plan, clean))
     assert not torch.equal(written, unwritten)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-@pytest.mark.parametrize("component", PAST)
-def test_a_forward_that_reaches_past_the_blocks_runs_whole(engines, kind, component):
-    """The final norm's output, the head's and the logits come after the last block: a forward that reads one
-    beside a read at block 2 runs all five blocks."""
-    def change(d):
-        d["steps"] = {"past": {"kind": "forward", "input": "pairs.input", "interventions": {
-            "read": at(2), "past": {"site": {"component": component}, "pos": -1}}}}
-        d["saves"] = ["past.read", "past.past"]
-    plan = edited("gpt2_reach", change).compile()
-    _, ran = counted(engines(kind, plan.model), plan)
-    assert ran == [*range(5)] * 2
-
-
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_a_generation_runs_every_block_at_every_call(engines, kind):
+def test_a_generation_runs_whole_at_every_call(engines, kind):
     """generated_answer reading block 0 in the prefill, on the tiny Llama (two blocks): its twelve calls (two
-    batches of six) each run both blocks."""
+    batches of six) each run both blocks, the final norm and the head."""
     def change(d):
-        d["steps"]["answer"]["interventions"] = {"early": at(0)}
+        d["steps"]["answer"]["interventions"] = {"early": at("layer_output", 0)}
         d["steps"] = {"answer": d["steps"]["answer"]}
         d["saves"] = ["answer.early"]
     plan = edited("generated_answer", change).compile()
     filled, ran = counted(engines(kind, plan.model), plan)
-    assert filled.run is not None and filled.run.steps["answer"]["forwards"] == 12 and ran == [0, 1] * 12
+    assert filled.run is not None and filled.run.steps["answer"]["forwards"] == 12
+    assert ran == (through(2) + ["N", "H"]) * 12
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_a_fit_bodys_forward_stops_at_its_own_deepest_block(engines, kind):
+def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
     """sae_train's body reads block 0 of the tiny Llama's two: every forward it makes, training and scoring, runs
     block 0 alone."""
     plan = plan_of("sae_train")
     filled, ran = counted(engines(kind, plan.model), plan)
-    assert filled.run is not None and ran == [0] * filled.run.steps["fit"]["forwards"] and len(ran) == 82
+    assert filled.run is not None and filled.run.steps["fit"]["forwards"] == 82 and ran == through(1) * 82
 
 
 def test_the_stand_in_server_stops_where_the_client_would(engines, monkeypatch):
-    """The server runs the same trace: on its model (the nnterp engine's) the blocks after the deepest never run,
-    and what comes home is the local run's."""
+    """The server runs the same trace: on its model (the nnterp engine's) nothing after the deepest site runs, and
+    what comes home is the local run's."""
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
     with counting(engines("nnterp", plan.model)) as ran:
         came, trip = stand_in(engines, plan, monkeypatch)
-    assert trip == TRIP and ran == [*range(4)] * 2 + [*range(5)] * 2
+    assert trip == TRIP and ran == through(4) * 2 + WHOLE * 2
     assert same(came.results, local.results)
 
 
@@ -258,32 +269,17 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
     engine.execute(plan, batch_size=BATCH_SIZE)
     batch = {"input_ids": torch.tensor([[1, 5, 6, 7]] * 2), "attention_mask": torch.ones(2, 4, dtype=torch.long),
              "position_ids": torch.arange(4).repeat(2, 1)}
+    read = {"component": "layer_output", "layer": 0, "name": "read", "positions": torch.tensor([[3], [3]]),
+            "select": {}}
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)
     try:
-        engine.forward(batch, ending([]))
+        got = engine.forward(batch, [read])
         gc.collect()
         frames = [f"{o.f_code.co_filename}:{o.f_code.co_name}" for o in gc.garbage if isinstance(o, types.FrameType)]
     finally:
         gc.set_debug(0)
         gc.garbage.clear()
         gc.enable()
-    assert frames == []
-
-
-def record(component: str, layer: int | None) -> dict[str, Any]:
-    return {"component": component, "layer": layer, "name": f"{component}@{layer}"}
-
-
-def test_a_forward_ends_after_the_deepest_block_its_records_are_at():
-    """`ending`, the one place it is decided: a stop at the output of the deepest block a record is at, whatever the
-    component inside it and the order the records come in; at block 0 when only the embeddings are read, or
-    nothing; none when a record is past the blocks."""
-    stop = {"component": "layer_output", "layer": 3, "stop": True}
-    inside = [record("attention_probabilities", 3), record("layer_output", 1), record("token_embeddings", None)]
-    assert ending(inside) == [*inside, stop]
-    assert ending([record("token_embeddings", None)])[-1] == {**stop, "layer": 0}
-    assert ending([]) == [{**stop, "layer": 0}]
-    for component in PAST:
-        assert ending([*inside, record(component, None)]) == [*inside, record(component, None)]
+    assert frames == [] and got["read"].shape == (2, 1, 16)
