@@ -78,7 +78,7 @@ class NnterpEngine:
 
     def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
         """One trace over the batch, its one forward call done as `visited` says and stopped right after its last
-        site, the deepest (nnsight's `tracer.stop()`).
+        site, the deepest (nnsight's `tracer.stop()`), unless the engine is remote (the ndif engine says why).
 
         nnsight leaves the stop in reference cycles, which the collector can leave for many forwards: its two
         tracebacks (`__traceback__`, and the `__intervention_tb__` nnsight stashes) hold the stopped forward's frames
@@ -91,11 +91,12 @@ class NnterpEngine:
         with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
                                      batches.home(self))) as tracer:
             self.visited(order, sites, 0, [], got)
-            try:
-                tracer.stop()
-            except BaseException as stop:
-                stopped.append(stop)
-                raise
+            if not self.remote:
+                try:
+                    tracer.stop()
+                except BaseException as stop:
+                    stopped.append(stop)
+                    raise
         for stop in stopped:
             stop.__traceback__ = stop.__context__ = stop.__intervention_tb__ = None  # type: ignore[attr-defined]
         return got

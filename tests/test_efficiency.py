@@ -4,10 +4,10 @@
 tokens, exact for a forward, a swept step, an op and a fit, and the server's under ndif, which come home in the run
 record; `clab show` prints them. (A generation's are pinned in test_generate.py.)
 
-A forward stops right after its deepest site, by the engine's `rank`, on every engine, under `remote="local"` and
-through the stand-in server: nothing after it runs (a hook on each block, MLP, the final norm and the head watches
-what does), and every value it reads or writes is the whole forward's to the bit. A generation runs whole; a fit's
-body forward stops where its own entries do. A stopped forward leaves none of its frames (and so none of its
+A forward stops right after its deepest site, by the engine's `rank`, on the nnterp and hooks engines: nothing
+after it runs (a hook on each block, MLP, the final norm and the head watches what does), and every value it reads
+or writes is the whole forward's to the bit. A generation runs whole; a fit's body forward stops where its own
+entries do. The ndif engine runs every forward whole, under `remote="local"` and through the stand-in server. A stopped forward leaves none of its frames (and so none of its
 activations) for the garbage collector.
 """
 
@@ -199,10 +199,7 @@ CASES = {
     "a read of the final norm": ({"read": at("final_norm_output")}, through(5) + ["N"], []),
     "a read of the logits": ({"read": at("logits")}, WHOLE, []),
 }
-ENGINES = {"nnterp": {}, "hooks": {}, "ndif": {"remote": "local"}}
-
-
-@pytest.mark.parametrize("kind", ENGINES)
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("case", CASES)
 def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_one_does(engines, kind, case):
     """Each of the step's two batches runs up to its deepest site and no further (block 2 without its MLP after its
@@ -211,7 +208,7 @@ def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_o
     a `readout` runs the final norm and the head on the value read."""
     entries, ran_early, after = CASES[case]
     plan = gpt2(entries)
-    filled, ran = counted(engines(kind, plan.model, **ENGINES[kind]), plan)
+    filled, ran = counted(engines(kind, plan.model), plan)
     assert ran == (ran_early + after) * 2 + (WHOLE + after) * 2
     assert same(filled.results["early.read"], filled.results["whole.read"])
 
@@ -247,15 +244,17 @@ def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
     assert filled.run is not None and filled.run.steps["fit"]["forwards"] == 82 and ran == through(1) * 82
 
 
-def test_the_stand_in_server_stops_where_the_client_would(engines, monkeypatch):
-    """The server runs the same trace: on its model (the nnterp engine's) nothing after the deepest site runs, and
-    what comes home is the local run's."""
+def test_the_ndif_engine_runs_every_forward_whole_with_the_same_values(engines, monkeypatch):
+    """Under `remote="local"` and on the stand-in server's model (the nnterp engine's, which the server holds) the
+    ndif engine's forwards run whole, the early step's as the whole one's, and what comes home is the nnterp
+    engine's, which stops."""
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    there, ran = counted(engines("ndif", plan.model, remote="local"), plan)
+    assert ran == WHOLE * 4 and same(there.results, local.results)
     with counting(engines("nnterp", plan.model)) as ran:
         came, trip = stand_in(engines, plan, monkeypatch)
-    assert trip == TRIP and ran == through(4) * 2 + WHOLE * 2
-    assert same(came.results, local.results)
+    assert trip == TRIP and ran == WHOLE * 4 and same(came.results, local.results)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
