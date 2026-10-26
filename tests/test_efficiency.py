@@ -7,9 +7,12 @@ record; `clab show` prints them. (A generation's are pinned in test_generate.py.
 A forward ends after the deepest block its entries are at (`batches.ending`), on every engine, under
 `remote="local"` and through the stand-in server: the blocks after it never run (a hook on each block counts the
 ones that do), and every value it reads or writes is the full forward's to the bit. A forward that reaches past the
-blocks, and a generation, run whole; a fit's body forward ends where its own entries do.
+blocks, and a generation, run whole; a fit's body forward ends where its own entries do. A stopped forward leaves
+none of its frames (and so none of its activations) for the garbage collector.
 """
 
+import gc
+import types
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -242,6 +245,32 @@ def test_the_stand_in_server_stops_where_the_client_would(engines, monkeypatch):
         came, trip = stand_in(engines, plan, monkeypatch)
     assert trip == TRIP and ran == [*range(4)] * 2 + [*range(5)] * 2
     assert same(came.results, local.results)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_stopped_forward_leaves_no_frame_of_the_models_for_the_collector(engines, kind):
+    """A forward stopped after block 0 on the tiny Llama: once it returns, nothing unreachable holds a frame of the
+    model's forward, whose locals are its activations (nnsight's stop holds them in a cycle that the nnterp engine
+    breaks; on a GPU, forwards of 16 rows of 512 tokens stopped at Llama-3.2-1B's block 8 ran it out of memory in a
+    dozen). The engine has run once, so what it makes once is made."""
+    plan = plan_of("sae_train")
+    engine = engines(kind, plan.model)
+    engine.execute(plan, batch_size=BATCH_SIZE)
+    batch = {"input_ids": torch.tensor([[1, 5, 6, 7]] * 2), "attention_mask": torch.ones(2, 4, dtype=torch.long),
+             "position_ids": torch.arange(4).repeat(2, 1)}
+    gc.collect()
+    gc.disable()
+    gc.set_debug(gc.DEBUG_SAVEALL)
+    try:
+        engine.forward(batch, ending([]))
+        gc.collect()
+        frames = [o.f_code.co_name for o in gc.garbage if isinstance(o, types.FrameType)
+                  and "transformers" in o.f_code.co_filename]
+    finally:
+        gc.set_debug(0)
+        gc.garbage.clear()
+        gc.enable()
+    assert frames == []
 
 
 def record(component: str, layer: int | None) -> dict[str, Any]:
