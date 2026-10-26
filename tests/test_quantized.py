@@ -77,7 +77,8 @@ def test_the_engines_load_one_quantization_and_agree_to_the_bit(name, dtype, dev
 def test_ndif_in_process_runs_a_quantization_as_nnterp_does(device):
     """Under `remote="local"` the ndif engine's shell dispatches here, quantized as the nnterp engine's model is."""
     plan = quantized("patching", "nf4")
-    there = load("ndif", plan.model, device, remote="local").execute(quantized("patching", "nf4"), batch_size=BATCH_SIZE)
+    there = load("ndif", plan.model, device, remote="local").execute(quantized("patching", "nf4"),
+                                                                     batch_size=BATCH_SIZE)
     assert same(there.results, on_both("patching", "nf4", device)["nnterp"].results)
     assert there.run is not None and there.run.dtype == HELD["nf4"]
 

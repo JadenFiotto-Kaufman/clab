@@ -4,9 +4,9 @@ An engine registers under its name with `@engine("<name>")` and loads its checkp
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement
 argument, which each engine reads as it likes; `cpu` by default) and `options` are its own keyword parameters,
 each with its default and a `<name>: <what it takes>` line in the constructor's docstring, which `clab describe
-engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does
-(and the reason, for one in the engine's `declines`: an option it refuses, mapped to why), before anything loads;
-an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
+engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does,
+and under torchrun (WORLD_SIZE above 1) an engine without `tp`, each of whose processes would run the whole plan,
+before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
@@ -30,6 +30,7 @@ block it loaded, `name` the name it registered under, `device` and `options` how
 """
 
 import inspect
+import os
 from typing import Any, Callable, Iterator, Protocol
 
 from torch import Tensor
@@ -97,14 +98,17 @@ def options(name: str) -> dict[str, inspect.Parameter]:
 
 def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
     """Engine `name` loaded for `model`, on `device`, with its options `given`: an unknown engine, an option it
-    does not declare, and one of another type are refused before anything loads."""
+    does not declare, one of another type, and torchrun's processes for an engine without `tp` are refused before
+    anything loads."""
     if name not in ENGINES:
         raise ValueError(f"unknown engine {name!r}; valid: {', '.join(ENGINES)}")
     for key in given:
         if key not in options(name):
-            why = getattr(ENGINES[name], "declines", {}).get(key)
-            raise ValueError(f"the {name} engine takes no {key!r}" + (f": {why}" if why else "")
-                             + f"; its options: {', '.join(['device', *options(name)])}")
+            raise ValueError(f"the {name} engine takes no {key!r}; its options: {', '.join(['device', *options(name)])}")
+    world = os.environ.get("WORLD_SIZE", "1")
+    if int(world) > 1 and "tp" not in options(name):
+        raise ValueError(f"WORLD_SIZE {world}: torchrun started {world} processes, and the {name} engine takes no "
+                         "`tp` to shard the model over them, so each would run the whole plan; run it without torchrun")
     registry.check(ENGINES[name].__init__, given, SUPPLIED, f"the {name} engine")
     return ENGINES[name](model, device=device, **given)
 

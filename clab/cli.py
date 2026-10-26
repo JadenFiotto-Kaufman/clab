@@ -136,20 +136,21 @@ def main(argv: list[str] | None = None) -> int:
 
     stem = os.path.splitext(os.path.basename(args.document))[0]
     out = args.out or os.path.join("out", stem)
+    first = os.environ.get("RANK", "0") == "0"          # under torchrun, rank 0 alone writes `out` and prints
     try:
         options = dict(option(text) for text in args.options)
         for key in {"device", "batch_size"} & set(options):
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
                           device=args.device, **options)
-    except (ValueError, NotImplementedError) as e:
-        print(f"clab: {e}", file=sys.stderr)
-        return 1
-    except RemoteError as e:          # a refusal on the server comes home as nnsight's error, its last line the reason
-        print(f"clab: {(str(e).strip().splitlines() or [''])[-1]}", file=sys.stderr)
+    except (ValueError, NotImplementedError, RemoteError) as e:
+        # A refusal on the server comes home as nnsight's error, its last line the reason.
+        reason = (str(e).strip().splitlines() or [""])[-1] if isinstance(e, RemoteError) else str(e)
+        if first:
+            print(f"clab: {reason}", file=sys.stderr)
         return 1
     assert filled.run is not None
-    if os.environ.get("RANK", "0") != "0":          # under torchrun, rank 0 alone wrote `out`, and prints it
+    if not first:
         return 0
     print(f"{stem} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:

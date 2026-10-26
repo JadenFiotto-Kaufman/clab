@@ -724,9 +724,9 @@ An engine registers under its name with `@engine("<name>")` and loads its checkp
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement
 argument, which each engine reads as it likes; `cpu` by default) and `options` are its own keyword parameters,
 each with its default and a `<name>: <what it takes>` line in the constructor's docstring, which `clab describe
-engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does
-(and the reason, for one in the engine's `declines`: an option it refuses, mapped to why), before anything loads;
-an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
+engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does,
+and under torchrun (WORLD_SIZE above 1) an engine without `tp`, each of whose processes would run the whole plan,
+before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
@@ -741,19 +741,21 @@ The primary engine: nnterp's StandardizedTransformer, everything inside one nnsi
 
 `device` is one torch device, which nnsight's loader takes as its `device` (and a quantized model's as its
 `device_map` too, where it is quantized), or a device map transformers computes (`auto`, `balanced`, ...), which it
-takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
-from there.
+takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go where the model's
+first parameter is, and transformers moves them on from there.
 
 `tp` above 1 shards the model by transformers' tensor parallelism instead (`DistributedConfig(tp_size=tp)`, as
-nnsight's `distributed_config`), over `tp` processes that `torchrun --nproc-per-node=<tp>` starts: `clab run DOC
---device cuda -o tp=N`, each rank on its own GPU, or `--device cpu` where none is visible. Every rank runs the whole
-plan, which branches on nothing a rank computes, and samples from rank 0's seed; only rank 0 writes the output
-directory and prints, and its run record lists every rank's device. A value the ranks hold in pieces is refused by
-name (`split`): the attention's interior but its output projection's input (`attention_premix`), the MLP's
-activation, and the output of an embedding the plan shards by vocabulary (`token_embeddings` on a tied-embedding
-checkpoint); the residual stream, the attention's and the MLP's outputs, the head and the logits are whole on every
-rank. Results under tensor parallelism are not bit-equal to unsharded ones, since a sharded matmul sums its parts
-in another order: the ranks agree to the bit, and agree with `tp` 1 to that rounding.
+nnsight's `distributed_config`), over the `tp` processes torchrun starts, each rank on its own GPU: `torchrun
+--nproc-per-node=N --no-python clab run DOC --device cuda -o tp=N` (`--device cpu` where no GPU is visible). Every
+rank runs the whole plan, which branches on nothing a rank computes, and samples from a seed rank 0 draws; only
+rank 0 writes the output directory and prints, and its run record lists every rank's device. A value the ranks hold
+in pieces is refused by name (`split`): the attention's interior but its output projection's input
+(`attention_premix`), the MLP's activation, and the output of an embedding the plan shards by vocabulary
+(`token_embeddings` on a tied-embedding checkpoint); the residual stream, the attention's and the MLP's outputs, the
+head and the logits are whole on every rank. Results under tensor parallelism are not bit-equal to unsharded ones,
+since a sharded matmul sums its parts in another order: the ranks agree to the bit, and agree with `tp` 1 to that
+rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can flip a greedy generation's
+near-tie token too).
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.

@@ -413,7 +413,8 @@ def test_a_bitsandbytes_dtype_without_bitsandbytes_is_refused_before_anything_lo
     """Named, not an ImportError from inside transformers."""
     import importlib.util
     found = importlib.util.find_spec
-    unloadable.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "bitsandbytes" else found(name, *a))
+    unloadable.setattr(importlib.util, "find_spec",
+                       lambda name, *a: None if name == "bitsandbytes" else found(name, *a))
     plan = edited("patching", lambda d: d["model"].update(dtype=dtype))
     with pytest.raises(ValueError, match=f"^model.dtype '{dtype}' holds the weights in bitsandbytes, which is not "
                                          "installed: install bitsandbytes$"):
