@@ -49,12 +49,13 @@ def envoy(model: StandardizedTransformer, component: str, layer: int | None) -> 
     return block if where == "layer" else getattr(block, where)
 
 
-# The model-block keys an engine cannot honor, and why: where the model runs is a run option, and `dtype` is
-# the block's one spelling of the dtype and of a quantization.
+# The model-block keys an engine cannot honor, and why: where the model runs and how it is sharded are run options,
+# and `dtype` is the block's one spelling of the dtype and of a quantization.
 OWNED = {"device": "where the model runs is a run option: --device", "device_map": "where the model runs is a run "
          "option: --device", "dispatch": "the engine places its model itself",
          "torch_dtype": "the dtype is spelled `dtype`", "quantization_config": "a quantization is spelled in `dtype` "
-         "(`nf4`, `fp4`, `int8`, `fp8`)"}
+         "(`nf4`, `fp4`, `int8`, `fp8`)", "tp_plan": "tensor parallelism is a run option: -o tp=N",
+         "distributed_config": "tensor parallelism is a run option: -o tp=N"}
 
 
 # The device maps transformers computes, which may spread a model over several devices; any other `device` is one

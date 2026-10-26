@@ -149,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"clab: {(str(e).strip().splitlines() or [''])[-1]}", file=sys.stderr)
         return 1
     assert filled.run is not None
+    if os.environ.get("RANK", "0") != "0":          # under torchrun, rank 0 alone wrote `out`, and prints it
+        return 0
     print(f"{stem} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]

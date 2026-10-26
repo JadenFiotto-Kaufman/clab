@@ -782,7 +782,7 @@ class Run(Record):
     `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
     where the model is: the server's, under `ndif`). `dtype` and `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
-    packed weights among them, `uint8` under `nf4`). `tokens` and
+    packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `tokens` and
     `positions` describe values without holding any: how each dataset input tokenized and what each generate
     step's rows generated (token strings per row, under the input or the step's name), and the position every
     read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt

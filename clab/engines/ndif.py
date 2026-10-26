@@ -4,9 +4,9 @@ It builds nnterp's StandardizedTransformer without dispatching it (a meta shell:
 the tokenizer, no weights; nothing downloads but those) and opens the run's one session with `remote`. The
 session body is the nnterp engine's: what ships is the engine (by reference: clab is installed on the server),
 the plan (pure data) and the batch size; everything that needs the model, preflight included, runs on the
-server, and the results and the run record come home. The server holds the weights as its deployment does, so a
-quantized `dtype` is refused by name. The server's address and API key are nnsight's own (`nnsight.CONFIG`, or its
-environment variables). `remote="local"` runs nnsight's in-process simulation of
+server, and the results and the run record come home. The server holds the weights and shards the model as its
+deployment does, so a quantized `dtype` and the nnterp engine's `tp` are refused by name. The server's address and
+API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs nnsight's in-process simulation of
 that trip, which dispatches the shell here, on `device`, at its first trace.
 """
 
@@ -23,6 +23,8 @@ from clab.plan import QUANTIZED, Model
 
 @engine("ndif")
 class NdifEngine(NnterpEngine):
+    declines = {"tp": "the server decides how a model is sharded"}
+
     def __init__(self, model: Model, *, device: str = "cpu", remote: Literal[True, "local"] = True) -> None:
         """`model`'s meta shell; `remote` is True for the NDIF server nnsight is configured for, or "local"
         for its in-process simulation, which places the model on `device`. On a server the server places it,

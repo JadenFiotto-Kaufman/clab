@@ -724,8 +724,9 @@ An engine registers under its name with `@engine("<name>")` and loads its checkp
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement
 argument, which each engine reads as it likes; `cpu` by default) and `options` are its own keyword parameters,
 each with its default and a `<name>: <what it takes>` line in the constructor's docstring, which `clab describe
-engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does,
-before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
+engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does
+(and the reason, for one in the engine's `declines`: an option it refuses, mapped to why), before anything loads;
+an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
@@ -733,7 +734,8 @@ Every engine runs with `batch_size`, how many of a step's rows go through the mo
 
 ### `nnterp`
 
-- `device: str = "cpu"`: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
+- `device: str = "cpu"`: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"
+- `tp: int = 1`: how many ranks tensor parallelism shards the model over, one process each under `torchrun --nproc-per-node=<tp>`; 1 does not shard it
 
 The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
@@ -741,6 +743,17 @@ The primary engine: nnterp's StandardizedTransformer, everything inside one nnsi
 computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
 several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
 from there.
+
+`tp` above 1 shards the model by transformers' tensor parallelism instead (`DistributedConfig(tp_size=tp)`, as
+nnsight's `distributed_config`), over `tp` processes that `torchrun --nproc-per-node=<tp>` starts: `clab run DOC
+--device cuda -o tp=N`, each rank on its own GPU, or `--device cpu` where none is visible. Every rank runs the whole
+plan, which branches on nothing a rank computes, and samples from rank 0's seed; only rank 0 writes the output
+directory and prints, and its run record lists every rank's device. A value the ranks hold in pieces is refused by
+name (`split`): the attention's interior but its output projection's input (`attention_premix`), the MLP's
+activation, and the output of an embedding the plan shards by vocabulary (`token_embeddings` on a tied-embedding
+checkpoint); the residual stream, the attention's and the MLP's outputs, the head and the logits are whole on every
+rank. Results under tensor parallelism are not bit-equal to unsharded ones, since a sharded matmul sums its parts
+in another order: the ranks agree to the bit, and agree with `tp` 1 to that rounding.
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
@@ -773,9 +786,9 @@ It builds nnterp's StandardizedTransformer without dispatching it (a meta shell:
 the tokenizer, no weights; nothing downloads but those) and opens the run's one session with `remote`. The
 session body is the nnterp engine's: what ships is the engine (by reference: clab is installed on the server),
 the plan (pure data) and the batch size; everything that needs the model, preflight included, runs on the
-server, and the results and the run record come home. The server holds the weights as its deployment does, so a
-quantized `dtype` is refused by name. The server's address and API key are nnsight's own (`nnsight.CONFIG`, or its
-environment variables). `remote="local"` runs nnsight's in-process simulation of
+server, and the results and the run record come home. The server holds the weights and shards the model as its
+deployment does, so a quantized `dtype` and the nnterp engine's `tp` are refused by name. The server's address and
+API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs nnsight's in-process simulation of
 that trip, which dispatches the shell here, on `device`, at its first trace.
 
 ## Names and scoping

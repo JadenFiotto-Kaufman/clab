@@ -328,7 +328,9 @@ def test_the_aligned_pattern_dataset_passes_the_check(engines):
                                       ("dispatch", "the engine places its model itself"),
                                       ("torch_dtype", "the dtype is spelled `dtype`"),
                                       ("quantization_config",
-                                       r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)")])
+                                       r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"),
+                                      ("tp_plan", "tensor parallelism is a run option: -o tp=N"),
+                                      ("distributed_config", "tensor parallelism is a run option: -o tp=N")])
 def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
     from clab.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))

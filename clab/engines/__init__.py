@@ -4,8 +4,9 @@ An engine registers under its name with `@engine("<name>")` and loads its checkp
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement
 argument, which each engine reads as it likes; `cpu` by default) and `options` are its own keyword parameters,
 each with its default and a `<name>: <what it takes>` line in the constructor's docstring, which `clab describe
-engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does,
-before anything loads; an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
+engines` and FORMAT.md print. `load` refuses an option the engine does not declare, naming the ones it does
+(and the reason, for one in the engine's `declines`: an option it refuses, mapped to why), before anything loads;
+an option the engine cannot honor it refuses by name. It keeps `device` as asked (None
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
@@ -101,7 +102,9 @@ def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
         raise ValueError(f"unknown engine {name!r}; valid: {', '.join(ENGINES)}")
     for key in given:
         if key not in options(name):
-            raise ValueError(f"the {name} engine takes no {key!r}; its options: {', '.join(['device', *options(name)])}")
+            why = getattr(ENGINES[name], "declines", {}).get(key)
+            raise ValueError(f"the {name} engine takes no {key!r}" + (f": {why}" if why else "")
+                             + f"; its options: {', '.join(['device', *options(name)])}")
     registry.check(ENGINES[name].__init__, given, SUPPLIED, f"the {name} engine")
     return ENGINES[name](model, device=device, **given)
 

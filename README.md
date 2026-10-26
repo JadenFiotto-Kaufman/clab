@@ -106,7 +106,7 @@ NDIF deployment that runs sdpa. A document in a directory under `documents/` rea
 the others do. `tests/test_real.py` pins their numbers on a GPU, on both engines (its docstring has the
 command); the CPU-only suite compiles them against their snapshots and runs none of them.
 
-## Quantized models
+## Quantized and sharded models
 
 A document's `model.dtype` may name a quantization, in nnsight's spelling: `nf4` or `fp4` (bitsandbytes' 4 bits),
 `int8` (its LLM.int8()) or `fp8` (transformers' 8-bit floats, on a GPU of compute capability 8.9 or later, and
@@ -115,6 +115,19 @@ needs `bitsandbytes` for all but `fp8`, and computes in bfloat16 (`int8` in floa
 Both engines load it with the one `quantization_config` and agree to the bit; the run records the packed weights'
 dtype beside the compute one (`uint8` under `nf4`), the plan the quantization's name. Under `ndif` the server holds
 the weights as its deployment does, so a quantized `dtype` is refused there.
+
+`-o tp=N` shards the model over N ranks by transformers' tensor parallelism, on the nnterp engine, under
+`torchrun --nproc-per-node=N`, each rank on its own GPU (`--device cuda`; `--device cpu` where none is visible):
+
+```
+uv run torchrun --nproc-per-node=2 --no-python clab run documents/real/behavior.json --device cuda -o tp=2 --batch-size 16
+```
+
+Every rank runs the whole plan, and rank 0 alone writes the output and prints. A value the ranks hold in pieces is
+refused by name (the attention's interior but `attention_premix`, the MLP's activation, and the output of an
+embedding the checkpoint's plan shards by vocabulary); the residual stream, the attention's and the MLP's outputs,
+the head and the logits are whole on every rank. Results under `tp` are the unsharded ones to rounding, not to the
+bit; the ranks agree to the bit.
 
 ## Look at a run
 
@@ -210,7 +223,8 @@ named in every error.
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
   `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists
   each option with what its docstring says it takes (on nnterp and hooks `device` is one torch device, `cpu`
-  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
+  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...; nnterp's `tp` shards the model
+  over that many ranks under torchrun).
 
 ## The output
 
@@ -254,7 +268,8 @@ uvx pyright
 ```
 
 `CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
-command its docstring gives, and so does `tests/test_quantized.py` (with `bitsandbytes`).
+command its docstring gives, and so does `tests/test_quantized.py` (with `bitsandbytes`); `tests/test_tp.py` starts two
+ranks with torchrun on the CPU.
 
 Offline, the suite needs these checkpoints and one dataset in the local Hugging Face cache, at the revisions the
 documents and tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`),
