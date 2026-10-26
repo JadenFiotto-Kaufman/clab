@@ -79,6 +79,7 @@ The corpus documents are not matched as they stand: `das.json` is rank 8, `pca_c
 ## Pitfalls
 
 - **Few rows, few steps.** `das.json` trains on two pairs, one minibatch per epoch, so its ten epochs are ten optimizer steps, and `lr` decides how far those can turn the subspace. Count steps before reading a flat history ([fit.md](../usage/fit.md#epochs-minibatches-and-the-learning-rate)).
+- **The learning rate on a wide model.** A `subspace` trains `theta`, a width × width matrix whose `theta − thetaᵀ` gives the rotation through the Cayley transform (`clab/featurizers/subspace.py` `Subspace`), and Adam moves every entry of it by about `lr` per step. A rate that suits the corpus's 16-wide fixture scrambles a 2048-wide rotation: on Llama-3.2-1B at layer 8 (rank 1 and rank 8, 80 steps), `lr` 0.002 gives held-out IIA 0.96, and `lr` 0.02 and 0.1 give 0.0. Start near 1e-3 and sweep `lr` before reading a flat curve as no subspace.
 - **After the fit, use `fit.rot`.** A later step that names `rot` gets the declared, untrained draw ([fit.md](../usage/fit.md#members)).
 - **`apply` is not an interchange.** A subspace's `apply` replaces the value with its projection onto the subspace, discarding the complement; the interchange is the `encode`, `swap`, `decode` bracket.
 - **The fixture model is random.** Every number these documents give on the tiny Llama shows the mechanics; on it, the trained and random subspaces score alike.

@@ -22,7 +22,7 @@ patching on nnterp (batch size 8, device cpu) -> out/patching
 
 It prints each file it wrote with the step that made it and the value's shape, then the manifest's path. Read the results with `clab show` and `clab table` ([output.md](output.md)). A refusal prints `clab: <where>: <what>`, exits with status 1, and writes nothing.
 
-Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says its config's `pad_token_id` is -1, outside the vocabulary. It can be ignored: clab pads each batch itself, with the tokenizer's pad token, and masks the padding.
+Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says its config's `pad_token_id` is -1, outside the vocabulary. It can be ignored: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
 
 `--engine`, `--device` and `-o key=value` choose where and how the model runs: `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
@@ -54,17 +54,19 @@ A document copied to a scratch directory with no `data/` above it is refused:
 clab: data.pairs.path: no file data/weekdays/train.json under the corpus root
 ```
 
-Give the scratch directory a `data/` (a copy or a link to the repo's) and put the document below it, as `scratch/data/` beside `scratch/documents/my_experiment.json`. A document with inline `rows` and no bundles needs no root. A plan built in Python from a dict rather than read from a file resolves against the working directory.
+Give the scratch directory a `data/` (a copy or a link to the repo's) and put the document below it, as `scratch/data/` beside `scratch/documents/my_experiment.json`. A document with inline `rows` and no bundles needs no root. A plan built in Python from a dict, `Plan(**fields)`, resolves against the working directory; `Plan(fields)` is read as a path and raises `TypeError`.
 
 Reading a run back resolves against the working directory too: `clab table` reads a file dataset from `data/` there, and `clab show` and `clab table` read a loaded bundle from its `file_path` there. Run them from the corpus root the document ran under ([output.md](output.md#tabling-needs-the-rows)).
 
 ## Batch size and reproducibility
 
-`--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory grows with the batch size times that longest row.
+`--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory and compute grow with the batch size times that longest row: one long row makes every batch as wide as it is (on Pythia-2.8B in float32, two forwards over the 5,153 rows of LAMBADA take about 930 s).
 
 **Results reproduce to the bit at a fixed batch size.** Two runs of one document at one batch size write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
 
 The CPU thread count can move the last bits too: at some thread counts a row padded well past its own length moves (about 1e-8 on prompts of 1 to 12 tokens) with which rows share its batch, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. Compare runs at one batch size, one row order and one thread count; [engines.md](engines.md#comparing-two-runs-to-the-bit) has the byte-for-byte check.
+
+In float16 the padding moves a row's numbers far past the last bits: on Pythia-2.8B, per-row log-likelihoods differ from an unpadded evaluation by up to 0.5 nats, and 32 of 5,153 exact-match rows change. Compare with published numbers in float32.
 
 A fit's body runs at the fit's own `batch_size`, whatever the run's ([fit.md](fit.md)).
 

@@ -69,7 +69,7 @@ A metric term is a float32 loss whatever the model's dtype, as every metric is (
 ## Epochs, minibatches and the learning rate
 
 - **Count the optimizer steps**: `epochs × ⌈training rows / batch_size⌉`. `das.json` has two training rows and `batch_size` 16, so one step per epoch, ten in all.
-- **Adam and AdamW move each parameter by about `lr` per step**, whatever the gradient's size, so `lr × steps` roughly bounds how far a featurizer gets. `das.json`'s ten steps turn its rotation's subspace by about 16 degrees from the draw at `lr` 0.001 and 66 degrees at 0.01. When a history barely moves, suspect `lr × steps` first.
+- **Adam and AdamW move each parameter by about `lr` per step**, whatever the gradient's size, so `lr × steps` roughly bounds how far a featurizer gets. `das.json`'s ten steps turn its rotation's subspace by about 16 degrees from the draw at `lr` 0.001 and 66 degrees at 0.01. When a history barely moves, suspect `lr × steps` first, both ways: too small turns nothing, and on a wide subspace too large scrambles the rotation and leaves the curve flat at the floor ([trained subspaces](../patterns/trained-subspaces.md#pitfalls)).
 - **An epoch is two passes** over the training rows: one in minibatches with gradients, one scored.
 - **Memory follows the fit's `batch_size`.** A minibatch's forwards run with gradients on, so their activations are kept for the backward. The body's forwards always run in batches of the fit's own `batch_size`: `das.json` run at `--batch-size` 1 and 8 gives bit-identical bundles and evals. Lower the fit's `batch_size` to fit in memory, and expect more optimizer steps per epoch.
 - **The model's weights never change.** A forward before the fit and one after it give bit-identical logits.

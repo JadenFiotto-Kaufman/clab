@@ -58,6 +58,7 @@ A block's component needs `layers`; the model's own values (`token_embeddings`, 
 - **A write selects on one axis.** A read may select heads and dimensions together; a write is refused with `an entry that writes selects on one axis; this one selects num_heads, head_dim`.
 - **`key` counts from the start.** A key selector picks the same keys of every row (`0` for BOS, `[0, 2]`, `"0:3"`); `-1` is refused, since rows differ in length. The `key` axis is each row's own tokens, as positions count them.
 - **`readout` needs the whole stream.** Selecting `hidden_size` and then `readout` is refused, since the final norm needs every dimension; read the site whole, `readout`, then narrow the logits. Which components `readout` takes is in [ops.md](ops.md#transforms).
+- **A metric needs the whole vocabulary.** `match`, `logit_diff` and `token_prob` look an answer up by token id, so a head narrowed on `vocab_size` gives them the wrong axis; score the full head ([ops.md](ops.md#metrics)).
 
 A pick outside the axis is refused: `select num_heads [4] outside the model's 4`. A `select` may be swept, as in the canonical example.
 

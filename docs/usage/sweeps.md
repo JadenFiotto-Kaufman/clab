@@ -100,7 +100,9 @@ Each point is a whole step over every row. A step that uses anything swept runs 
 - `documents/head_patching.json` sweeps `select: {"num_heads": ...}` on the `target` site, and the counterfactual step reads that site. The counterfactual therefore runs once per head along with the patch: eight forwards for four heads.
 - `documents/generate_probe.json` sweeps the frame of a read, so the whole three-token generation runs three times.
 
-A step that uses nothing swept runs once, and its value serves every point.
+A step that uses nothing swept runs once, and its value serves every point. A read that serves a write swept over layers and heads need not be swept over both: read it at every layer and sweep the heads alone ([head and neuron patching](../patterns/head-and-neuron-patching.md#layers-crossed-with-heads)).
+
+A large grid costs outside the forwards too. The run record stores positions per point, entry and row, so on Qwen3-4B a grid of 2,300 points over 120 rows writes a manifest of about 32 MB; and compile time grows faster than the number of points, 12,742 points taking about 40 s to compile where 2,182 take 3 s. Split a very large grid into documents by layer range.
 
 ## Widen the read instead
 

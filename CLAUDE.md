@@ -27,7 +27,7 @@
 | Run a document and choose an engine | [usage/running.md](docs/usage/running.md), [usage/engines.md](docs/usage/engines.md) |
 | Run on an NDIF server | [usage/engines.md](docs/usage/engines.md), [concepts/one-session.md](docs/concepts/one-session.md) |
 | Read a run back | [usage/output.md](docs/usage/output.md) |
-| Run a technique (patching, ablation, logit lens, steering, DAS, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
+| Run a technique (patching, path patching, ablation, logit lens, steering, DAS, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
 | Fix a refusal | [errors/index.md](docs/errors/index.md) |
 | Find out why the numbers are wrong when nothing was refused | [errors/symptom-index.md](docs/errors/symptom-index.md) |
 | Look up an exact field, op, component or option | [FORMAT.md](FORMAT.md), [reference/index.md](docs/reference/index.md) |
@@ -42,11 +42,14 @@
 - **Check `run.positions` before trusting a scoped read, and scope a teacher-forced answer with `"occurrence": -1`.** `occurrence` defaults to the first match, which is the prompt's copy when the prompt says the answer too. See [usage/positions.md](docs/usage/positions.md#check-where-it-landed).
 - **Give each of two sweeps of one field its own `label`.** Unlabelled, they share the field's name and zip into the diagonal instead of a grid. See [usage/sweeps.md](docs/usage/sweeps.md#labels-zip-or-cross).
 - **To patch one layer at a time, sweep `layers`; a slice or list on a write patches every picked layer in one forward.** Sweep a patch's read `pos` together with its write `pos`, or the last token's value lands at every position. See [usage/interventions.md](docs/usage/interventions.md#writes-across-layers), [patterns/activation-patching.md](docs/patterns/activation-patching.md#a-layer-by-position-map).
+- **At one site, list a freeze or hold before the patch it protects.** Entries at one site compose in the order written: listed after the patch, the freeze overwrites it, and every point equals the clean run, nulls included. See [usage/interventions.md](docs/usage/interventions.md#the-order-ops-run-in), [patterns/head-and-neuron-patching.md](docs/patterns/head-and-neuron-patching.md#path-patching).
 - **After a fit, name the trained featurizer `<fit>.<name>`.** The bare name is the untrained draw, and it runs without a refusal. See [usage/fit.md](docs/usage/fit.md#members).
 - **Write `do_sample: false` on every generate step.** Options a step leaves out come from the checkpoint's generation config, which may sample, and nothing seeds sampling. See [usage/generate.md](docs/usage/generate.md#options).
 - **Count `alignment_missing` rows before reading a mean over a generation.** Reductions skip the rows a read never reached, and nothing in the number says so. See [errors/alignment-missing.md](docs/errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
 - **State a published SAE's `site`, `centered` and `activation` from its release, and compare the measured L0 with the release's.** The file says none of them, and a wrong value runs. See [usage/featurizers.md](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
 - **Compare runs to the bit only at one `--batch-size` and one thread count.** A different batch shape moves the last bits. See [usage/running.md](docs/usage/running.md).
+- **Score a large model's logits inside the forward's head entry, not in an op step over two saved reads.** Every value a step binds stays on the model's device until the run ends, a read's batches are joined there, and an op step computes over the whole value at once, so a `kl` step over two full-vocabulary reads can exhaust memory and write nothing; `{"op": "kl", "against": "clean.logits"}` in the later forward's head entry keeps only the reference. See [usage/ops.md](docs/usage/ops.md#a-step-or-an-entry).
+- **Recompute a few points in float32 before reading small effects from a bfloat16 run.** A bit-exact null in bfloat16 certifies the wiring, not small effects: on Qwen3-4B a head with exactly zero effect in float32 shows about ±0.02 in a mean logit difference over 120 rows. See [usage/ops.md](docs/usage/ops.md#the-float32-rule).
 
 ## Before changing clab
 

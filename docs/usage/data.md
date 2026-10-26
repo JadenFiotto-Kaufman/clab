@@ -101,6 +101,16 @@ The dataset's `template` is passed to the checkpoint's `apply_chat_template` as 
 
 Without a template the prompt ends with the template's close of the last message, and `pos: -1` is that close's last token. With `add_generation_prompt` it ends with the assistant's header, so a `generate` continues as the assistant. What an argument does is the template's: on a Llama-2-style template, as above, `add_generation_prompt` changes nothing. Check the rendering in `run.tokens`. A `template` on a dataset that no step reads as a chat is refused, and so is a `tokenize` key in it. Positions inside a turn are [positions.md](positions.md).
 
+clab renders a chat only from a column that already holds `{"role", "content"}` messages; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside clab as inline `rows` (or a file), and record the hub source and its revision in `description`.
+
+**A template can read the clock.** Llama-3.2's Instruct template adds a system header when the chat has none and writes `Today Date: <today>` in it, so the same document renders other tokens on another day, unrefused: a dataset's digest covers its rows, not how they render. Pin the date through `template` and check `run.tokens`:
+
+```json
+"chats": {"path": "weekdays/chat", "template": {"add_generation_prompt": true, "date_string": "26 Jul 2024"}}
+```
+
+Llama-3.1's template writes a fixed default date and reads no clock.
+
 ## Answer columns
 
 Where a field takes a column, as an answer to score or as text to find (a metric's answer, `contains`'s text, a scope's `column`), write `"<dataset>.<column>"`, or the object with flags:
@@ -112,7 +122,7 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 - **Flags say how text compares; they never rewrite the data.** `lower` compares lowercased; `strip` makes surrounding whitespace optional. Scored against logits, the answer's token then stands for every vocabulary token that compares the same: in `documents/answer_spellings.json`, ` Yes` under both flags sums the probability of `▁Yes`, `▁yes`, `Yes`, `yes`, `YES` and `▁YES`. What that does to each metric is [ops.md](ops.md).
 - **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `clab table` prints it as JSON.
 - **A path reaches inside a column's entries**: `pairs.counterfactual_inputs_variables[0].entity` is the `entity` of each row's first variables object.
-- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
+- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. An answer column from the hub may lack it, and a document cannot add it, since a dataset is never a computation on its values. On a byte-level BPE tokenizer the bare word is then refused wherever it is more tokens than the spaced one (GPT-2's `signs` is `sign`, `s`; ` signs` is one token), and `strip` does not help, since it loosens the comparison, not the answer's tokens: `lam.answer row 0: 'signs' is 2 tokens; the read has 1 position on that row; …`. Write the rows inline, or to a file, from a script that adds the space, and record the hub source and commit in `description`. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
 
 ## `example_id`
 

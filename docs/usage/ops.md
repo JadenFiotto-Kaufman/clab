@@ -2,8 +2,8 @@
 title: Ops
 one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over, transforms like readout, argmax, top_k and detokenize, op steps versus ops inside an entry, and the float32 rule."
 tags: [usage, ops]
-related: [docs/usage/interventions.md, docs/usage/data.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md]
-sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py]
+related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
+sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
 ---
 
 # Ops
@@ -24,13 +24,15 @@ The two scores of `documents/patching.json`, and the accuracy over rows that usu
 
 ## A step or an entry
 
-Inside an entry, the ops after its last edit run on its value as each batch comes off the model; the entry binds their result. It is the same function as the step: `token_prob` inside the head's entry and as a step over the saved logits give the same numbers to the bit. Scoring inside the entry keeps memory flat, since a row's logits never outlive its batch; `documents/real/head_patching.json` scores its 96 points that way:
+Inside an entry, the ops after its last edit run on its value as each batch comes off the model; the entry binds their result. It is the same function as the step: `token_prob` or `kl` inside the head's entry and as a step over the saved logits give the same numbers to the bit. `documents/real/head_patching.json` scores its 96 points that way:
 
 ```json
 "hit": {"site": "head", "pos": -1, "ops": [{"op": "match", "expected": "days.cf_answer"}]}
 ```
 
-An entry sees one batch, so an op that aggregates over rows is refused there (`'mean' aggregates over rows, and inside an entry it sees one batch; make it a step after the forward`), and so is any reduction `over` `layers`: inside an entry an op acts at each layer in turn, and the `layers` axis exists only on what the entry binds. Make those op steps after the forward.
+Scoring inside the entry keeps memory flat, since a row's logits never outlive its batch. A value a step binds stays on the model's device until the run ends, when the saved ones move to the CPU (`clab/steps/__init__.py` `finished`); a read's batches are joined on that device, briefly twice the value's size (`clab/steps/batches.py` `joined`); and an op step computes over the whole value at once. So an op step over two saved `[rows, pos, vocab_size]` float32 reads builds temporaries their size: a `kl` between two `[64, 127, 256000]` reads makes several of 8 GB each, and a run that does not fit dies with torch's out-of-memory error and writes nothing. Score in the later forward's head entry instead, `{"op": "kl", "against": "clean.logits"}`, which keeps only the reference.
+
+An entry sees one batch, so an op that aggregates over rows is refused there (`'mean' aggregates over rows, and inside an entry it sees one batch; make it a step after the forward`), and so is any reduction `over` `layers`: inside an entry an op acts at each layer in turn, and the `layers` axis exists only on what the entry binds. Make those op steps after the forward. A reduction over `pos` alone keeps the rows and may stay in the entry: `{"op": "mean", "over": ["pos"]}` on a read at `layers: ":"` and `{"index": ":"}` gives the step form's numbers to the bit, and only the mean leaves the model.
 
 If the `mean` was meant as the value a write puts in, a mean ablation, it is an op step *before* the forward, over a read of the site, and the write swaps it in ([interventions](interventions.md#edit-recipes)). Moved after the forward, the entry has no edit left and only reads: the run gives the unpatched numbers, to the bit, without a refusal.
 
@@ -41,11 +43,13 @@ A metric returns one number per row and position, in float32. Most take logits (
 - `match`: 1 where the most likely token is the answer, else 0, an exact tie going to the lower id. The interchange accuracy of patching.
 - `logit_diff`: one answer's logit less another's. Use it for a contrast between two answers: a single logit carries an offset shared by every token, which the softmax ignores and a difference cancels.
 - `token_prob`: the answer's probability, the soft version of `match`. `cross_entropy` is minus its log.
-- `kl` and `js`: how far a whole next-token distribution moved, against another read of the same layout (`documents/faithfulness.json` scores a patched run against the clean one), or of the same layout without its `layers` axis, which then compares every layer with that one distribution: a lens against the model's `logits` is the wiring check in [logit lens](../patterns/logit-lens.md#check-the-wiring-then-trust-the-lens). `against` must be a named value.
+- `kl` and `js`: how far a whole next-token distribution moved, against another read of the same layout (`documents/faithfulness.json` scores a patched run against the clean one), or of the same layout without its `layers` axis, which then compares every layer with that one distribution: a lens against the model's `logits` is the wiring check in [logit lens](../patterns/logit-lens.md#check-the-wiring-then-trust-the-lens). `against` must be a named value. `kl` is KL(`of` ‖ `against`), and the two directions give different numbers: the value scored is the first distribution, the named one the second. A published number may be the other direction: SAEBench reports KL(clean ‖ patched). To match it, the patched logits are `against`, which inside an entry means a clean forward listed after the patched one, `{"op": "kl", "against": "patched.logits"}` in its head entry.
 - `cosine`: a residual-stream value against another of the same layout or one vector, over `hidden_size` (`documents/cosine_metric.json`).
 - `contains`: whether a row's decoded generation contains its answer ([generate](generate.md)).
 
 An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is any of them: `match` hits any, `token_prob` sums them. `logit_diff` and `token_logit` need one id, and preflight refuses a set there by row. An answer of several tokens scores the read's position i against token i, so the read must carry that many positions, and preflight refuses a row where it does not; a scope with `before` reads the positions that predict an answer ([positions](positions.md)).
+
+**A metric against an answer column needs the whole vocabulary.** It looks each answer up by token id along `vocab_size`, so on a head narrowed with `select: {"vocab_size": [...]}` the ids no longer index the axis. `match` compares an index within the selection with a token id and scores 0 on every row: in `weekdays/train`, narrowed to the four answer days, row 3's top pick is index 2, ` Monday`, its answer, and `match` gives 0. `logit_diff` and `token_prob` stop the run with torch's `RuntimeError: index 16340 is out of bounds for dimension 2 with size 4`. Score the full head. To look at a few candidates' logits as well, read the head a second time with the `select` and no metric: those values equal the full head's at the selected ids, and an `argmax` over them is an index into the `select` list.
 
 **Vocabulary or classes.** After `encode` through a linear probe the last axis is `classes`, the distinct values of the probe's column, and the same metrics score it against a column of those labels ([probing](../patterns/probing.md)). `argmax` and `top_k` rank `vocab_size` by default; on probe scores give `"over": "classes"`, or they are refused.
 
@@ -61,6 +65,10 @@ An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is a
 | `rows, pos, hidden_size` | `{"op": "mean", "over": ["pos"]}` | `rows, hidden_size`: one vector per row |
 
 A reduction that would remove no axis is refused (`a reduction of a value laid out [] removes no axis of it`). A reduction takes the values that are there: over a read whose rows hold different numbers of positions, the `mean` is over every position present, so a row with three tokens weighs three times a row with one ([ablation](../patterns/ablation.md#a-mean-over-an-entitys-tokens)). `pca` is a reduction whose value is a bundle a `pca` featurizer loads ([trained subspaces](../patterns/trained-subspaces.md)).
+
+## What is not an op
+
+The ops are the table in [FORMAT.md#ops](../../FORMAT.md#ops) and nothing else. There is no division, absolute value, comparison, sign, norm, dot product or grouped mean, and no op reduces across sweep points, since an op sees one point at a time. A dot product or a norm of a value is `scale` by the other value (or by its `normalize`), then `sum` over `hidden_size` ([steering](../patterns/steering.md#a-matched-random-direction) builds a norm that way). The rest of the analysis (a relative effect, a recovery, a rate such as "logit difference above zero", a ranking of heads across points, a confidence interval) is computed in Python from `Plan.load(out).results` ([output](output.md#in-python)).
 
 ## Transforms
 
@@ -90,6 +98,7 @@ Metrics and the reductions `mean`, `sum` and `min` compute in float32 and return
 - An edit rounds once: `add` of a float32 mean at `"scale": 4.0` writes `(value + 4 * mean)` computed in float32 and then rounded, which differs from adding in bfloat16.
 - It cannot undo the model's own rounding. Logits a bfloat16 model returns are bfloat16: one near 20 is a multiple of 0.125, and a `logit_diff` of two of them moves in those steps. A difference finer than that needs the model in float32.
 - Ranks are the same either way: `match`, `argmax` and `top_k` pick the same ids from a bfloat16 value and its float32 copy.
+- A null that holds to the bit in bfloat16 proves the read and the write are at one place; it does not make an effect below the dtype's rounding readable. On Qwen3-4B, a head whose effect is exactly zero in float32 shows about ±0.02 in a mean logit difference over 120 rows in bfloat16, early layers included. Recompute a few points in float32 before reading effects near that size.
 
 ## Missing values
 
