@@ -53,7 +53,8 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
     their EOS to the longest batch's. Returns the model calls it made, one per new token of each batch (its
     prefill, then a decode call for each token after the first), and the tokens they fed (`fed`): the
-    prompts', then at each decode call one for each row that has not said EOS (a row that has is fed padding)."""
+    prompts', then each row's generated tokens but its last, which is its EOS (fed to it on the call after it says
+    it, and not counted, as the padding after it is not) or the generation's last token, which no call is fed."""
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
@@ -72,7 +73,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
                                           step.at, found.answers, layer) for layer in layers(engine, record)])
                for key, record in every.items() if key in first and record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
-        count += fed(batch, pads, ids.shape[1], sum(min(len(x) - (x[-1] in eos), ids.shape[1] - 1) for x in said))
+        count += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
         for key, record in after.items():
             where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(step, record))
             resolved[f"{name}.{key}"] += where

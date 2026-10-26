@@ -41,7 +41,7 @@ def show(filled: Plan) -> str:
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
-    lines += ["  " + line for line in aligned(costs(filled))]
+    lines += ["  " + line for line in aligned(costs(filled))] if run.costs else []        # a run before costs
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in filled.saves:
         entry = filled.steps[saved.partition(".")[0]]

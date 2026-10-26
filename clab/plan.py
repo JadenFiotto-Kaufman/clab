@@ -777,8 +777,8 @@ class Run(Record):
     name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
-    and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding
-    excluded."""
+    and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
+    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one)."""
     engine: str
     batch_size: int
     device: str | None

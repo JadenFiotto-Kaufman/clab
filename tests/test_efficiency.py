@@ -12,6 +12,7 @@ activations) for the garbage collector.
 """
 
 import gc
+import json
 import types
 from contextlib import contextmanager
 from typing import Any, Iterator
@@ -146,6 +147,12 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
         ("top1", "layers=0", "—", "0", "0"), ("top1", "layers=1", "—", "0", "0")]
     assert all(float(r[2]) >= 0 for r in rows)
     assert shown[10].split() == ["result", "step", "dims", "axes", "shape"]
+    manifest = tmp_path / "manifest.json"                    # as a run that recorded no costs wrote it
+    written = json.loads(manifest.read_text())
+    del written["run"]["costs"]
+    manifest.write_text(json.dumps(written))
+    assert main(["show", str(tmp_path)]) == 0
+    assert capsys.readouterr().out.splitlines()[3].split() == ["result", "step", "dims", "axes", "shape"]
 
 
 def watched(engine) -> dict[Any, torch.nn.Module]:
