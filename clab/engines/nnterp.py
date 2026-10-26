@@ -173,7 +173,7 @@ def sharded(tp: int, device: str) -> dict[str, Any]:
     as nnsight's `distributed_config`, each rank's shard on cuda:<LOCAL_RANK> where a GPU is visible (`device`
     "cuda"), else on the CPU (`device` "cpu"). Refused by name: a `tp` below 1, a `tp` above 1 in a process that is
     not one of `tp` torchrun started (WORLD_SIZE), a WORLD_SIZE other than `tp` (each process would run the whole
-    plan), and under `tp` any other `device`."""
+    plan), and under `tp` any other `device`, or more ranks on a node than it has GPUs visible."""
     from transformers import DistributedConfig
 
     world = os.environ.get("WORLD_SIZE")
@@ -194,6 +194,10 @@ def sharded(tp: int, device: str) -> dict[str, Any]:
         raise ValueError(f"device {device!r}: under tp {tp} transformers puts each rank's shard "
                          + ("on its own GPU, cuda:<LOCAL_RANK>, so the device is 'cuda'" if kind == "cuda" else
                             "on the CPU, no GPU being visible, so the device is 'cpu'"))
+    here = int(os.environ.get("LOCAL_WORLD_SIZE", tp))
+    if kind == "cuda" and here > torch.cuda.device_count():
+        raise ValueError(f"tp {tp}: each rank holds its shard on its own GPU, and torchrun started {here} ranks on this "
+                         f"node, which shows {torch.cuda.device_count()} (CUDA_VISIBLE_DEVICES)")
     return {"distributed_config": DistributedConfig(tp_size=tp)}
 
 

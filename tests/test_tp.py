@@ -36,7 +36,7 @@ def unloadable(monkeypatch):
     """No engine can load a model: a refusal must come before anything loads."""
     for where in ("nnterp", "hooks", "ndif"):
         monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
-    for key in ("WORLD_SIZE", "RANK", "LOCAL_RANK"):
+    for key in ("WORLD_SIZE", "LOCAL_WORLD_SIZE", "RANK", "LOCAL_RANK"):
         monkeypatch.delenv(key, raising=False)
     return monkeypatch
 
@@ -68,6 +68,16 @@ def test_under_tp_the_device_is_where_transformers_puts_each_shard(unloadable):
     with pytest.raises(ValueError, match=rf"^device 'cuda:0': under tp 2 transformers puts each rank's shard {where}, "
                                          rf"so the device is '{kind}'$"):
         load("nnterp", plan_of("patching").model, "cuda:0", tp=2)
+
+
+def test_under_tp_a_node_needs_a_gpu_per_rank(unloadable):
+    for key, value in (("WORLD_SIZE", "2"), ("LOCAL_WORLD_SIZE", "2")):
+        unloadable.setenv(key, value)
+    unloadable.setattr("torch.cuda.is_available", lambda: True)
+    unloadable.setattr("torch.cuda.device_count", lambda: 1)
+    with pytest.raises(ValueError, match=r"^tp 2: each rank holds its shard on its own GPU, and torchrun started 2 "
+                                         r"ranks on this node, which shows 1 \(CUDA_VISIBLE_DEVICES\)$"):
+        load("nnterp", plan_of("patching").model, "cuda", tp=2)
 
 
 def test_the_other_engines_refuse_tp_by_name(unloadable, capsys):
