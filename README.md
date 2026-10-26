@@ -6,8 +6,9 @@ interventions on the model's internals (each entry a site, its positions and the
 layer the site picks: an entry with an edit among its ops writes back, and every entry's value is readable by
 name), the ops that score or reduce what they take, and what to save. clab reads it into a `Plan`, compiles
 the plan (rows loaded (a hub dataset's checked, then left out), names resolved, sweeps expanded into points, one
-axis per sweep label), runs it inside one nnsight session (so the same document runs locally or on a remote
-nnsight server), and writes each saved value to a directory with a manifest.
+axis per sweep label, the points of a step that differ only in what they read sharing one forward), runs it inside
+one nnsight session (so the same document runs locally or on a remote nnsight server), and writes each saved value
+to a directory with a manifest.
 
 Three engines ship: `nnterp` (primary: nnterp's standardized names on every architecture), `hooks` (plain
 HuggingFace with forward hooks, for module-boundary components) and `ndif` (the nnterp engine over a
