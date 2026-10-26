@@ -1035,8 +1035,8 @@ def test_m6_take_on_a_file_keeps_its_first_rows():
     """trial-03: `take` on a path dataset said it belonged to hub datasets; it is an option of any dataset."""
     compiled = plan(data={"d": {"path": "weekdays/data", "take": 2}}, steps={}).compile()
     assert compiled.data["d"].n_rows == 2
-    with pytest.raises(PlanError, match=r"data\.d: unknown field 'repeat'; valid: path, rows, split, shuffle, take, "
-                                        r"columns, template$"):
+    with pytest.raises(PlanError, match=r"data\.d: unknown field 'repeat'; valid: path, rows, hf, revision, config, "
+                                        r"split, shuffle, take, columns, template$"):
         plan(data={"d": {"path": "weekdays/data", "repeat": 2}}, steps={})
 
 

@@ -15,7 +15,7 @@ from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import made_at, picked, selected
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, kind_of, points
+from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, held_rows, kind_of, points
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -49,7 +49,7 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     eval the eval and the datasets it reads.
     """
     refuse(engine, plan)
-    rows = {n: d.rows or [] for n, d in plan.data.items()}
+    rows = {n: held_rows(plan, n) for n in plan.data}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
     found = prepare(engine, plan, plan.steps, {}, classes)
@@ -111,7 +111,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
                                          f"it needs more than {args['k']}")
                 continue
-            rows = plan.data[step.dataset].rows or []
+            rows = held_rows(plan, step.dataset)
             source = data.input_name(step.input)
             if source not in found.inputs:
                 encoded = []

@@ -131,6 +131,13 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert manifest["model"]["dtype"] == "float32"               # recorded though it is the default
 
 
+def test_a_loaded_plan_dumps_again(filled, tmp_path):
+    """A loaded plan holds no rows a file gave, and dumps the same manifest again."""
+    filled["hooks"].dump(str(tmp_path / "a"))
+    Plan.load(str(tmp_path / "a")).dump(str(tmp_path / "b"))
+    assert (tmp_path / "a" / "manifest.json").read_text() == (tmp_path / "b" / "manifest.json").read_text()
+
+
 def test_a_table_labels_each_row(filled, tmp_path, monkeypatch):
     filled["hooks"].dump(str(tmp_path))
     monkeypatch.chdir(ROOT)                                   # a loaded plan's corpus root is where it is read

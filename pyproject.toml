@@ -10,6 +10,7 @@ dependencies = [
     "safetensors",
     "pydantic",
     "accelerate",
+    "datasets>=4",
 ]
 
 [project.scripts]

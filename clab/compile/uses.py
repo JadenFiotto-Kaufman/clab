@@ -21,6 +21,7 @@ from clab.plan import (
     entries,
     entry_of,
     fail,
+    held_rows,
     scope,
     visited,
     walk,
@@ -161,6 +162,6 @@ def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device:
     """A featurizer point `spec` made on `device`: from its bundle, or drawn from its seed, else `seed`; a probe's
     class list from its `classes` column."""
     fields = spec.model_extra or {}
-    classes = labels({n: d.rows or [] for n, d in plan.data.items()}, fields["classes"]) \
-        if "classes" in fields else None
+    dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
+    classes = labels({dataset: held_rows(plan, dataset)}, fields["classes"]) if dataset else None
     return make(spec.kind, fields, width, spec.bundle, seed, classes, spec.header, device)

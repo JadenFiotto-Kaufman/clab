@@ -1,5 +1,5 @@
-"""Walk a compiled plan inside the run: the preflight pass, every step and point in order, then the saved values into
-`plan.results`.
+"""Walk a compiled plan inside the run: its hub datasets' rows loaded, the preflight pass, every step and point in
+order, then the saved values into `plan.results`.
 
 This assumes only the engine protocol (`engines.Engine`): it asks the engine for forwards and generations,
 its tokenizer, its sizes, its readout and the ids its generation stops on (EOS), and does everything else
@@ -23,6 +23,7 @@ import torch
 from torch import Tensor
 
 from clab import ops
+from clab.compile import materialized
 from clab.compile.answers import probe_of
 from clab.compile.interventions import acts_at
 from clab.compile.preflight import preflight
@@ -53,9 +54,10 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
-    """Every step and point in document order, without gradients except where a fit trains; then each saved
-    value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
-    dtypes and devices of the model's parameters (`placed`)."""
+    """Every step and point in document order, over the plan `held`, without gradients except where a fit trains;
+    then each saved value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the
+    run: the dtypes and devices of the model's parameters (`placed`)."""
+    plan = held(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
     found = preflight(engine, plan)
@@ -78,6 +80,14 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
+
+
+def held(plan: Plan) -> Plan:
+    """The plan as the run reads it: every dataset's rows in it, a hub dataset's loaded here, where the run is (on the
+    server, under `ndif`), and refused unless their digest is the one compile recorded (`materialized`). It is a
+    view: its `results` and `run` are the plan's own, which the run fills."""
+    return plan.model_copy(update={"data": {n: d.model_copy(update={"rows": materialized(plan, n)})
+                                            for n, d in plan.data.items()}})
 
 
 def placed(model: Parameterized) -> tuple[list[str], list[str]]:
