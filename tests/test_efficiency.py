@@ -116,6 +116,23 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
     assert called == [] and all(c["memory"] is None for costs in remote.costs.values() for c in costs.values())
 
 
+def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
+    """A fresh ndif engine under `remote="local"`: its shell has loaded its weights, and nnterp measured its forward
+    order, before the first step's timer starts, so that no step's cost holds either."""
+    from nnterp import order
+
+    from clab.engines import load
+    from clab.steps import measured
+    seen: list[Any] = []
+    compute = order.compute
+    monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
+    monkeypatch.setattr("clab.steps.measured", lambda engine, call: seen.append(("step", engine.model.dispatched))
+                        or measured(engine, call))
+    plan = plan_of("logit_lens")
+    load("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
+    assert seen == ["order"] + [("step", True)] * 6
+
+
 def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     plan = plan_of("logit_lens")
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))

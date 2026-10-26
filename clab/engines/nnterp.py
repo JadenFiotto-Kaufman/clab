@@ -45,16 +45,25 @@ class NnterpEngine:
             model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
-        """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
-        the results and the run record are the one thing that comes home, into the client's own plan."""
+        """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
+        model `ready` first; the results and the run record are the one thing that comes home, into the client's
+        own plan."""
         started = steps.begin(self, plan, batch_size)
         with self.model.session(remote=self.remote):
+            self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})
         plan.results, plan.run = home["results"], home["run"]
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
         return plan
+
+    def ready(self) -> None:
+        """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
+        (ndif under `remote="local"`) loads its weights, which it would at its first trace, and nnterp measures its
+        forward order (`rank`), which it would at the first site a step ranks; each is a no-op once done."""
+        self.model.dispatch()
+        self.rank("layer_output", 0)
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
