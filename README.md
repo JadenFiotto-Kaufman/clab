@@ -115,9 +115,9 @@ uv run clab table out/generate_probe p_answer --csv      # the same as CSV on st
 ```
 
 `show` prints the run's engine, device and options, batch size, start time and seconds, the served dtype and
-devices, the versions, then one line per step and point with what it cost (its seconds, its peak CUDA memory,
-the model calls it made and the tokens they fed), then one line per saved value: the step that made it, its
-`dims`, its sweep axes and its shape (per coordinate when swept).
+devices, the versions, then one line per step and point with what it cost (its seconds, its peak memory on each
+CUDA device, the model calls it made and the tokens they fed), then one line per saved value: the step that made
+it, its `dims`, its sweep axes and its shape (per coordinate when swept).
 `table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
 generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
 dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
@@ -158,8 +158,9 @@ filled.dump("out/pos_sweep")
 
 A plan's methods are views and serialization, never execution: `compile`, `dump`, `Plan.load`, `write` (the
 plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, batch size,
-device and every engine option; the versions, dtype and devices where the model was; timing, and each step's
-seconds, peak memory, model calls and tokens in `plan.run.costs`; how each input tokenized). `clab.describe()` prints the format's tables.
+device and every engine option; the versions, dtype and devices where the model was; timing, and what each step
+cost in `plan.run.costs`: its seconds, its peak memory on each CUDA device, weights included, its model calls and
+the tokens they fed; how each input tokenized). `clab.describe()` prints the format's tables.
 
 ## The package
 

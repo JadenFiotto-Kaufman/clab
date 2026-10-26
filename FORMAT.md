@@ -825,9 +825,10 @@ dataset for the header of the bundle it saves) and without bundle tensors, its `
 `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the step that made it. It records the
 document's path relative to the corpus root, and each dataset's `n_rows`.
 `shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
-tokenized, what each generate step's rows generated, and which position (as `pos` counts them: an index into the
+tokenized, what each generate step's rows generated, which position (as `pos` counts them: an index into the
 row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
-`table` uses to label positions. Values are never in the manifest.
+`table` uses to label positions, and what each step cost (`costs`: its seconds, its peak memory on each CUDA
+device, its model calls and the tokens they fed). Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
