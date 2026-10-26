@@ -145,11 +145,11 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     shown = capsys.readouterr().out.splitlines()
     assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
     rows = [line.split() for line in shown[4:10]]
-    assert [(r[0], r[1], r[3], r[4], r[5]) for r in rows] == [
-        ("lens", "layers=0", "—", "2", "38"), ("lens", "layers=1", "—", "0", "0"),
+    assert [(r[0], r[1], *r[3:]) for r in rows] == [
+        ("lens", "layers=0", "—", "2", "38"), ("lens", "layers=1", "—", "=", "layers=0", "0"),
         ("p_answer", "layers=0", "—", "0", "0"), ("p_answer", "layers=1", "—", "0", "0"),
         ("top1", "layers=0", "—", "0", "0"), ("top1", "layers=1", "—", "0", "0")]
-    assert all(float(r[2]) >= 0 for r in rows)
+    assert all(float(r[2]) >= 0 for r in rows) and float(rows[1][2]) == 0
     assert shown[10].split() == ["result", "step", "dims", "axes", "shape"]
     manifest = tmp_path / "manifest.json"                    # as a run that recorded no costs wrote it
     written = json.loads(manifest.read_text())

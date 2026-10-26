@@ -21,7 +21,7 @@ from typing import Any
 from clab import output
 from clab.docs import WHAT, as_json, describe, markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, dims_of, name, points
+from clab.plan import Forward, Plan, Run, dims_of, name, points
 
 
 def how(run: Run) -> str:
@@ -55,7 +55,9 @@ def show(filled: Plan) -> str:
 
 def costs(filled: Plan) -> list[list[str]]:
     """What each step cost (`plan.run.costs`) as table rows, one per step and point: its seconds, its peak memory
-    on each device in MiB (— where none was measured), its model calls and the tokens they fed."""
+    on each device in MiB (— where none was measured: off CUDA, under a remote engine, or at a point that shares
+    another's forward), its model calls (`= <coordinate>` at a point that shares the forward of the point there,
+    which records the group's) and the tokens they fed."""
     run = filled.run
     assert run is not None
     rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
@@ -63,8 +65,9 @@ def costs(filled: Plan) -> list[list[str]]:
         for p in points(entry) if step in run.costs else []:
             cost = run.costs[step][labelled(filled, p.at)] if isinstance(entry, list) else run.costs[step]
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
+            shares = p.shares if isinstance(p, Forward) else None
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
-                         str(cost["forwards"]), str(cost["tokens"])])
+                         f"= {labelled(filled, shares)}" if shares else str(cost["forwards"]), str(cost["tokens"])])
     return rows
 
 
