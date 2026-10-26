@@ -22,6 +22,9 @@ import transformers
 from conftest import REAL, close, plain, plan_of, same, snapshot
 from huggingface_hub import try_to_load_from_cache
 
+from clab.format.sweeps import labelled, points
+from clab.plan import Forward
+
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)
 pytestmark = pytest.mark.skipif(not (torch.cuda.is_available() and CACHED),
@@ -61,10 +64,18 @@ def test_numbers_match_the_snapshot(filled, name, kind):
 
 @pytest.mark.parametrize("name, kind", SERVED)
 def test_each_steps_memory_is_its_peak_on_the_gpu_weights_included(engines, filled, name, kind):
+    """At every point that runs its own forward, or one a group shares; a point that shares another's measured
+    none."""
     plan = filled[name, kind]
     weights = sum(p.numel() * p.element_size() for p in engines(kind, plan.model, device="cuda").model.parameters())
-    costs = [c for by in plan.run.costs.values() for c in (by.values() if "memory" not in by else [by])]
-    assert all(list(c["memory"]) == ["cuda:0"] and c["memory"]["cuda:0"] >= weights for c in costs)
+    for step, entry in plan.steps.items():
+        for p in points(entry):
+            memory = (plan.run.costs[step][labelled(plan, p.at)] if isinstance(entry, list) else
+                      plan.run.costs[step])["memory"]
+            if isinstance(p, Forward) and p.shares is not None:
+                assert memory is None
+            else:
+                assert list(memory) == ["cuda:0"] and memory["cuda:0"] >= weights
 
 
 @pytest.mark.parametrize("name", [n for n in REAL if n not in INSIDE])
