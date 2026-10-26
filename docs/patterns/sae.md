@@ -34,7 +34,7 @@ An `sae` featurizer is a sparse autoencoder at one site. `encode` reads its late
 "kl": {"kind": "op", "op": "kl", "of": "spliced.logits", "against": "base.logits"}
 ```
 
-`kl` measures how far the next-token distribution moves when the error term is dropped. Replace `apply` with `[encode, decode]` and the logits are bit-identical to `base.logits`, since that bracket puts the error term back. `documents/sae_published_topk.json` does the same with a SAELens-style file, `"activation": "topk", "k": 4`: a vector's latents have at most four nonzero entries (four on every row of the fixture).
+`kl` measures how far the next-token distribution moves when the error term is dropped. On the fixture that term is about 1.9 times the norm of the residual stream it is cut from, so splicing moves `logit_diff` (base answer against counterfactual) by up to 0.26 on a row, where zeroing the three most active latents inside a bracket moves it by at most 0.10. Replace `apply` with `[encode, decode]` and the logits are bit-identical to `base.logits`, since that bracket puts the error term back. `documents/sae_published_topk.json` does the same with a SAELens-style file, `"activation": "topk", "k": 4`: a vector's latents have at most four nonzero entries (four on every row of the fixture).
 
 ## Check its L0
 
@@ -47,7 +47,7 @@ A dictionary loaded at the wrong layer, with the wrong `centered`, or a TopK fil
 "mean_l0": {"kind": "op", "op": "mean", "of": "l0"}
 ```
 
-Latents are never negative (every activation ends in a relu), so after the scale every latent above 1e-30 clamps to 1 and a zero stays 0; the sum over `features` counts the active ones per row and position. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`. For a dictionary-wide number, read every token after BOS (`"pos": {"index": "1:"}`): positions past a row's own stay missing through these steps, and `mean_l0` averages the rest (9.94 on the JumpReLU fixture, as counting the saved latents in Python gives).
+Latents are never negative (every activation ends in a relu), so after the scale every latent above 1e-30 clamps to 1 and a zero stays 0; the sum over `features` counts the active ones per row and position. `clab table <out> l0` gives 10 on every row of `sae_published_jumprelu.json` and 4 on `sae_published_topk.json`. For a dictionary-wide number, read every token after BOS (`"pos": {"index": "1:"}`): positions past a row's own stay missing through these steps, and `mean_l0` averages the rest (9.94 on the JumpReLU fixture, as counting the saved latents in Python gives). Compare that mean with the release's, not one token's count: stated `centered: true`, the same fixture still gives 10 at the last token of every row, while the mean after BOS moves to 10.65 and the last token's three most active latents change.
 
 ## Ablate features
 
@@ -57,6 +57,16 @@ Latents are never negative (every activation ends in a relu), so after the scale
 - `logit_diff` and `p_answer`, one entry per point, keyed `features=0` to `features=3`.
 
 On the fixture, latents 1 and 3 are zero at the last position of every row, and their points are bit-identical to the clean forward. Other edits go in the same place: `{"op": "scale", "factor": 5.0}` on a selected latent amplifies it, `{"op": "add", "with": 1.0}` adds to it.
+
+**Rank, then ablate.** `select` takes indices written in the document, never a value a step computed (`'top.ids' is not a selector`). So rank the latents in one run and write the ids you read into the next. On `sae_published_jumprelu.json`'s `base.latents`:
+
+```json
+"top": {"kind": "op", "op": "top_k", "of": "base.latents", "k": 3, "over": "features"}
+```
+
+gives 31, 19 and 24 on every row, and `{"op": "encode", "featurizer": "dictionary", "select": {"features": [19, 24, 31]}}` with its `swap` and `decode` zeroes the three together; a sweep over the ids zeroes one per point.
+
+**A latent that never fires is the bracket's null.** The `active` step above, read at every token after BOS and summed with `"over": ["rows", "pos"]`, counts how often each latent fires. On the JumpReLU fixture latents 10, 21 and 22 never do, and zeroing one of them leaves `logit_diff` unchanged to the bit. Recount whenever `centered` or `activation` changes: under `centered: true` the silent ones are 18, 21 and 22.
 
 ## Train a dictionary
 

@@ -41,6 +41,7 @@ Each recipe was checked against `run.positions` on row 0 of the corpus document 
 | the last prompt token | `-1` | 10 `▁is` (`documents/patching.json`) |
 | BOS | `0` | 0 `<s>` |
 | a window of the last tokens | `{"index": "-4:-1"}` | 7, 8, 9: `,` `▁tom` `orrow` (`documents/window_patch.json`) |
+| the last three tokens, the last included | `{"index": "-3:"}` | 8, 9, 10: `▁tom` `orrow` `▁is` |
 | a few positions, in this order | `{"index": [-1, 0]}` | 10 then 0 |
 | every prompt token | `{"index": ":"}`, or no `pos` | 0 to 10 |
 | the last token of each row's own word | `{"scope": {"column": "pairs.entity"}, "index": -1}` | 6 `day` (`documents/entity_patch.json`) |
@@ -52,6 +53,7 @@ Each recipe was checked against `run.positions` on row 0 of the corpus document 
 | the last token of the second user message | `{"scope": {"turn": "user", "occurrence": 1}, "index": -1}` | 32 `▁is` (`documents/chat_turn.json`) |
 | where the model said a word | `{"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}` | 12 `▁substr` (`documents/generated_answer.json`) |
 | the calls that chose that word | `{"frame": "1:", "scope": {"column": "prompts.said", "before": true}}` | 11 (`documents/generated_confidence.json`) |
+| a generated word, its leading space optional ([why](generate.md#the-first-generated-tokens-leading-space)) | `{"frame": "1:", "scope": {"column": {"column": "prompts.said", "strip": true}}, "index": -1}` | 12 `▁substr` (`generated_answer.json` with `strip`) |
 
 ## Words and occurrences
 

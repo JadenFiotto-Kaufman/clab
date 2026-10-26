@@ -29,7 +29,7 @@ substr      0    If today is Thursday, tomorrow is  Handler substr energcalc tos
 Friday      2    If today is Saturday, tomorrow is  Handler substr energcalc tossorter  0.0
 ```
 
-This is plain generation accuracy, and no row is ever missing. The answer column's `strip`, `lower` and answer sets apply as they do for any column ([usage/data.md](../usage/data.md)). The token budget changes the result. Swept as `{"sweep": [2, 6], "label": "n"}` on both `max_new_tokens` and `min_new_tokens`, row 1's `energcalc` is said by `n=6` and not by `n=2`.
+This is plain generation accuracy, and no row is ever missing. The answer column's `strip`, `lower` and answer sets apply as they do for any column ([usage/data.md](../usage/data.md)). An answer written with its leading space is missed where the model says it first, since the first generated token loses its space when decoded: give the column `strip: true` ([generate.md](../usage/generate.md#the-first-generated-tokens-leading-space)). The token budget changes the result. Swept as `{"sweep": [2, 6], "label": "n"}` on both `max_new_tokens` and `min_new_tokens`, row 1's `energcalc` is said by `n=6` and not by `n=2`.
 
 ## Where it said it: reads in the generated text
 
@@ -48,7 +48,7 @@ substr      0    12   ▁substr    2     If today is Thursday, tomorrow is   Sun
 Friday      2                          If today is Saturday, tomorrow is   Friday                            true
 ```
 
-The fraction of rows that said the word is the fraction not missing. How missing rows pass through ops is in [errors/alignment-missing.md](../errors/alignment-missing.md).
+The fraction of rows that said the word, as a whole word, is the fraction not missing; a `contains` count can be higher ([alignment-missing](../errors/alignment-missing.md#count-it-prevent-it-or-refuse-it)). How missing rows pass through ops is in [errors/alignment-missing.md](../errors/alignment-missing.md).
 
 ## Confidence as it said the answer: `before`
 

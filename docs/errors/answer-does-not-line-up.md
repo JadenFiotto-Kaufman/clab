@@ -83,7 +83,7 @@ Under `strip` an answer's whitespace-only tokens at its end are dropped, and an 
 nll: days.base_answer row 0: position 11 predicts 'Ġ3' in the input, which is not token 0 of '3' as it tokenizes alone (['3']); the answer is scored as it tokenizes, so the input says it the same way
 ```
 
-Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. A byte-level BPE tokenizer merges a space into the token after it: on GPT-2's, the prompt `next is ` followed by `3` tokenizes as `Ġ3`, while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
+Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. A byte-level BPE tokenizer merges a space into the token after it: on GPT-2's, the prompt `next is ` followed by `3` tokenizes as `Ġ3`, a space and `3` in one token (`Ġ` is how GPT-2's tokenizer writes a leading space), while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
 
 ## A probe's classes
 

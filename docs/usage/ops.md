@@ -32,6 +32,8 @@ Inside an entry, the ops after its last edit run on its value as each batch come
 
 An entry sees one batch, so an op that aggregates over rows is refused there (`'mean' aggregates over rows, and inside an entry it sees one batch; make it a step after the forward`), and so is any reduction `over` `layers`: inside an entry an op acts at each layer in turn, and the `layers` axis exists only on what the entry binds. Make those op steps after the forward.
 
+If the `mean` was meant as the value a write puts in, a mean ablation, it is an op step *before* the forward, over a read of the site, and the write swaps it in ([interventions](interventions.md#edit-recipes)). Moved after the forward, the entry has no edit left and only reads: the run gives the unpatched numbers, to the bit, without a refusal.
+
 ## Metrics
 
 A metric returns one number per row and position, in float32. Most take logits (or a probe's scores) and an answer column. How a column becomes answer tokens (exact spelling, leading spaces, `strip`, `lower`, sets) is on [data](data.md#answer-columns); here is the choice of metric.
@@ -39,7 +41,7 @@ A metric returns one number per row and position, in float32. Most take logits (
 - `match`: 1 where the most likely token is the answer, else 0, an exact tie going to the lower id. The interchange accuracy of patching.
 - `logit_diff`: one answer's logit less another's. Use it for a contrast between two answers: a single logit carries an offset shared by every token, which the softmax ignores and a difference cancels.
 - `token_prob`: the answer's probability, the soft version of `match`. `cross_entropy` is minus its log.
-- `kl` and `js`: how far a whole next-token distribution moved, against another read of the same layout (`documents/faithfulness.json` scores a patched run against the clean one). `against` must be a named value.
+- `kl` and `js`: how far a whole next-token distribution moved, against another read of the same layout (`documents/faithfulness.json` scores a patched run against the clean one), or of the same layout without its `layers` axis, which then compares every layer with that one distribution: a lens against the model's `logits` is the wiring check in [logit lens](../patterns/logit-lens.md#check-the-wiring-then-trust-the-lens). `against` must be a named value.
 - `cosine`: a residual-stream value against another of the same layout or one vector, over `hidden_size` (`documents/cosine_metric.json`).
 - `contains`: whether a row's decoded generation contains its answer ([generate](generate.md)).
 
@@ -63,7 +65,7 @@ A reduction that would remove no axis is refused (`a reduction of a value laid o
 ## Transforms
 
 - `readout` projects a residual-stream value through the model's final norm and head: the logit lens ([logit lens](../patterns/logit-lens.md)). It takes the components in the stream's basis (`token_embeddings`, `layer_input`, `attention_output`, `layer_mid`, `mlp_output`, `layer_output`) and refuses any other by name, and a site that selects part of `hidden_size`.
-- `argmax` and `top_k` rank along `over`, by default the vocabulary: `argmax` gives the top id, `top_k` the `k` best `ids` with their `probs` (a float32 softmax). Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`. As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole.
+- `argmax` and `top_k` rank along `over`, by default the vocabulary: `argmax` gives the top id, `top_k` the `k` best `ids` with their `probs` (a float32 softmax). Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`. As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole. Each id is decoded alone, which drops a SentencePiece tokenizer's word-start `▁`: the corpus Llama's `▁Fed` (17972) prints as `Fed`, like `Handler` (4598), while `pos_token` keeps the `▁`. Read `ids` to tell ` Fed` from `Fed`. A later step cannot name a `top_k` step's `ids`, `probs` or `tokens` (`'top3.probs' names no value produced before this step`): save it and read the fields from `plan.results` ([output](output.md#in-python)).
 - `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)).
 - `encode` turns a value into a featurizer's coordinates ([featurizers](featurizers.md)).
 

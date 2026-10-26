@@ -94,7 +94,7 @@ Run the training document again with the sweep replaced by the value you want to
 
 ## Reproducing a fit's numbers in the apply document
 
-A fit's body runs in batches of the fit's `batch_size`; the apply document runs in batches of `--batch-size` (default 8). A row's numbers reproduce to the bit only at one batch shape ([running.md](running.md)). A probe fitted with `batch_size` 10 gives held-out scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default. Pass the fit's `batch_size` as `--batch-size` when you compare the two bit for bit.
+A fit's body runs in batches of the fit's `batch_size`; the apply document runs in batches of `--batch-size` (default 8). A row's numbers are guaranteed to the bit only at one batch shape ([running.md](running.md)); rows of one length, which need no padding, often match at any, as `das_apply.json`'s two test rows do at batch sizes 1, 2 and 8. A probe fitted with `batch_size` 10 gives held-out scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default. Pass the fit's `batch_size` as `--batch-size` when you compare the two bit for bit.
 
 ## Reading back a run that loads a bundle
 
@@ -103,3 +103,5 @@ A fit's body runs in batches of the fit's `batch_size`; the apply document runs 
 ```text
 clab: documents/artifacts/fit.rot.safetensors does not exist under the corpus root; run the document that writes it first
 ```
+
+The directory it looked in is the working directory. A `file_path` written as an absolute path is read from any directory.

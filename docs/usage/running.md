@@ -22,6 +22,8 @@ patching on nnterp (batch size 8, device cpu) -> out/patching
 
 It prints each file it wrote with the step that made it and the value's shape, then the manifest's path. Read the results with `clab show` and `clab table` ([output.md](output.md)). A refusal prints `clab: <where>: <what>`, exits with status 1, and writes nothing.
 
+Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says its config's `pad_token_id` is -1, outside the vocabulary. It can be ignored: clab pads each batch itself, with the tokenizer's pad token, and masks the padding.
+
 `--engine`, `--device` and `-o key=value` choose where and how the model runs: `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
 ## Check before you run
@@ -31,6 +33,8 @@ Reading and compiling a document needs no model, and catches most mistakes:
 ```text
 uv run python -c "from clab import Plan; Plan('my_experiment.json').compile()"
 ```
+
+A refusal raises `clab.plan.PlanError`, a `ValueError`, and the traceback's last line is the message `clab run` would print.
 
 What needs the tokenizer or the model's sizes (positions, layers, answer tokens) is checked after the model loads, before any forward ([writing-a-document.md](writing-a-document.md#what-is-checked-before-the-model-loads)). For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md)).
 
@@ -52,13 +56,15 @@ clab: data.pairs.path: no file data/weekdays/train.json under the corpus root
 
 Give the scratch directory a `data/` (a copy or a link to the repo's) and put the document below it, as `scratch/data/` beside `scratch/documents/my_experiment.json`. A document with inline `rows` and no bundles needs no root. A plan built in Python from a dict rather than read from a file resolves against the working directory.
 
+Reading a run back resolves against the working directory too: `clab table` reads a file dataset from `data/` there, and `clab show` and `clab table` read a loaded bundle from its `file_path` there. Run them from the corpus root the document ran under ([output.md](output.md#tabling-needs-the-rows)).
+
 ## Batch size and reproducibility
 
 `--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory grows with the batch size times that longest row.
 
 **Results reproduce to the bit at a fixed batch size.** Two runs of one document at one batch size write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
 
-The CPU thread count can move the last bits too: at some thread counts a row padded well past its own length moves (about 1e-8 on prompts of 1 to 12 tokens) with which rows share its batch, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. Compare runs at one batch size, one row order and one thread count.
+The CPU thread count can move the last bits too: at some thread counts a row padded well past its own length moves (about 1e-8 on prompts of 1 to 12 tokens) with which rows share its batch, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. Compare runs at one batch size, one row order and one thread count; [engines.md](engines.md#comparing-two-runs-to-the-bit) has the byte-for-byte check.
 
 A fit's body runs at the fit's own `batch_size`, whatever the run's ([fit.md](fit.md)).
 
@@ -102,6 +108,17 @@ filled.dump("out/patching")                            # the output directory
 ```
 
 Call them yourself to stop between stages: compile a batch of documents before loading anything, inspect a compiled plan (its sweep points, each entry's `dims`), or keep results in memory without writing a directory. `execute` fills the plan you pass and returns it, and refuses one that is not compiled. What each stage checks is [plan-lifecycle.md](../concepts/plan-lifecycle.md).
+
+## Real models
+
+`documents/real/` holds five experiments on `meta-llama/Llama-3.2-1B`, a gated checkpoint, in float32, over the 42 weekday pairs of `weekdays_full/data`: `behavior.json` (the baseline: the model answers every prompt), `layer_sweep.json` (where the day is, block by block, at its own token and at the last), `head_patching.json` (each head of layers 10 to 12; layer 12's head 28 alone moves the answer), `pattern_patching.json` (that layer's attention patterns, which move nothing) and `das.json` (a trained subspace at layer 8, its held-out accuracy by rank). Each document's `description` states its finding. They read the corpus's `data/` and want a GPU:
+
+```text
+uv run clab run documents/real/head_patching.json --device cuda --batch-size 16
+uv run clab run documents/real/das.json --engine hooks --device cuda --batch-size 16
+```
+
+`pattern_patching.json` reads the attention pattern, inside the attention's forward, so its model block gives `"attn_implementation": "eager"`; the hooks engine refuses it by name, and so does an NDIF deployment that runs sdpa. Through `--engine ndif`, the server must serve the checkpoint at the document's revision, and in float32 for the numbers to be the ones the descriptions state ([engines.md](engines.md#what-the-server-must-have)). `tests/test_real.py` pins them ([testing.md](../developing/testing.md#gpu-real-model-tests)).
 
 ## Pitfalls
 

@@ -67,7 +67,7 @@ The signatures are in [FORMAT.md#edits](../../FORMAT.md#edits); this is which ed
 
 An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a named value. A number broadcasts everywhere. A named value from an earlier step is laid out like the write's selection (the same rows and positions) or is one vector of its features, which broadcasts over rows and positions. Three consequences:
 
-- A value with a rows axis belongs to its dataset. Written on another dataset's rows it is refused: `'other.input' has a row per example of 'other' and 'harvest.acts' of 'pairs'; an op takes one dataset's rows`. A `mean` step removes the rows, so a mean harvested on one dataset can be written into any other.
+- A value with a rows axis belongs to its dataset, not to its file: two datasets that read the same `path` are two. Written on another dataset's rows, or met with one in an op step (a `kl` and its `against`), it is refused: `'other.input' has a row per example of 'other' and 'harvest.acts' of 'pairs'; an op takes one dataset's rows`. A `mean` step removes the rows, so a mean harvested on one dataset can be written into any other.
 - A read whose rows hold different numbers of positions (an `{"index": ":"}` over prompts of different lengths, a whole-entity scope) pairs with nothing in another forward; read it at a static index (`-1`, `{"index": "-6:"}`) or reduce it first.
 - Positions pair in order: the operand's i-th with the write's i-th. Where the two prompts of a row differ in length, preflight refuses a pair that may be two different tokens and names them; locate the token in each prompt with a scope instead ([positions](positions.md)). An operand from a narrowed site holds the same heads or neurons in the same order ([head and neuron patching](../patterns/head-and-neuron-patching.md)).
 
@@ -98,7 +98,7 @@ The root `interventions` holds named dicts of entries; a step pulls one in by na
                      "interventions": ["steer", "restore", {"logits": {"site": "head", "pos": -1}}]}
 ```
 
-That is from `documents/steer_renormalize.json`; `documents/two_observes.json` runs two experiments from two bundles against one baseline. A bundle is a template: its entries bind names in the step that pulls it in, and an operand that names one of the bundle's own entries bare (`"with": "src"`) means that entry in whichever step pulls it. Naming it as `<step>.src` is refused, and so are two entries of one name in one step.
+That is from `documents/steer_renormalize.json`; `documents/two_observes.json` runs two experiments from two bundles against one baseline. A bundle is a template: its entries bind names in the step that pulls it in, and an operand that names one of the bundle's own entries bare (`"with": "src"`) means that entry in whichever step pulls it. Naming it as `<step>.src` is refused, and so are two entries of one name in one step. An operand that names another step's value (`"with": "counterfactual.v_cf"`) is looked up by that step name wherever the bundle is pulled in: `documents/das.json`'s `das` bundle, pulled in again after its fit, needs a root step named `counterfactual`, or compile refuses `'counterfactual.v_cf' names no value produced before this step`.
 
 ## The null control
 

@@ -29,6 +29,21 @@ at               row  pos  pos_token  input                              cf_answ
 
 The projection's input sits at a module boundary, so both engines reach it, and `--engine hooks` gives the same numbers as nnterp to the bit. `attention_head_outputs` is the same tensor read inside the attention's forward; nnterp serves it under `attn_implementation: "eager"` only, and there it equals `attention_premix` to the bit. Switching a model from sdpa to eager moves the last bits of everything downstream (about 2e-8 in this document's logit differences), so compare runs under one attention implementation ([engines](../usage/engines.md)).
 
+## A null per head
+
+The [null control](../usage/interventions.md#the-null-control) writes back what was read at the same place, and must leave the scores of the clean forward to the bit. On a swept head, read the head's own value and write it back in one forward, both at the swept site: the read narrows like the write and zips with its sweep, and an earlier entry of the same forward is a valid operand ([interventions](../usage/interventions.md#operands)). Added to `documents/head_patching.json`:
+
+```json
+"clean": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": {"site": "head", "pos": -1}}},
+"null": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "v_self": {"site": "target", "pos": -1},
+  "patch": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "null.v_self"}]},
+  "logits": {"site": "head", "pos": -1}}},
+"null_ld": {"kind": "op", "op": "logit_diff", "of": "null.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
+```
+
+Every point's `null_ld` equals the clean forward's `logit_diff` to the bit. Keep `clean` free of the swept site so it runs once: a self-read in `clean`, as the unswept null of interventions.md has, makes `clean` a swept step that runs once per head, and the null forward needs nothing from it.
+
 ## Layers crossed with heads
 
 Sweep `layers` on the same site. Each sweep is labelled by its field (`layers`, `num_heads`), different labels cross, and the step gets a point per pair:
@@ -38,7 +53,7 @@ Sweep `layers` on the same site. Each sweep is labelled by its field (`layers`, 
            "select": {"num_heads": {"sweep": [0, 1, 2, 3]}}}
 ```
 
-Eight points, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`; a `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`. `layers` here is a sweep, not a selector: `"layers": ":"` would patch head h at every layer in one forward ([interventions](../usage/interventions.md#writes-across-layers)). `documents/real/head_patching.json` is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points; it scores the head inside the entry (`match` and `logit_diff` in the head's `ops`) so no row of logits outlives its batch, and averages each point in a step. It needs a GPU and a gated checkpoint: read it, do not expect to run it on CPU.
+The corpus Llama has 2 layers (`plan.run.num_layers`) of 4 heads, each `head_dim` 4; a sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them). Eight points, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`; a `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`. `layers` here is a sweep, not a selector: `"layers": ":"` would patch head h at every layer in one forward ([interventions](../usage/interventions.md#writes-across-layers)). `documents/real/head_patching.json` is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points; it scores the head inside the entry (`match` and `logit_diff` in the head's `ops`) so no row of logits outlives its batch, and averages each point in a step. It needs a GPU and a gated checkpoint: read it, do not expect to run it on CPU.
 
 ## Head sets
 
@@ -53,6 +68,26 @@ Each point's coordinate is the list (`num_heads=[0,1]`). Heads that back each ot
 ## Select lists are positional
 
 A narrowed axis keeps its indices in the order the list writes them, so `{"num_heads": [3, 1]}` holds head 3 at index 0, and an operand must hold the write's heads in the write's order or preflight refuses it ([sites](../usage/sites.md#select) has the rule, [operand-does-not-fit](../errors/operand-does-not-fit.md#a-select-list-is-positional) the refusals). Declaring one site and naming it in both the read and the write, as the corpus does, makes the two agree by construction.
+
+## Check where a head write landed
+
+`run.positions` gives the token a write landed on ([positions](../usage/positions.md#check-where-it-landed)). The layer and head it hit are the compiled entry's `site` at each point, in the manifest:
+
+```python
+from clab import Plan
+
+plan = Plan.load("out/head_patching")
+for point in plan.steps["patched"]:
+    print(point.at, point.interventions["patch"].site)
+```
+
+```text
+{'num_heads': 0} component='attention_premix' layers=0 select={'num_heads': 0}
+...
+{'num_heads': 3} component='attention_premix' layers=0 select={'num_heads': 3}
+```
+
+To see that only head h changed, read every head of the layer, `{"component": "attention_premix", "layers": 0}` at `pos: -1`, in `clean` and in `patched` listed after the write, which then sees the written value ([interventions](../usage/interventions.md#the-order-ops-run-in)). At each point the two differ at head h alone.
 
 ## Neurons
 

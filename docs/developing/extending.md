@@ -23,7 +23,7 @@ clab's vocabulary is read off the code: an op's signature is what a document may
 
 1. Write a plain function over tensors in its group's module (`clab/ops/metrics.py`, `reductions.py`, `edits.py` or `transforms.py`), its first parameter `of`, the value it acts on.
 2. Decorate it with `@op(group, ...)` (`clab/ops/__init__.py` `op`), declaring its axes: `needs` (axes the value must carry), `removes`, `adds`; or `layout=`, a function of the value's axes, the arguments and the featurizer kind, when they depend on the arguments. `bundle=<kind>` marks a value a featurizer of that kind loads; `check=` raises on arguments the types accept but the op cannot mean.
-3. Add the function to the ordered list at the end of `clab/ops/__init__.py`. The decorator alone does not list it, and `import clab` fails with `AssertionError: every declared op is listed once` until the list has it. Within a group, that list's order is the tables' order.
+3. Add the function to the ordered list at the end of `clab/ops/__init__.py`. The decorator alone does not list it, and `import clab` fails with `AssertionError: every declared op is listed once` until the list has it. Within a group, that list's order is the tables' order. A new edit is also named, by hand, in two docstrings that FORMAT.md prints: the edits group in `clab/ops/__init__.py` `ABOUT` and in `clab/plan.py` `Intervention`. Add it to both; `tests/test_format.py` cannot see that they are short.
 
 A minimal edit, added to the edits module and listed after `clamp`:
 
@@ -40,7 +40,20 @@ def negate(of: Tensor) -> Tensor:
 steps.flipped.interventions.neg.ops[0]: 'negate' takes no 'factor'; its arguments: none
 ```
 
-What the group gives it, with no code of its own: an edit runs in float32 and is rounded once to the value's dtype (`clab/ops/__init__.py` `call`); an op whose result has no `rows` axis is refused inside an entry, which sees one batch; an op with an `original` parameter runs only inside an entry (`clab/compile/arguments.py` `layout`). What the four groups mean for a document is [usage/ops.md](../usage/ops.md).
+A metric over next-token logits declares the vocabulary axis it scores:
+
+```python
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+def entropy(of: Tensor) -> Tensor:
+    """The entropy of the next-token distribution, in nats."""
+    logp = of.float().log_softmax(-1)
+    p = logp.exp()
+    return -(p * logp.masked_fill(p == 0, 0.0)).sum(-1)
+```
+
+A tuple inside `needs` is any one of its axes. `clab/ops/__init__.py` `VOCABULARY` is `vocab_size` or a probe's `classes`, so this metric scores logits and probe scores alike, and `removes=VOCABULARY` takes away whichever the value has.
+
+What the group gives it, with no code of its own: an edit runs in float32 and is rounded once to the value's dtype (`clab/ops/__init__.py` `call`); an op whose result has no `rows` axis is refused inside an entry, which sees one batch; an op with an `original` parameter runs only inside an entry (`clab/compile/arguments.py` `layout`). Only an edit is upcast. A metric or a reduction receives the value in the model's dtype and casts it itself, as `of.float()` does above, since the format promises float32 from both ([usage/ops.md](../usage/ops.md#the-float32-rule)). A missing value arrives as NaN and should leave as NaN: compute plainly, with no `nansum` or `nan_to_num`. What the four groups mean for a document is [usage/ops.md](../usage/ops.md).
 
 ## Adding a featurizer kind
 
@@ -85,9 +98,9 @@ A step kind is the widest change: the kind is dispatched in each stage.
 
 | change | tests |
 |---|---|
-| an op | `tests/test_ops.py`: the op on plain tensors; the two tests that list every op and its group fail until the new one is in them |
+| an op | `tests/test_ops.py`: the op on plain tensors; the two tests that list every op and its group fail until the new one is in them. A metric or reduction joins the list in `tests/test_findings.py` `test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16`, which names the ops it checks |
 | a featurizer kind | `tests/test_featurizers.py` `every_kind`, so the device and autocast tests cover it; `tests/test_featurizer_ops.py`, whose test of each kind's ops lists every kind and fails until updated; a kind with both `encode` and `decode` joins the parameters of its identity-to-the-bit test |
 | a component or a step kind | a corpus document that uses it, run on both engines |
 | a corpus document | pins for its numbers and its compiled form, and the corpus count in `tests/test_plan.py` |
 
-An op, a kind, a component or a step kind changes FORMAT.md, which `clab/docs.py` `markdown` renders from the registries: regenerate it with `uv run clab describe --markdown` from the repo root, or `tests/test_format.py` fails. Pinning a new document is [testing.md](testing.md); what lands with the change is [contributing.md](contributing.md).
+An op, a kind, a component or a step kind changes FORMAT.md, which `clab/docs.py` `markdown` renders from the registries: regenerate it with `uv run clab describe --markdown` from the repo root, since it writes `FORMAT.md` into the current directory, or `tests/test_format.py` fails. Pinning a new document is [testing.md](testing.md); what lands with the change is [contributing.md](contributing.md).

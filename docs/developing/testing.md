@@ -18,7 +18,16 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 
 - `tests/conftest.py` sets `CUDA_VISIBLE_DEVICES` empty and `HF_HUB_OFFLINE=1` when they are unset, so a plain `uv run pytest tests/` already runs on CPU and offline. Setting either yourself overrides it; that is how the GPU tests run.
 - Run the suite at the machine's default thread count. Two pins depend on it: forcing `OMP_NUM_THREADS` to 2 fails the batch-companion test, and forcing 1 moves a fit's history pin past its tolerance. Cap threads for single documents, not for the suite.
-- Checkpoints and datasets come from the local Hugging Face cache: the tiny Llama and tiny GPT-2 the corpus pins, a tiny Qwen3 for chat templates (`tests/test_positions.py`), and the hub fixture `tests/test_hub.py` reads, whose docstring has the command that fetches it. On a fresh cache, run once with `HF_HUB_OFFLINE=0` and hub access.
+- Checkpoints and datasets come from the local Hugging Face cache, at the revisions below. `tests/test_hub.py`'s docstring has the command that fetches its dataset. On a fresh cache, run once with `HF_HUB_OFFLINE=0` and hub access.
+
+| repository | revision | read by |
+|---|---|---|
+| `hf-internal-testing/tiny-random-LlamaForCausalLM` | `9fb191250dd56d0ba7ec9785a025ed29c03d5998` | the corpus |
+| `hf-internal-testing/tiny-random-gpt2` | `71034c5d8bde858ff824298bdedc65515b97d2b9` | `documents/gpt2_reach.json` and the other byte-level BPE documents and tests |
+| `trl-internal-testing/tiny-Qwen3ForCausalLM` | `25bb9b8963688237e94750f6f3e48f1947d3c7a3` | chat-template tests in `tests/test_positions.py` and `tests/test_findings.py` |
+| `nyu-mll/glue`, a dataset, configs `wnli` and `ax` | `bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c` | `tests/test_hub.py` |
+| `Qwen/Qwen3-8B`, its tokenizer only | `b968826d9c46dd6066d109eabc6255188de91218` | one chat-template test in `tests/test_positions.py`, which skips without it |
+| `meta-llama/Llama-3.2-1B`, gated | `4e20de362430cd3b72f300e6b0f18e50e7166e08` | `documents/real/`, through `tests/test_real.py` on a GPU |
 - One file, or tests by name: `uv run pytest tests/test_ops.py -q`, `uv run pytest tests/test_ops.py -k clamp -q`. In the files that run the corpus, a module-scoped fixture (`filled`, `ran`) runs all of the file's documents for the first selected test that asks for it, so selecting one such test still runs them all.
 
 Results are reproducible to the bit only at a fixed batch size, so the suite runs every document at `tests/conftest.py` `BATCH_SIZE` (2), and every pin of results records the batch size it was made at.
@@ -30,6 +39,7 @@ Results are reproducible to the bit only at a fixed batch size, so the suite run
 - `engines`: each engine loaded once per model block and options for the whole session, `engines("nnterp", plan.model)`.
 - `corpus`: a copy of `documents/`, its `data/` linked, whose `documents/artifacts/` holds stand-in bundles for the documents that load what another writes (`fit.rot`, `basis`, `fit.dictionary`, `fit.lora`). The docs test compiles fenced documents against it.
 - `stand_in`: a plan run on the ndif engine against a stand-in server, which serializes the real request, runs it with a loaded model and returns what came home and what the trip carried (`by_reference`, `TRIP`).
+- `tests/fixtures/sae.py` and `tests/fixtures/published_sae.py` write the committed SAE fixtures under `documents/artifacts/` from seeded generators, the same bytes on every run; rerun one from the repo root (`uv run python tests/fixtures/sae.py`) only to change a fixture.
 - Helpers: `plan_of(name)` compiles a corpus document; `edited(name, change)` is one with `change` applied to its JSON, read as if from its own file; `close` compares floats to 1e-6 and NaN to NaN; `same` is bit equality.
 
 ## Snapshot pins

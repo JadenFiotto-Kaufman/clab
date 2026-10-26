@@ -105,7 +105,16 @@ In a `generate` step a write's `pos` names forward calls by its `frame` ([genera
                               "ops": [{"op": "add", "with": "direction", "scale": 8.0}]}}}
 ```
 
-`{"frame": ":"}` is every prompt token in the prefill and each generated token at its decode call; `{"frame": "1:"}` is the generated tokens alone. To steer the prompt's last token and every generated token, and no other prompt token, write two entries, `{"frame": 0, "index": -1}` and `{"frame": "1:"}` ([generate](../usage/generate.md#writes-during-generation)). On the tiny model, the same dose at `pos: -1` leaves all six generated tokens as they were, while at `{"frame": ":"}` it changes five of them; at `"scale": 0.0` the ids equal the unsteered generation's. Score the text with `detokenize` and `contains` ([generation experiments](generation-experiments.md)), and keep `do_sample: false` so the steered and unsteered runs differ by the write alone.
+`{"frame": ":"}` is every prompt token in the prefill and each generated token at its decode call; `{"frame": "1:"}` is the generated tokens alone. On the tiny model, the same dose at `pos: -1` leaves all six generated tokens as they were, while at `{"frame": ":"}` it changes five of them; at `"scale": 0.0` the ids equal the unsteered generation's. Score the text with `detokenize` and `contains` ([generation experiments](generation-experiments.md)), and keep `do_sample: false` so the steered and unsteered runs differ by the write alone.
+
+To steer the prompt's last token and every generated token, and no other prompt token, write two entries, `{"frame": 0, "index": -1}` and `{"frame": "1:"}` ([generate](../usage/generate.md#writes-during-generation)). To sweep the dose on that pair, give both entries the same labelled sweep. One label is one axis, so the two move together, three doses in three generations ([sweeps](../usage/sweeps.md#labels-zip-or-cross)):
+
+```json
+"prompt": {"site": "target", "pos": {"frame": 0, "index": -1},
+           "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 0.08, 0.32], "label": "dose"}}]},
+"decode": {"site": "target", "pos": {"frame": "1:"},
+           "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 0.08, 0.32], "label": "dose"}}]}
+```
 
 ## Pitfalls
 

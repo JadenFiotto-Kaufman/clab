@@ -12,7 +12,7 @@ An engine is the one object that holds a model: it loads a checkpoint, runs batc
 
 ## Registering and loading
 
-An engine is a class decorated with `@engine("<name>")` (`clab/engines/__init__.py` `engine`), whose module is imported by the line at the end of `clab/engines/__init__.py`; that line's order is the order `clab describe engines` and [FORMAT.md](../../FORMAT.md#engines-and-run-options) list engines in.
+An engine is a class decorated with `@engine("<name>")` (`clab/engines/__init__.py` `engine`), which sets the class's `name`, and whose module is imported by the line at the end of `clab/engines/__init__.py`; that line's order is the order `clab describe engines` and [FORMAT.md](../../FORMAT.md#engines-and-run-options) list engines in.
 
 Its constructor is `__init__(self, model, *, device="cpu", <options>)`. `model` is the plan's `model` block (`clab/plan.py` `Model`); `device` is its one placement argument, read however the engine likes; every other keyword parameter is an option, with a default and a line `<name>: <what it takes>` in the constructor's docstring, which `describe engines` prints (`tests/test_format.py` `test_every_engine_option_says_what_it_takes` fails without it). `load` (`clab/engines/__init__.py` `load`) checks options against that signature before anything loads:
 
@@ -27,7 +27,7 @@ An engine then holds `name`, `spec` (the model block), `model` (anything with `.
 
 ## `execute`
 
-`execute(plan, batch_size=8)` is the single entry point and the only method an engine must have; it returns the filled plan. An engine that runs through `clab.steps` (all three shipped ones do) does three things, the hooks engine's `execute` being the shortest:
+`execute(plan, *, batch_size=8)`, its batch size keyword-only, is the single entry point, and the only method an engine that runs a plan without `clab.steps` must have; it returns the filled plan. An engine that runs through `clab.steps` (all three shipped ones do) does three things, the hooks engine's `execute` being the shortest:
 
 1. `clab/steps/__init__.py` `begin`: refuses an uncompiled plan, or one whose `model` block differs in any key from the one the engine loaded (the message names the key and revision alone, so a plan that differs only in `dtype` or a loader key reads as the same checkpoint on both sides), and starts `plan.run` with the engine, batch size, device and options.
 2. `clab/steps/__init__.py` `run`, inside the engine's one session if it has one.
@@ -40,14 +40,16 @@ An engine that ignores `clab.steps` has everything `steps.run` does to do itself
 | member | what it returns |
 |---|---|
 | `forward(batch, records)` | one forward of the batch (`input_ids`, `attention_mask`, `position_ids`, already padded) with the records done; each read's value by its name |
-| `generate(batch, records, options)` | the model's `generate` over the batch with the step's own keys as keyword arguments, the records done at every forward call; the new ids only (the prompt cut off) and each read by name |
+| `generate(batch, records, options)` | the model's `generate` over the batch with the step's own keys as keyword arguments, the records done at every forward call; a pair: the new ids (the prompt cut off), then each read by name |
 | `readout(hidden)` | the model's own unembedding: final norm, head, and whatever the model does after the head |
 | `unserved()` | each component in `COMPONENTS` mapped to None (served), the reason it is not, or `{layer: reason}` |
 | `rank(component, layer)` | any sortable value placing the component in the forward |
 | `sizes()` | the model's sizes, the keys in `clab/engines/standard.py` `SIZES` |
-| `tokenizer`, `eos` | the tokenizer; the ids generation stops on (`clab/engines/standard.py` `stops`) |
+| `tokenizer`, `eos` | a Hugging Face tokenizer (`PreTrainedTokenizerBase`), with which the steps tokenize inputs and answers, render chats with `apply_chat_template`, pad batches and name tokens with `convert_ids_to_tokens`; the ids generation stops on (`clab/engines/standard.py` `stops`) |
 
-Preflight uses `unserved`, `sizes`, `rank` and the tokenizer before any forward; the steps use the rest. The batch's tensors go where the model's first parameter is (`clab/steps/batches.py` `home`).
+Preflight uses `unserved`, `sizes`, `rank` and the tokenizer before any forward; the steps use the rest. The batch's tensors go where the model's first parameter is, or to the engine's `device` while that parameter is on `meta`, as in a shell that loads its weights at its first forward (`clab/steps/batches.py` `home`).
+
+**Gradients.** The steps run with gradients off (`clab/steps/__init__.py` `run`), but a fit runs its body's minibatches with gradients on (`clab/steps/fit.py` `body_run`) and differentiates through the engine's `forward` to the trained featurizers' tensors. So `forward` must not turn gradients off, run under `torch.inference_mode`, or detach a value it hands to `visit` or takes back from it.
 
 ## Records, by site
 

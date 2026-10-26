@@ -58,6 +58,20 @@ A trained subspace is evidence only where it beats subspaces nobody trained, at 
 
 `fit.held_out.iia` is then six values keyed `epochs=0,seed=0` through `epochs=10,seed=2`: the spread across seeds at `epochs=0` is the null each trained point has to clear. `documents/random_subspace.json` draws the same control without a fit, a declared subspace with its `seed` swept.
 
+A swept fit writes one bundle per point, which `das_apply.json` cannot load ([bundles.md](../usage/bundles.md#swept-training-runs)). To save the rotation and carry its control, leave the fit unswept and score the untrained draw after it, under the bare name ([fit.md](../usage/fit.md#members)):
+
+- write the root bundles with `rot`, not `fit.rot`: inside the body `rot` is the featurizer being trained, and after the fit it is the draw;
+- give `rot` the fit's seed, `{"kind": "subspace", "k": 8, "seed": 0}`, so the draw is the one the fit started from;
+- after the fit, pull the bundles in again, the one that reads `cf_read` named `counterfactual`, since the `das` bundle's operand names `counterfactual.v_cf` ([interventions](../usage/interventions.md#named-bundles)):
+
+```json
+"counterfactual": {"kind": "forward", "input": "test.counterfactual_inputs[0]", "interventions": "cf_read"},
+"patched": {"kind": "forward", "input": "test.input", "interventions": "das"},
+"ctl_iia": {"kind": "op", "op": "logit_diff", "of": "patched.logits", "a": "test.cf_answer", "b": "test.base_answer"}
+```
+
+`ctl_iia` is then bit-identical to the same document's `fit.held_out.iia` at `epochs: 0`, and the saved `fit.rot` is one bundle, which `das_apply.json` loads.
+
 **Principal directions.** `documents/pca_harvest.json` reduces layer 0's output at every token after BOS to its top-4 directions; `documents/pca_control.json` loads them as a `pca` featurizer and runs `das_apply.json`'s interchange through them, under the same name `rot`, so the two documents differ only in what that featurizer is. A `pca` coordinate is centred on the harvest's mean, and the swap moves the counterfactual's centred coordinates in.
 
 The corpus documents are not matched as they stand: `das.json` is rank 8, `pca_control.json` and `random_subspace.json` are rank 4, and `random_subspace.json` scores all four rows of `weekdays/train` while the others score the test split of `weekdays/data`. Set one `k` (the fit's `k`, or the `pca` op's), one dataset and one metric before comparing.
