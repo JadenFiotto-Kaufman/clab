@@ -23,6 +23,17 @@ From `documents/generated_contains.json`:
 
 `detokenize` turns each row's ids into text and stops before the row's first EOS. `contains` scores 1 where that text contains the row's answer. Both are covered in [usage/ops.md](ops.md).
 
+### The first generated token's leading space
+
+On a SentencePiece tokenizer such as the corpus Llama's, decoding drops the leading space of a row's first generated token: a row that generates `▁Finland ony` reads `Finlandony`. `detokenize` decodes this way, and so does the search for a scope over generated text. So an answer written with its leading space, as [data.md](data.md#answer-columns) asks, is not found when it is generated token 0, the token a write at the prompt's last position changes first: on a row that says ` Finland` there and never again, `contains` scores 0, and a scope over the decode calls finds a later occurrence or none. Give the column `strip: true` wherever it searches generated text (a `text` scope takes `"strip": true` beside its text):
+
+```json
+"said": {"kind": "op", "op": "contains", "of": "text", "text": {"column": "prompts.said", "strip": true}},
+"at_said": {"site": "head", "pos": {"frame": "1:", "scope": {"column": {"column": "prompts.said", "strip": true}}, "index": -1}}
+```
+
+Under `strip` that row scores 1, and a scope finds a word said at token 0. A byte-level BPE tokenizer such as GPT-2's keeps the space when it decodes.
+
 ## Options
 
 Every key other than `kind`, `input` and `interventions` goes to the engine's `generate` unchanged.
@@ -126,18 +137,25 @@ A read is resolved after the row has finished generating, so these limits do not
 
 ## Rows that stop early
 
-A row stops at its first EOS. With `"eos_token_id": 28189` on four prompts and `max_new_tokens: 8`, row 0 stops after 5 tokens, row 2 after 3, and rows 1 and 3 run to 8:
+A row stops at its first EOS. On the first four rows of the `test` split of `data/weekdays_full/data.json`, with `"eos_token_id": 4827` (`▁Alex`) and `max_new_tokens: 8`, row 1 stops after 3 tokens and rows 0, 2 and 3 run to 8:
 
-- The step's ids keep the shape `[4, 8]`. Every position after a row's EOS is filler, so read the text through `detokenize`, which stops before the EOS. `plan.run.tokens["g"]` lists each row's tokens up to and including its EOS.
-- A read at a call a row never made is missing on that row. `{"frame": 3}` gives row 2 one table row, with `alignment_missing` true and no value.
+```json
+"days": {"path": "weekdays_full/data", "split": "test", "take": 4},
+"g": {"kind": "generate", "input": "days.input", "max_new_tokens": 8, "do_sample": false, "eos_token_id": 4827,
+      "interventions": {"at3": {"site": "head", "pos": {"frame": 3}}}}
+```
+
+- The step's ids keep the shape `[4, 8]`. Every position after a row's EOS is filler, so read the text through `detokenize`, which stops before the EOS. `plan.run.tokens["g"]` lists each row's tokens up to and including its EOS: `['Handler', '▁tijd', '▁Alex']` on row 1.
+- A read at a call a row never made is missing on that row. `{"frame": 3}` gives row 1 one table row, with `alignment_missing` true and no value.
 - A ragged read (`"1:"`, `":"`) holds each row's own calls. Positions past a row's last call are NaN in the read, so an `argmax` of them is -1, and the table leaves them out.
-- `{"frame": -1}` on row 0 is call 4, the call that chose EOS. Its `argmax` is the EOS id.
-- With `min_new_tokens: 8`, every row makes all eight calls and `{"frame": 3}` has a value on every row.
+- `{"frame": -1}` on row 1 is call 2, the call that chose EOS. Its `argmax` is the EOS id.
+- With `min_new_tokens: 8`, every row makes all eight calls and `{"frame": 3}` has a value on every row. A row held past its EOS chooses another token where it would have stopped: row 1 says `▁note` at token 2 and goes on from there, a different generation, not the first one extended.
 
 How missing rows pass through ops and tables is covered in [errors/alignment-missing.md](../errors/alignment-missing.md).
 
 ## Pitfalls
 
 - **Leaving out `do_sample`.** The checkpoint decides whether to sample, and a sampled run does not repeat.
+- **An answer with its leading space, searched in generated text.** It is not found at token 0; give the column `strip: true` ([above](#the-first-generated-tokens-leading-space)).
 - **Sweeping a read's frame.** Each point re-runs the whole generation. Read `{"frame": "0:3"}` once instead ([usage/sweeps.md](sweeps.md#widen-the-read-instead)).
 - **A word that ends on the row's last generated token.** No call is fed that token, so a read scoped to the word without `before` is `alignment_missing`. With `max_new_tokens: 2`, a word said as token 1 is missing at the word itself, and found with `before`. Leave room after the answer.

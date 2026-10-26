@@ -27,7 +27,17 @@ clab run documents/patching.json --engine ndif                     # the NDIF se
 
 ## Cross-checking with hooks
 
-The hooks engine reaches the model another way: `register_forward_hook` and `register_forward_pre_hook` on the native modules nnterp names for each component, with no nnsight at run time. Positions, edits and ops are clab's own on both engines, so when they agree, the result does not depend on how the model was reached. They agree to the bit on `documents/patching.json`, on `attention_premix` in `documents/head_patching.json`, and on the generation in `documents/generated_answer.json`, whose NaN rows also fall in the same places. Compare the two under one attention implementation: switching a model from `sdpa` to `eager` moves the last bits of everything downstream (about 2e-8 in `head_patching.json`'s logit differences).
+The hooks engine reaches the model another way: `register_forward_hook` and `register_forward_pre_hook` on the native modules nnterp names for each component, with no nnsight at run time. Positions, edits and ops are clab's own on both engines, except `readout`, which each engine computes itself: on nnterp it is nnterp's `project_on_vocab`, the final norm, the head and whatever the model does after the head; on hooks it is the final norm and head modules alone. So when the engines agree, the result does not depend on how the model was reached. They agree to the bit on `documents/patching.json`, on `attention_premix` in `documents/head_patching.json`, and on the generation in `documents/generated_answer.json`, whose NaN rows also fall in the same places. Compare the two under one attention implementation: switching a model from `sdpa` to `eager` moves the last bits of everything downstream (about 2e-8 in `head_patching.json`'s logit differences).
+
+### Comparing two runs to the bit
+
+Two runs agree to the bit when their value files do. Every file in the output directory but `manifest.json` holds values, so compare those byte for byte; the manifest always differs, since it records the engine and the time:
+
+```text
+for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/hooks/${f##*/}"; done
+```
+
+`cmp` prints nothing where the files match, NaN rows and JSON values included. That every read and write landed alike is `Plan.load("out/nnterp").run.positions == Plan.load("out/hooks").run.positions`. Compare runs made at one batch size ([running.md](running.md#batch-size-and-reproducibility)).
 
 What hooks cannot reach is a value read *inside* a module's forward: on a Llama, the attention interior (`attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities`, `attention_head_outputs`). Which components are interior depends on the model family; the refusal says where nnterp reads the value:
 

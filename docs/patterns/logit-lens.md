@@ -70,7 +70,7 @@ At the last layer, `layer_output` through `readout` is what the model itself com
 }
 ```
 
-On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value there means the engine's `readout` is not the model's own last computation, as where a model applies a logit softcap after its head: read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer. On the nnterp engine `readout` (`clab/engines/nnterp.py` `NnterpEngine.readout`) is nnterp's `project_on_vocab`: the final norm, the head, and what the model does after the head.
+On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value there means the engine's `readout` is not the model's own last computation, as where a model applies a logit softcap after its head: read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer. `readout` is the one op each engine computes itself, and [engines.md](../usage/engines.md#cross-checking-with-hooks) says what each applies after the last layer.
 
 `lens.final` has no `layers` axis, so `kl` compares every layer with the same final distribution ([values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis)).
 
@@ -83,7 +83,7 @@ layer,row,pos,pos_token,input,value
 0,0,10,▁is,"If today is Thursday, tomorrow is","{""ids"":[4598,17972,18312],""probs"":[4.240043926984072e-05,4.216024171910249e-05,4.213841384625994e-05],""tokens"":[""Handler"",""Fed"",""Finland""]}"
 ```
 
-At the last layer it lists the same ids as `top_k` on the model's `logits` (`documents/readout.json`). `top_k` inside the entry, after `readout`, gives ids and `probs` without tokens.
+At the last layer it lists the same ids as `top_k` on the model's `logits` (`documents/readout.json`). `top_k` inside the entry, after `readout`, gives ids and `probs` without tokens. Each token is decoded alone and loses its word-start `▁`: `Fed` above is `▁Fed`, so read `ids` to tell a word from a word piece ([ops.md](../usage/ops.md#transforms)).
 
 ## Comparing two lenses: `kl` by layer label
 
@@ -100,6 +100,7 @@ With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift
 
 ## Variations
 
+- **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position, and `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token: 8, 9 and 10 (`▁tom`, `orrow`, `▁is`) on row 0, `to_final` 0.0 at layer 1 on each.
 - **Every position.** `"pos": {"index": ":"}` lenses every prompt token. A one-token answer column is then scored at every position of its row, a ragged value NaN past each row's own tokens.
 - **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers, bit for bit, as the `token_prob` step, and holds no vocabulary-wide logits past each batch: `layers × rows × positions × vocab_size` adds up quickly on a real model.
 - **Sublayers.** `attention_output` and `mlp_output` lens what one sublayer writes; `layer_mid` the stream between them.

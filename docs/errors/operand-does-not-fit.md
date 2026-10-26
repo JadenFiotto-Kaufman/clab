@@ -48,11 +48,13 @@ The operand is the ragged one. The fix is the same; for a metric both sides need
 patched.patch: operand 'counterfactual.v_cf' is 3 token(s) wide, narrowed to {}; this write's selection is 1 wide, narrowed to {}
 ```
 
-Preflight compares the number of positions and the size of every `select`. Here the read was `{"index": "-3:"}` and the write `pos: -1`. A one-head read written into a two-head selection fails the same way (`narrowed to {'num_heads': 1}` against `{'num_heads': 2}`): a vector broadcasts over rows and positions, never over heads. Between two reads a metric step says it at compile:
+Preflight compares the number of positions and the size of every `select`. Here the read was `{"index": "-3:"}` and the write `pos: -1`. A one-head read written into a two-head selection fails the same way (`narrowed to {'num_heads': 1}` against `{'num_heads': 2}`): a vector broadcasts over rows and positions, never over heads. So does a read of every head written into a one-head write (`narrowed to {}` against `{'num_heads': 1}`): read the operand at the same named site as the write, whose `num_heads` sweep then zips with the write's, one head per point, as `documents/head_patching.json` does. Between two reads a metric step says it at compile:
 
 ```text
 steps.k.against: 'counterfactual.logits' holds 2 position(s) per row and the value 'kl' scores holds 1; position i scores against position i, so both are read at as many (a pos axis does not broadcast)
 ```
+
+A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width, and `kl` or `js` with it on either side is refused: against another decode read with `'g.at3' holds a different number of positions on each row …`, and against a prefill read with `'g.at0' holds 1 position(s) per row and the value 'kl' scores holds None …`. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
 
 ## `a select list is positional`
 

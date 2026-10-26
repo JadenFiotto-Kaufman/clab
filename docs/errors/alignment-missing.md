@@ -75,6 +75,21 @@ assert not missing, f"rows {missing} never said their word"
 AssertionError: rows [2, 3] never said their word
 ```
 
-**Prevent** the causes that come from the generation's length: hold EOS off with `min_new_tokens`, leave room after the answer (`max_new_tokens` beyond its last token), or read the positions that chose a word with `before`, which include the row's last token.
+A swept step's positions are a dict keyed by coordinate, so count each point; from a dose sweep of a steered generation with a read scoped to the word:
+
+```python
+for point, rows in plan.run.positions["steered.said"].items():
+    print(point, [row for row, where in enumerate(rows) if where == "alignment_missing"])
+```
+
+```text
+dose=0.0 [0, 1, 2, 3]
+dose=0.08 [1]
+dose=0.32 [0, 1, 2, 3]
+```
+
+The rows a scope reached are not always the rows a `sum` of `contains` counts. `contains` finds the text anywhere in the decoded string, inside a longer word too (`Finland` in `Finlandony`), while a scope matches on word boundaries only, so such a row scores 1 under `contains` and is missing to the scope.
+
+**Prevent** the causes that come from the generation's length: hold EOS off with `min_new_tokens` (a row held past its EOS goes on as a different generation from there, not the first one extended: [generate.md](../usage/generate.md#rows-that-stop-early)), leave room after the answer (`max_new_tokens` beyond its last token), or read the positions that chose a word with `before`, which include the row's last token.
 
 **Refuse** instead: beyond the prefill no option turns a missing row into an error, since only the generation decides it, while in the prefill every miss is one. So when the question is whether the model gives an answer, ask it in the prefill by teacher forcing, as `documents/forced_answer.json` does: append the answer to the prompt (`"input": ["days.input", "days.base_answer"]`) and read the head with `{"scope": {"column": "days.base_answer", "occurrence": -1, "before": true}}` in a `forward`. Every row is then scored (`cross_entropy`, `match`) and none is missing; a row whose input does not hold the text is refused before any forward. To stop on a missing generated row, check `run.positions` after the run, as above.

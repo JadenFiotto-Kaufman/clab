@@ -12,7 +12,12 @@ A `fit` step trains the featurizers its `train` names, inside the run, through t
 
 ## The canonical fit
 
-The fit of `documents/das.json`, whose body pulls in the root bundles `cf_read` and `das`:
+The fit of `documents/das.json`, whose body pulls in the root bundles `cf_read` and `das`. Its two datasets are the splits of `data/weekdays/data.json` ([the corpus data](data.md#the-corpus-data)):
+
+```json
+"data": {"train": {"path": "weekdays/data", "split": "train"},
+         "test": {"path": "weekdays/data", "split": "test"}}
+```
 
 ```json
 "fit": {
@@ -75,7 +80,7 @@ A metric term is a float32 loss whatever the model's dtype, as every metric is (
 
 ## Evals
 
-Each name under `eval` runs the body once more after training, scored, with each dataset on the left read as the one on the right; `{}` is the data it trained on. Every reference to the replaced dataset follows, columns and scopes included: under `held_out`, `train.cf_answer` reads `test.cf_answer`. A replacement may hold a different number of rows, and its values are aligned to its own rows, so `fit.held_out.iia` and `fit.train.iia` cannot share one `clab table`. An eval is not named `history` or after a featurizer the fit trains, and has no dot.
+Each name under `eval` runs the body once more after training, scored, with each dataset on the left read as the one on the right; `{}` is the data it trained on. Every reference to the replaced dataset follows, columns and scopes included: under `held_out`, `train.cf_answer` reads `test.cf_answer`. A replacement may hold a different number of rows, and its values are aligned to its own rows, so `fit.held_out.iia` and `fit.train.iia` cannot share one `clab table`. A chat renders with its own dataset's `template`, so a dataset and its replacement give the same one (`dataset 'train' is read as 'test', and their templates differ`); a body that reads text, not chats, gives neither one, since a `template` on a dataset no step reads as a chat is refused. An eval is not named `history` or after a featurizer the fit trains, and has no dot.
 
 ## Members
 
@@ -91,6 +96,8 @@ Nothing leaves the body except through these names:
 
 **After the fit, the bare name is the declared featurizer as drawn at the run's start, never trained.** In `das.json`, a step after the fit that encodes with `rot` scores the untrained seed-0 subspace; with `fit.rot` it reproduces `fit.held_out.iia` to the bit. Name `<fit>.<featurizer>` everywhere after the fit.
 
+That draw comes from the featurizer's own `seed`, 0 when unset, whatever the fit's: with `"seed": 1` on the fit and none on `rot`, the fit starts from the seed-1 draw and the bare `rot` is the seed-0 one. To make the bare name the fit's starting draw, as a control of matched rank does ([trained subspaces](../patterns/trained-subspaces.md#controls-of-matched-rank)), give the featurizer the fit's seed.
+
 ### History
 
 A history holds one entry per epoch run: fewer when `early_stop` ends the fit, none (`[0]`) at `epochs: 0`. Every body op gets one, in the objective or not, so an aggregate you want to watch belongs in the body: a `mean` of a `match` there is both `<fit>.<eval>.acc` and `<fit>.history.acc`. `clab table <out> fit.history.ce` prints a row per epoch, with an `epochs` column. Under a sweep, every member is a dict keyed by coordinate ([sweeps.md](sweeps.md)).
@@ -103,7 +110,7 @@ A history holds one entry per epoch run: fewer when `early_stop` ends the fit, n
 - **a subspace** is a uniformly random one of the fit's seed: `das.json` at `epochs: 0` gives the numbers of a declared `{"kind": "subspace", "k": 8, "seed": 0}` used without a fit, to the bit;
 - **a probe** scores every class 0, and `match` breaks the tie to the lower class id, so its accuracy is the share of rows whose label sorts first.
 
-To run the control beside the trained featurizer, sweep `epochs`; with a sweep on `seed` too, `"epochs": {"sweep": [0, 10]}, "seed": {"sweep": [0, 1, 2]}` gives six fits that differ in nothing else, keyed `epochs=0,seed=1` and so on.
+To run the control beside the trained featurizer, sweep `epochs`; with a sweep on `seed` too, `"epochs": {"sweep": [0, 10]}, "seed": {"sweep": [0, 1, 2]}` gives six fits that differ in nothing else, keyed `epochs=0,seed=1` and so on. The trained bundle is then one per point, which no document can load ([sweeping a fit](#sweeping-a-fit)).
 
 ## Sweeping a fit
 

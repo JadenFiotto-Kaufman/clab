@@ -65,7 +65,7 @@ The four fields apply in this order: `split`, `shuffle`, `take`, `columns`.
 | `take: N` | keeps the first N rows; after `shuffle`, a random sample of N | N beyond the rows there are |
 | `columns` | `{"<new name>": "<column as the source has it>"}` renames columns | a source the rows lack; a new name that is a column the rows keep |
 
-A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept.
+A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept. A rename into a name the steps read changes what they read, unrefused: on `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1); check `run.tokens` after renaming.
 
 The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `clab table` counts these rows.
 
@@ -112,11 +112,30 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 - **Flags say how text compares; they never rewrite the data.** `lower` compares lowercased; `strip` makes surrounding whitespace optional. Scored against logits, the answer's token then stands for every vocabulary token that compares the same: in `documents/answer_spellings.json`, ` Yes` under both flags sums the probability of `▁Yes`, `▁yes`, `Yes`, `yes`, `YES` and `▁YES`. What that does to each metric is [ops.md](ops.md).
 - **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `clab table` prints it as JSON.
 - **A path reaches inside a column's entries**: `pairs.counterfactual_inputs_variables[0].entity` is the `entity` of each row's first variables object.
-- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies.
+- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
 
 ## `example_id`
 
 A row's `example_id` column, when the dataset has one, leads every row of `clab table`. Give rows one when you shuffle or take, so a table row still says which example it is.
+
+## The corpus data
+
+The datasets under the repository's `data/`, by the `path` that reads them. Every file has a `split` column:
+
+| `path` | rows | columns | `split` |
+|---|---|---|---|
+| `weekdays/train` | 4 | `input`, `counterfactual_inputs`, `counterfactual_inputs_variables`, `entity`, `answer`, `base_answer`, `cf_answer`, `label` | `all` |
+| `weekdays/data` | 4 | those of `weekdays/train` | `train` 2, `test` 2 |
+| `weekdays/said` | 4 | `example_id`, `input`, `said`, `base_answer`, `cf_answer` | `all` |
+| `weekdays/chat` | 4 | `example_id`, `chat`, `entity`, `base_answer`, `cf_answer` | `all` |
+| `weekdays_full/data` | 42 | `example_id`, `input`, `counterfactual_inputs`, `entity`, `cf_entity`, `base_answer`, `cf_answer` | `train` 30, `test` 12 |
+| `weekdays_aligned/data` | 6 | those of `weekdays_full/data` | `all` |
+| `weekdays_even/train` | 6 | `input`, `counterfactual_inputs`, `counterfactual_inputs_variables`, `entity`, `base_answer`, `cf_answer` | `all` |
+| `counting/train` | 4 | `input`, `counterfactual_inputs`, `base_answer`, `cf_answer`, `label` | `all` |
+| `pile/data/sample` | 3 | `example_id`, `input`, `resample_input`, `ml_token` | `sample` |
+| `natural_domains_arithmetic/data/weekdays` | 49 | `input`, `counterfactual_inputs`, `counterfactual_inputs_variables`, `entity`, `number`, `result`, `label`, `base_answer`, `cf_answer`, `label_forms`, `base_answer_forms`, `cf_answer_forms`, `string_mode`, `scoring_digest` | `train` 30, `test` 19 |
+
+`weekdays/train` is not a training split: every row's `split` is `all`, and it pairs each day with another counterfactual day than `weekdays/data` does. A fit's training and held-out rows are `weekdays/data`'s two splits ([fit.md](fit.md#the-canonical-fit)).
 
 ## Pitfalls
 

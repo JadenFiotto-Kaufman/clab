@@ -38,7 +38,7 @@ patching: run on nnterp, device cpu, batch size 8, started 2026-10-26T13:48:04, 
   logit_diff  logit_diff  rows, pos  —     [4,1]
 ```
 
-The first lines are the run record: the engine, its device and options, the batch size, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. Then each saved value with the step that made it, its axes (`dims`), the sweep labels it varies over (`axes`) and its shape, per coordinate when swept. `served:` is what the model actually ran in, which is the line to check when a device map or a server places the model; after a run on an NDIF server the first line says `device placed by the server`, and `versions:` are the server's.
+The first lines are the run record: the engine, its device and options, the batch size, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. Then each saved value with the step that made it, its axes (`dims`), the sweep labels it varies over (`axes`) and its shape, per coordinate when swept. `clab show` and `clab run` give a value that holds text its outer length alone: a `top_k` step's `tokens` read `[2]` beside `"ids": [2,4,3,3]`, laid out like the ids. `served:` is what the model actually ran in, which is the line to check when a device map or a server places the model; after a run on an NDIF server the first line says `device placed by the server`, and `versions:` are the server's.
 
 ## `clab table`
 
@@ -70,7 +70,7 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 - **Several names join on their shared axes.** A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Names with rows of two different datasets are refused. Names that share no value of an axis, such as two reads at different positions, or values swept over different axes, join to no rows: the table prints nothing and exits 0. Table them one at a time.
 - **A value without rows** gives one row per element, labelled with its axis indices; a scalar is one row holding `value`.
 - **Positions past a row's own are left out.** A ragged read on a short row has fewer table rows, not NaN rows.
-- **Only saved names can be tabled**, and a bundle cannot be: read it from `plan.results`.
+- **Only saved names can be tabled**, and a bundle cannot be: read it from `plan.results`. A `top_k` value with no rows (a `top_k` of a `mean`) is refused with the bundle's message, `a bundle has no rows to table`; read it as `Plan.load(OUT).results[name]`.
 
 ## In Python
 

@@ -55,7 +55,7 @@ Under `--engine ndif`, a refusal raised on the server arrives as nnsight's `Remo
 clab show OUT
 ```
 
-Prints the run record of output directory `OUT` (engine, device and options, batch size, start time and duration, the served dtype and devices, the versions) and, per saved value, the step that made it, its dims, its sweep axes and its shape. It reads only `OUT/manifest.json`, and exits 1 when there is none.
+Prints the run record of output directory `OUT` (engine, device and options, batch size, start time and duration, the served dtype and devices, the versions) and, per saved value, the step that made it, its dims, its sweep axes and its shape. It reads `OUT/manifest.json`, and exits 1 when there is none. A run that loaded a bundle has it read again from its `file_path`, relative to the current directory, so run `show` from the corpus root ([bundles.md](../usage/bundles.md#reading-back-a-run-that-loads-a-bundle)).
 
 ## `clab table`
 

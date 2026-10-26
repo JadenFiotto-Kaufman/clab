@@ -93,11 +93,11 @@ A declared featurizer with no `file_path` is drawn before the run's first step, 
 
 ## Loading a published sparse autoencoder
 
-An `sae` reads a published safetensors file with no clab header, holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and, for a JumpReLU, `threshold` (SAELens and Gemma Scope lay theirs out this way). The file says nothing about how it encodes or where it was trained, so the document states three fields, which have no default for a published file. From `documents/sae_published_jumprelu.json`:
+An `sae` reads a published safetensors file with no clab header, holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and, for a JumpReLU, `threshold` (SAELens and Gemma Scope lay theirs out this way). The file says nothing about how it encodes or where it was trained, so the document states three fields, which have no default for a published file. From `documents/sae_published_jumprelu.json`, with its `site` written as the release's layer inline, as the last paragraph of this section asks:
 
 ```json
 "dictionary": {"kind": "sae", "file_path": "documents/artifacts/sae_gemma_scope.safetensors",
-               "activation": "jumprelu", "centered": false, "site": "target"}
+               "activation": "jumprelu", "centered": false, "site": {"component": "layer_output", "layers": 0}}
 ```
 
 - `activation`: `jumprelu` when the file holds a `threshold`, else `relu`, or `topk` with `k` (and `k` only with `topk`). A `threshold` is checked both ways; nothing in a file tells `relu` from `topk`, so a TopK file stated as `relu` runs with every positive latent (17 or 18 per row on `documents/sae_published_topk.json`'s fixture, where `topk` keeps 4).
