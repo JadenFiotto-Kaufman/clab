@@ -65,7 +65,10 @@ class Found:
     generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
     each featurizer's width (`widths`, the root's alone), and for each fit point the same for its body
     (`bodies`): over its training rows (`train`) and under each of its named `eval` substitutions (`evals`),
-    each beside the plan the body runs in."""
+    each beside the plan the body runs in. Each table with a row per example holds every row of its dataset, by
+    id; the steps run over every row (`ids` None) or, given a view of these findings with the ids of a fit's
+    minibatch (`fit.body_run`), over those rows."""
+    ids: list[int] | None = None
     inputs: dict[str, dict] = field(default_factory=dict)
     positions: dict = field(default_factory=dict)
     said: dict = field(default_factory=dict)

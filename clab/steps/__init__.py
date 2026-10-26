@@ -5,8 +5,8 @@ This assumes only the engine protocol (`engines.Engine`): it asks the engine for
 its tokenizer, its sizes, its readout and the ids its generation stops on (EOS), and does everything else
 itself, in plain torch: positions in the prefill from the encoded rows, and beyond it from the ids each row
 generated, up to its first EOS. Under the nnterp and ndif engines it runs inside one session (on the server,
-under ndif); under the hooks engine, in plain Python. The cross-step state is a dict that lives in `run`'s
-frame and never leaves the run: each value under its name, by the coordinates of the point that produced it.
+under ndif); under the hooks engine, in plain Python. The cross-step state is a `ChainMap` (a fit's body runs in
+a child of it) that never leaves the run: each value under its name, by the coordinates of the point it is at.
 Each step kind returns the model calls it made and the tokens they fed (`batches.fed`), which `run` records
 with the step's time and memory (`measured`).
 """
@@ -19,7 +19,7 @@ import os
 import platform
 import subprocess
 import time
-from collections import Counter
+from collections import ChainMap, Counter
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
@@ -35,7 +35,7 @@ from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
 from clab.plan import Forward, OpStep, Plan, Run, arguments, dims_of, entries, points
 from clab.steps import fit, generate
-from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, read, read_name, stacked
+from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, read, read_name, stacked, value_at
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -134,17 +134,17 @@ def placed(model: Parameterized) -> tuple[list[str], list[str]]:
     return list(dtypes), list(devices)
 
 
-def saved(plan: Plan, state: dict, name: str, at: dict) -> Any:
+def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
     value = lookup(state, name, at)
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def made(plan: Plan, widths: dict[str, int], device: str) -> dict:
+def made(plan: Plan, widths: dict[str, int], device: str) -> ChainMap:
     """The run's state at its start: each declared featurizer used at a site, at each of its points, made
     where the model is (`device`)."""
-    state: dict = {}
+    state: ChainMap = ChainMap()
     for name, entry in plan.featurizers.items():
         for spec in points(entry) if name in widths else []:
             put(state, name, spec.at, instance(plan, spec, widths[name], None, device))
@@ -192,10 +192,10 @@ def version() -> str:
     return f"{dist.version}+{described}"
 
 
-def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, batch_size: int,
+def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int,
             found: Found) -> Counter:
-    """The step's input in consecutive batches, each through `engine.forward`; each gathered entry joined along
-    rows. Returns the model calls it made and the tokens they fed (`fed`).
+    """The step's input in batches of dataset row ids (`chunked`), each through `engine.forward`; each gathered
+    entry joined along rows. Returns the model calls it made and the tokens they fed (`fed`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -207,24 +207,24 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, b
         got = engine.forward(batch, records)
         count += fed(batch, pads)
         parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
-                                                 state, step.at, found.answers, layer)
+                                                 state, step.at, found, layer)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
     joined(state, name, step, parts)
     return count
 
 
-def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: dict, batch_size: int, found: Found) -> Counter:
-    """The op over the whole value `of` names, given each of its rows' dataset row, at the layers `of` is at
-    (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value over a vocabulary's
-    tokens also holds them, decoded. It calls no model."""
-    of = lookup(state, step.of, step.at)
+def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found) -> Counter:
+    """The op over the value `of` names at the rows the run is over (`found.ids`), given each one's dataset row,
+    at the layers `of` is at (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value
+    over a vocabulary's tokens also holds them, decoded. It calls no model."""
+    of, dims = value_at(plan, state, step.of, step.at, found.ids, found), dims_of(plan, step.of)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
-    dims = dims_of(plan, step.of)
+    ids = found.ids or range(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    rows = None if ids is None else torch.tensor(ids)
     vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims else None
-    rows = torch.arange(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
     sizes = engine.sizes()
-    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, None, found.answers, of,
+    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, found.ids, found, of,
                                         vocabulary, dims=dims, layers=acts_at(plan, step.of, step.at, sizes),
                                         sizes=sizes), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)

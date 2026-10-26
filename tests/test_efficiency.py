@@ -14,6 +14,7 @@ activations) for the garbage collector.
 import gc
 import json
 import types
+from collections import ChainMap
 from contextlib import contextmanager
 from typing import Any, Iterator
 
@@ -24,6 +25,7 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 
 from clab import Plan
 from clab.cli import main
+from clab.compile.state import Found
 from clab.format.sweeps import labelled, points, put
 from clab.plan import entries
 from clab.steps.batches import edit
@@ -335,9 +337,9 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     record = entries(points(plan.steps["patched"])[0])["patch"]
 
     def bound() -> None:
-        state: dict = {}
+        state: ChainMap = ChainMap()
         put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
-        edit(plan, record, state, {}, slice(0, 2), {}, 0, {})
+        edit(plan, record, state, {}, [0, 1], Found(), 0, {})
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)

@@ -6,9 +6,11 @@ and an edit of a featurizer's coordinates mean.
 because `das_apply`, `pca_control`, `sae_train_ablation` and `lora_apply` load what they write.
 """
 
+import functools
 import json
 import os
 import shutil
+from typing import cast
 
 import pytest
 import torch
@@ -28,7 +30,7 @@ from conftest import (
 )
 from safetensors.torch import load_file, save_file
 
-from clab import Plan, featurizers
+from clab import Plan, featurizers, ops
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
@@ -636,3 +638,76 @@ def test_a_fits_eval_reads_a_file_whose_columns_are_renamed_to_the_bodys(engines
     engine = engines(kind, original.model)
     assert same(engine.execute(renamed, batch_size=BATCH_SIZE).results,
                 engine.execute(original, batch_size=BATCH_SIZE).results)
+
+
+# -- a row is a dataset row id, in a fit's minibatch too ---------------------------------------------------------
+
+
+WEEK = [*DAYS, "Monday", "Friday", "Tuesday", "Sunday"]
+JITTER = {"site": {"component": "layer_output", "layers": 0}, "pos": -1,
+          "ops": [{"op": "swap", "with": 0.0}, {"op": "noise", "scale": 1.0, "seed": 7}]}
+EVERY = {"site": {"component": "layer_output", "layers": 1}, "pos": {"index": ":"}}
+
+
+def jittered() -> Plan:
+    """A probe of layer 1's output at the last token, 12 prompts in minibatches of 4 for two epochs, whose body's
+    forward replaces layer 0's output there by noise (`jitter`) and reads every token of layer 1 (`every`, as many
+    positions as the row has tokens); and a plain forward over the same rows that does the same, before the fit."""
+    rows = [{"input": f"If today is {d}", "label": "weekend" if d in ("Saturday", "Sunday") else "weekday"}
+            for d in WEEK]
+    return Plan(**{
+        "model": TINY, "data": {"days": {"rows": rows}},
+        "featurizers": {"probe": {"kind": "linear", "classes": "days.label"}},
+        "steps": {
+            "plain": {"kind": "forward", "input": "days.input", "interventions": {"jitter": JITTER, "every": EVERY}},
+            "fit": {"kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 2, "batch_size": 4,
+                    "seed": 0, "optimizer": {"name": "adam", "lr": 0.1}, "eval": {"train": {}}, "steps": {
+                        "noisy": {"kind": "forward", "input": "days.input", "interventions": {
+                            "jitter": JITTER, "every": EVERY,
+                            "scores": {"site": {"component": "layer_output", "layers": 1}, "pos": -1,
+                                       "ops": [{"op": "encode", "featurizer": "fit.probe"}]}}},
+                        "ce": {"kind": "op", "op": "cross_entropy", "of": "noisy.scores", "target": "days.label"}}}},
+        "saves": ["plain.jitter", "plain.every", "fit.train.noisy.jitter", "fit.train.noisy.every"]}).compile()
+
+
+def test_noise_in_a_fit_body_draws_by_dataset_row_in_any_minibatch(engines, monkeypatch):
+    """A minibatch is its rows' dataset row ids, which `noise` is given: each training minibatch's rows are the
+    epoch's shuffle of the 12 rows in fours (not rows 0 to 3 of a minibatch renumbered from 0), each row gets the
+    same draw in whatever minibatch it lands in, in each epoch's scoring pass, in the eval and in the plain forward
+    over the same rows, and no two rows share one; so the eval's noise is the plain forward's, to the bit."""
+    noise, drawn = ops.OPS["noise"], []
+
+    @functools.wraps(noise)
+    def recorded(of, scale, dims, seed=0, rows=None, positions=None):
+        out = noise(of, scale, dims, seed, rows, positions)
+        drawn.append((cast(torch.Tensor, rows).tolist(), out.detach().clone()))
+        return out
+    monkeypatch.setitem(ops.OPS, "noise", recorded)
+    plan = jittered()
+    values = engines("hooks", plan.model).execute(plan, batch_size=4).results
+    every = [list(range(lo, lo + 4)) for lo in range(0, 12, 4)]
+    shuffled = [torch.randperm(12, generator=torch.Generator().manual_seed(epoch)).tolist() for epoch in (0, 1)]
+    minibatches = [[order[lo:lo + 4] for lo in range(0, 12, 4)] for order in shuffled]
+    assert [rows for rows, _ in drawn] == every + minibatches[0] + every + minibatches[1] + every + every
+    by_row: dict = {}
+    for rows, out in drawn:
+        for r, draw in zip(rows, out):
+            by_row.setdefault(r, []).append(draw)
+    assert all(len(d) == 6 and all(torch.equal(x, d[0]) for x in d) for d in by_row.values())
+    assert len({tuple(d[0].flatten().tolist()) for d in by_row.values()}) == 12
+    assert same(values["fit.train.noisy.jitter"], values["plain.jitter"])
+    assert same(values["fit.train.noisy.every"], values["plain.every"])
+
+
+def test_a_fits_eval_records_and_tables_by_dataset_row(engines):
+    """`run.positions` and `clab table` number a fit's eval values by dataset row as they number a forward's: the
+    eval's read of every token resolves on each row to that row's own positions, the plain forward's, and its
+    table's rows are the plain forward's, row, position and token, with the same values."""
+    plan = jittered()
+    filled = engines("hooks", plan.model).execute(plan, batch_size=4)
+    positions = filled.run.positions
+    assert positions["fit.train.noisy.every"] == positions["plain.every"]
+    assert len({len(p) for p in positions["plain.every"]}) > 1          # rows of different lengths
+    fit, plain = filled.table("fit.train.noisy.every"), filled.table("plain.every")
+    assert [(r["row"], r["pos"], r["pos_token"]) for r in fit] == [(r["row"], r["pos"], r["pos_token"]) for r in plain]
+    assert {r["row"] for r in fit} == set(range(12)) and same([r["value"] for r in fit], [r["value"] for r in plain])

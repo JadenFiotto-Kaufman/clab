@@ -5,6 +5,7 @@ is named after its finding's tag."""
 import json
 import os
 import shutil
+from collections import ChainMap
 from typing import Any
 
 import numpy
@@ -171,7 +172,7 @@ def test_b6_batches_join_on_the_first_ones_device():
 
     compiled = generate_at(3)
     step: Any = compiled.steps["g"]
-    state: dict = {}
+    state: ChainMap = ChainMap()
     joined(state, "g", step, [{"at": torch.zeros(2, 1, 4, device="meta")}, {"at": torch.zeros(2, 1, 4)}])
     value = state["g.at"][()]
     assert value.device.type == "meta" and value.shape == (4, 1, 4)
