@@ -40,6 +40,7 @@ from clab.plan import (
     visited,
     walk,
     writes,
+    written,
 )
 
 if TYPE_CHECKING:
@@ -132,7 +133,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                      dataset)
     width = positions.width(pos)                            # None when rows differ
     dims = address.dims(site.component)                     # every op acts at each layer the entry is made at
-    last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
+    last = len(written(spec)) - 1                           # the last edit's index; -1 when none
     try:
         tree = bracketed(spec.ops)
     except Unbracketed as e:

@@ -523,6 +523,12 @@ def gathers(entry: Intervention) -> list[Op]:
     return entry.ops[last + 1:]
 
 
+def written(entry: Intervention) -> list[Op]:
+    """The ops of an entry that run inside the model, on its live value: those up to its last edit, which it writes
+    back (none for a read)."""
+    return entry.ops[:len(entry.ops) - len(gathers(entry))]
+
+
 class TextPart(Record):
     """`{"text": "<literal>"}`: literal text in a list `input`."""
     text: str
@@ -684,6 +690,17 @@ class Fit(Record):
     size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
     exactly, a null control), and each history is empty, `[0]`.
 
+    A body step nothing the fit trains reaches is constant, and compile lists it in `constant`: an op over
+    constant values that names no featurizer in `train`, or a forward whose writes (each entry's ops up to its
+    last edit) name no featurizer in `train` and take no value one reaches; the ops after the last edit may (das's
+    `encode` of the counterfactual). A generation never is. Constant steps run without gradients, but for those
+    later ops, which may need them. A constant forward's model calls are kept for a later pass over the same rows,
+    in the same order, under the same eval substitution (a later scoring pass, an `eval` of the training rows, a
+    minibatch drawn again), which reuses them; any other pass calls the model, since a row's numbers can depend on
+    the rest of its batch. What is kept (each gathered read before its later ops, on the device the model made it
+    on) stays until its last reuse, at most to the fit's end: one scoring pass's reads of every training row, for
+    the whole of training.
+
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
     name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
     is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
@@ -704,6 +721,9 @@ class Fit(Record):
     """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
     it trained on"""
     at: dict[str, int] = derived({}, AT)
+    constant: list[str] = derived([], "the body steps nothing the fit trains reaches, in order: a forward of them "
+                                      "calls the model without gradients, and a pass over the same rows in the same "
+                                      "order reuses its calls")
 
     @model_validator(mode="after")
     def _counts(self) -> "Fit":

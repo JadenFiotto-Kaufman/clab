@@ -191,7 +191,10 @@
     },
     "at": {
      "k": 0
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -332,7 +335,10 @@
     },
     "at": {
      "k": 1
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -473,7 +479,10 @@
     },
     "at": {
      "k": 2
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -614,7 +623,10 @@
     },
     "at": {
      "k": 3
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    }
   ]
  },

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import torch
 from torch import Tensor
@@ -25,7 +26,8 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
-    weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there."""
+    weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there.
+    The constant forwards' model calls are kept in `cache` (`planned`) while a later pass runs the same rows."""
     sources = lookup(found.bodies, name, step.at)
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
@@ -38,16 +40,24 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
-    for epoch in range(epochs):
+    # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
+    orders = [torch.randperm(n, generator=torch.Generator().manual_seed(seed * 1_000_003 + epoch)).tolist()
+              for epoch in range(epochs)]
+    # Each pass is keyed by the eval substitution it reads its rows under and the rows, in order.
+    evals = {label: (tuple(sorted(swap.items())), tuple(range(len(held_rows(sources["evals"][label][0],
+                                                                            datasets(step)[0])))))
+             for label, swap in step.eval.items()}
+    cache = planned(step, orders, n, list(evals.values()))
+    for epoch, order in enumerate(orders):
         for f in trained.values():
             f.anneal(epoch, epochs)
-        # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
-        order = torch.randperm(n, generator=torch.Generator().manual_seed(seed * 1_000_003 + epoch)).tolist()
         for lo in range(0, n, size):
             with torch.enable_grad():
                 for f in trained.values():
                     f.settle()
-            body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + size])
+            minibatch = order[lo:lo + size]
+            body = body_run(engine, name, step, state, trained, sources["train"], minibatch, ((), tuple(minibatch)),
+                            cache)
             with torch.enable_grad():
                 loss = sum(cast(float, weight) * term(body, trained, t, step.at)
                            for t, weight in step.objective.items())
@@ -60,7 +70,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
                 f.project()
         for f in trained.values():
             f.settle()
-        scored = body_run(engine, name, step, state, trained, sources["train"], None)
+        scored = body_run(engine, name, step, state, trained, sources["train"], None, ((), tuple(range(n))), cache)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
@@ -80,8 +90,12 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     for f, inst in trained.items():
         vars(inst).update(kept[f] if kept else {})
         inst.settle()
+    if cache is not None:                   # an early stop leaves the passes it skipped counted: only the evals run on
+        cache["uses"] = Counter(evals.values())
+        for done in [k for k in cache["calls"] if not cache["uses"][k[1]]]:
+            del cache["calls"][done]
     for label in step.eval:
-        final = body_run(engine, name, step, state, trained, sources["evals"][label], None)
+        final = body_run(engine, name, step, state, trained, sources["evals"][label], None, evals[label], cache)
         for key, s in step.steps.items():
             members = [key] if isinstance(s, OpStep) else []
             members += [f"{key}.{k}" for k, e in entries(s).items() if e.gathered]
@@ -95,12 +109,16 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
 
 
 def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[str, Kind], source: tuple[Plan, Found],
-             index: list[int] | None) -> dict:
-    """A fit's body over the rows `source` holds (its training rows or eval's), or the minibatch `index` of
-    them, in a namespace of its own that falls back to `state`, each trained featurizer under its declared
-    name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
-    Returns the body's namespace."""
+             index: list[int] | None, key: tuple, cache: dict | None) -> dict:
+    """A fit's body over the rows `source` holds (its training rows or an eval's), or the minibatch `index` of
+    them, in a namespace of its own that falls back to `state`, each trained featurizer under its declared name
+    and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores. A constant step
+    runs without gradients; a constant forward's model calls are those `cache` kept from an earlier pass the same
+    `key` names (the eval substitution and the rows, in order), replayed, or are made and kept there when a later
+    pass will reuse them (`planned`). Returns the body's namespace."""
     plan, found = source if index is None else narrowed(source[0], source[1], index, datasets(step))
+    if cache is not None:
+        cache["uses"][key] -= 1
     body = dict(state)
     for f, inst in trained.items():
         inst.training = index is not None
@@ -110,8 +128,52 @@ def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[st
     from clab.steps import KINDS
     with torch.set_grad_enabled(index is not None):
         for n, s in step.steps.items():
-            KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
+            s = cast(Step, s)
+            if n not in step.constant:
+                KINDS[s.kind](engine, plan, n, s, body, step.batch_size, found)
+            elif s.kind == "op":
+                with torch.no_grad():
+                    KINDS["op"](engine, plan, n, s, body, step.batch_size, found)
+            else:
+                assert cache is not None, "planned keeps a cache whenever a forward is constant"
+                replay = iter(cache["calls"][n, key]) if (n, key) in cache["calls"] else None
+                kept = cache["calls"].setdefault((n, key), []) if replay is None and cache["uses"][key] > 0 else None
+
+                def call(*args: Any, replay: Iterator | None = replay, kept: list | None = kept) -> dict[str, Tensor]:
+                    if replay is not None:
+                        return next(replay)
+                    with torch.no_grad():
+                        got = engine.forward(*args)
+                    if kept is not None:
+                        kept.append(got)
+                    return got
+                KINDS["forward"](engine, plan, n, s, body, step.batch_size, found, call=call)
+    if cache is not None and cache["uses"][key] <= 0:         # no later pass runs these rows this way
+        for done in [k for k in cache["calls"] if k[1] == key]:
+            del cache["calls"][done]
     return body
+
+
+def planned(step: Fit, orders: list[list[int]], n: int, evals: list[tuple]) -> dict | None:
+    """A fit's cache, before its first pass, when a forward of its body is constant (else None): how many passes
+    will run each key, the eval substitution they read their rows under and the rows in order (`uses`), from the
+    shuffle of each epoch (`orders`) over the `n` training rows, each scoring pass and each eval's key (`evals`);
+    and room for the kept model calls (`calls`, by step and key).
+
+    A key is a whole pass's rows, never one row's: a row's numbers can depend on the rest of its batch. Measured
+    on 2026-10-26 with transformers 5.20: on CPU (torch 2.14, float32, tiny Llama, both engines), at 12 threads a
+    row moved from the first place to the second of a batch of two changed by up to 9e-8 (none at 1 or 4 threads,
+    none alone against sizes 3 to 16, none ever on tiny GPT-2), and at 24 threads a row alone differed from itself
+    in a batch of two or four, its residual stream by 2e-10; on an RTX A6000 (torch 2.13, Llama-3.2-1B, both
+    engines), a row alone differed from itself in a batch of 16 by up to 4e-4 in float32 and 2 in bfloat16, and a
+    row of the input's full width by up to 9e-5 and 0.16 between a batch of two with padding and one without. The
+    same rows in the same order gave the same bits every time, which test_fit_cache.py checks."""
+    if not any(cast(Step, step.steps[c]).kind == "forward" for c in step.constant):
+        return None
+    size = cast(int, step.batch_size)
+    passes = [((), tuple(order[lo:lo + size])) for order in orders for lo in range(0, n, size)]
+    passes += [((), tuple(range(n)))] * len(orders) + evals
+    return {"uses": Counter(passes), "calls": {}}
 
 
 def datasets(step: Fit) -> list[str]:

@@ -18,7 +18,7 @@ import itertools
 from dataclasses import replace
 from typing import Any, Callable
 
-from clab import featurizers
+from clab import featurizers, ops
 from clab.compile.answers import column_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
 from clab.compile.interventions import entry, items
@@ -34,6 +34,7 @@ from clab.plan import (
     Forward,
     Generate,
     Intervention,
+    Op,
     OpStep,
     Plan,
     arguments,
@@ -42,6 +43,7 @@ from clab.plan import (
     gathers,
     kind_of,
     points,
+    written,
 )
 
 
@@ -379,11 +381,9 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            for n, s in body.items():
-                for k, e in s.get("interventions", {}).items():
-                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
-                           for o in gathers(Intervention(**e))):
-                        cx.used.add(f"{n}.{k}")
+            cx.used |= reading(body, lambda o: o.op == "encode" and arguments(o)["featurizer"] in (
+                thing, f"{name}.{thing}"))
+    still = constant(body, {*spec.train, *within.aliases.values()})
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
@@ -421,4 +421,37 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
                 info = inner[member]
                 cx.names[f"{name}.{label}.{member}"] = replace(info, data=swap[info.data] if info.data in swap
                                                                else info.data)
-    return {**spec.model_dump(exclude_defaults=True), "steps": body}
+    return {**spec.model_dump(exclude_defaults=True), "steps": body, "constant": still}
+
+
+def constant(body: dict[str, dict], trained: set[str]) -> list[str]:
+    """The body steps nothing `trained` (each featurizer the fit trains, by both its names) reaches, in order: an
+    op none of whose operands one reaches, and a forward none of whose writes (`written`, the ops that run inside
+    the model) names one or takes a value one reaches. An entry of such a forward whose ops after its last edit do
+    is reached itself: the forward's model calls stay the same, its value does not. A generation is never
+    constant."""
+    reached: set[str] = set()
+    out = []
+
+    def reaches(o: Op | OpStep) -> bool:
+        args, named = arguments(o), {ops.Featurizer: trained, ops.Value: reached}
+        return any(isinstance(args.get(k), str) and args[k] in named.get(p.annotation, ())
+                   for k, p in ops.parameters(o.op).items())
+    for n, s in body.items():
+        if s["kind"] == "op" and (s["of"] in reached or reaches(OpStep(**s))):
+            reached.add(n)
+        elif s["kind"] == "op":
+            out.append(n)
+        elif s["kind"] == "generate" or any(reaches(o) for e in s["interventions"].values()
+                                            for o in written(Intervention(**e))):
+            reached.update([n, *(f"{n}.{k}" for k in s["interventions"])])
+        else:
+            out.append(n)
+            reached |= reading({n: s}, reaches)
+    return out
+
+
+def reading(body: dict[str, dict], picks: Callable[[Op], bool]) -> set[str]:
+    """The entries of `body`'s steps, as `<step>.<entry>`, one of whose ops after its last edit `picks`."""
+    return {f"{n}.{k}" for n, s in body.items() for k, e in s.get("interventions", {}).items()
+            if any(picks(o) for o in gathers(Intervention(**e)))}

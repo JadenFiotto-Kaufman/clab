@@ -354,6 +354,17 @@ so the two have the same one). The body's forwards run in batches of `batch_size
 size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
 exactly, a null control), and each history is empty, `[0]`.
 
+A body step nothing the fit trains reaches is constant, and compile lists it in `constant`: an op over
+constant values that names no featurizer in `train`, or a forward whose writes (each entry's ops up to its
+last edit) name no featurizer in `train` and take no value one reaches; the ops after the last edit may (das's
+`encode` of the counterfactual). A generation never is. Constant steps run without gradients, but for those
+later ops, which may need them. A constant forward's model calls are kept for a later pass over the same rows,
+in the same order, under the same eval substitution (a later scoring pass, an `eval` of the training rows, a
+minibatch drawn again), which reuses them; any other pass calls the model, since a row's numbers can depend on
+the rest of its batch. What is kept (each gathered read before its later ops, on the device the model made it
+on) stays until its last reuse, at most to the fit's end: one scoring pass's reads of every training row, for
+the whole of training.
+
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
 name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
 is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
@@ -391,6 +402,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
+- `Fit`: `at` (the point's index on each sweep axis it varies over), `constant` (the body steps nothing the fit trains reaches, in order: a forward of them calls the model without gradients, and a pass over the same rows in the same order reuses its calls)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against)
 
 ## Ops

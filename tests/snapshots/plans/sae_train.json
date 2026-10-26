@@ -71,7 +71,10 @@
    },
    "eval": {
     "train": {}
-   }
+   },
+   "constant": [
+    "harvest"
+   ]
   }
  },
  "saves": [

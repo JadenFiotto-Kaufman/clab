@@ -152,7 +152,10 @@
      "train": "test"
     },
     "train": {}
-   }
+   },
+   "constant": [
+    "counterfactual"
+   ]
   }
  },
  "saves": [

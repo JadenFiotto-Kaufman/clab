@@ -18,7 +18,19 @@ from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.selectors import made_at
 from clab.format.sweeps import lookup, put
-from clab.plan import Forward, Intervention, Plan, Site, arguments, bracketed, dims_of, entries, gathers, writes
+from clab.plan import (
+    Forward,
+    Intervention,
+    Plan,
+    Site,
+    arguments,
+    bracketed,
+    dims_of,
+    entries,
+    gathers,
+    writes,
+    written,
+)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -81,7 +93,7 @@ def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, a
     (`live`: by name, the engine's name for its read at each layer) to that name, for the forward to fill. An
     `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features its `select`
     keeps."""
-    last = len(record.ops) - len(gathers(record))
+    last = len(written(record))
 
     def bind(nodes: list[dict], dims: list[str]) -> list[dict]:
         out = []

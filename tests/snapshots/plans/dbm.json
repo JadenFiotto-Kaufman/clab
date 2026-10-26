@@ -171,7 +171,10 @@
     },
     "at": {
      "mask.mask": 0
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -315,7 +318,10 @@
     },
     "at": {
      "mask.mask": 1
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -459,7 +465,10 @@
     },
     "at": {
      "mask.mask": 2
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    },
    {
     "kind": "fit",
@@ -603,7 +612,10 @@
     },
     "at": {
      "mask.mask": 3
-    }
+    },
+    "constant": [
+     "counterfactual"
+    ]
    }
   ]
  },
