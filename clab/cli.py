@@ -1,9 +1,9 @@
 """`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
-`show` prints what a run's directory holds (each result with its step, dims, axes and shape, and how the
-run ran); `table` prints `plan.table(...)` over its saved values, aligned or as CSV. Both are `Plan.load`
-and one call.
+`show` prints what a run's directory holds (how the run ran and what each step cost, then each result with
+its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values, aligned or as CSV.
+Both are `Plan.load` and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
 models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
@@ -32,14 +32,16 @@ def how(run: Run) -> str:
 
 
 def show(filled: Plan) -> str:
-    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), then each result
-    with the step that made it, its dims, its sweep axes and its shape (per coordinate when swept)."""
+    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), what each step
+    cost (`costs`), then each result with the step that made it, its dims, its sweep axes and its shape (per
+    coordinate when swept)."""
     run = filled.run
     assert run is not None
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
+    lines += ["  " + line for line in aligned(costs(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in filled.saves:
         entry = filled.steps[saved.partition(".")[0]]
@@ -49,6 +51,21 @@ def show(filled: Plan) -> str:
         rows.append([saved, saved.partition(".")[0], ", ".join(dims_of(filled, saved)),
                      ", ".join(points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
+
+
+def costs(filled: Plan) -> list[list[str]]:
+    """What each step cost (`plan.run.steps`) as table rows, one per step and point: its seconds, its peak memory
+    in MiB (— where the model was not on CUDA), its model calls and the tokens they fed."""
+    run = filled.run
+    assert run is not None
+    rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
+    for step, entry in filled.steps.items():
+        for p in points(entry) if step in run.steps else []:
+            cost = run.steps[step][labelled(filled, p.at)] if isinstance(entry, list) else run.steps[step]
+            memory = "—" if cost["memory"] is None else f"{cost['memory'] / 2 ** 20:.1f} MiB"
+            rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
+                         str(cost["forwards"]), str(cost["tokens"])])
+    return rows
 
 
 def cell(value: Any) -> str:

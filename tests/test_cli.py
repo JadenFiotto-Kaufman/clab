@@ -14,16 +14,19 @@ def out(engines, tmp_path_factory) -> str:
     return str(where)
 
 
-def test_show_prints_each_result_and_how_it_ran(out, capsys):
+def test_show_prints_how_it_ran_what_each_step_cost_and_each_result(out, capsys):
     assert main(["show", out]) == 0
     shown = capsys.readouterr().out.splitlines()
     assert shown[0].startswith("generate_probe: run on nnterp, device cpu, batch size 2, started ")
     assert shown[1] == "  served: float32 on cpu"
     assert shown[2].startswith("  versions: clab ")
-    assert shown[3].split() == ["result", "step", "dims", "axes", "shape"]
-    assert shown[4].split() == ["p_answer", "p_answer", "rows,", "pos", "frame",
-                                '{"frame=0":[4,1],"frame=1":[4,1],"frame=2":[4,1]}']
-    assert shown[5].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
+    assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
+    assert [line.split()[:2] for line in shown[4:11]] == [["counterfactual", "—"]] + \
+        [[step, f"frame={k}"] for step in ("patched", "p_answer") for k in range(3)]
+    assert shown[11].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[12].split() == ["p_answer", "p_answer", "rows,", "pos", "frame",
+                                 '{"frame=0":[4,1],"frame=1":[4,1],"frame=2":[4,1]}']
+    assert shown[13].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
 
 
 def test_table_prints_aligned_columns_or_csv(out, capsys, monkeypatch):

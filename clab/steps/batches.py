@@ -3,6 +3,7 @@ with, its value with the ops after its last edit applied."""
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import torch
@@ -107,6 +108,14 @@ def chunked(engine: Engine, step: Forward, found: Found, batch_size: int) -> Ite
         chunk = slice(lo, min(lo + batch_size, n))
         ids = [e["ids"] for e in encoded["rows"][chunk]]
         yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
+
+
+def fed(batch: dict[str, Tensor], pads: list[int], calls: int = 1, decoded: int = 0) -> Counter:
+    """What one batch through the model costs in calls and tokens: `calls` model calls (a forward's one, or a
+    generation's prefill and decode calls), the prompt tokens of each row (the batch's width less the row's
+    padding) and the `decoded` tokens its decode calls fed."""
+    width = batch["input_ids"].shape[1]
+    return Counter(forwards=calls, tokens=sum(width - pad for pad in pads) + decoded)
 
 
 def read_name(key: str, layer: int | None, prefill: bool = False) -> str:
