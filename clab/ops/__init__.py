@@ -55,18 +55,18 @@ to the value's dtype, since an edit writes back; a value read from the model kee
 over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
 `values`, the ranked values in the value's own dtype.
 
-A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
-space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
-them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
-the same featurizer, and the ops between them act on the coordinates. An operand there is in the same
-coordinates (a value read through the same encodes, with the same `select`s, or a number), and one in other
-coordinates is refused by name, whatever its width. `decode` writes the change of coordinates back as a
-delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no coordinate changes
-nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is scattered back and the
-rest gain a change of exactly zero (encoding the result again gives them back to float rounding, about
-1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s
-coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still
-open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
+A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
+(`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
+back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of the same
+featurizer, and the ops between them act on the coordinates. An operand there is in the same coordinates (a
+value read through the same encodes, or turned into them by `encode` steps, with the same `select`s, or a
+number), and one in other coordinates is refused by name, whatever its width. `decode` writes the change of
+coordinates back as a delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no
+coordinate changes nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is
+scattered back and the rest gain a change of exactly zero (encoding the result again gives them back to float
+rounding, about 1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]`
+edits `b`'s coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode`
+still open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
 `apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
 of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
 adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.

@@ -35,10 +35,13 @@ uv run clab run documents/generated_answer.json --batch-size 2
 ## Train a featurizer, then apply it
 
 A `fit` step trains featurizers (a rotation's subspace, a mask over units, a probe) inside the run, through
-the frozen model: its body is the experiment, run over minibatches, and what it trains is saved as a bundle
-another document loads. `das.json` trains a rank-8 rotation and saves it as `fit.rot`; `das_apply.json`
-loads that bundle and scores it on the held-out split, checking its header (model, site, kind, `k`, width)
-key by key first:
+the frozen model: its body is the part of the experiment that trains, run over minibatches, and what it trains
+is saved as a bundle another document loads. A minibatch is a list of dataset row ids, so what does not depend
+on the training is a step before the fit, made once, and the body takes such a harvest's rows by each
+minibatch's ids; the model then runs while the fit trains only where the body has a forward. `das.json` harvests the counterfactual's value at layer 0, trains a rank-8
+rotation in a body that swaps the harvest's coordinates into the base prompt, and saves it as `fit.rot`;
+`das_apply.json` loads that bundle and scores it on the held-out split, checking its header (model, site,
+kind, `k`, width) key by key first:
 
 ```
 uv run clab run documents/das.json --batch-size 2 --out documents/artifacts    # writes fit.rot.safetensors
@@ -47,7 +50,8 @@ uv run clab table out/das_apply iia                                            #
 ```
 
 `pca_control.json` loads what `pca_harvest.json` writes the same way, and `sae_train_ablation.json` the
-sparse autoencoder `sae_train.json` trains on every token of the weekday prompts after BOS:
+sparse autoencoder `sae_train.json` trains on every token of the weekday prompts after BOS, harvested once
+(its body is the dictionary's `encode` of the harvest, so the model runs once):
 
 ```
 uv run clab run documents/sae_train.json --batch-size 2 --out documents/artifacts   # fit.dictionary.safetensors
@@ -73,17 +77,20 @@ coordinates back, and `apply` is its version of the value, an edit (`{"op": "app
 `attention_premix` in an earlier entry of the same forward and applies at `attention_output`, naming that
 entry as `with`.
 
-A fit's `eval` names its runs after training: `das.json`'s `{"held_out": {"train": "test"}, "train": {}}`
-gives `fit.held_out.iia` and `fit.train.iia`. `documents/artifacts/sae.safetensors`,
-the dictionary `sae_feature_ablation.json` loads, is a committed fixture (`uv run python tests/fixtures/sae.py`
-writes it again). A fit's members are saved like any value; `fit.history.<op>` is a body op's mean on the
-training rows after each epoch:
+A fit's `eval` names its runs after training: `lora_train.json`'s `{"held_out": {"train": "test"}, "train":
+{}}` gives `fit.held_out.ce` and `fit.train.ce`. An eval cannot put another dataset in place of one that a
+harvest the body reads has a row per example of, since no step made the harvest over the other's rows; so
+`das.json` keeps only `"train": {}` and scores the held-out split in steps after the fit, through `fit.rot`,
+as `das_apply.json` scores the bundle (`held_iia`). `documents/artifacts/sae.safetensors`, the dictionary
+`sae_feature_ablation.json` loads, is a committed fixture (`uv run python tests/fixtures/sae.py` writes it
+again). A fit's members are saved like any value; `fit.history.<op>` is a body op's mean on the training rows
+after each epoch:
 
 ```python
 plan = clab.run("documents/dbm.json", batch_size=2)
 plan.results["fit.mask"][0.05]       # the gate trained at L1 weight 0.05: {"theta": tensor [16]}
 (plan.results["fit.mask"][0.05]["theta"] > 0).sum()    # the units its hard mask keeps
-plan.results["fit.held_out.iia"][0.05]                  # its iia on the test split
+plan.results["held_iia"][0.05]                          # its iia on the test split, after the fit
 ```
 
 ## Real models

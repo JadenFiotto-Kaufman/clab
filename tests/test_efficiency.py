@@ -67,7 +67,7 @@ def test_a_forward_feeds_the_same_tokens_at_every_batch_size(engines):
 
 def das(epochs: int = 3):
     """das with `epochs` epochs, no early stop, and minibatches of one row: two of its two training rows an
-    epoch, each through the body's two forwards."""
+    epoch, each through the body's forward."""
     def change(d):
         fit = d["steps"]["fit"]
         fit.update(epochs=epochs, batch_size=1)
@@ -76,18 +76,19 @@ def das(epochs: int = 3):
 
 
 def test_a_fit_counts_every_forward_its_body_makes(engines):
-    """A fit's calls are its body's: per epoch, each minibatch through the body's two forwards (2 × 2) and the
-    training rows scored after it (two rows, a batch of one each, through both: 4); then each eval's rows once
-    (held_out's two test rows, train's two). Each pass over a dataset feeds each of its rows' tokens once: four
-    passes over the training rows an epoch, two of them scoring, then one in the `train` eval and one over the
-    test rows in `held_out`."""
+    """A fit's calls are its body's: per epoch, each minibatch through the body's forward (2 × 1) and the
+    training rows scored after it (two rows, a batch of one each: 2); then the `train` eval's two rows once. Each
+    pass over a dataset feeds each of its rows' tokens once: two passes over the training prompts an epoch, one of
+    them scoring, then one in the eval; the counterfactual prompts, harvested before the fit, are fed there once,
+    in one call."""
     plan = das()
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
-    train = lengths(run, "train.counterfactual_inputs[0]") + lengths(run, "train.input")
-    test = lengths(run, "test.counterfactual_inputs[0]") + lengths(run, "test.input")
-    epochs, minibatches, body = 3, 2, 2
-    assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body + 2 * body == 32
-    assert run.costs["fit"]["tokens"] == epochs * 2 * train + train + test
+    train = lengths(run, "train.input")
+    epochs, minibatches, body = 3, 2, 1
+    assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body == 14
+    assert run.costs["fit"]["tokens"] == epochs * 2 * train + train
+    assert {k: run.costs["counterfactual"][k] for k in ("forwards", "tokens")} == \
+        {"forwards": 1, "tokens": lengths(run, "train.counterfactual_inputs[0]")}
 
 
 def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
@@ -99,9 +100,11 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
     assert trip == TRIP
     assert came.run is not None
     for run in (there, came.run):
-        assert list(run.costs) == ["fit"] and set(run.costs["fit"]) == COST and run.costs["fit"]["memory"] is None
-        assert {k: run.costs["fit"][k] for k in ("forwards", "tokens")} == \
-            {k: local.costs["fit"][k] for k in ("forwards", "tokens")}
+        assert list(run.costs) == list(das().steps)
+        for step, cost in run.costs.items():
+            assert set(cost) == COST and cost["memory"] is None
+            assert {k: cost[k] for k in ("forwards", "tokens")} == \
+                {k: local.costs[step][k] for k in ("forwards", "tokens")}
 
 
 def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines, monkeypatch):
@@ -282,11 +285,19 @@ def test_a_generation_runs_whole_at_every_call(engines, kind):
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
-    """sae_train's body reads block 0 of the tiny Llama's two: every forward it makes, training and scoring, runs
-    block 0 alone."""
-    plan = plan_of("sae_train")
+    """sae_train with its harvest in the fit's body, the dictionary's encode in its entry, reads block 0 of the tiny
+    Llama's two there: every forward the body makes, training and scoring, runs block 0 alone. As sae_train is,
+    with the harvest before the fit, the body makes none and the harvest's two run block 0 alone."""
+    def inside(d):
+        harvest = d["steps"].pop("harvest")
+        harvest["interventions"]["acts"]["ops"] = [{"op": "encode", "featurizer": "fit.dictionary"}]
+        d["steps"]["fit"]["steps"] = {"harvest": harvest}
+    plan = edited("sae_train", inside).compile()
     filled, ran = counted(engines(kind, plan.model), plan)
     assert filled.run is not None and filled.run.costs["fit"]["forwards"] == 82 and ran == through(1) * 82
+    filled, ran = counted(engines(kind, plan.model), plan_of("sae_train"))
+    assert filled.run is not None and [filled.run.costs[s]["forwards"] for s in ("harvest", "fit")] == [2, 0]
+    assert ran == through(1) * 2
 
 
 def test_the_ndif_engine_runs_every_forward_whole_with_the_same_values(engines, monkeypatch):

@@ -1,5 +1,5 @@
 {
-  "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer (the same two named evals, `held_out` and `train`), one more objective term and a falling temperature (the gate's own `temperature`, annealed over the epochs). The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
+  "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer (the counterfactual harvested once before the fit, the body's `train` eval, the held-out split scored by steps after the fit), one more objective term and a falling temperature (the gate's own `temperature`, annealed over the epochs). The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -11,22 +11,12 @@
     "head": {"component": "lm_head_output"}
   },
   "featurizers": {"mask": {"kind": "gate", "temperature": {"start": 1.0, "end": 0.05}}},
-  "interventions": {
-    "cf_read": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.mask"}]}},
-    "dbm": {
-      "patch": {
-        "site": "target",
-        "pos": -1,
-        "ops": [
-          {"op": "encode", "featurizer": "fit.mask"},
-          {"op": "swap", "with": "counterfactual.v_cf"},
-          {"op": "decode", "featurizer": "fit.mask"}
-        ]
-      },
-      "logits": {"site": "head", "pos": -1}
-    }
-  },
   "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "interventions": {"h": {"site": "target", "pos": -1}}
+    },
     "fit": {
       "kind": "fit",
       "train": ["mask"],
@@ -36,14 +26,25 @@
       "seed": 0,
       "optimizer": {"name": "adamw", "lr": 0.05, "weight_decay": 0.0},
       "early_stop": {"metric": "ce", "mode": "min", "patience": 20},
-      "eval": {"held_out": {"train": "test"}, "train": {}},
+      "eval": {"train": {}},
       "steps": {
-        "counterfactual": {
+        "v_cf": {"kind": "op", "op": "encode", "featurizer": "fit.mask", "of": "counterfactual.h"},
+        "patched": {
           "kind": "forward",
-          "input": "train.counterfactual_inputs[0]",
-          "interventions": "cf_read"
+          "input": "train.input",
+          "interventions": {
+            "patch": {
+              "site": "target",
+              "pos": -1,
+              "ops": [
+                {"op": "encode", "featurizer": "fit.mask"},
+                {"op": "swap", "with": "v_cf"},
+                {"op": "decode", "featurizer": "fit.mask"}
+              ]
+            },
+            "logits": {"site": "head", "pos": -1}
+          }
         },
-        "patched": {"kind": "forward", "input": "train.input", "interventions": "dbm"},
         "iia": {
           "kind": "op",
           "op": "logit_diff",
@@ -58,7 +59,35 @@
           "target": "train.cf_answer"
         }
       }
+    },
+    "held_counterfactual": {
+      "kind": "forward",
+      "input": "test.counterfactual_inputs[0]",
+      "interventions": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.mask"}]}}
+    },
+    "held_patched": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+        "patch": {
+          "site": "target",
+          "pos": -1,
+          "ops": [
+            {"op": "encode", "featurizer": "fit.mask"},
+            {"op": "swap", "with": "held_counterfactual.v_cf"},
+            {"op": "decode", "featurizer": "fit.mask"}
+          ]
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
+    },
+    "held_iia": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "held_patched.logits",
+      "a": "test.cf_answer",
+      "b": "test.base_answer"
     }
   },
-  "saves": ["fit.held_out.iia", "fit.train.iia", "fit.train.ce", "fit.mask"]
+  "saves": ["held_iia", "fit.train.iia", "fit.train.ce", "fit.mask"]
 }

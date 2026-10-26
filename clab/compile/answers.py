@@ -31,7 +31,7 @@ def probe_of(plan: Plan, name: str) -> str:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
     if step.kind == "op":
-        return probe_of(plan, step.of)
+        return arguments(step)["featurizer"] if step.op == "encode" else probe_of(plan, step.of)
     if step.kind == "fit":
         return probe_of(body_view(plan, thing), member.partition(".")[2])
     return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")

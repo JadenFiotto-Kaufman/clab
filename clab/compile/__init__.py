@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from clab import featurizers
 from clab.compile.answers import column_ref
-from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
+from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, space_of, value_ref
 from clab.compile.interventions import entry, items
 from clab.compile.state import Compiling, Known
 from clab.compile.uses import bundled_sites
@@ -280,8 +280,9 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
     if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)
-    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not args.get("tokens"),
-                           space=of.space if dims[-1:] == of.dims[-1:] else [],
+    # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
+    space = of.space + space_of(cx, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
+    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not args.get("tokens"), space=space,
                            select={a: v for a, v in of.select.items() if a in dims},
                            width=of.width if "pos" in dims else None)
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
@@ -342,8 +343,9 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
 
 def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> dict:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
-    is one the body makes. It trains featurizers that have something to train, and holds no fit."""
+    as many rows as each other (under each of `eval`'s substitutions too), and no eval reads as another a dataset
+    that a value made before the fit, which the body uses, has a row per example of. It trains featurizers that
+    have something to train, its objective depends on one of them, and it holds no fit."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
@@ -359,18 +361,18 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
         within.names[f"{name}.{f}"] = Known(kind="featurizer")
     before = len(cx.refs)
     body = {}
+    trained = set(spec.train) | set(within.aliases.values())    # what the fit trains, by either of its names
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")
         if n in plan.data or n in plan.featurizers or "." in n:
             fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
                  "a root's")
+        start = len(cx.refs)
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
+        if any(r in trained or r.partition(".")[0] in trained for r in cx.refs[start:]):
+            trained.add(n)                  # a step whose value depends on what the fit trains
     inner = within.names
-    for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref].dims:
-            fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
-                 "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
@@ -384,6 +386,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
                     if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
                            for o in gathers(Intervention(**e))):
                         cx.used.add(f"{n}.{k}")
+    if not any(t.partition(".")[0] in trained for t in spec.objective):
+        fail(f"{path}.objective", f"none of its terms ({', '.join(spec.objective)}) depends on what the fit trains "
+             f"({', '.join(spec.train)}): each is a body op over values no trained featurizer reaches, so there is "
+             "no gradient to step on; make a term of an op over a value the trained featurizer's encode, decode or "
+             "apply made, or of its scalar")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
@@ -396,6 +403,12 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             for d in (a, b):
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
+            for ref in dict.fromkeys(cx.refs[before:]):     # what the body uses, made before it: the same `Known`
+                if inner[ref] is cx.names.get(ref) and inner[ref].data == a and "rows" in inner[ref].dims:
+                    fail(where, f"the body uses {ref!r}, made before the fit with a row per example of {a!r}, and "
+                         f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
+                         "steps after the fit, which reach what it trained as "
+                         f"{', '.join(repr(f'{name}.{f}') for f in spec.train)}")
             if plan.data[a].template != plan.data[b].template:
                 fail(where, f"dataset {a!r} is read as {b!r}, and their templates differ ({a!r}: "
                      f"{plan.data[a].template}, {b!r}: {plan.data[b].template}); a chat renders with its own "

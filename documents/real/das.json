@@ -1,5 +1,5 @@
 {
-  "description": "Distributed alignment search on Llama-3.2-1B: how many dimensions of the residual stream leaving layer 8, at the day token (`pos: -4`), carry the day? A rank-`k` rotation is trained so that swapping the counterfactual prompt's coordinates in it into the base prompt makes the model give the counterfactual answer (the objective is `ce`, that answer's cross-entropy), on the 30 training pairs in minibatches of 10 for 20 epochs, the epoch with the best `iia` kept, and is then scored once on the 12 held-out pairs. `k` sweeps 1, 4, 16 and 64, so `fit.held_out.iia`, 1 per held-out pair where the patched top token is the counterfactual answer, traces the curve by rank: one dimension moves no pair, and the held-out accuracy climbs with rank to every pair at 64. `fit.rot` is each trained `[2048, k]` basis. The engines agree to the bit on one device; across devices, twenty epochs of optimizer steps carry float32 rounding forward, so a GPU run's curve is the CPU's in shape and need not be to the bit.",
+  "description": "Distributed alignment search on Llama-3.2-1B: how many dimensions of the residual stream leaving layer 8, at the day token (`pos: -4`), carry the day? A rank-`k` rotation is trained so that swapping the counterfactual prompt's coordinates in it into the base prompt makes the model give the counterfactual answer (the objective is `ce`, that answer's cross-entropy), on the 30 training pairs in minibatches of 10 for 20 epochs, the epoch with the best `iia` kept; the counterfactual prompts are harvested once before the fit, so the model runs once per minibatch. The steps after the fit score it once on the 12 held-out pairs. `k` sweeps 1, 4, 16 and 64, so `held_iia`, 1 per held-out pair where the patched top token is the counterfactual answer, traces the curve by rank: one dimension moves no pair, and the held-out accuracy climbs with rank to every pair at 64. `fit.rot` is each trained `[2048, k]` basis. The engines agree to the bit on one device; across devices, twenty epochs of optimizer steps carry float32 rounding forward, so a GPU run's curve is the CPU's in shape and need not be to the bit.",
   "model": {
     "key": "meta-llama/Llama-3.2-1B",
     "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
@@ -14,22 +14,12 @@
     "head": {"component": "lm_head_output"}
   },
   "featurizers": {"rot": {"kind": "subspace", "k": {"sweep": [1, 4, 16, 64]}}},
-  "interventions": {
-    "cf_read": {"v_cf": {"site": "target", "pos": -4, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}},
-    "das": {
-      "patch": {
-        "site": "target",
-        "pos": -4,
-        "ops": [
-          {"op": "encode", "featurizer": "fit.rot"},
-          {"op": "swap", "with": "counterfactual.v_cf"},
-          {"op": "decode", "featurizer": "fit.rot"}
-        ]
-      },
-      "logits": {"site": "head", "pos": -1}
-    }
-  },
   "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "interventions": {"h": {"site": "target", "pos": -4}}
+    },
     "fit": {
       "kind": "fit",
       "train": ["rot"],
@@ -39,14 +29,50 @@
       "seed": 0,
       "optimizer": {"name": "adamw", "lr": 0.003},
       "early_stop": {"metric": "iia", "mode": "max", "patience": 20},
-      "eval": {"held_out": {"train": "test"}},
       "steps": {
-        "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": "cf_read"},
-        "patched": {"kind": "forward", "input": "train.input", "interventions": "das"},
+        "v_cf": {"kind": "op", "op": "encode", "featurizer": "fit.rot", "of": "counterfactual.h"},
+        "patched": {
+          "kind": "forward",
+          "input": "train.input",
+          "interventions": {
+            "patch": {
+              "site": "target",
+              "pos": -4,
+              "ops": [
+                {"op": "encode", "featurizer": "fit.rot"},
+                {"op": "swap", "with": "v_cf"},
+                {"op": "decode", "featurizer": "fit.rot"}
+              ]
+            },
+            "logits": {"site": "head", "pos": -1}
+          }
+        },
         "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "train.cf_answer"},
         "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"}
       }
-    }
+    },
+    "held_counterfactual": {
+      "kind": "forward",
+      "input": "test.counterfactual_inputs[0]",
+      "interventions": {"v_cf": {"site": "target", "pos": -4, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}}
+    },
+    "held_patched": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+        "patch": {
+          "site": "target",
+          "pos": -4,
+          "ops": [
+            {"op": "encode", "featurizer": "fit.rot"},
+            {"op": "swap", "with": "held_counterfactual.v_cf"},
+            {"op": "decode", "featurizer": "fit.rot"}
+          ]
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
+    },
+    "held_iia": {"kind": "op", "op": "match", "of": "held_patched.logits", "expected": "test.cf_answer"}
   },
-  "saves": ["fit.held_out.iia", "fit.rot"]
+  "saves": ["held_iia", "fit.rot"]
 }

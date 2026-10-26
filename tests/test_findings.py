@@ -180,7 +180,8 @@ def test_b6_batches_join_on_the_first_ones_device():
 
 def test_b7_a_gate_inside_a_pca_encode_trains_on_the_pca_coordinates(engines, tmp_path):
     """trial-08 x07: brackets nest, so a gate encoded inside a pca's coordinates is as wide as they are and
-    trains there; the fit runs on both engines alike."""
+    trains there, an encode step of the gate over a harvest read in them included; the fit runs on both engines
+    alike."""
     root = corpus(tmp_path)
     basis = torch.linalg.qr(torch.randn(16, 4, generator=torch.Generator().manual_seed(0)))[0].contiguous()
     save_file({"basis": basis, "mean": torch.zeros(16)}, os.path.join(root, "documents", "artifacts", "pc.safetensors"),
@@ -188,13 +189,15 @@ def test_b7_a_gate_inside_a_pca_encode_trains_on_the_pca_coordinates(engines, tm
 
     def change(d):
         d["featurizers"]["pc"] = {"kind": "pca", "k": 4, "file_path": "documents/artifacts/pc.safetensors"}
-        d["interventions"]["cf_read"]["v_cf"]["ops"] = [{"op": "encode", "featurizer": "pc"},
-                                                        {"op": "encode", "featurizer": "fit.mask"}]
-        d["interventions"]["dbm"]["patch"]["ops"] = [
+        d["steps"]["counterfactual"]["interventions"]["h"]["ops"] = [{"op": "encode", "featurizer": "pc"}]
+        d["steps"]["fit"]["steps"]["patched"]["interventions"]["patch"]["ops"] = [
             {"op": "encode", "featurizer": "pc"}, {"op": "encode", "featurizer": "fit.mask"},
-            {"op": "swap", "with": "counterfactual.v_cf"}, {"op": "decode", "featurizer": "fit.mask"},
+            {"op": "swap", "with": "v_cf"}, {"op": "decode", "featurizer": "fit.mask"},
             {"op": "decode", "featurizer": "pc"}]
         d["steps"]["fit"].update(epochs=2, objective={"ce": 1.0, "mask.mask": 0.01})
+        for name in ("held_counterfactual", "held_patched", "held_iia"):
+            del d["steps"][name]
+        d["saves"] = ["fit.train.iia", "fit.mask"]
     one = edited("dbm", change)
     compiled = Plan(**one.model_dump(exclude_defaults=True, exclude={"document"}),
                     document=os.path.join(root, "documents", "dbm.json")).compile()
@@ -859,10 +862,10 @@ def test_o2_top_k_ranks_an_sae_s_features_and_argmax_a_probe_s_classes(engines, 
 
     from test_fit import probe
     trained = probe(lambda d: (d["steps"]["fit"]["steps"].update(which={"kind": "op", "op": "argmax",
-                                                                       "of": "read.scores", "over": "classes"}),
+                                                                       "of": "scores", "over": "classes"}),
                                d["saves"].append("fit.train.which")))
     values = engines(kind, trained.model).execute(trained, batch_size=BATCH_SIZE).results
-    scores = values["fit.train.read.scores"]
+    scores = values["fit.train.scores"]
     assert scores.shape[-1] == 2 and torch.equal(values["fit.train.which"], metrics.ranked(scores, 1)[..., 0])
 
 

@@ -1,5 +1,5 @@
 {
-  "description": "DAS on the tiny CPU Llama. The fit's body is the experiment, run once per minibatch of up to 16 pairs (the training split has 2, so one minibatch an epoch): the counterfactual's coordinates in the rotation's subspace (`encode`), swapped into the base's between an `encode` and the `decode` that writes the change back. After training, the body runs once per named eval: `held_out`, with `test` in place of `train`, and `train`, on the pairs it trained on; `fit.held_out.iia` and `fit.train.iia` are the body's iia in each. `fit.rot` is the one name of the rotation — inside the body it is the rotation being trained, after it the trained one.",
+  "description": "DAS on the tiny CPU Llama. The counterfactual's value at the patched site is harvested once, before the fit (`counterfactual.h`, a row per training pair); the fit's body is what trains, run once per minibatch of up to 16 pairs (the training split has 2, so one minibatch an epoch) over that minibatch's rows of the harvest: their coordinates in the rotation's subspace (`v_cf`, an `encode` step), swapped into the base's between an `encode` and the `decode` that writes the change back, so the model runs once per minibatch. After training the body runs once more on the pairs it trained on (the `train` eval, `fit.train.iia`), and the steps after the fit score the trained rotation on the held-out split as das_apply.json scores its bundle (`held_iia`). `fit.rot` is the one name of the rotation: inside the body it is the rotation being trained, after it the trained one.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -11,22 +11,12 @@
     "head": {"component": "lm_head_output"}
   },
   "featurizers": {"rot": {"kind": "subspace", "k": 8, "parametrization": "cayley"}},
-  "interventions": {
-    "cf_read": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}},
-    "das": {
-      "patch": {
-        "site": "target",
-        "pos": -1,
-        "ops": [
-          {"op": "encode", "featurizer": "fit.rot"},
-          {"op": "swap", "with": "counterfactual.v_cf"},
-          {"op": "decode", "featurizer": "fit.rot"}
-        ]
-      },
-      "logits": {"site": "head", "pos": -1}
-    }
-  },
   "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "train.counterfactual_inputs[0]",
+      "interventions": {"h": {"site": "target", "pos": -1}}
+    },
     "fit": {
       "kind": "fit",
       "train": ["rot"],
@@ -36,14 +26,25 @@
       "seed": 0,
       "optimizer": {"name": "adamw", "lr": 0.001, "weight_decay": 0.0},
       "early_stop": {"metric": "iia", "mode": "max", "patience": 3},
-      "eval": {"held_out": {"train": "test"}, "train": {}},
+      "eval": {"train": {}},
       "steps": {
-        "counterfactual": {
+        "v_cf": {"kind": "op", "op": "encode", "featurizer": "fit.rot", "of": "counterfactual.h"},
+        "patched": {
           "kind": "forward",
-          "input": "train.counterfactual_inputs[0]",
-          "interventions": "cf_read"
+          "input": "train.input",
+          "interventions": {
+            "patch": {
+              "site": "target",
+              "pos": -1,
+              "ops": [
+                {"op": "encode", "featurizer": "fit.rot"},
+                {"op": "swap", "with": "v_cf"},
+                {"op": "decode", "featurizer": "fit.rot"}
+              ]
+            },
+            "logits": {"site": "head", "pos": -1}
+          }
         },
-        "patched": {"kind": "forward", "input": "train.input", "interventions": "das"},
         "iia": {
           "kind": "op",
           "op": "logit_diff",
@@ -58,7 +59,35 @@
           "target": "train.cf_answer"
         }
       }
+    },
+    "held_counterfactual": {
+      "kind": "forward",
+      "input": "test.counterfactual_inputs[0]",
+      "interventions": {"v_cf": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.rot"}]}}
+    },
+    "held_patched": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+        "patch": {
+          "site": "target",
+          "pos": -1,
+          "ops": [
+            {"op": "encode", "featurizer": "fit.rot"},
+            {"op": "swap", "with": "held_counterfactual.v_cf"},
+            {"op": "decode", "featurizer": "fit.rot"}
+          ]
+        },
+        "logits": {"site": "head", "pos": -1}
+      }
+    },
+    "held_iia": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "held_patched.logits",
+      "a": "test.cf_answer",
+      "b": "test.base_answer"
     }
   },
-  "saves": ["fit.held_out.iia", "fit.train.iia", "fit.train.ce", "fit.rot"]
+  "saves": ["held_iia", "fit.train.iia", "fit.train.ce", "fit.rot"]
 }

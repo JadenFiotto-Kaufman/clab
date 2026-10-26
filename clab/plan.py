@@ -682,11 +682,12 @@ class Fit(Record):
     Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
     optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
     `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed` and
-    the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the weighted sum
-    `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained featurizer's
-    scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as every metric
-    is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's dtype.
-    Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
+    the epoch (a minibatch is its rows' ids in their datasets, so `noise` draws a row's noise in any minibatch
+    as it does outside the fit), with gradients on and gates soft, and steps the optimizer once per minibatch on
+    the weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
+    featurizer's scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as
+    every metric is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's
+    dtype. Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
     optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
     After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
     op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
@@ -698,13 +699,18 @@ class Fit(Record):
     size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
     exactly, a null control), and each history is empty, `[0]`.
 
-    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
-    name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
-    is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
-    featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value from
-    the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
-    of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
-    list of points."""
+    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
+    `<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
+    one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
+    ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient, which the
+    body's ops on it carry; so the model runs while the fit trains only where the body has a forward. An eval
+    that reads such a value's dataset as another is refused, since no step made the value over the other's rows:
+    evaluate on other data in steps after the fit, through `<fit>.<featurizer>`. So is an objective none of
+    whose terms depends on what the fit trains, which has no gradient to step on. Nothing leaves the body except
+    through the fit's members: `<fit>.<featurizer>` the trained featurizer (saved as its bundle),
+    `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value from the run named `<eval>`, and
+    `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the fit's values (an
+    objective weight, the learning rate) makes the fit, its members and their users a list of points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]

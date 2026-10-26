@@ -1,7 +1,7 @@
 {
  "batch_size": 2,
  "values": {
-  "fit.held_out.iia": [
+  "held_iia": [
    [
     0.21907413005828857
    ],

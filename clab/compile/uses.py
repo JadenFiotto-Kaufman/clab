@@ -12,12 +12,14 @@ from clab.format.selectors import Selector, made_at, selected
 from clab.plan import (
     Featurizer,
     Op,
+    OpStep,
     Plan,
     Site,
     agreeing,
     arguments,
     bracketed,
     declared,
+    dims_in,
     entries,
     entry_of,
     fail,
@@ -31,12 +33,16 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
+def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op | OpStep, list[Op]]]]:
     """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
     step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
-    applied to."""
+    applied to. An op step's is at the site of the read its `of` comes from (`source`)."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
+        ref = arguments(step).get("featurizer") if step.kind == "op" else None
+        if ref is not None:
+            site, around = source(plan, name, step)
+            found.setdefault(declared(plan, ref), []).append((name, site, step.at, step, around))
         for key, entry in entries(step).items():
             for node, around in visited(bracketed(entry.ops)):
                 ref = arguments(node["op"]).get("featurizer")
@@ -44,6 +50,33 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
                     found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at,
                                                                       node["op"], [a["op"] for a in around]))
     return found
+
+
+def source(plan: Plan, name: str, step: OpStep) -> tuple[Site, list[Op]]:
+    """Where op step `name` (dotted, as `walk` names it) meets a site: that of the read its `of` comes from,
+    followed through op steps (and into a fit's eval members), and the encodes its value is in, outermost first:
+    those the read leaves open, then each encode step on the way. A value whose layout a step other than an
+    encode changed on the way is no site's, and a featurizer acts on a site's value or its coordinates."""
+    fit = name.rpartition(".")[0]
+    steps = {**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps
+    value, around = step.of, []
+    while True:
+        thing, _, member = value.partition(".")
+        producer = agreeing(steps[thing], step.at)
+        if producer.kind == "fit":
+            steps, value = {**steps, **producer.steps}, member.partition(".")[2]
+            continue
+        changed = producer.kind == "op" and producer.op != "encode" and \
+            (producer.dims or [])[-1:] != dims_in(steps, producer.of)[-1:]
+        if changed or producer.kind != "op" and not member:
+            raise ValueError(f"{name}: {arguments(step)['featurizer']!r} is used on {step.of!r}, which comes from "
+                             f"{value!r}, no site's value or its coordinates; a featurizer acts on one")
+        if producer.kind != "op":
+            entry = entries(producer)[member]
+            return entry.site, [Op(op="encode", **s) for s in entry.space] + around
+        if producer.op == "encode":
+            around.insert(0, Op(op="encode", **arguments(producer)))
+        value = producer.of
 
 
 def bundled_sites(plan: Plan) -> None:
@@ -131,7 +164,7 @@ def at_layer(layers: object, n: int) -> str:
     return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
-def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, layer: int | None, n: int) -> None:
+def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None, n: int) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
     `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
     `with` that stacks is read there at that layer), and one made without reads none: the width check alone would
