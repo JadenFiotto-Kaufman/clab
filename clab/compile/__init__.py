@@ -384,6 +384,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             cx.used |= reading(body, lambda o: o.op == "encode" and arguments(o)["featurizer"] in (
                 thing, f"{name}.{thing}"))
     still = constant(body, {*spec.train, *within.aliases.values()})
+    if all(term in still for term in spec.objective):
+        fail(f"{path}.objective", f"no term of it ({', '.join(map(repr, spec.objective)) or 'none'}) depends on what "
+             f"the fit trains ({', '.join(map(repr, spec.train))}): each is a body op over values nothing trained "
+             "reaches, so it has no gradient; a term is an op over a value a trained featurizer's encode, decode or "
+             "apply gives (or one made from it), or a trained featurizer's scalar")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")

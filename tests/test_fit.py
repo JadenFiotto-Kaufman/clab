@@ -422,8 +422,19 @@ def use_a_root_read_in_the_body(d):
     d["steps"]["fit"]["steps"]["iia"] = {"kind": "op", "op": "sub", "of": "patched.logits", "with": "early.logits"}
 
 
+def train_on_the_clean_model(d):
+    """An objective nothing the fit trains reaches: the clean model's probability of the counterfactual answer."""
+    d["steps"]["fit"]["steps"]["clean"] = {"kind": "forward", "input": "train.input",
+                                           "interventions": {"logits": {"site": "head", "pos": -1}}}
+    d["steps"]["fit"]["steps"]["lp"] = {"kind": "op", "op": "token_prob", "of": "clean.logits",
+                                        "token": "train.cf_answer"}
+    d["steps"]["fit"]["objective"] = {"lp": 1.0}
+
+
 @pytest.mark.parametrize("change, message", [
     (train_an_sae, r"steps\.fit\.train\[0\]: 'dictionary' is loaded from a bundle, which fixes it"),
+    (train_on_the_clean_model, r"steps\.fit\.objective: no term of it \('lp'\) depends on what the fit trains "
+                               r"\('rot'\)"),
     (use_a_root_read_in_the_body,
      r"steps\.fit\.steps: the body uses 'early\.logits', which has a row per example of the whole dataset"),
     (lambda d: d["steps"]["fit"]["steps"].update(rot={"kind": "op", "op": "mean", "of": "patched.logits"}),
