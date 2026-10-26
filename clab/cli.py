@@ -55,14 +55,14 @@ def show(filled: Plan) -> str:
 
 def costs(filled: Plan) -> list[list[str]]:
     """What each step cost (`plan.run.costs`) as table rows, one per step and point: its seconds, its peak memory
-    in MiB (— where the model was not on CUDA), its model calls and the tokens they fed."""
+    on each device in MiB (— where none was measured), its model calls and the tokens they fed."""
     run = filled.run
     assert run is not None
     rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
         for p in points(entry) if step in run.costs else []:
             cost = run.costs[step][labelled(filled, p.at)] if isinstance(entry, list) else run.costs[step]
-            memory = "—" if cost["memory"] is None else f"{cost['memory'] / 2 ** 20:.1f} MiB"
+            memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows

@@ -27,7 +27,8 @@ read the same call has already made (`got[<read name>]`), which `batches.visit` 
 checked, by `rank`, that the read's site comes first; an engine that runs the plan without `clab.steps` must
 resolve such an argument the same way. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
-block it loaded, `name` the name it registered under, `device` and `options` how it loaded.
+block it loaded, `name` the name it registered under, `device` and `options` how it loaded, `remote` what its
+session's `remote=` is (False for a run in this process; under any other, `steps.run` makes no CUDA call).
 """
 
 import inspect
@@ -53,6 +54,7 @@ class Engine(Protocol):
     spec: Model
     model: Parameterized
     options: dict[str, Any]
+    remote: bool | str
 
     @property
     def device(self) -> str | None: ...

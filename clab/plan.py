@@ -774,10 +774,11 @@ class Run(Record):
     tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept
     step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
     `layers` axis's labels are `selectors.select(site.layers, num_layers)`. `costs` holds what each step cost, by
-    name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak device `memory` allocated
-    during it in bytes (null where the model is not on CUDA), the model calls it made in `forwards` (each
-    forward, each call of a generation, its prefill and every decode call, and every forward a fit's body
-    makes) and the input `tokens` they fed, padding excluded."""
+    name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak `memory` allocated during it on
+    each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
+    run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
+    and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding
+    excluded."""
     engine: str
     batch_size: int
     device: str | None

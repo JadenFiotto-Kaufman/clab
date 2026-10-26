@@ -35,6 +35,7 @@ from clab.steps.batches import landed, now
 @engine("hooks")
 class HooksEngine:
     name: str
+    remote: bool | str = False          # it runs in this process
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s

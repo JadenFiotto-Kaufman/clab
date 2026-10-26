@@ -99,6 +99,23 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
             {k: local.costs["fit"][k] for k in ("forwards", "tokens")}
 
 
+def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines, monkeypatch):
+    """With the model on a CUDA device (stood in for here: torch's calls recorded, the device's peak 7 bytes), each
+    step synchronizes it, resets its peak and reads it back, by device; under the ndif engine, even
+    `remote="local"`, the run makes no CUDA call and `memory` is null."""
+    called: list[str] = []
+    for call in ("synchronize", "reset_peak_memory_stats", "max_memory_allocated"):
+        monkeypatch.setattr(torch.cuda, call, lambda *_, call=call: called.append(call) or 7)
+    monkeypatch.setattr("clab.steps.gpus", lambda engine: ["cuda:0"])
+    plan = plan_of("logit_lens")
+    local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
+    assert local.costs["lens"]["layers=0"]["memory"] == {"cuda:0": 7}
+    assert called[:3] == ["synchronize", "reset_peak_memory_stats", "synchronize"]
+    called.clear()
+    remote = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE).run
+    assert called == [] and all(c["memory"] is None for costs in remote.costs.values() for c in costs.values())
+
+
 def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     plan = plan_of("logit_lens")
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))

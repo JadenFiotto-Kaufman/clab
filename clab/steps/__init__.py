@@ -90,11 +90,13 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
 
 
 def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:
-    """What a step cost: `call`, which runs it, timed with the model's CUDA devices (`gpus`) synchronized at
-    both ends (`seconds`), the peak memory allocated on them while it ran, in bytes, summed over them (`memory`,
-    None where the model is not on CUDA), and the model calls it made and the tokens they fed, which `call`
-    returns (`forwards`, `tokens`)."""
-    devices = gpus(engine)
+    """What a step cost: `call`, which runs it, timed (`seconds`), with the model's CUDA devices (`gpus`)
+    synchronized at both ends; the peak memory allocated on each of them while it ran, weights included, in bytes
+    by device (`memory`, None where the model is not on CUDA); and the model calls it made and the tokens they
+    fed, which `call` returns (`forwards`, `tokens`). A remote engine's run makes no CUDA call and its `memory`
+    is None: on an NDIF server the process is the server's, whose own per-request accounting a reset of the
+    peak would clobber, and its sandbox's runner would measure its own tensors."""
+    devices = [] if engine.remote else gpus(engine)
     for device in devices:
         torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)
@@ -103,7 +105,7 @@ def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:
     for device in devices:
         torch.cuda.synchronize(device)
     seconds = round(time.perf_counter() - started, 3)
-    memory = sum(torch.cuda.max_memory_allocated(d) for d in devices) if devices else None
+    memory = {d: torch.cuda.max_memory_allocated(d) for d in devices} or None
     return {"seconds": seconds, "memory": memory, "forwards": count["forwards"], "tokens": count["tokens"]}
 
 
