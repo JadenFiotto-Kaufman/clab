@@ -169,7 +169,7 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whol
     sizes = engine.sizes()
     rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(cast(Site, record.site).component)[2:]]
     some = whole if whole is not None else values[0] if values else None
-    dtype = some.dtype if some is not None else getattr(torch, plan.model.dtype)
+    dtype = some.dtype if some is not None else getattr(torch, plan.model.computes)
     device = some.device if some is not None else None
 
     def at_position(i: int, p: int) -> Tensor:

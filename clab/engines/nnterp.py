@@ -14,14 +14,13 @@ import warnings
 from typing import Any
 
 import nnsight
-import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, nnterp_name, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -34,15 +33,16 @@ class NnterpEngine:
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
-        """The checkpoint `model` pins, placed by `device`: the loader's `device_map` when transformers computes
-        it, else its `device`; the block's other keys go to the loader as they are.
+        """The checkpoint `model` pins, in its dtype (`loading`), placed by `device`: the loader's `device_map`
+        when transformers computes it, else its `device`; the block's other keys go to the loader as they are.
 
         device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
         """
+        loaded = loading(model, "nnterp", device)
         self.spec, self.device, self.options = model, device, {}
         placed = {"device_map": device} if device in COMPUTED else {"device": device}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
+            model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);

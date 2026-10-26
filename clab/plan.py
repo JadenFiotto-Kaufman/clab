@@ -135,15 +135,29 @@ AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 
 
+# The quantized dtypes (nnsight's names for them) and the dtype each computes in: what its values, and the weights
+# it leaves alone (norms, embeddings, the head), are held in.
+QUANTIZED = {"nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16", "fp8": "bfloat16"}
+
+
 class Model(Record):
-    """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
+    """The pinned checkpoint: `key`, `revision` and `dtype`, torch's spelling of a float dtype or one of nnsight's
+    names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bits (NormalFloat, FloatPoint),
+    `int8` in its LLM.int8() 8 bits, and `fp8` in transformers' block-wise 8-bit floats, on a GPU of compute
+    capability 8.9 or later. A quantized model runs on CUDA only and computes in `bfloat16` (`int8` in `float16`),
+    which is the dtype its values have. Every other key goes to the
     engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
     the model runs (`device`) is a run option, not the document's. The attention interior needs
     `attn_implementation: "eager"`."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
-    dtype: Literal["float32", "float16", "bfloat16"] = "float32"
+    dtype: Literal["float32", "float16", "bfloat16", "nf4", "fp4", "int8", "fp8"] = "float32"
+
+    @property
+    def computes(self) -> str:
+        """The dtype the model computes in, which its values have: `dtype`, or a quantization's (`QUANTIZED`)."""
+        return QUANTIZED.get(self.dtype, self.dtype)
 
 
 class Data(Record):
@@ -767,7 +781,8 @@ class Run(Record):
     engine does not place the model, as on an NDIF server, and every engine option after its defaults in
     `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
     where the model is: the server's, under `ndif`). `dtype` and `devices` are the
-    distinct dtypes and devices of the model's parameters there, in the order first met. `tokens` and
+    distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
+    packed weights among them, `uint8` under `nf4`). `tokens` and
     `positions` describe values without holding any: how each dataset input tokenized and what each generate
     step's rows generated (token strings per row, under the input or the step's name), and the position every
     read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt

@@ -6,10 +6,10 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
 (the module whose output or input nnterp's own key for it names), the sizes,
 and what the checkpoint supports. A component nnterp reaches inside a
 module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs. `device` is one torch device, which the loaded model moves to, or a device map
-transformers computes (`auto`, `balanced`, ...), which `from_pretrained` takes as its `device_map` and which
-may spread the model over several GPUs; the batch's inputs go where the model's first parameter is, and
-transformers moves them on from there.
+before anything runs. `device` is one torch device, which the loaded model moves to (a quantized one, which
+cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
+`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs
+go where the model's first parameter is, and transformers moves them on from there.
 """
 
 import time
@@ -25,7 +25,7 @@ from transformers import AutoModelForCausalLM
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, nnterp_name, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -37,12 +37,16 @@ class HooksEngine:
     name: str
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
-        """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
-        `device_map` when transformers computes it, else moved there once loaded), with what the meta shell says
-        of it: each component's native module and boundary, and the sizes.
+        """The checkpoint `model` pins, as `AutoModelForCausalLM` in its dtype (`loading`) placed by `device`
+        (`from_pretrained`'s `device_map` when transformers computes it or the model is quantized, else moved there
+        once loaded), with what the meta shell says of it: each component's native module and boundary, and the
+        sizes.
 
         device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
         """
+        loaded = loading(model, "hooks", device)
+        # A quantized model cannot move once loaded, so it loads where it goes.
+        mapped = device in COMPUTED or "quantization_config" in loaded
         shell = build(model, "hooks", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
         support = shell.support()
@@ -51,9 +55,8 @@ class HooksEngine:
         self.tokenizer = shell.tokenizer
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
-            model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
-            device_map=device if device in COMPUTED else None, **extra).eval())
-        if device not in COMPUTED:
+            model.key, revision=model.revision, **loaded, device_map=device if mapped else None, **extra).eval())
+        if not mapped:
             self.model.to(device)
         self.config["order"] = order(self.model, sites, batches.home(self))
 
