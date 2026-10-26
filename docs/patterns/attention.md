@@ -2,7 +2,7 @@
 title: Attention Experiments
 one_liner: "Experiments inside attention: knocking out a head or keys through the scores or the pattern renormalized by sum, patching a head's pattern while keeping its values, and reading queries and keys after RoPE."
 tags: [patterns, attention]
-related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md]
+related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/usage/positions.md, docs/usage/output.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md]
 sources: [clab/ops/edits.py, clab/compile/interventions.py, clab/steps/batches.py]
 ---
 
@@ -20,6 +20,27 @@ The attention interior is the queries, keys and values, the scores entering the 
 ```
 
 The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each row's own tokens in order, key 0 its BOS, as wide as the longest row and NaN past a shorter row's last token, so a row's keys sum to 1 over the entries that are there ([sites](../usage/sites.md) has the key axis). Without eager, preflight refuses the read by name ([sites](../usage/sites.md#attention-needs-eager)); eager and sdpa differ in the last bits, so compare runs under one implementation ([engines](../usage/engines.md#cross-checking-with-hooks)).
+
+### A key that moves by row
+
+A `key` selector picks the same indices on every row, so it cannot follow a word that sits at a different position on each. Read the whole `key` axis, and add a marker entry scoped on the word: a read with no ops, which nothing names, so it costs nothing, while `run.positions` records where it landed on each row. That position is the word's key index into the saved pattern. In the document above:
+
+```json
+"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+  "pattern": {"site": "pattern", "pos": -1},
+  "entity": {"site": "pattern", "pos": {"scope": {"column": "pairs.entity"}, "index": -1}}}}
+```
+
+```python
+from clab import Plan
+
+plan = Plan.load("out/attention_knockout")
+pattern, tokens = plan.results["clean.pattern"], plan.run.tokens["pairs.input"]
+for row, (key,) in enumerate(plan.run.positions["clean.entity"]):
+    print(row, key, tokens[row][key], pattern[row, 0, :, key])    # each head's weight on the word
+```
+
+Row 0's entity ends at key 6 (`day`, of `▁Th urs day`), the other rows' at key 4 (`▁Friday`, `▁Saturday`, `▁Sunday`).
 
 ## Knocking out a head
 

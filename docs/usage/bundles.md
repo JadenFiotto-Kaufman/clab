@@ -94,11 +94,13 @@ Run the training document again with the sweep replaced by the value you want to
 
 ## Reproducing a fit's numbers in the apply document
 
-A fit's body runs in batches of the fit's `batch_size`; the apply document runs in batches of `--batch-size` (default 8). A row's numbers are guaranteed to the bit only at one batch shape ([running.md](running.md)); rows of one length, which need no padding, often match at any, as `das_apply.json`'s two test rows do at batch sizes 1, 2 and 8. A probe fitted with `batch_size` 10 gives held-out scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default. Pass the fit's `batch_size` as `--batch-size` when you compare the two bit for bit.
+A fit's body runs in batches of the fit's `batch_size`; the apply document runs in batches of `--batch-size` (default 8). A row's numbers are guaranteed to the bit only at one batch shape ([running.md](running.md)). On the CPU, the apply document run at the fit's `batch_size` reproduces the fit's held-out numbers to the bit: a probe fitted with `batch_size` 10 gives held-out scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default, and `das_apply.json`'s two test rows match `das.json`'s at any batch size that holds both in one batch, as the fit does, and can differ in the last bits at `--batch-size 1`. Pass the fit's `batch_size` as `--batch-size` when you compare the two bit for bit.
+
+On a GPU the loaded featurizer can give numbers that differ from the trained one's in the last bits even at the fit's batch size: on Llama-3.2-1B, a rank-1 subspace at batch size 50 gave logit differences up to 2.1e-5 apart on 63 of 200 rows, with identical `match`. Compare at a tolerance there.
 
 ## Reading back a run that loads a bundle
 
-`clab show` and `clab table` rebuild the plan from the run's manifest, which names the bundle by its `file_path`, and read it again from the working directory. Run them from the corpus root, with the bundle still there; from anywhere else they stop with the compile refusal:
+`clab show`, `clab table` and `Plan.load` rebuild the plan from the run's manifest, which names the bundle by its `file_path`, and read it again from the working directory. Run them from the corpus root, with the bundle still there; from anywhere else they stop with the compile refusal (in Python, a `PlanError`):
 
 ```text
 clab: documents/artifacts/fit.rot.safetensors does not exist under the corpus root; run the document that writes it first

@@ -70,7 +70,7 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 
 ## Chat turns
 
-`{"scope": {"turn": "<role>"}}` is one message of that role, `occurrence` counting that role's messages (`":"` is all of them). Its tokens are the message's content as the template renders it; the template's markers (`[INST]`, `[/INST]`, `</s>`) belong to no turn, so `index: -1` of a turn is the message's own last token. Without a scope, `-1` is the template's close of the last message: 36 `]` in `documents/chat_turn.json`. A turn takes frame 0, and on an input that is text, not a chat, it is refused. Rendering chats is [data.md](data.md#chat-inputs).
+`{"scope": {"turn": "<role>"}}` is one message of that role, `occurrence` counting that role's messages (`":"` is all of them). Its tokens are the message's content as the template renders it; the template's markers (`[INST]`, `[/INST]`, `</s>`) belong to no turn, so `index: -1` of a turn is the message's own last token. Without a scope, `-1` is the template's close of the last message: 36 `]` in `documents/chat_turn.json`. A turn takes frame 0, and on an input that is text, not a chat, it is refused. A turn is a message the row holds: a system header that the template writes when the chat has none (Llama-3.2's does) is positions but no turn, and `{"turn": "system"}` there is refused with `row 0: the row has no 'system' message`. Rendering chats is [data.md](data.md#chat-inputs).
 
 ## Generated tokens
 

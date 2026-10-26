@@ -67,7 +67,7 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 | `value` | one name | the element, or the remaining axes as nested lists; with several names, one column per name |
 | `alignment_missing` | some row was not reached | `true` on a row a read beyond the prefill never reached, with no value ([alignment-missing.md](../errors/alignment-missing.md)) |
 
-- **Several names join on their shared axes.** A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Names with rows of two different datasets are refused. Names that share no value of an axis, such as two reads at different positions, or values swept over different axes, join to no rows: the table prints nothing and exits 0. Table them one at a time.
+- **Several names join on their shared axes.** A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Names with rows of two different datasets are refused. Names that share no value of an axis, such as two reads at different positions, or values swept over different axes, join to no rows: the table prints nothing and exits 0. Table them one at a time. Two `fit.history` values do not pair by epoch: `clab table out fit.history.a fit.history.b` prints every pair of epochs, 2,500 rows for two 50-epoch histories, so table one history at a time.
 - **A value without rows** gives one row per element, labelled with its axis indices; a scalar is one row holding `value`.
 - **Positions past a row's own are left out.** A ragged read on a short row has fewer table rows, not NaN rows.
 - **Only saved names can be tabled**, and a bundle cannot be: read it from `plan.results`. A `top_k` value with no rows (a `top_k` of a `mean`) is refused with the bundle's message, `a bundle has no rows to table`; read it as `Plan.load(OUT).results[name]`.
@@ -84,7 +84,7 @@ plan.table("iia", columns=["entity"])     # choose the dataset columns; [] for n
 plan.run.positions["patched.logits"]      # [[10], [8], [8], [8]]
 ```
 
-`plan.table` takes the same names and returns a list of dicts; `columns=` replaces the default dataset columns, which the command line cannot do. A swept result is a dict keyed by coordinate; the key's form in each place is in [sweeps.md](sweeps.md#reading-swept-results). A value loaded from JSON is a tensor again where it was one.
+`plan.table` takes the same names and returns a list of dicts; `columns=` replaces the default dataset columns, which the command line cannot do. A swept result is a dict keyed by coordinate; the key's form in each place is in [sweeps.md](sweeps.md#reading-swept-results). A value loaded from JSON is a tensor again where it was one. `Plan.load` needs no data files, but it rebuilds the plan, so a run that loaded a bundle loads only where that bundle's `file_path` resolves ([bundles.md](bundles.md#reading-back-a-run-that-loads-a-bundle)).
 
 ## Tabling needs the rows
 

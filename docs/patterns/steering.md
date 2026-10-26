@@ -1,6 +1,6 @@
 ---
 title: Steering
-one_liner: "Steering with a direction: harvest a mean difference, add it at a dose, sweep the dose, renormalize, clamp, and keep the write on through every generated token."
+one_liner: "Steering with a direction: harvest a mean difference, add it at a dose beside a matched random direction, sweep the dose, renormalize, clamp, and keep the write on through every generated token."
 tags: [patterns, steering]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/usage/sweeps.md, docs/usage/generate.md, docs/patterns/generation-experiments.md, docs/patterns/ablation.md]
 sources: [clab/ops/edits.py, clab/ops/reductions.py, clab/steps/batches.py]
@@ -83,6 +83,21 @@ How to read and choose the doses:
 - **Doses are lengths against the activation's norm.** `base.resid` is saved so the norm can be read back: about 0.075 here, so the doses run from about a quarter of the activation's length to four times it. A dose far below the norm does nothing; one far above it replaces the activation.
 - **`effect` is the target, `drift` the cost.** `kl` against the unsteered logits measures how far the whole distribution moved. The useful band is where the target metric moves while the drift stays small; past it the model is being broken, not steered. On a real model, generate at each dose and read the text as well.
 - **Check the difference before using it.** `difference` is saved for its norm. Two prompt sets that are the same prompts in another order (the base and counterfactual columns of `data/weekdays/train.json` are) give a difference of rounding noise, about 4e-9, which `normalize` turns into a unit vector pointing nowhere in particular; a difference of exactly zero makes `normalize` NaN, and every dose of it, 0 included, NaN.
+
+### A matched random direction
+
+"The direction does this and a random one does not" is a fair comparison only when the random direction is as long. Draw one from noise and give it the difference's norm, as steps after `direction`:
+
+```json
+"squares": {"kind": "op", "op": "scale", "of": "difference", "factor": "direction"},
+"norm": {"kind": "op", "op": "sum", "of": "squares", "over": ["hidden_size"]},
+"zero": {"kind": "op", "op": "scale", "of": "difference", "factor": 0.0},
+"draw": {"kind": "op", "op": "noise", "of": "zero", "scale": 1.0, "seed": 7},
+"random_unit": {"kind": "op", "op": "normalize", "of": "draw"},
+"random": {"kind": "op", "op": "scale", "of": "random_unit", "factor": "norm"}
+```
+
+`norm` is the difference's length, the difference times its own unit vector summed, since no op takes a norm ([ops](../usage/ops.md#what-is-not-an-op)). `noise` on a value with no rows is one Gaussian draw from its `seed`, `normalize` makes it unit length, and `scale` gives it the difference's norm: on the corpus, `random`'s norm equals `difference`'s to the bit at seeds 7, 8 and 9. Add `random` at the same doses as `difference` in a forward of its own, and sweep `seed` for the spread a real direction has to clear. Steering with the unit `direction`, as the document above does, the matched control is `random_unit`.
 
 ## Clamping
 

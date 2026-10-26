@@ -35,7 +35,7 @@ A metric that scores a column (`match`, `token_prob`, `token_logit`, `logit_diff
 iia: pairs.ans row 0: ' Tuesday' is 3 tokens; the read has 1 position on that row; token i of an answer scores the read's position i, so the read carries one per token (a scope with "before": true reads the positions that predict the answer's tokens)
 ```
 
-The answer is several tokens and the read is one position (`pos: -1`). Teacher-force the answer as above, or give the column an answer of one token per row. On byte-level BPE tokenizers a missing leading space is a common cause: the corpus's GPT-2 tokenizer writes `three` as `th`, `ree` and ` three` as one token, so a column holding `three` is refused where ` three` would score.
+The answer is several tokens and the read is one position (`pos: -1`). Teacher-force the answer as above, or give the column an answer of one token per row. On byte-level BPE tokenizers a missing leading space is a common cause: the corpus's GPT-2 tokenizer writes `three` as `th`, `ree` and ` three` as one token, so a column holding `three` is refused where ` three` would score. A hub column without the space cannot be fixed inside a document: write its rows with the space added ([data.md](../usage/data.md#answer-columns)).
 
 One ending names a whitespace-only token as the difference:
 

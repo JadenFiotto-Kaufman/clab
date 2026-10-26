@@ -2,7 +2,7 @@
 title: Interventions
 one_liner: "Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, writes across layers, named bundles of entries, and the null control every document should carry."
 tags: [usage, interventions]
-related: [docs/usage/ops.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/featurizers.md, docs/patterns/activation-patching.md]
+related: [docs/usage/ops.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/featurizers.md, docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md]
 sources: [clab/compile/interventions.py, clab/compile/arguments.py, clab/steps/batches.py, clab/ops/edits.py]
 ---
 
@@ -42,7 +42,7 @@ The model's logits are bit-identical to those of `[add]` alone, and `x` is one p
 steps.s.interventions.x.ops[1]: 'add' is an edit, which writes back, and it follows 'readout', which turned the value into ['rows', 'pos', 'vocab_size']: there is no live value to write; an edit comes before it, or put the transform in a later entry at this site
 ```
 
-Between entries, a step runs them in the order written (a list's items in turn, a bundle's entries where its name stands). Entries at different sites act as the forward reaches them; entries at one site compose in order. A read listed before a write at the same site sees the value before the write, a read listed after it sees the written value.
+Between entries, a step runs them in the order written (a list's items in turn, a bundle's entries where its name stands). Entries at different sites act as the forward reaches them; entries at one site compose in order. A read listed before a write at the same site sees the value before the write, a read listed after it sees the written value. Of two writes at one site, the later wins where they overlap: a freeze that should protect a patch is listed before it. Listed after it, the freeze puts the clean value back, every point equals the clean run, and the nulls still pass ([path patching](../patterns/head-and-neuron-patching.md#path-patching) is the recipe).
 
 ## Edit recipes
 
@@ -61,11 +61,11 @@ The signatures are in [FORMAT.md#edits](../../FORMAT.md#edits); this is which ed
 | give each vector unit length | `{"op": "normalize"}` | |
 | restore the norm the site had before this step's writes | `{"op": "renormalize"}` | `documents/steer_renormalize.json` |
 
-`renormalize` rescales to the value at the site before any of the step's writes, so it goes after the write it corrects, in the same entry or a later one of the same step; listed before it, it changes nothing. On an attention pattern use `"norm": "sum"` ([attention](../patterns/attention.md)). `decode` and `apply` are featurizer edits: [featurizers](featurizers.md). Every edit computes in float32 and rounds once to the value's dtype ([ops](ops.md#the-float32-rule)).
+`renormalize` rescales to the value at the site before any of the step's writes, so it goes after the write it corrects, in the same entry or a later one of the same step; listed before it, it changes nothing. On an attention pattern use `"norm": "sum"` ([attention](../patterns/attention.md)). `project_out` divides its `direction` by its norm first, so the direction's length does not matter: one 1000 times longer gives the same values to float rounding (5.6e-9 apart on the corpus). `decode` and `apply` are featurizer edits: [featurizers](featurizers.md). Every edit computes in float32 and rounds once to the value's dtype ([ops](ops.md#the-float32-rule)).
 
 ## Operands
 
-An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a named value. A number broadcasts everywhere. A named value from an earlier step is laid out like the write's selection (the same rows and positions) or is one vector of its features, which broadcasts over rows and positions. Three consequences:
+An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a named value. A number broadcasts everywhere, and so does a named value with no axes (a `mean` of a metric). A named value from an earlier step is otherwise laid out like the write's selection (the same rows and positions) or is one vector of its features, which broadcasts over rows and positions. A metric's `[rows, pos]` value is neither, so it is refused as an operand, a per-row `factor` for `scale` included: `'p' is laid out ['rows', 'pos']; this write's value is ['rows', 'pos', 'hidden_size'] here, so an operand is ['hidden_size'] or ['rows', 'pos', 'hidden_size']`. Three consequences:
 
 - A value with a rows axis belongs to its dataset, not to its file: two datasets that read the same `path` are two. Written on another dataset's rows, or met with one in an op step (a `kl` and its `against`), it is refused: `'other.input' has a row per example of 'other' and 'harvest.acts' of 'pairs'; an op takes one dataset's rows`. A `mean` step removes the rows, so a mean harvested on one dataset can be written into any other.
 - A read whose rows hold different numbers of positions (an `{"index": ":"}` over prompts of different lengths, a whole-entity scope) pairs with nothing in another forward; read it at a static index (`-1`, `{"index": "-6:"}`) or reduce it first.
@@ -81,7 +81,7 @@ An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a name
 }
 ```
 
-In a step named `samefwd` this gives the same logits, to the bit, as reading `src` in a separate forward first, and saves that forward. Compile refuses an operand naming a later entry, or an entry with ops after its edits (those run only once the forward is over); preflight refuses one read at a site the forward reaches later (layer 1 into layer 0). Inside a `generate` step an operand cannot name an entry of the same step: read it in an earlier step.
+In a step named `samefwd` this gives the same logits, to the bit, as reading `src` in a separate forward first, and saves that forward. Such an operand may be ragged, since each row pairs with itself: a self-swap at a whole-entity scope (`{"scope": {"column": "pairs.entity"}}`, three tokens on one row of `weekdays/train` and one on the others) leaves the logits bit-identical to the clean run, where the same read from another forward is refused. Compile refuses an operand naming a later entry, or an entry with ops after its edits (those run only once the forward is over); preflight refuses one read at a site the forward reaches later (layer 1 into layer 0). Inside a `generate` step an operand cannot name an entry of the same step: read it in an earlier step.
 
 ## Writes across layers
 
