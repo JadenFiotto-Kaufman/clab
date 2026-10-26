@@ -7,7 +7,7 @@
 - **Base PRs on `master`.**
 - Commit messages are one plain declarative sentence.
 - A format change is proposed with before-and-after JSON and lands only when the owner ratifies it.
-- `FORMAT.md` is generated: regenerate it with `uv run clab describe --markdown > FORMAT.md` in the same commit as the code.
+- `FORMAT.md` is generated: regenerate it with `uv run clab describe --markdown` from the repo root (it writes the file; do not redirect) in the same commit as the code.
 - Docs change in the same PR as the code that invalidates them.
 - Conventions: [docs/developing/contributing.md](docs/developing/contributing.md).
 
