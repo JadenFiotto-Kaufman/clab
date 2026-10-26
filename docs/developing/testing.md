@@ -13,11 +13,11 @@ The suite runs every corpus document on tiny checkpoints, offline and on CPU, an
 ## Running the suite
 
 ```bash
-CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 OMP_NUM_THREADS=2 uv run pytest tests/ -q
+CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 ```
 
 - `tests/conftest.py` sets `CUDA_VISIBLE_DEVICES` empty and `HF_HUB_OFFLINE=1` when they are unset, so a plain `uv run pytest tests/` already runs on CPU and offline. Setting either yourself overrides it; that is how the GPU tests run.
-- `OMP_NUM_THREADS` caps torch's CPU threads; keep it small when other jobs share the machine.
+- Run the suite at the machine's default thread count. Two pins depend on it: forcing `OMP_NUM_THREADS` to 2 fails the batch-companion test, and forcing 1 moves a fit's history pin past its tolerance. Cap threads for single documents, not for the suite.
 - Checkpoints and datasets come from the local Hugging Face cache: the tiny Llama and tiny GPT-2 the corpus pins, a tiny Qwen3 for chat templates (`tests/test_positions.py`), and the hub fixture `tests/test_hub.py` reads, whose docstring has the command that fetches it. On a fresh cache, run once with `HF_HUB_OFFLINE=0` and hub access.
 - One file, or tests by name: `uv run pytest tests/test_ops.py -q`, `uv run pytest tests/test_ops.py -k clamp -q`. In the files that run the corpus, a module-scoped fixture (`filled`, `ran`) runs all of the file's documents for the first selected test that asks for it, so selecting one such test still runs them all.
 

@@ -36,4 +36,20 @@
 
 ## Before writing a clab document
 
-<!-- filled by the orchestrator after the content and usability phases; every line here must be a verified fact -->
+- **An entry with an edit in `ops` writes; one without `ops` only reads.** A write whose `ops` list is lost runs and returns exactly the unpatched numbers. See [usage/interventions.md](docs/usage/interventions.md).
+- **Write each answer column as the model continues the prompt, leading space included.** On a byte-level BPE tokenizer `a` and ` a` are two valid one-token answers, and the wrong one is scored without a refusal. See [usage/data.md](docs/usage/data.md#answer-columns).
+- **Check `run.positions` before trusting a scoped read, and scope a teacher-forced answer with `"occurrence": -1`.** `occurrence` defaults to the first match, which is the prompt's copy when the prompt says the answer too. See [usage/positions.md](docs/usage/positions.md#check-where-it-landed).
+- **Give each of two sweeps of one field its own `label`.** Unlabelled, they share the field's name and zip into the diagonal instead of a grid. See [usage/sweeps.md](docs/usage/sweeps.md#labels-zip-or-cross).
+- **To patch one layer at a time, sweep `layers`; a slice or list on a write patches every picked layer in one forward.** Sweep a patch's read `pos` together with its write `pos`, or the last token's value lands at every position. See [usage/interventions.md](docs/usage/interventions.md#writes-across-layers), [patterns/activation-patching.md](docs/patterns/activation-patching.md#a-layer-by-position-map).
+- **After a fit, name the trained featurizer `<fit>.<name>`.** The bare name is the untrained draw, and it runs without a refusal. See [usage/fit.md](docs/usage/fit.md#members).
+- **Write `do_sample: false` on every generate step.** Options a step leaves out come from the checkpoint's generation config, which may sample, and nothing seeds sampling. See [usage/generate.md](docs/usage/generate.md#options).
+- **Count `alignment_missing` rows before reading a mean over a generation.** Reductions skip the rows a read never reached, and nothing in the number says so. See [errors/alignment-missing.md](docs/errors/alignment-missing.md#count-it-prevent-it-or-refuse-it).
+- **State a published SAE's `site`, `centered` and `activation` from its release, and compare the measured L0 with the release's.** The file says none of them, and a wrong value runs. See [usage/featurizers.md](docs/usage/featurizers.md#loading-a-published-sparse-autoencoder).
+- **Compare runs to the bit only at one `--batch-size` and one thread count.** A different batch shape moves the last bits. See [usage/running.md](docs/usage/running.md).
+
+## Before changing clab
+
+- **A check that needs the model belongs in preflight, never in compile.** Compile runs on the client under `ndif`; preflight runs where the model is. See [developing/architecture.md](docs/developing/architecture.md#where-the-code-holds-the-five-constraints).
+- **`@op` alone registers nothing: add the op to the ordered list at the end of `clab/ops/__init__.py`**, and a new featurizer kind to the import line at the end of `clab/featurizers/__init__.py`. See [developing/extending.md](docs/developing/extending.md).
+- **Add a component only under a name nnterp's `support()` lists.** Otherwise the nnterp engine counts it as served and the hooks engine fails to load for every document. See [developing/extending.md](docs/developing/extending.md#adding-a-component).
+- **Run the suite at the machine's default thread count.** Its pins were made there, and forcing `OMP_NUM_THREADS` to 1 or 2 moves two of them. See [developing/testing.md](docs/developing/testing.md).
