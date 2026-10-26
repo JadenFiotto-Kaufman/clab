@@ -125,6 +125,8 @@ def lookup(state: dict, name: str, at: dict[str, int]) -> Any:
 def by_coordinate(plan: Plan, by_point: dict) -> Any:
     """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
     the point's coordinate as text, in point order (points that share a forward record theirs together)."""
+    # Sorted: a step's points are numbered in axis order (`compile.expand`), each coordinate a tuple of its
+    # `(label, index)` pairs in that order, so their sort is point order.
     return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in sorted(by_point.items())}
 
 
