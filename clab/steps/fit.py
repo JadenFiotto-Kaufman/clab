@@ -22,12 +22,14 @@ if TYPE_CHECKING:
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
 
-def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_size: int, found: Found) -> Counter:
+def fit(engine: Engine, plan: Plan, name: str, group: list[Fit], state: dict, batch_size: int,
+        found: Found) -> list[Counter]:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
-    each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
-    gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
-    weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there.
-    Returns the model calls every run of its body made and the tokens they fed."""
+    each part means), at `group`'s one point. The optimizer and every trained featurizer are made here, inside the
+    run; each minibatch's gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone,
+    so the model's weights never hold a gradient. The featurizers are made where the model is, so the optimizer
+    runs there. Returns the model calls every run of its body made and the tokens they fed."""
+    (step,) = group
     sources = lookup(found.bodies, name, step.at)
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
@@ -97,7 +99,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
         put(state, f"{name}.{f}", step.at, inst)
     for key, values in history.items():         # `epochs: 0` scores the untrained draw: an empty history
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
-    return count
+    return [count]
 
 
 def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[str, Kind], source: tuple[Plan, Found],
@@ -117,7 +119,7 @@ def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[st
     count = Counter()
     with torch.set_grad_enabled(index is not None):
         for n, s in step.steps.items():
-            count += KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
+            count += KINDS[cast(Step, s).kind](engine, plan, n, [s], body, step.batch_size, found)[0]
     return body, count
 
 

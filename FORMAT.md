@@ -388,8 +388,8 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills:
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order: the paths its sweeps stand at, and their values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `dims` (the layout of the value the entry binds), `space` (the coordinates that value is in: the encodes its ops leave open, outermost first, each its `featurizer` and `select`; none for the site's own layout), `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it)
-- `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
-- `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
+- `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `shares` (the coordinate (`layers=0`) of the step's first point that differs from this one only in entries that do not write, whose forward serves both; none where the point runs its own)
+- `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `shares` (the coordinate (`layers=0`) of the step's first point that differs from this one only in entries that do not write, whose forward serves both; none where the point runs its own)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against)
 
@@ -806,6 +806,13 @@ of them a `label`. A step that uses a swept thing, or references a value that va
 points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
 sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
 tuple of them in axis order.
+
+Points of one `forward` or `generate` step that differ only in entries that do not write share one forward:
+they have one `input`, the same options and the same writes, each write its site, positions, ops up to its
+last edit and operands (one from a swept step the same only at the same point of it), while what they read,
+and the ops after a write's last edit, may differ. Compile writes the first such point's coordinate in each
+other's `shares`, and the run makes that forward once with every point's reads, each bound at its own point,
+so each point's values are those its own forward would give, to the bit (a read never changes a forward).
 
 ## Saves and the output
 

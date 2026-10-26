@@ -38,8 +38,9 @@ def lengths(run, name: str) -> int:
 
 def test_every_step_and_point_has_a_cost_and_a_forward_one_call_per_batch(engines):
     """logit_lens: `lens` is swept over two layers, so its cost and its ops' are keyed by coordinate as
-    `positions` are; each point of the forward is two batches of two of the four rows, each prompt token fed once;
-    an op calls no model; off CUDA no memory is measured."""
+    `positions` are; its two points only read, so they share one forward, two batches of two of the four rows,
+    each prompt token fed once, which the first point records and the second does not; an op calls no model; off
+    CUDA no memory is measured."""
     plan = plan_of("logit_lens")
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert list(run.costs) == list(plan.steps)
@@ -50,7 +51,7 @@ def test_every_step_and_point_has_a_cost_and_a_forward_one_call_per_batch(engine
             assert set(cost) == COST and cost["memory"] is None and cost["seconds"] >= 0
     prompts = lengths(run, "prompts.input")
     assert prompts == 38
-    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts)] * 2
+    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts), (0, 0)]
     assert all((c["forwards"], c["tokens"]) == (0, 0) for name in ("p_answer", "top1")
                for c in run.costs[name].values())
 
@@ -121,7 +122,8 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
 
 def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     """A fresh ndif engine under `remote="local"`: its shell has loaded its weights, and nnterp measured its forward
-    order, before the first step's timer starts, so that no step's cost holds either."""
+    order, before the first step's timer starts, so that no step's cost holds either (one timer per group of
+    points: `lens`'s two share a forward, then each op point's)."""
     from nnterp import order
 
     from clab.engines import load
@@ -133,7 +135,7 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
                         or measured(engine, call))
     plan = plan_of("logit_lens")
     load("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
-    assert seen == ["order"] + [("step", True)] * 6
+    assert seen == ["order"] + [("step", True)] * 5
 
 
 def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
@@ -144,7 +146,7 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
     rows = [line.split() for line in shown[4:10]]
     assert [(r[0], r[1], r[3], r[4], r[5]) for r in rows] == [
-        ("lens", "layers=0", "—", "2", "38"), ("lens", "layers=1", "—", "2", "38"),
+        ("lens", "layers=0", "—", "2", "38"), ("lens", "layers=1", "—", "0", "0"),
         ("p_answer", "layers=0", "—", "0", "0"), ("p_answer", "layers=1", "—", "0", "0"),
         ("top1", "layers=0", "—", "0", "0"), ("top1", "layers=1", "—", "0", "0")]
     assert all(float(r[2]) >= 0 for r in rows)

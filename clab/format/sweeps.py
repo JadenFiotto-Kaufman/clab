@@ -31,6 +31,13 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
     sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
     tuple of them in axis order.
+
+    Points of one `forward` or `generate` step that differ only in entries that do not write share one forward:
+    they have one `input`, the same options and the same writes, each write its site, positions, ops up to its
+    last edit and operands (one from a swept step the same only at the same point of it), while what they read,
+    and the ops after a write's last edit, may differ. Compile writes the first such point's coordinate in each
+    other's `shares`, and the run makes that forward once with every point's reads, each bound at its own point,
+    so each point's values are those its own forward would give, to the bit (a read never changes a forward).
     """
     found: dict[tuple, str] = {}
     first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values
@@ -113,8 +120,8 @@ def lookup(state: dict, name: str, at: dict[str, int]) -> Any:
 
 def by_coordinate(plan: Plan, by_point: dict) -> Any:
     """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
-    the point's coordinate as text."""
-    return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
+    the point's coordinate as text, in point order (points that share a forward record theirs together)."""
+    return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in sorted(by_point.items())}
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:

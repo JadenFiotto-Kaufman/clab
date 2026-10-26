@@ -67,7 +67,8 @@
     "at": {
      "layers": 1
     },
-    "dataset": "prompts"
+    "dataset": "prompts",
+    "shares": "layers=0"
    }
   ],
   "p_answer": [

@@ -15,10 +15,11 @@ site's narrowing) is the models' to check, when the plan is built. How names res
 """
 
 import itertools
+import json
 from dataclasses import replace
 from typing import Any, Callable
 
-from clab import featurizers
+from clab import featurizers, ops
 from clab.compile.answers import column_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
 from clab.compile.interventions import entry, items
@@ -26,7 +27,7 @@ from clab.compile.state import Compiling, Known
 from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data
-from clab.format.sweeps import find_sweeps
+from clab.format.sweeps import agreeing, find_sweeps, labelled
 from clab.plan import (
     Data,
     Entry,
@@ -38,10 +39,12 @@ from clab.plan import (
     Plan,
     arguments,
     corpus_root,
+    entries,
     fail,
     gathers,
     kind_of,
     points,
+    writes,
 )
 
 
@@ -84,6 +87,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
+    shared(done)
     return done
 
 
@@ -172,6 +176,47 @@ def point(cx: Compiling, at: dict[str, int]) -> Plan:
             return value
         cx.points[key] = Plan(**substitute(cx.doc, ()))
     return cx.points[key]
+
+
+def shared(plan: Plan) -> None:
+    """Each point of a forward or generate step whose forward an earlier point of the step serves too: the first
+    with the same `forwarded` key, whose coordinate the point `shares`. The run groups the points by it."""
+    for name, entry in plan.steps.items():
+        first: dict[str, Forward] = {}
+        for step in points(entry):
+            if isinstance(step, Forward):
+                key = forwarded(plan, name, step)
+                if key in first:
+                    step.shares = labelled(plan, first[key].at)
+                else:
+                    first[key] = step
+
+
+def forwarded(plan: Plan, name: str, step: Forward) -> str:
+    """What decides the forward a point of step `name` runs, as text: its input, its options (a generation's), and
+    each entry that writes, in order, by its name, site, positions and ops up to its last edit, an operand that
+    names a value or a featurizer as that name at its producer's point that agrees with this one (`agreeing`), one
+    that names an earlier entry of the step as that entry's site and positions. The entries that only read, and
+    the ops after a write's last edit, are not in it: two points with one key differ in reads alone, which never
+    change a forward, so one forward serves both. It is built from the compiled point, never from a value."""
+    own = entries(step)
+
+    def operand(value: str) -> Any:
+        thing, _, member = value.partition(".")
+        if thing == name and member in own:
+            return own[member].model_dump(mode="json", include={"site", "pos"})
+        producer = plan.steps[thing] if thing in plan.steps else plan.featurizers[thing]
+        return {"name": value, "at": agreeing(producer, step.at).at}
+
+    def resolved(o: Any) -> dict:
+        params = ops.parameters(o.op)
+        return {k: operand(v) if k in params and params[k].annotation in (ops.Value, ops.Featurizer)
+                and isinstance(v, str) else v for k, v in o.model_dump(mode="json").items()}
+    written = [[key, record.model_dump(mode="json", include={"site", "pos"}),
+                [resolved(o) for o in record.ops[:len(record.ops) - len(gathers(record))]]]
+               for key, record in own.items() if writes(record)]
+    return json.dumps({"input": step.model_dump(mode="json")["input"], "options": step.model_extra or {},
+                       "writes": written}, sort_keys=True)
 
 
 def footprint(cx: Compiling, where: tuple) -> list[tuple]:

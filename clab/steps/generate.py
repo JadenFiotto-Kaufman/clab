@@ -17,9 +17,11 @@ from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, ho
 from clab.steps.batches import (
     bind,
     chunked,
+    clock,
     decoding,
     edit,
     fed,
+    gpus,
     joined,
     layers,
     read,
@@ -41,74 +43,90 @@ def stops(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int,
-             found: Found) -> Counter:
-    """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
-    options; each gathered entry joined along rows, and the new ids joined into the step's value.
+def generate(engine: Engine, plan: Plan, name: str, group: list[Generate], state: dict, batch_size: int,
+             found: Found) -> list[Counter]:
+    """The step's input in consecutive batches, each through `engine.generate` once for the points of `group`
+    (those that share the generation; one point where none does) with the step's own keys as its options; each
+    point's gathered entries joined along rows, and the new ids, the same for each, joined into its value.
 
     An entry in the prefill (`frame: 0`) binds as a forward's (`bind`); one beyond it goes to the engine in
     parts (`beyond`) and resolves after the generation from what each row generated (`landed_at`); a row that
     stopped before a call a write selects is not written there and is recorded as missing. The resolution is
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
-    their EOS to the longest batch's. Returns the model calls it made, one per new token of each batch (its
-    prefill, then a decode call for each token after the first), and the tokens they fed (`fed`): the
-    prompts', then each row's generated tokens but its last, which is its EOS (fed to it on the call after it says
-    it, and not counted, as the padding after it is not) or the generation's last token, which no call is fed."""
+    their EOS to the longest batch's. Returns what each point cost: the first, the model calls the generation
+    made, one per new token of each batch (its prefill, then a decode call for each token after the first), and
+    the tokens they fed (`fed`): the prompts', then each row's generated tokens but its last, which is its EOS (fed
+    to it on the call after it says it, and not counted, as the padding after it is not) or the generation's last
+    token, which no call is fed; each, the nanoseconds its own ops after the generation took."""
+    step = group[0]
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
-    every = entries(step)
-    first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
-    after = {k: r for k, r in every.items() if k not in first}
-    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
-    parts, new, resolved, count = [], [], {f"{name}.{key}": [] for key in after}, Counter()
-    most = horizon(step)
+    firsts = [{k for k, r in entries(p).items() if positions.prefill(positions.parse(r.pos))} for p in group]
+    afters = [{k: r for k, r in entries(p).items() if k not in first} for p, first in zip(group, firsts)]
+    picks = [{key: lookup(found.selects, f"{name}.{key}", p.at) for key in after} for p, after in zip(group, afters)]
+    parts: list[list] = [[] for _ in group]
+    resolved = [{f"{name}.{key}": [] for key in after} for after in afters]
+    new, count, most, devices = [], [Counter() for _ in group], horizon(step), [] if engine.remote else gpus(engine)
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
-        sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
-        for key, record in after.items():
-            records += beyond(engine, plan, record, key, picks[key], step, state, found, chunk, pads, padded,
-                              encoded[chunk], rows[chunk], eos, most)
+        sites, records = bind(engine, plan, name, group, state, found, chunk, pads, firsts)
+        for key in entries(step):
+            for i, (p, after) in enumerate(zip(group, afters)):
+                if key in after:
+                    records += beyond(engine, plan, after[key], key, picks[i][key], p, state, found, chunk, pads,
+                                      padded, encoded[chunk], rows[chunk], eos, most, i)
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
-        out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk, state,
-                                          step.at, found.answers, layer) for layer in layers(engine, record)])
-               for key, record in every.items() if key in first and record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
-        count += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
-        for key, record in after.items():
-            where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(step, record))
-            resolved[f"{name}.{key}"] += where
-            if record.gathered:
-                out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(read_name(key, layer, True)),
-                                                     got[read_name(key, layer)], where, encoded[chunk], chunk, state,
-                                                     step.at, head(step, record), most, found.answers, layer)
-                                            for layer in layers(engine, record)])
-        parts.append(out)
+        count[0] += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
+        for i, (p, first, after) in enumerate(zip(group, firsts, afters)):
+            started = clock(devices)
+            out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer, point=i)], sites[i][key],
+                                              chunk, state, p.at, found.answers, layer)
+                                         for layer in layers(engine, record)])
+                   for key, record in entries(p).items() if key in first and record.gathered}
+            for key, record in after.items():
+                where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(p, record))
+                resolved[i][f"{name}.{key}"] += where
+                if record.gathered:
+                    out[key] = stacked(record, [at_calls(engine, plan, record, picks[i][key],
+                                                         got.get(read_name(key, layer, True, i)),
+                                                         got[read_name(key, layer, point=i)], where, encoded[chunk],
+                                                         chunk, state, p.at, head(p, record), most, found.answers,
+                                                         layer)
+                                                for layer in layers(engine, record)])
+            parts[i].append(out)
+            count[i]["nanoseconds"] += clock(devices) - started
         new.append(ids)
-    joined(state, name, step, parts)
     width = max(x.shape[1] for x in new)
     ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
-    put(state, name, step.at, ids)
-    for where, per_row in resolved.items():
-        put(found.positions, where, step.at, per_row)
-    put(found.said, name, step.at,
-        [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
+    tokens = [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()]
+    for i, p in enumerate(group):
+        started = clock(devices)
+        joined(state, name, p, parts[i])
+        put(state, name, p.at, ids)
+        for where, per_row in resolved[i].items():
+            put(found.positions, where, p.at, per_row)
+        put(found.said, name, p.at, tokens)
+        count[i]["nanoseconds"] += clock(devices) - started
     return count
 
 
 def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
            found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
-           eos: set[int], most: int | None) -> list[dict]:
+           eos: set[int], most: int | None, point: int = 0) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: at each layer it is made at, a
     write's prefill part, where its frame holds the prompt, and its decode part (`calls`: the frame's own, or None
     for every decode call; a write with a text scope goes to every call with each row's texts, `online`, and lands
-    where `positions.landing` says); then a gathered entry's whole prefill (which of its positions it means can
-    depend on what the row says) and its decode calls, one read per layer, each at the call's one position."""
+    where `positions.landing` says), the first point's alone in a group that shares the generation (`point` is
+    the step's place in it; the points write alike); then a gathered entry's whole prefill (which of its positions
+    it means can depend on what the row says) and its decode calls, one read per layer, each at the call's one
+    position, named under its point (`read_name`)."""
     pos = positions.parse(record.pos)
     holds, calls, _ = positions.reach(pos, most)
     head_only = head(step, record)
     prompts = [len(e["ids"]) for e in encoded]
     out = []
-    if writes(record):
+    if writes(record) and point == 0:
         online = {"online": {"pos": pos, "texts": [texts(pos, row) for row in rows], "eos": sorted(eos)}} \
             if pos["scope"] else {}
         where = [positions.prompted(p, head_only) for p in prompts]
@@ -121,9 +139,10 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
     for layer in layers(engine, record) if record.gathered else []:
         if holds:
             whole = [positions.prompted(p) for p in prompts]
-            out.append({**site(record, picks, whole, pads, padded, head_only), "name": read_name(key, layer, True),
-                        "layer": layer})
-        out.append({**decoding(record, picks, prompts), "name": read_name(key, layer), "layer": layer, "calls": calls})
+            out.append({**site(record, picks, whole, pads, padded, head_only),
+                        "name": read_name(key, layer, True, point), "layer": layer})
+        out.append({**decoding(record, picks, prompts), "name": read_name(key, layer, point=point), "layer": layer,
+                    "calls": calls})
     return out
 
 

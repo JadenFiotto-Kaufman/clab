@@ -1,10 +1,11 @@
-"""A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
-with, its value with the ops after its last edit applied."""
+"""A step's input in batches, an entry bound to one batch (its site in the padded batch, the ops it writes with,
+its value with the ops after its last edit applied), and what a batch costs (`fed`, timed by `clock`)."""
 
 from __future__ import annotations
 
+import time
 from collections import Counter
-from typing import TYPE_CHECKING, Any, Iterator, cast
+from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 
 import torch
 from torch import Tensor
@@ -120,32 +121,40 @@ def fed(batch: dict[str, Tensor], pads: list[int], calls: int = 1, decoded: int 
     return Counter(forwards=calls, tokens=sum(width - pad for pad in pads) + decoded)
 
 
-def read_name(key: str, layer: int | None, prefill: bool = False) -> str:
+def read_name(key: str, layer: int | None, prefill: bool = False, point: int = 0) -> str:
     """The engine's name for a read of entry `key` made at `layer` (None for a model's own value): `<key>@<layer>`,
-    with `#0` after it for the prefill part of an entry that also reads at decode calls."""
-    return f"{key}@{layer}" + ("#0" if prefill else "")
+    with `#0` after it for the prefill part of an entry that also reads at decode calls, and `/<point>` for the
+    read of a point of a group that shares one forward other than its first (`bind`)."""
+    return f"{key}@{layer}" + ("#0" if prefill else "") + (f"/{point}" if point else "")
 
 
-def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, found: Found, rows: slice,
-         pads: list[int], among: set[str] | None = None) -> tuple[dict[str, dict], list[dict]]:
-    """The step's prefill entries (those `among`, default every one) bound to one batch: each one's site, and
-    the records the engine does in their order: an entry that writes as a write with its ops at each layer it
-    is made at, then, when it is gathered, its reads, one per layer. An entry that does neither is left out."""
-    chosen = {k: r for k, r in entries(step).items() if (writes(r) or r.gathered) and (among is None or k in among)}
-    width = found.inputs[data.input_name(step.input)]["width"]
-    sites = {key: site(record, lookup(found.selects, f"{name}.{key}", step.at),
-                       lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
-             for key, record in chosen.items()}
+def bind(engine: Engine, plan: Plan, name: str, group: Sequence[Forward], state: dict, found: Found, rows: slice,
+         pads: list[int], among: list[set[str]] | None = None) -> tuple[list[dict[str, dict]], list[dict]]:
+    """The prefill entries (each point's `among` names, default every one) of `group`, the points that share one
+    forward (`Forward.shares`, a point alone where none does), bound to one batch: each point's sites, and the
+    records the engine does in their order: an entry that writes as a write with its ops at each layer it is made
+    at, the first point's alone (the points write alike), then, when it is gathered, each point's reads, one per
+    layer, each named under its point (`read_name`), so each point's records are in its own order. An entry that
+    does neither is left out."""
+    chosen = [{k: r for k, r in entries(step).items() if (writes(r) or r.gathered) and (among is None or k in among[i])}
+              for i, step in enumerate(group)]
+    width = found.inputs[data.input_name(group[0].input)]["width"]
+    sites = [{key: site(record, lookup(found.selects, f"{name}.{key}", step.at),
+                        lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
+              for key, record in mine.items()} for step, mine in zip(group, chosen)]
     live = {f"{name}.{key}": {layer: read_name(key, layer) for layer in layers(engine, record)}
-            for key, record in chosen.items() if record.gathered}
+            for key, record in chosen[0].items() if record.gathered}
     records = []
-    for key, record in chosen.items():
-        if writes(record):
-            records += [{**sites[key], "layer": layer,
-                         "ops": edit(plan, record, state, step.at, rows, found.answers, layer, engine.sizes(), live)}
-                        for layer in layers(engine, record)]
-        if record.gathered:
-            records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
+    for key in entries(group[0]):
+        for i, mine in enumerate(chosen):
+            record = mine.get(key)
+            if record is not None and writes(record) and i == 0:
+                records += [{**sites[i][key], "layer": layer, "ops": edit(plan, record, state, group[0].at, rows,
+                                                                          found.answers, layer, engine.sizes(), live)}
+                            for layer in layers(engine, record)]
+            if record is not None and record.gathered:
+                records += [{**sites[i][key], "name": read_name(key, layer, point=i), "layer": layer}
+                            for layer in layers(engine, record)]
     return sites, records
 
 
@@ -379,6 +388,22 @@ def live(got: dict, operand: dict) -> Tensor:
         raise ValueError(f"operand {operand['live']!r} is a read of this forward the engine had not made when it "
                          "reached the write; it reads it at a later site")
     return got[operand["live"]]
+
+
+def clock(devices: list[str]) -> int:
+    """The time, in nanoseconds (`time.perf_counter_ns`), once the CUDA `devices` the model is on (`gpus`) have done
+    what was queued on them."""
+    for device in devices:
+        torch.cuda.synchronize(device)
+    return time.perf_counter_ns()
+
+
+def gpus(engine: Engine) -> list[str]:
+    """The CUDA devices the model is on: where its parameters are (a meta shell's, which loads its weights at its
+    first forward, where the engine places it: `home`)."""
+    placed = dict.fromkeys(str(p.device) for p in engine.model.parameters())
+    devices = dict.fromkeys(home(engine) if d == "meta" else d for d in placed)
+    return [d for d in devices if d.startswith("cuda")]
 
 
 def home(engine: Engine) -> str:

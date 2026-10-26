@@ -73,7 +73,8 @@
     "at": {
      "intermediate_size": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "shares": "intermediate_size=[0,1,2,3]"
    },
    {
     "kind": "forward",
@@ -104,7 +105,8 @@
     "at": {
      "intermediate_size": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "shares": "intermediate_size=[0,1,2,3]"
    }
   ],
   "patched": [

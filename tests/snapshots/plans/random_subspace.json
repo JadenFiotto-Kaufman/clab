@@ -110,7 +110,8 @@
     "at": {
      "seed": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "shares": "seed=0"
    },
    {
     "kind": "forward",
@@ -144,7 +145,8 @@
     "at": {
      "seed": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "shares": "seed=0"
    }
   ],
   "patched": [
