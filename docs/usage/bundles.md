@@ -1,6 +1,6 @@
 ---
 title: Bundles
-one_liner: "Saving a trained or harvested featurizer and loading it in another document: the files a run writes, file_path, the header checks at compile and before any forward, and the two-document workflow."
+one_liner: "Saving a trained or harvested featurizer and loading it in another document: the files a run writes, file_path, the header checks at compile and before any forward, the two-document workflow, and reading back a run that loads one."
 tags: [usage, bundles, featurizers, safetensors, file_path]
 related: [docs/usage/featurizers.md, docs/usage/fit.md, docs/usage/output.md, docs/usage/running.md, docs/patterns/trained-subspaces.md, docs/patterns/sae.md, docs/patterns/lora.md]
 sources: [clab/featurizers/bundles.py, clab/compile/uses.py, clab/compile/__init__.py, clab/compile/preflight.py, clab/plan.py]
@@ -39,7 +39,7 @@ The loading document declares the featurizer with `file_path` and uses it by its
 
 ## `file_path`
 
-`file_path` is relative to the corpus root: the nearest directory above the document that holds a `data/` folder. An absolute path is read as written. It cannot be a sweep.
+`file_path` is relative to the corpus root: the nearest directory above the document that holds a `data/` folder ([running.md](running.md#the-corpus-root)). An absolute path is read as written. It cannot be a sweep.
 
 A field the bundle's header records may be left out of the loading document, and the header's value is used: `das_apply.json` could drop `k` and `parametrization`, and `lora_apply.json` gives neither `rank` nor `alpha`. A field the document does give must match. The header's `document` key, the name of the document that wrote it, is not checked.
 

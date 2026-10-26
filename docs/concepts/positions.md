@@ -47,23 +47,16 @@ In a forward, a write replaces the value at its positions as the forward reaches
 
 In a generation, a write lands as its call runs. A write in the prefill changes the prompt's activations, and the generated tokens see it only through the cache. A write at decode call k changes generated token k onward and leaves tokens before k as they were. Because the call runs before the row's future is known, a write's positions must be decidable call by call: no frame counted from the row's last call, no index counted back over several calls, no `before`. The refusals for each are in [usage/generate.md](../usage/generate.md#writes-during-generation).
 
-A write with a `text` or `column` scope over decode calls is **found online**: at each call clab decodes the inputs fed so far, and the write lands at the call fed an occurrence's last token, as that occurrence appears. It sees nothing past the token it is fed, so an occurrence's end counts as a word's end whatever the model says next. With the same `pos`, a write and a read can therefore resolve differently: on a row that generates `▁toss orter acters`, a write scoped to ` toss` lands on `▁toss`, and a read of the same scope, which sees `orter` follow, finds nothing. Compare both in `run.positions`.
+A write with a `text` or `column` scope over decode calls is **found online** (`clab/compile/positions.py` `landing`): at each call clab decodes the inputs fed so far, and the write lands at the call fed an occurrence's last token, as that occurrence appears. It sees nothing past the token it is fed, so an occurrence's end counts as a word's end whatever the model says next. With the same `pos`, a write and a read can therefore resolve differently: on a row that generates `▁toss orter acters`, a write scoped to ` toss` lands on `▁toss`, and a read of the same scope, which sees `orter` follow, finds nothing. Compare both in `run.positions`.
 
 ## Static widths and ragged rows
 
-Positions are decided per row, so the number of positions a `pos` names can differ by row. A record has a **static width** when its frame names a fixed number of calls, its index a fixed number of tokens (an int, picks, or a slice whose ends count from the same side), and a text scope, if any, is one occurrence in the prefill. Then every row holds that many positions and the value is `(rows, width, ...)`. Otherwise it is **ragged**: as wide as its widest row, each row's positions first in their order, NaN after them ([values-and-layout.md](values-and-layout.md#missing-entries)).
+Positions are decided per row, so the number of positions a `pos` names can differ by row. When the `pos` alone fixes that number, the record has a **static width** ([usage/positions.md](../usage/positions.md#static-width-or-ragged) lists the forms that do): every row holds that many positions and the value is `(rows, width, ...)`. Otherwise it is **ragged**: as wide as its widest row, each row's positions first in their order, NaN after them ([values-and-layout.md](values-and-layout.md#missing-entries)).
 
 A static width is a promise the data must keep. A ragged read keeps none, so it cannot pair position by position with another forward's write; it can be reduced (a `mean` skips the NaN) or read at a static index.
 
 ## Decided by the data, or a result
 
-What a record names in the prefill depends on the prompt alone, so preflight resolves it with the tokenizer before any forward. A row whose prompt lacks the scope's text, has fewer occurrences than `occurrence` picks, or is too short for a static index, is refused by name, with the row's number: the document cannot be what was meant.
+What a record names in the prefill depends on the prompt alone, so preflight resolves it with the tokenizer before any forward (`clab/compile/positions.py` `resolve`). A row whose prompt lacks the scope's text, has fewer occurrences than `occurrence` picks, or is too short for a static index, is refused by name, with the row's number: the document cannot be what was meant.
 
-Beyond the prefill, what a record names depends on what the model generates, which no check can know beforehand. A row that stopped before a call the frame names, never generated the text, said it only as its last token, or has fewer occurrences than picked, is a result: the row is `alignment_missing`, recorded so in `run.positions`, and its value is NaN all the way through. A `before` scope whose first token is position 0, and a `before` read at the head on a prompt token of a generation (where the prefill computed no head), are missing the same way. What happens to missing rows downstream, and how to keep them out, is [errors/alignment-missing.md](../errors/alignment-missing.md).
-
-## Related
-
-- [usage/positions.md](../usage/positions.md): the recipes.
-- [usage/generate.md](../usage/generate.md): frames and writes in a generation.
-- [values-and-layout.md](values-and-layout.md): how a value with positions is laid out.
-- `clab/compile/positions.py` `resolve` is where a record's positions on one row are decided; `landing` decides an online write.
+Beyond the prefill, what a record names depends on what the model generates, which no check can know beforehand. So a row it does not fit is a result, not an error: the row is `alignment_missing`, recorded so in `run.positions`, and its value is NaN all the way through. The causes, how missing rows pass downstream, and how to keep them out are [errors/alignment-missing.md](../errors/alignment-missing.md).

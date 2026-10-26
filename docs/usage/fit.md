@@ -107,4 +107,4 @@ To run the control beside the trained featurizer, sweep `epochs`; with a sweep o
 
 ## Sweeping a fit
 
-Any of the fit's values may be a sweep, names such as `optimizer.name` excepted: an objective weight (`dbm.json` sweeps its sparsity weight), `lr`, `epochs`, `seed`, or the `layers` of a site the body uses, which trains one featurizer per layer. Each point is a whole fit with its own members. A swept fit's bundle file holds a bundle per point, which no featurizer can load ([bundles.md](bundles.md)).
+Any of the fit's values may be a sweep, names such as `optimizer.name` excepted: an objective weight (`dbm.json` sweeps its sparsity weight, whose default label is the term's key, `mask.mask`), `lr`, `epochs`, `seed`, or the `layers` of a site the body uses, which trains one featurizer per layer. Each point is a whole fit with its own members. A swept fit's bundle file holds a bundle per point, which no featurizer can load ([bundles.md](bundles.md)).

@@ -1,6 +1,6 @@
 ---
 title: Alignment Missing
-one_liner: Why a row is alignment_missing or a value is NaN, how missingness propagates through ops and tables, and how to turn it into a refusal.
+one_liner: "Why a row is alignment_missing or a value is NaN, how missingness propagates through ops and tables, how to count it, and how to move the question into the prefill, where a miss is refused."
 tags: [errors, alignment, alignment_missing, nan, generation]
 related: [docs/concepts/positions.md, docs/usage/positions.md, docs/usage/generate.md, docs/concepts/values-and-layout.md, docs/usage/output.md, docs/usage/ops.md]
 sources: [clab/compile/positions.py, clab/steps/generate.py, clab/output/table.py, clab/ops/transforms.py]
@@ -35,6 +35,7 @@ What a record names beyond the prefill depends on what each row generates, so a 
 | the word is the row's last generated token | ` toss` said as token 5 of 5 | read with `before`, or give the row room to go on |
 | fewer occurrences than `occurrence` picks | `"occurrence": 1` of a word said once | pick from the first, or `":"` |
 | a static frame and index that cannot fit | `{"frame": "1:3", "index": "1:3"}`: two calls, an index two wide that finds one | an index that fits the frame's calls, one position each (`"index": 1`) |
+| a `before` scope whose first token is position 0, beyond the prefill | a scope on the prompt's first word under a tokenizer that adds no BOS | nothing comes before position 0; scope a later token |
 | a `before` read at the head on a prompt token of a `generate` | `{"frame": ":", "scope": {"text": " is", "before": true}}` at `lm_head_output` | the prefill computed the head at its last position only; read prompt positions in a `forward` |
 | an online scoped write found no occurrence | a write at `{"frame": "1:", "scope": {"text": " toss"}, "index": -1}` on rows that never say it | nothing: the row is not written, and its generation is the unwritten one |
 
@@ -54,7 +55,7 @@ clab: f.x: row 0: text '<s>' begins the row, at position 0, which no position co
 - **The entry's value** is NaN at every entry of a missing row; ids (`argmax`, `top_k`'s `ids`) are -1 there and `top_k` gives no token text.
 - **Metrics and edits** of a NaN are NaN. A write never lands on a row it did not reach.
 - **`mean`, `sum` and `min` skip holes.** A `mean` over rows averages the rows that were reached: on six rows of which two stopped early, a mean of `token_prob` at `{"frame": 3}` is the mean of four. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so. A `sum` or `min` over `pos` of a row with no value is NaN.
-- **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
+- **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag. A read that no row reached, whose `pos` width `clab show` gives as 0 (`[4,0,16]`), tables to nothing at all rather than one flagged line per row; count its rows in `run.positions`.
 
 The layout of holes in general, keys and ragged positions included, is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).
 

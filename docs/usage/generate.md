@@ -1,6 +1,6 @@
 ---
 title: Generation
-one_liner: "Generation steps: options passed to the model's generate, deterministic decoding, frames for the prefill and decode calls, writes that stay on through generation, scopes over generated text, EOS and rows that stop early."
+one_liner: "Generation steps: options passed to the model's generate, deterministic decoding, frames for the prefill and decode calls, writes kept on through generation, writes found online at generated text, EOS and rows that stop early."
 tags: [usage, generation, decoding, eos]
 related: [docs/concepts/positions.md, docs/usage/positions.md, docs/usage/ops.md, docs/errors/alignment-missing.md, docs/patterns/generation-experiments.md, docs/patterns/steering.md, docs/usage/sweeps.md]
 sources: [clab/steps/generate.py, clab/steps/batches.py, clab/plan.py, clab/compile/positions.py]
@@ -32,7 +32,7 @@ Every key other than `kind`, `input` and `interventions` goes to the engine's `g
 - **`min_new_tokens`** holds EOS off until a row has that many tokens. Setting it equal to `max_new_tokens` makes every row make the same calls.
 - **`eos_token_id`** is the id, or list of ids, that a row stops on. Without it, rows stop on the id from the engine's generation config.
 
-The step refuses four options before the model loads: `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache`. Any other option is left for the engine to accept, and one it rejects fails when the step runs, with the step's name. There is no `seed` option:
+The step refuses four options before the model loads: `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache`. Any other option is left for the engine to accept, and one it rejects fails when the step runs, with the step's name; an option of the wrong type (`"max_new_tokens": "6"`) can instead fail inside the model's `generate` as a Python `TypeError`. There is no `seed` option:
 
 ```text
 clab: steps.g: num_beams 2; it stays 1: beams change the rows each forward call sees, so a read's row is no longer the input's
@@ -51,7 +51,7 @@ Row 0 of `documents/generate_probe.json` has an 11-token prompt at positions 0 t
 | `{"frame": k}`, k ≥ 1 | decode call k | one position, 10 + k: generated token k−1 as input; its logits are the distribution over token k |
 | `{"frame": "1:"}` | every decode call | one position per call, ragged across rows that stop at different lengths |
 | `{"frame": ":"}` | the prefill and every decode call | at the head, one distribution per generated token (their `argmax` is the generated ids, EOS included); on a residual site, every prompt token followed by each generated input |
-| `{"frame": -1}` | the row's last call | the call that chose the row's last token, whether that was EOS or token `max_new_tokens`−1 |
+| `{"frame": -1}` | the row's last call | the call that chose the row's last token, whether that was EOS or token `max_new_tokens`−1; on a row whose first token was EOS that is the prefill, every prompt token on a residual site, so write `{"frame": -1, "index": -1}` for one position |
 
 In the prefill, the head is computed only at the last position. So `{"frame": 0, "index": -2}` at the head is refused, while the same `pos` on a residual site reads the second-to-last prompt token. A row's last generated token is never an input to any call. In a generation, `clab table` adds a `call` column beside `pos` and `pos_token`.
 

@@ -1,6 +1,6 @@
 ---
 title: Writing a Document
-one_liner: "The anatomy of a clab document: the root keys, a four-step patching experiment read top to bottom, how steps name each other's values, and what compile checks before anything runs."
+one_liner: "The anatomy of a clab document: the root keys, a four-step patching experiment read top to bottom, how steps name each other's values, saves, and what is checked before the model loads."
 tags: [usage, document]
 related: [docs/usage/data.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/interventions.md, docs/usage/ops.md, docs/usage/running.md, docs/usage/output.md, docs/concepts/plan-lifecycle.md, docs/concepts/names-and-sweeps.md]
 sources: [clab/plan.py, clab/compile/__init__.py]
@@ -113,13 +113,7 @@ Most mistakes are refused before anything runs, each by the document path of wha
 - **Reading the document** checks each record's shape: `steps.patched.interventions.logits: unknown field 'position'; valid: site, pos, ops`.
 - **Compile** checks it against the data files and bundle headers: every reference, column, save and sweep. `steps.iia.expected: dataset 'pairs' has no column 'cf' on every row; columns: answer, base_answer, ...`
 
-Both run without a model. To check a document without loading one:
-
-```text
-uv run python -c "from clab import Plan; Plan('my_experiment.json').compile()"
-```
-
-What needs the tokenizer or the model's sizes is checked after the model loads, before any forward: a position a row does not have (`counterfactual.v_cf: row 0: tokens 10 do not fit its 9 scope tokens`), a component the engine does not serve. A few things fail only when their step runs, such as a `generate` option the model's `generate` rejects. Any refusal leaves no output directory. Which stage refuses what is [plan-lifecycle.md](../concepts/plan-lifecycle.md); messages and their fixes are in [errors/index.md](../errors/index.md).
+Both run without a model, so a document can be checked without loading one ([running.md](running.md#check-before-you-run) has the one-line check). What needs the tokenizer or the model's sizes is checked after the model loads, before any forward: a position a row does not have (`counterfactual.v_cf: row 0: tokens 10 do not fit its 9 scope tokens`), a component the engine does not serve. A few things fail only when their step runs, such as a `generate` option the model's `generate` rejects. Any refusal leaves no output directory. Which stage refuses what is [plan-lifecycle.md](../concepts/plan-lifecycle.md); messages and their fixes are in [errors/index.md](../errors/index.md).
 
 ## Pitfalls
 

@@ -1,6 +1,6 @@
 ---
 title: Trained Subspaces
-one_liner: "DAS, DBM and their controls: fit a rotation or a mask, score held-out accuracy, and compare against PCA and random subspaces of matched rank."
+one_liner: "DAS, DBM and their controls: fit a rotation or a mask, score held-out accuracy, and compare against PCA and random subspaces of matched rank, a fit at epochs 0 among them."
 tags: [patterns, subspaces, das, dbm, pca, interchange-intervention, controls]
 related: [docs/usage/fit.md, docs/usage/featurizers.md, docs/usage/bundles.md, docs/usage/sweeps.md, docs/patterns/activation-patching.md]
 sources: [clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/steps/fit.py]

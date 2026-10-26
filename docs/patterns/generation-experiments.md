@@ -118,7 +118,7 @@ On row 0 this lands at position 32, `▁is`, the question's own last token. The 
 
 ## Interpretation tips
 
-- **Always set `do_sample: false`.** Otherwise the checkpoint's own config decides whether to sample, and a sampled run does not repeat.
-- **Set `min_new_tokens` equal to `max_new_tokens`** when you compare runs. Otherwise rows that stop on EOS make fewer calls, and a read at a fixed call is missing on them.
+- **Always set `do_sample: false`.** Otherwise the checkpoint's own config decides whether to sample, and a sampled run does not repeat ([generate](../usage/generate.md#options)).
+- **Set `min_new_tokens` equal to `max_new_tokens`** when you compare runs. Otherwise rows that stop on EOS make fewer calls, and a read at a fixed call is missing on them ([generate](../usage/generate.md#rows-that-stop-early)).
 - **Generated versus forced.** `contains` and reads in the generated text measure what this run said. Teacher forcing measures one fixed answer, in a single forward, whatever the model would have said. A model can give a forced answer a high probability and still not say it.
 - **Leave room after the answer.** A word on the row's last generated token is missing to a read at the word itself.

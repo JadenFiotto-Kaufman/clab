@@ -1,6 +1,6 @@
 ---
 title: One Session
-one_liner: "Why a document runs the same locally and on a server: one session per run, the plan as pure data, nothing decided from a tensor on the client, the engine as the only client object, and what ships by reference."
+one_liner: "Why a document runs the same locally and on a server: one session per run, the plan as pure data, nothing decided from a tensor on the client, the engine as the only client object, and what ships by reference, so what a server needs."
 tags: [concepts, session, ndif, remote, design]
 related: [docs/usage/engines.md, docs/concepts/plan-lifecycle.md, docs/developing/architecture.md, docs/developing/engines.md]
 sources: [clab/engines/nnterp.py, clab/engines/ndif.py, clab/engines/__init__.py, clab/steps/__init__.py, clab/plan.py]
@@ -21,7 +21,7 @@ client                                   inside the session (the server, under n
   dump(out)
 ```
 
-Five design constraints keep it so. Each is a rule a change to clab keeps, and each has a consequence for what you write and run.
+Five design constraints keep it so. Each is a rule a change to clab keeps, and each has a consequence for what you write and run; where the code holds each is [developing/architecture.md](../developing/architecture.md#where-the-code-holds-the-five-constraints).
 
 ## One session per run, and `remote` is the only difference
 
@@ -51,10 +51,4 @@ This is also why an engine keeps no caches, open files or other client state: an
 
 The request names `clab.engines.ndif`, `clab.plan` and `clab.steps` by reference, and nnterp's model classes the same way. The only clab code that travels is the session block's own few lines, which nnsight always sends as source. Everything those lines call is imported on the server from its installed clab.
 
-So the server must have clab installed at your version, with its dependencies. A change to your local clab has no effect on a server that does not have it, and the run record says which clab ran: `plan.run.versions` is read inside the session, so after a true remote run it lists the server's versions. [engines.md](../usage/engines.md) lists what else a server needs.
-
-## Related
-
-- [engines.md](../usage/engines.md): choosing `ndif`, `remote=local`, and what a server must have installed.
-- [plan-lifecycle.md](plan-lifecycle.md): what each stage decides, and where it runs.
-- [developing/architecture.md](../developing/architecture.md): how the code enforces each constraint.
+So the server must have clab installed at your version, with its dependencies. A change to your local clab has no effect on a server that does not have it, and the run record says which clab ran: `plan.run.versions` is read inside the session, so after a true remote run it lists the server's versions. [engines.md](../usage/engines.md#what-the-server-must-have) lists what else a server needs.

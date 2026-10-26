@@ -1,6 +1,6 @@
 ---
 title: Attention Experiments
-one_liner: "Experiments inside attention: knocking keys out through the scores and renormalizing the pattern by sum, patching a head's pattern while keeping its values, and reading queries after RoPE."
+one_liner: "Experiments inside attention: knocking out a head or keys through the scores or the pattern renormalized by sum, patching a head's pattern while keeping its values, and reading queries and keys after RoPE."
 tags: [patterns, attention]
 related: [docs/usage/sites.md, docs/usage/engines.md, docs/usage/interventions.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/ablation.md, docs/concepts/positions.md]
 sources: [clab/ops/edits.py, clab/compile/interventions.py, clab/steps/batches.py]
@@ -19,13 +19,7 @@ The attention interior is the queries, keys and values, the scores entering the 
 "clean": {"kind": "forward", "input": "pairs.input", "interventions": {"pattern": {"site": "pattern", "pos": -1}}}
 ```
 
-The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each row's own tokens in order, key 0 its BOS, as wide as the longest row and NaN past a shorter row's last token, so a row's keys sum to 1 over the entries that are there ([sites](../usage/sites.md) has the key axis). Without eager, preflight refuses it:
-
-```text
-clean.pattern: the nnterp engine does not serve attention_probabilities: read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'
-```
-
-The hooks engine refuses it by name too, as it does every component read inside a module's forward ([engines](../usage/engines.md)). Eager and sdpa differ in the last bits (about 2e-8 in a logit difference here), so compare runs under one implementation.
+The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each row's own tokens in order, key 0 its BOS, as wide as the longest row and NaN past a shorter row's last token, so a row's keys sum to 1 over the entries that are there ([sites](../usage/sites.md) has the key axis). Without eager, preflight refuses the read by name ([sites](../usage/sites.md#attention-needs-eager)); eager and sdpa differ in the last bits, so compare runs under one implementation ([engines](../usage/engines.md#cross-checking-with-hooks)).
 
 ## Knocking out a head
 

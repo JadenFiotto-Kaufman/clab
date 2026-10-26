@@ -29,7 +29,7 @@ Exact names: the generated spec first, then the command line, the Python API and
 
 ## Commands and Python
 
-- [cli](cli.md) — Every clab command and flag: run, show, table, describe.
+- [cli](cli.md) — Every clab command and flag (run, show, table, describe), with defaults, exit statuses and refusals.
 - [python-api](python-api.md) — The public Python surface: clab.run, Plan and its methods, engines.load and execute, results and run, describe.
 
 ## Words

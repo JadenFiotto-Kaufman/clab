@@ -1,6 +1,6 @@
 ---
 title: Command Line
-one_liner: "Every clab command and flag: run, show, table, describe."
+one_liner: "Every clab command and flag (run, show, table, describe), with defaults, exit statuses and refusals."
 tags: [reference, cli]
 related: [docs/usage/running.md, docs/usage/output.md, docs/usage/engines.md, docs/reference/python-api.md, FORMAT.md]
 sources: [clab/cli.py, clab/__init__.py, clab/docs.py]
@@ -10,7 +10,7 @@ sources: [clab/cli.py, clab/__init__.py, clab/docs.py]
 
 `clab` has four commands: `run`, `show`, `table` and `describe`. Inside the repository's environment, call it as `uv run clab <command>`. This page lists every argument; the workflow around them is [running.md](../usage/running.md), and reading output is [output.md](../usage/output.md).
 
-Every command exits 0 on success. A refusal or error that clab reports is printed to stderr as `clab: <message>`, and the command exits 1. A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2.
+Every command exits 0 on success. A refusal or error that clab reports is printed to stderr as `clab: <message>`, and the command exits 1. A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2. A few errors come from Python, not clab, as a traceback: `clab run` on a document path that does not exist raises `FileNotFoundError`, and the others are listed in [errors/index.md](../errors/index.md#errors-that-are-not-clabs).
 
 ## `clab run`
 

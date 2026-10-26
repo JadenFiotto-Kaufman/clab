@@ -1,6 +1,6 @@
 ---
 title: Sweeps
-one_liner: "Running one document at many settings: sweeps on any value, labels that zip or cross, points and coordinates, swept results and tables, and when to widen a read instead of sweeping."
+one_liner: "Running one document at many settings: what a sweep can stand for, labels that zip or cross, what each point costs, when one wider read replaces a sweep, and reading swept results by coordinate."
 tags: [usage, sweeps, grid, labels]
 related: [docs/concepts/names-and-sweeps.md, docs/usage/output.md, docs/usage/sites.md, docs/usage/generate.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/logit-lens.md]
 sources: [clab/format/sweeps.py, clab/compile/__init__.py, clab/plan.py, clab/output/table.py]
@@ -18,7 +18,7 @@ Write `{"sweep": [v1, v2, ...]}` where a value goes, and the document runs once 
 "patch": {"site": "target", "pos": {"sweep": [-1, -2, -3]}, "ops": [{"op": "swap", "with": "counterfactual.v_cf"}]}
 ```
 
-`patched` becomes three points, and each one is a whole forward over every row. `iia` and `logit_diff` reference `patched`, so they become three points too. The counterfactual step uses no swept value, so it runs once. `clab show` lists the axis and one shape per point:
+`patched` becomes three points, and each one is a whole forward over every row. `iia` and `logit_diff` reference `patched`, so they become three points too. The counterfactual step uses no swept value, so it runs once, and every point writes the counterfactual's last-token value: at `pos=-2` onto the base's second-to-last token. To patch each position from the same position, give the read's `pos` the same sweep; both are labelled `pos`, so their points pair up ([activation-patching.md](../patterns/activation-patching.md#a-layer-by-position-map)). `clab show` lists the axis and one shape per point:
 
 ```text
 result      step        dims       axes  shape
