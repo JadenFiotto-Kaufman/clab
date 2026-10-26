@@ -6,6 +6,7 @@ from typing import Callable
 import pytest
 from conftest import BATCH_SIZE, edited, plan_of, same
 
+from clab.engines import load
 from clab.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
@@ -398,23 +399,37 @@ def test_a_quantized_dtype_names_what_it_computes_in():
     assert computes["nf4"].dtype == "nf4"
 
 
-@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
-@pytest.mark.parametrize("dtype", ["nf4", "fp4", "int8", "fp8"])
-def test_a_quantized_dtype_off_cuda_is_refused_before_anything_loads(monkeypatch, kind, options, dtype):
-    """A quantized model runs on CUDA only: on the CPU it is refused by name, not by a bitsandbytes traceback,
-    before the engine loads anything (a meta shell included)."""
-    from clab.engines import load
+@pytest.fixture
+def unloadable(monkeypatch):
+    """No engine can load a model: a refusal must come before anything loads (a meta shell included)."""
     for where in ("nnterp", "hooks", "ndif"):
         monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+    return monkeypatch
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+@pytest.mark.parametrize("dtype", ["nf4", "fp4", "int8"])
+def test_a_bitsandbytes_dtype_without_bitsandbytes_is_refused_before_anything_loads(unloadable, kind, options, dtype):
+    """Named, not an ImportError from inside transformers."""
+    import importlib.util
+    found = importlib.util.find_spec
+    unloadable.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "bitsandbytes" else found(name, *a))
     plan = edited("patching", lambda d: d["model"].update(dtype=dtype))
-    with pytest.raises(ValueError, match=f"^model.dtype '{dtype}' needs a CUDA device; the {kind} engine's device is "
-                                         "'cpu'$"):
+    with pytest.raises(ValueError, match=f"^model.dtype '{dtype}' holds the weights in bitsandbytes, which is not "
+                                         "installed: install bitsandbytes$"):
+        load(kind, plan.model, **options)
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_fp8_off_a_gpu_is_refused_before_anything_loads(unloadable, kind, options):
+    plan = edited("patching", lambda d: d["model"].update(dtype="fp8"))
+    with pytest.raises(ValueError, match=f"^model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the "
+                                         f"{kind} engine's device is 'cpu'"):
         load(kind, plan.model, **options)
 
 
 def test_a_quantized_dtype_on_an_ndif_server_is_refused():
     """A server holds a model's weights as its deployment does, so a document cannot ask it for a quantization."""
-    from clab.engines import load
     plan = edited("patching", lambda d: d["model"].update(dtype="nf4"))
     with pytest.raises(ValueError, match="^model.dtype 'nf4': the ndif engine cannot honor it: the server decides how "
                                          "a model's weights are held$"):

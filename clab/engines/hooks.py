@@ -45,7 +45,7 @@ class HooksEngine:
         device: one torch device ("cpu", "cuda:0") the model moves to, or "auto", "balanced", ... as its device_map
         """
         loaded = loading(model, "hooks", device)
-        # A quantized model cannot move once loaded, so it loads where it goes.
+        # A model is quantized where `device_map` says (the first GPU when it says nothing) and cannot move after.
         mapped = device in COMPUTED or "quantization_config" in loaded
         shell = build(model, "hooks", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device_map=None, **extra))

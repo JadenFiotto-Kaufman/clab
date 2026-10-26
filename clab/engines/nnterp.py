@@ -1,8 +1,8 @@
 """The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-`device` is one torch device, which nnsight's loader takes as its `device`, or a device map transformers
-computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
-several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
+`device` is one torch device, which nnsight's loader takes as its `device` (and a quantized model's as its
+`device_map` too, where it is quantized), or a device map transformers computes (`auto`, `balanced`, ...), which it
+takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
 from there.
 
 `tp` above 1 shards the model by transformers' tensor parallelism instead (`DistributedConfig(tp_size=tp)`, as
@@ -33,7 +33,7 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, nnterp_name, stops
+from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -46,14 +46,13 @@ class NnterpEngine:
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
 
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
-        """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (the loader's `device_map`
-        when transformers computes it, else its `device`) or sharded over `tp` ranks (`sharded`); the block's
-        other keys go to the loader as they are.
+        """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over
+        `tp` ranks (`sharded`); the block's other keys go to the loader as they are.
 
         device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"
         tp: how many ranks tensor parallelism shards the model over, one process each under `torchrun --nproc-per-node=<tp>`; 1 does not shard it
         """
-        loaded, placed = loading(model, "nnterp", device), sharded(tp, device)
+        loaded, placed = loading(model, "nnterp", device), sharded(model, tp, device)
         self.spec, self.device, self.options = model, device, {"tp": tp}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
@@ -167,9 +166,8 @@ class NnterpEngine:
         return self.model.project_on_vocab(hidden)
 
 
-def sharded(tp: int, device: str) -> dict[str, Any]:
-    """Where the loader puts the model: at `tp` 1 where `device` says (its `device_map` when transformers computes
-    it, else its `device`), and above 1 sharded by transformers' tensor parallelism, `DistributedConfig(tp_size=tp)`
+def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:
+    """Where the loader puts the model: at `tp` 1 where `device` says (`placing`), and above 1 sharded by transformers' tensor parallelism, `DistributedConfig(tp_size=tp)`
     as nnsight's `distributed_config`, each rank's shard on cuda:<LOCAL_RANK> where a GPU is visible (`device`
     "cuda"), else on the CPU (`device` "cpu"). Refused by name: a `tp` below 1, a `tp` above 1 in a process that is
     not one of `tp` torchrun started (WORLD_SIZE), a WORLD_SIZE other than `tp` (each process would run the whole
@@ -188,7 +186,7 @@ def sharded(tp: int, device: str) -> dict[str, Any]:
                          f"plan, and tp shards the model over {tp}; give both the one number: `torchrun "
                          f"--nproc-per-node={world} --no-python clab run <document> -o tp={world}`")
     if tp == 1:
-        return {"device_map": device} if device in COMPUTED else {"device": device}
+        return placing(model, device)
     kind = "cuda" if torch.cuda.is_available() else "cpu"
     if device != kind:
         raise ValueError(f"device {device!r}: under tp {tp} transformers puts each rank's shard "

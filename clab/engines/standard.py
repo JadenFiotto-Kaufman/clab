@@ -4,6 +4,7 @@ inputs go, where a HuggingFace generation stops, and a forward's or a generation
 
 from __future__ import annotations
 
+import importlib.util
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from clab.format.address import COMPONENTS
@@ -68,28 +69,41 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     holds the same weights and computes in the same dtype on each by construction: `dtype`, torch's (the compute
     dtype, `Model.computes`, under a quantization), and for a quantization the `quantization_config` nnsight builds
     for its name: bitsandbytes 4-bit in that quant type computing in that dtype (without double quantization),
-    LLM.int8(), or transformers' FP8. A quantization is refused by name before anything loads where `device` puts
-    the model off CUDA, and `fp8` on a GPU below compute capability 8.9 (where transformers would load bfloat16)."""
+    LLM.int8(), or transformers' FP8. Refused by name before anything loads: a bitsandbytes format without
+    bitsandbytes installed, and `fp8` off a GPU of compute capability 8.9 or later (below it transformers would load
+    bfloat16)."""
     import torch
     from transformers import BitsAndBytesConfig, FineGrainedFP8Config
 
     dtype = getattr(torch, model.computes)
     if model.dtype not in QUANTIZED:
         return {"dtype": dtype}
-    asked = device in COMPUTED or torch.device(device).type == "cuda"
-    if not (asked and torch.cuda.is_available()):
-        raise ValueError(f"model.dtype {model.dtype!r} needs a CUDA device; the {engine} engine's device is {device!r}"
-                         + (", and no GPU is visible" if asked else ""))
-    gpus = range(torch.cuda.device_count()) if device in COMPUTED else [torch.device(device).index or 0]
-    for i in gpus if model.dtype == "fp8" else []:
-        capability = torch.cuda.get_device_capability(i)
-        if capability < (8, 9):
-            raise ValueError(f"model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; cuda:{i} "
-                             f"({torch.cuda.get_device_name(i)}) is {capability[0]}.{capability[1]}")
-    config = (BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=model.dtype, bnb_4bit_compute_dtype=dtype)
-              if model.dtype in ("nf4", "fp4") else
-              BitsAndBytesConfig(load_in_8bit=True) if model.dtype == "int8" else FineGrainedFP8Config())
+    if model.dtype == "fp8":
+        if device not in COMPUTED and torch.device(device).type != "cuda" or not torch.cuda.is_available():
+            raise ValueError(f"model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the {engine} "
+                             f"engine's device is {device!r}" + ("" if torch.cuda.is_available() else
+                                                                 ", and no GPU is visible"))
+        for i in range(torch.cuda.device_count()) if device in COMPUTED else [torch.device(device).index or 0]:
+            capability = torch.cuda.get_device_capability(i)
+            if capability < (8, 9):
+                raise ValueError(f"model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; cuda:{i} "
+                                 f"({torch.cuda.get_device_name(i)}) is {capability[0]}.{capability[1]}")
+        return {"dtype": dtype, "quantization_config": FineGrainedFP8Config()}
+    if importlib.util.find_spec("bitsandbytes") is None:
+        raise ValueError(f"model.dtype {model.dtype!r} holds the weights in bitsandbytes, which is not installed: "
+                         "install bitsandbytes")
+    config = (BitsAndBytesConfig(load_in_8bit=True) if model.dtype == "int8" else
+              BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=model.dtype, bnb_4bit_compute_dtype=dtype))
     return {"dtype": dtype, "quantization_config": config}
+
+
+def placing(model: Model, device: str) -> dict[str, str]:
+    """Where nnsight's loader puts the model: as its `device_map` a map transformers computes, else as its `device`
+    one torch device, and a quantized model's as its `device_map` too, since a model is quantized where
+    `device_map` says (the first GPU when it says nothing) and a quantized one cannot move after."""
+    if device in COMPUTED:
+        return {"device_map": device}
+    return {"device": device, **({"device_map": device} if model.dtype in QUANTIZED else {})}
 
 
 def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:

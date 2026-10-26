@@ -108,13 +108,14 @@ command); the CPU-only suite compiles them against their snapshots and runs none
 
 ## Quantized and sharded models
 
-A document's `model.dtype` may name a quantization, in nnsight's spelling: `nf4` or `fp4` (bitsandbytes' 4 bits),
-`int8` (its LLM.int8()) or `fp8` (transformers' 8-bit floats, on a GPU of compute capability 8.9 or later, and
-refused by name below it). A quantized model runs on CUDA only (on the CPU it is refused before anything loads),
-needs `bitsandbytes` for all but `fp8`, and computes in bfloat16 (`int8` in float16), the dtype its values have.
+A document's `model.dtype` may name a quantization, in nnsight's spelling: `nf4` or `fp4` (bitsandbytes' 4 bits)
+or `int8` (its LLM.int8()), which run on the CPU and on CUDA with `bitsandbytes` installed (without it they are
+refused by name), or `fp8` (transformers' 8-bit floats), which needs a GPU of compute capability 8.9 or later and is
+refused by name elsewhere. A quantized model computes in bfloat16 (`int8` in float16), the dtype its values have.
 Both engines load it with the one `quantization_config` and agree to the bit; the run records the packed weights'
-dtype beside the compute one (`uint8` under `nf4`), the plan the quantization's name. Under `ndif` the server holds
-the weights as its deployment does, so a quantized `dtype` is refused there.
+dtype beside the compute one (`uint8` under `nf4`), the plan the quantization's name. On an NDIF server the server
+holds the weights as its deployment does, so a quantized `dtype` is refused there (under `-o remote=local` it runs
+as on nnterp).
 
 `-o tp=N` shards the model over N ranks by transformers' tensor parallelism, on the nnterp engine, under
 `torchrun --nproc-per-node=N`, each rank on its own GPU (`--device cuda`; `--device cpu` where none is visible):
@@ -268,8 +269,8 @@ uvx pyright
 ```
 
 `CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
-command its docstring gives, and so does `tests/test_quantized.py` (with `bitsandbytes`); `tests/test_tp.py` starts two
-ranks with torchrun on the CPU.
+command its docstring gives, and so does the Llama case of `tests/test_quantized.py`, whose tiny-Llama cases run in
+the CPU suite with the dev group's `bitsandbytes`; `tests/test_tp.py` starts two ranks with torchrun on the CPU.
 
 Offline, the suite needs these checkpoints and one dataset in the local Hugging Face cache, at the revisions the
 documents and tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`),

@@ -142,10 +142,10 @@ QUANTIZED = {"nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16", "fp8": "bf
 
 class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype`, torch's spelling of a float dtype or one of nnsight's
-    names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bits (NormalFloat, FloatPoint),
-    `int8` in its LLM.int8() 8 bits, and `fp8` in transformers' block-wise 8-bit floats, on a GPU of compute
-    capability 8.9 or later. A quantized model runs on CUDA only and computes in `bfloat16` (`int8` in `float16`),
-    which is the dtype its values have. Every other key goes to the
+    names for a quantization: `nf4` and `fp4` hold the weights in bitsandbytes' 4 bits (NormalFloat, FloatPoint) and
+    `int8` in its LLM.int8() 8 bits, on the CPU or on CUDA, with bitsandbytes installed; `fp8` holds them in
+    transformers' block-wise 8-bit floats, on a GPU of compute capability 8.9 or later. A quantized model computes in
+    `bfloat16` (`int8` in `float16`), which is the dtype its values have. Every other key goes to the
     engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
     the model runs (`device`) is a run option, not the document's. The attention interior needs
     `attn_implementation: "eager"`."""
