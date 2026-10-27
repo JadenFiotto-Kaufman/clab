@@ -5,6 +5,7 @@ document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an att
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
 Qwen3-8B's tokenizer is cached): `<|im_start|>` and `<|im_end|>` are its markers, and it adds no BOS."""
 
+import re
 from typing import Any
 
 import pytest
@@ -313,6 +314,25 @@ def test_a_refusal_counts_tokens_as_positions(engines):
     assert [t["key_token"] for t in keyed.table("f.x") if t["row"] == 1] == [tokens[1][3]]
     with pytest.raises(ValueError, match=r"^f\.x: select key 4 outside the 4 tokens of the input's shortest row$"):
         run(engines, plan(-1, 4))
+
+
+def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
+    """`{"turn": "system"}` on a chat with no system message: where the template wrote a system header of its own
+    before the first message (Llama 3's `Cutting Knowledge Date` block), the refusal says that header is positions
+    and not a message; where it wrote none (the tiny Qwen3's), the row simply has no such message."""
+    from clab.compile import positions
+
+    llama3 = ("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nToday Date: 26 Jul 2024\n\n<|eot_id|>"
+              "<|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|>")
+    qwen3 = "<|im_start|>user\nhi<|im_end|>\n"
+    for text, note in ((llama3, "; the template wrote a 'system' header of its own, whose tokens are positions, not a "
+                                "message: locate its words with a {'text': ...} scope"), (qwen3, "")):
+        encoded = {"ids": [0] * 8, "offsets": None, "text": text, "turns": [("user", text.index("hi"), text.index("hi") + 2)]}
+        with pytest.raises(ValueError, match=f"^the row has no 'system' message{re.escape(note)}$"):
+            positions.scoped({"turn": "system"}, list(range(8)), [], [], encoded)
+    assert positions.inside([("tom", False, False)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.inside([("Tom", False, True)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.inside([("today", False, False)], "If today is Thursday, tomorrow is") is None
 
 
 # A pair of rows 5 and 3 tokens long, BOS included, each with a counterfactual as long as itself.

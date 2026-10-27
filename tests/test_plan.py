@@ -263,6 +263,11 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
      r"steps\.counterfactual\.interventions\.v_cf\.ops\[0\]: 'mean' aggregates over rows.*make it a step after the forward"),
     (lambda d: d["steps"]["iia"].update(expected="pairs.answers"),
      r"steps\.iia\.expected: dataset 'pairs' has no column 'answers'"),
+    (lambda d: d["steps"]["iia"].update(expected="pairs"),
+     r"steps\.iia\.expected: 'pairs' names a dataset, not a column reference, which is '<dataset>\.<column>'; its "
+     r"columns: answer, base_answer, "),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"column": "pairs"}}),
+     r"steps\.patched\.interventions\.patch\.pos\.scope\.column: 'pairs' names a dataset, not a column reference"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
      r"steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
      r"known: counterfactual\.v_cf"),

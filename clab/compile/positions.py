@@ -11,6 +11,7 @@ row's keys, on an attention pattern's `key` axis, are its prompt's positions, nu
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, cast
 
 from clab.format import data, selectors
@@ -135,10 +136,13 @@ def call_of(position: int, prompt: int) -> int:
     return 0 if position < prompt else position - prompt + 1
 
 
-def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -> list[int]:
+def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
+           encoded: dict = UNPROMPTED) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
     role's messages) among `tokens`, in order. Under `before` an occurrence beginning the row (at position 0)
-    has no position before it."""
+    has no position before it. The scope's `texts` (each `(text, strip, lower)`) and the `encoded` row word a
+    refusal: a column's values on the row are quoted, a text found only inside a word says which (`inside`), and a
+    role the template wrote a header of its own for, which is no message, says the header is positions."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
@@ -146,14 +150,39 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -
     picked = select(which, len(found))
     key = next(k for k in ("column", "text", "turn") if k in scope)
     what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
+    what += f" ({', '.join(repr(t) for t, _, _ in texts)})" if key == "column" and texts else ""
+    if not found and "turn" in scope:
+        first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
+        header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
+        raise Unaligned(f"the row has no {scope['turn']!r} message" + (
+            f"; the template wrote a {scope['turn']!r} header of its own, whose tokens are positions, not a message: "
+            "locate its words with a {'text': ...} scope" if header else ""))
     if not found:
-        raise Unaligned(f"the row has no {scope['turn']!r} message" if "turn" in scope else
-                        f"{what} is not in its input")
+        word_ = inside(texts, encoded["text"])
+        raise Unaligned(f"{what} is not in its input" + (
+            f"; it occurs inside the word {word_!r}, and an occurrence lies on word boundaries" if word_ else ""))
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise Unaligned(f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
+        raise Unaligned(f"{what} occurs {len(found)} time{'s' * (len(found) != 1)} in the row's input; it has no "
+                        f"occurrence {which}")
     if scope.get("before") and any(0 in found[i] for i in picked):
         raise Unaligned(f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in found[i] for i in picked)]
+
+
+def inside(texts: Sequence[tuple], words: str) -> str | None:
+    """The word one of `texts` occurs inside in `words` (`tom` in `tomorrow`), which an occurrence, lying on
+    word boundaries, does not cut; None where none does."""
+    for text, strip, lower in texts:
+        text = data.compared(text, strip, lower)
+        for m in re.finditer(re.escape(text), data.compared(words, False, lower)) if text else []:
+            a, b = m.span()
+            if word(words, a - 1, a) or word(words, b, b - 1):
+                while a > 0 and words[a - 1].isalnum():
+                    a -= 1
+                while b < len(words) and words[b].isalnum():
+                    b += 1
+                return words[a:b]
+    return None
 
 
 def indexed(index: Selector, tokens: list[int], width: int | None) -> list[int]:
@@ -165,13 +194,14 @@ def indexed(index: Selector, tokens: list[int], width: int | None) -> list[int]:
     return got
 
 
-def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]],
-            head_only: bool = False) -> list[int] | str:
+def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]], head_only: bool = False,
+            texts: Sequence[tuple] = (), encoded: dict = UNPROMPTED) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, what it generated up to its first
     EOS (`said`), where its scope's text occurs (`occurrences`), and whether its prefill holds the last position
     alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill a scope the row does not say
-    and a static index that does not fit are refusals: the data decided; an index that picks none of the row's
-    tokens (`"5:"` on a shorter row) names none there as anywhere, the marker. A scope that is `before` picks its
+    and a static index that does not fit are refusals: the data decided, and the scope's `texts` and the `encoded`
+    row word it (`scoped`); an index that picks none of the row's tokens (`"5:"` on a shorter row) names none there
+    as anywhere, the marker. A scope that is `before` picks its
     tokens as any scope does, the row's last generated token among them when the frame names its last call, and
     the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
@@ -180,7 +210,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
         tokens = held(calls, prompt, head_only)
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
-        got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences), width(pos))
+        got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences, texts, encoded), width(pos))
         got = [t - 1 for t in got] if before else got
     except ValueError as e:
         if prefill(pos):
@@ -338,8 +368,9 @@ def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTr
           head_only: bool) -> list[int] | str:
     """`resolve` for one row (its dataset row and its encoding), with what that needs: where the
     scope's text occurs."""
-    found = occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
-    got = resolve(pos, len(encoded["ids"]), said, found, head_only)
+    named = texts(pos, row)
+    found = occurrences(pos["scope"], encoded, said, tokenizer, named)
+    got = resolve(pos, len(encoded["ids"]), said, found, head_only, named, encoded)
     if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
             any(p < len(encoded["ids"]) - 1 for p in got):
         return MISSING            # before a prompt token, where this prefill computes no head

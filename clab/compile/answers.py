@@ -57,6 +57,9 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
     name, _, column = value.partition(".") if isinstance(value, str) else ("", "", "")
     if name not in cx.rows:
         fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx.rows)}")
+    if not column:
+        fail(path, f"{name!r} names a dataset, not a column reference, which is '<dataset>.<column>'; its columns: "
+             f"{', '.join(cx.rows[name][0])}")
     if any(column not in r for r in cx.rows[name]):
         fail(path, f"dataset {name!r} has no column {column!r} on every row; columns: {', '.join(cx.rows[name][0])}")
     if dataset is not None and name != dataset:

@@ -568,7 +568,7 @@ def test_s1_s2_a_published_sae_states_its_site_and_is_checked_against_it(engines
     layer, or at another component of the same width (an MLP's output beside the residual stream), is refused
     before any forward. Its latents are its tensors' to say."""
     with pytest.raises(PlanError, match=r"is a published sae, which says neither how it encodes nor where it was "
-                                        r"trained; state 'site', as its release names them$"):
+                                        r"trained; state 'site', as its release names it$"):
         published_sae().compile()
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.site: no site 'nowhere'; declared: target, head"):
         published_sae(site="nowhere").compile()

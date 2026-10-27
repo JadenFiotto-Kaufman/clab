@@ -287,13 +287,21 @@ def refused(engines, plan, kind: str = "hooks"):
         "input": "If today is Monday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: column 'pairs.entity' is not in its input"),
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) is not in its input$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "tom"}, "index": -1}),
+     r"patched.patch: row 0: text 'tom' is not in its input; it occurs inside the word 'tomorrow', and an occurrence "
+     r"lies on word boundaries$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "zebra"}, "index": -1}),
+     r"patched.patch: row 0: text 'zebra' is not in its input$"),
+    ("entity_patch", lambda d: d["steps"]["patched"]["interventions"]["patch"]["pos"]["scope"].update(occurrence=1),
+     r"patched.patch: row 0: column 'pairs.entity' \('Thursday'\) occurs 1 time in the row's input; it has no "
+     r"occurrence 1$"),
     ("entity_patch", lambda d: (d["data"].update(pairs={"rows": [{
         "input": "Friday or Friday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
         d["steps"]["patched"]["interventions"]["patch"]["pos"]["scope"].update(occurrence=2)),
-     r"patched.patch: row 0: column 'pairs.entity' occurs 2 times in the row's input; it has no occurrence 2"),
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) occurs 2 times in the row's input; it has no occurrence 2$"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"].update(turn="system"),
      r"blanked.blank: row 0: the row has no 'system' message"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"].update(occurrence=2),
