@@ -338,10 +338,62 @@ def test_anything_but_the_three_forms_is_refused_naming_them(value):
     ({"frame": "1:3", "index": "5:"}, r": index '5:' picks none of the 2 tokens of frame '1:3''s decode calls"),
     ({"frame": "1:3", "index": -3}, r": index -3 picks none of the 2 tokens of frame '1:3''s decode calls"),
     ({"frame": [2], "index": [1, 2]}, r": index \[1, 2\] picks none of the 1 tokens"),
+    ({"frame": "1:3", "index": "1:3"}, r": index '1:3' is 2 tokens wide and picks 1 of the 2 tokens of frame '1:3''s "
+                                       r"decode calls, one each, so it fits no row$"),
+    ({"frame": [1, 2, 3], "index": [0, 5]}, r": index \[0, 5\] is 2 tokens wide and picks 1 of the 3 tokens"),
 ])
 def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
+    """A selector that can pick nothing, and an index whose static width the frame's decode calls can never fill
+    (every row would be `alignment_missing`), are refused when the document is read."""
     with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
         edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
+    for fits in ({"frame": "1:4", "index": "1:3"}, {"frame": "1:3", "index": "-2:"}, {"frame": "1:3", "index": ":"}):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["logits"].update(pos=fits))
+
+
+def test_a_pos_written_as_a_string_is_not_read_as_a_number():
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos: '-1' is a string, which is not read "
+                                        r"as a number; a pos is an int \(\{'frame': 0, 'index': <int>\}\) or an object, "
+                                        r"each of whose selectors is an int \(2, -1\), a slice in Python notation \('2:5', "
+                                        r"'-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)$"):
+        edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos="-1"))
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos\.index: '-1' is not a selector"):
+        edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "-1"}))
+
+
+def test_a_sweep_over_pos_objects_names_the_fields_that_take_one():
+    """A sweep's example sweeps a scalar the pos takes one on (its frame, its index, a scope's occurrence), not
+    the scope object again."""
+    def swept(d):
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"sweep": [
+            {"scope": {"column": "pairs.entity"}}, {"scope": {"column": "pairs.entity"}, "index": -1}]}
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos: a sweep's values are numbers, "
+                                        r"strings, booleans or lists of them, each point keyed by its value; \{'scope': "
+                                        r"\{'column': 'pairs\.entity'\}\} is an object: sweep a scalar inside the pos, "
+                                        r"which takes one on frame, index and a scope's occurrence \(\{'frame': 0, "
+                                        r"'index': \{'sweep': \[-1, -2\]\}\}, or \{'scope': \{'column': \.\.\., "
+                                        r"'occurrence': \{'sweep': \[0, 1\]\}\}\}\)$"):
+        edited("entity_patch", swept)
+    with pytest.raises(PlanError, match=r"^steps\.patched\.generation_config: a sweep's values are numbers, strings, "
+                                        r"booleans or lists of them, each point keyed by its value; \{'a': \{'b': 1\}\} is "
+                                        r"an object: sweep a scalar field inside it, \{'a': \{'b': \{'sweep': \[1, "
+                                        r"\.\.\.\]\}\}\}$"):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(generation_config={"sweep": [{"a": {"b": 1}}]}))
+
+
+@pytest.mark.parametrize("scope, message", [
+    ({"column": {"colum": "pairs.entity"}}, r"column: unknown field 'colum'; valid: column, strip, lower$"),
+    ({"column": [{"colum": "pairs.entity"}]}, r"column\[0\]: unknown field 'colum'; valid: column, strip, lower$"),
+    ({"text": {"text": "Friday", "strip": True}},
+     r"text: \{'text': 'Friday', 'strip': True\} is an object; a text is a literal, and its strip and lower go on the "
+     r"scope beside it: \{'text': 'Friday', 'strip': true\}$"),
+    ({"text": ["Friday", {"text": "Monday"}]}, r"text: \{'text': 'Monday'\} is an object; a text is a literal"),
+])
+def test_a_scope_object_error_names_the_field_and_its_keys(scope, message):
+    """A column reference inside a scope is validated as the one thing its shape says it is, so an unknown key
+    names the keys a reference takes; `strip` inside a text object says where a text's flags go."""
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos\.scope\." + message):
+        edited("entity_patch", lambda d: d["steps"]["patched"]["interventions"]["patch"]["pos"].update(scope=scope))
 
 
 def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():

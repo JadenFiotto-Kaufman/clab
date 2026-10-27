@@ -87,21 +87,6 @@ class Sweep(Record):
     sweep: list[Any] = Field(min_length=1)
     label: str | None = None
 
-    @field_validator("sweep")
-    @classmethod
-    def _flat(cls, values: list[Any]) -> list[Any]:
-        # A point is keyed by its value, so each value is one a key can hold: a scalar, or a list of them.
-        for value in values:
-            if isinstance(value, dict):
-                field, first = next(iter(value.items()), ("<field>", "..."))
-                raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "
-                                 f"keyed by its value; {value!r} is an object: sweep a scalar field inside it, "
-                                 f"{{{field!r}: {{'sweep': [{first!r}, ...]}}}}")
-            if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
-                raise ValueError(f"a sweep's values are numbers, strings, booleans or lists of them, each point "
-                                 f"keyed by its value; {value!r} holds a list or an object")
-        return values
-
 
 class ByShape:
     """A union validated by the one member the input's shape picks (a sweep, a dict, a string, a number, a
@@ -132,6 +117,8 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, tuple(type(a) for a in get_args(member)))
     if get_origin(member) in (list, tuple):
         return isinstance(value, (list, tuple))
+    if member is type(None):
+        return value is None
     number = isinstance(value, (int, float)) and not isinstance(value, bool)
     return {int: number and isinstance(value, int), float: number, str: isinstance(value, str),
             bool: isinstance(value, bool)}.get(member, False)
@@ -288,7 +275,7 @@ class Column(Record):
         return handler(self) if self.strip or self.lower else self.column
 
 
-ColumnRef = Union[str, Column]
+ColumnRef = Annotated[Union[str, Column], ByShape()]
 
 
 class Scope(Record):
@@ -303,7 +290,7 @@ class Scope(Record):
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
     # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
-    column: ColumnRef | list[ColumnRef] | None = None
+    column: Annotated[Union[ColumnRef, list[ColumnRef], None], ByShape()] = None
     text: str | list[str] | None = None
     turn: str | None = None
     occurrence: Swept[Selector] = 0
@@ -313,11 +300,21 @@ class Scope(Record):
 
     @field_validator("column")
     @classmethod
-    def _columns(cls, given: ColumnRef | list[ColumnRef] | None) -> Column | list[Column] | None:
+    def _columns(cls, given: str | Column | list[str | Column] | None) -> Column | list[Column] | None:
         """Each column a `Column`, a string the one without flags."""
-        def made(ref: ColumnRef) -> Column:
+        def made(ref: str | Column) -> Column:
             return Column(column=ref) if isinstance(ref, str) else ref
         return [made(c) for c in given] if isinstance(given, list) else None if given is None else made(given)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _literal(cls, given: Any) -> Any:
+        """A text is a literal; its `strip` and `lower` are the scope's own, beside it."""
+        for text in given if isinstance(given, list) else [given]:
+            if isinstance(text, dict):
+                raise ValueError(f"{text!r} is an object; a text is a literal, and its strip and lower go on the scope "
+                                 f"beside it: {{'text': {text.get('text', '<literal>')!r}, 'strip': true}}")
+        return given
 
     @model_validator(mode="after")
     def _one(self) -> "Scope":
@@ -365,7 +362,8 @@ class Pos(Record):
     (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
     that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
     picks none of the tokens of a frame of a static number of decode calls (`{"frame": "1:3", "index":
-    "5:"}`).
+    "5:"}`), or whose static width those tokens cannot fill (`{"frame": "1:3", "index": "1:3"}`, two wide over the
+    one token it picks).
 
     **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
     counts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the
@@ -441,9 +439,15 @@ class Pos(Record):
         if self.scope is not None or isinstance(frame, Sweep) or isinstance(index, Sweep) or selectors.from_end(frame):
             return self
         calls = selectors.fixed(frame)
-        if calls is not None and 0 not in selectors.select(frame, 1) and not selectors.select(index, calls):
+        if calls is None or 0 in selectors.select(frame, 1):
+            return self
+        got, width = selectors.select(index, calls), selectors.fixed(index)
+        if not got:
             raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
                              "calls, one each")
+        if width is not None and len(got) != width:
+            raise ValueError(f"index {index!r} is {width} tokens wide and picks {len(got)} of the {calls} tokens of "
+                             f"frame {frame!r}'s decode calls, one each, so it fits no row")
         return self
 
 
@@ -554,6 +558,15 @@ class Intervention(Labelled):
                                              "rows they are (a fit body's entry has them under each dataset an eval "
                                              "reads it over); the prefill's set by preflight, a generation's decode "
                                              "calls' by the run")
+
+    @field_validator("pos", mode="before")
+    @classmethod
+    def _selectors(cls, given: Any) -> Any:
+        """A string is not read as a number: the int shorthand is an int, and a slice goes under `index`."""
+        if isinstance(given, str):
+            raise ValueError(f"{given!r} is a string, which is not read as a number; a pos is an int ({{'frame': 0, "
+                             f"'index': <int>}}) or an object, each of whose selectors is {selectors.FORMS}")
+        return given
 
 
 # The edits group as `ops` declares it, written into the docstring where `<the edits group>` stands, so a new edit is listed.

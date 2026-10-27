@@ -134,7 +134,7 @@ def test_b5_a_sweep_of_objects_is_refused_at_compile():
     """trial-06 e10: the points of a sweep are keyed by its values, so a value is a scalar or a list of them."""
     with pytest.raises(PlanError, match=r"a sweep's values are numbers, strings, booleans or lists of them, each "
                                         r"point keyed by its value; \{'index': '-2:'\} is an object: sweep a scalar "
-                                        r"field inside it, \{'index': \{'sweep': \['-2:', \.\.\.\]\}\}"):
+                                        r"inside the pos, which takes one on frame, index and a scope's occurrence"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"w": {"site": LAYER0, "pos": {"sweep": [{"index": "-2:"}, {"index": ":"}]},
                                 "ops": [{"op": "scale", "factor": 2.0}]}, "logits": {"site": HEAD, "pos": -1}}),

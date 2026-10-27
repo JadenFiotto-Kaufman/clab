@@ -199,7 +199,8 @@ Each stage is a selector over what the stage before it left (`selectors.select`)
 (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
 that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
 picks none of the tokens of a frame of a static number of decode calls (`{"frame": "1:3", "index":
-"5:"}`).
+"5:"}`), or whose static width those tokens cannot fill (`{"frame": "1:3", "index": "1:3"}`, two wide over the
+one token it picks).
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
 counts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the
@@ -850,7 +851,9 @@ columns), and an op takes one dataset's rows.
 
 Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
 the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
-else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
+else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
+booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
 once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
