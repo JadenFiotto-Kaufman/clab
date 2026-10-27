@@ -215,6 +215,23 @@ def test_an_operand_must_have_the_writes_layout():
         edited("patching", change).compile()
 
 
+def test_an_op_that_aggregates_over_rows_says_where_it_goes():
+    """After an entry's last edit the aggregate is a reduction of a read, a step after the forward; up to it the
+    entry would write it back, which a step after the forward cannot feed: an op step before the forward, swapped
+    in."""
+    def ops_(*listed):
+        return lambda d: d["steps"]["patched"]["interventions"]["patch"].update(ops=list(listed))
+    swap = {"op": "swap", "with": 0.0}
+    with pytest.raises(PlanError, match=r"patch\.ops\[1\]: 'mean' aggregates over rows, and inside an entry it sees one "
+                                        r"batch; make it a step after the forward$"):
+        edited("patching", ops_(swap, {"op": "mean"})).compile()
+    with pytest.raises(PlanError, match=r"patch\.ops\[0\]: 'mean' aggregates over rows, and inside an entry it sees one "
+                                        r"batch; this entry writes it back, so make it an op step before the forward, "
+                                        r"over a read of the rows it aggregates, and write that in \(\{'op': 'swap', "
+                                        r"'with': '<that step>'\}\)$"):
+        edited("patching", ops_({"op": "mean"}, swap)).compile()
+
+
 def test_renormalize_runs_only_inside_an_entry():
     def change(d):
         d["steps"]["iia"] = {"kind": "op", "op": "renormalize", "of": "counterfactual.v_cf"}

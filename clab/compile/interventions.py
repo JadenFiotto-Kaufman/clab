@@ -186,9 +186,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
             before[i] = dims
-            dims = layout(here, o.op, args, dims, "entry", kind)
+            dims = layout(here, o.op, args, dims, "write" if i <= last else "entry", kind)
         else:
-            out = layout(here, o.op, args, dims, "entry", kind)
+            out = layout(here, o.op, args, dims, "write" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
