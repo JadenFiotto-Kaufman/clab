@@ -1,14 +1,14 @@
 """The second engine: a plain HuggingFace model driven by forward hooks, in this process.
 
 It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `register_forward_hook` and
-`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell (no weights): it says which native module
-and boundary each component is (the module whose output or input nnterp's own key for it names), the sizes, the
-final norm and head its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the
-checkpoint supports. A component nnterp reaches inside a module's forward (`.source`) is not a module boundary, and
-is refused by name before anything runs. `device` is one torch device, which the loaded model moves to (a quantized
-one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
-`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go
-where the model's first parameter is, and transformers moves them on from there.
+`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell: it says which native module and boundary
+each component is (the module whose output or input nnterp's key for it names), the sizes, the final norm and head
+its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the checkpoint supports,
+layer by layer, which this engine refuses by name before anything runs, as well as a value nnterp reads inside a
+module's forward (`.source`) wherever the module is. `device` is one torch device, which the loaded model moves to
+(a quantized one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...),
+which `from_pretrained` takes as its `device_map` and may spread over several GPUs; the batch's inputs go where the
+model's first parameter is, and transformers moves them on from there.
 """
 
 import time
@@ -23,8 +23,8 @@ from torch.utils.hooks import RemovableHandle
 from transformers import AutoModelForCausalLM
 
 from clab import steps
-from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, nnterp_name, stops
+from clab.engines import engine, standard
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -49,8 +49,7 @@ class HooksEngine:
         mapped = device in COMPUTED or "quantization_config" in loaded
         shell = build(model, "hooks", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
-        support = shell.support()
-        sites = {c: reach(shell, c, support) for c in COMPONENTS}
+        sites = {c: reach(shell, c, refused) for c, refused in standard.unserved(shell).items()}
         self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
@@ -73,8 +72,7 @@ class HooksEngine:
         return stops(self.model.generation_config, self.tokenizer)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """Why this engine cannot reach a component: nnterp's own reason, or that nnterp reads it inside a
-        module's forward rather than at a module boundary; None where it can."""
+        """nnterp's answer, layer by layer, but at every layer with the module a value nnterp reads inside a forward."""
         return {c: site["refused"] for c, site in self.config["sites"].items()}
 
     def rank(self, component: str, layer: int | None) -> int:
@@ -203,25 +201,28 @@ def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str)
             for layer, path in s["paths"].items()}
 
 
-def reach(shell: StandardizedTransformer, component: str, support: dict[str, Any]) -> dict[str, Any]:
-    """Where the component is on the native model: per layer, the module whose output or input nnterp's key names."""
-    per_layer = COMPONENTS[component]["per_layer"]
-    reason_for = support.get(nnterp_name(component))
-    paths, boundary = {}, None
-    for layer in (range(shell.num_layers) if per_layer else [None]):
-        reason = reason_for.get(layer) if isinstance(reason_for, dict) else reason_for
-        if reason:
-            return {"paths": {}, "boundary": None, "refused": reason}
-        host: Any = envoy(shell, component, layer)
-        key = getattr(type(host), component).path(host)
-        if "source" in key.split("."):
-            return {"paths": {}, "boundary": None,
-                    "refused": f"nnterp reads it inside a module's forward ({key}), not at a module boundary"}
+def reach(shell: StandardizedTransformer, component: str, refused: str | dict[Any, str] | None) -> dict[str, Any]:
+    """Each layer's module nnterp's key reads, or why not: the value is inside a forward there, or nnterp's reason."""
+    per_layer, paths, reasons, boundary = COMPONENTS[component]["per_layer"], {}, {}, None
+    for layer in range(shell.num_layers) if per_layer else [None]:
+        why = refused.get(layer) if isinstance(refused, dict) else refused
+        try:
+            host: Any = envoy(shell, component, layer)
+        except AttributeError:          # no such module at this layer: nnterp says why
+            if not why:
+                raise
+            reasons[layer] = why
+            continue
+        value = getattr(type(host), component)
+        key, inside = value.path(host), standard.inside(value, host)
+        if inside or why:
+            reasons[layer] = (f"nnterp reads it inside a module's forward ({key}), not at a module boundary" if inside
+                              else why)
+            continue
         while key.startswith("../"):
             host, key = host.parent, key[3:]
         *children, boundary = key.split(".")
         for child in children:
             host = getattr(host, child)
         paths[layer] = host.path.removeprefix("model").removeprefix(".")
-    return {"paths": paths, "boundary": boundary, "refused": None}
-
+    return {"paths": paths, "boundary": boundary, "refused": (reasons or None) if per_layer else reasons.get(None)}

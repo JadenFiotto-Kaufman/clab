@@ -7,10 +7,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from conftest import BATCH_SIZE, edited  # noqa: E402
+from conftest import BATCH_SIZE, HYBRID, edited  # noqa: E402
 
-# A tiny hybrid: blocks 0 to 2 have linear attention, block 3 full attention.
-HYBRID = {"key": "yujiepan/qwen3-next-moe-tiny-random", "revision": "ec636a93e953ed50d2ecebda99b04673b5f1e248"}
 # A run's name, beside the documents': the document it edits, and how.
 CHANGES = {"das": ("das", lambda d: d["steps"]["fit"].update(epochs=1)),
            "sampled": ("generated_contains", lambda d: d["steps"]["answer"].update(do_sample=True)),

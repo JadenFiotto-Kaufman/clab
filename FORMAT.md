@@ -780,14 +780,14 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 The second engine: a plain HuggingFace model driven by forward hooks, in this process.
 
 It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `register_forward_hook` and
-`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell (no weights): it says which native module
-and boundary each component is (the module whose output or input nnterp's own key for it names), the sizes, the
-final norm and head its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the
-checkpoint supports. A component nnterp reaches inside a module's forward (`.source`) is not a module boundary, and
-is refused by name before anything runs. `device` is one torch device, which the loaded model moves to (a quantized
-one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
-`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go
-where the model's first parameter is, and transformers moves them on from there.
+`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell: it says which native module and boundary
+each component is (the module whose output or input nnterp's key for it names), the sizes, the final norm and head
+its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the checkpoint supports,
+layer by layer, which this engine refuses by name before anything runs, as well as a value nnterp reads inside a
+module's forward (`.source`) wherever the module is. `device` is one torch device, which the loaded model moves to
+(a quantized one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...),
+which `from_pretrained` takes as its `device_map` and may spread over several GPUs; the batch's inputs go where the
+model's first parameter is, and transformers moves them on from there.
 
 ### `ndif`
 

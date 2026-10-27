@@ -34,9 +34,8 @@ from torch import Tensor
 from transformers import PreTrainedTokenizerBase
 
 from clab import steps
-from clab.engines import engine
-from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, stops
-from clab.format.address import COMPONENTS
+from clab.engines import engine, standard
+from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.plan import QUANTIZED, Model, Plan
 from clab.steps import batches
 from clab.steps.batches import landed, now
@@ -104,17 +103,12 @@ class NnterpEngine:
         return stops(self.model.generation_config, self.model.tokenizer)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """Why nnterp does not serve a component on this checkpoint, from its `support()`, and under `tp` why the
-        ranks hold it in pieces (`split`); None where it is served."""
-        support, tp = self.model.support(), self.options.get("tp", 1)
-        reasons = {c: support.get(nnterp_name(c)) for c in COMPONENTS}
+        """nnterp's answer (`standard.unserved`), and under `tp` why the ranks hold a value in pieces (`split`)."""
+        reasons, tp, n = standard.unserved(self.model), self.options.get("tp", 1), self.model.num_layers
         for c, reason in reasons.items() if tp > 1 else []:
-            if isinstance(reason, str):                     # nnterp serves it at no layer
-                continue
-            layers = range(self.model.num_layers) if COMPONENTS[c]["per_layer"] else [None]
-            served = [layer for layer in layers if not (reason or {}).get(layer)]
-            pieces = {layer: f"under tp {tp} {why}" for layer in served if (why := split(self.model, c, layer))}
-            if pieces:
+            pieces: dict[Any, str] = {layer: f"under tp {tp} {why}" for layer in served(c, reason, n)
+                                      if (why := split(self.model, c, layer))}
+            if pieces and not isinstance(reason, str):
                 reasons[c] = pieces[None] if None in pieces else {**pieces, **(reason or {})}
         return reasons
 
@@ -205,15 +199,8 @@ class NnterpEngine:
 
 def measured(shell: StandardizedTransformer) -> dict[tuple[str, int | None], tuple[int, int]]:
     """nnterp's rank of every component `shell` serves, at each layer it serves it, by `(component, layer)`."""
-    support, order = shell.support(), {}
-    for c in COMPONENTS:
-        reason = support.get(nnterp_name(c))
-        if isinstance(reason, str):                 # served at no layer
-            continue
-        for layer in range(shell.num_layers) if COMPONENTS[c]["per_layer"] else [None]:
-            if not (reason or {}).get(layer):
-                order[c, layer] = shell.rank(nnterp_name(c), layer)
-    return order
+    return {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in standard.unserved(shell).items()
+            for layer in served(c, refused, shell.num_layers)}
 
 
 def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:
@@ -289,11 +276,11 @@ def split(model: StandardizedTransformer, component: str, layer: int | None) -> 
         return _get_parameter_plan(name, plan, is_weight=False) if name else None
 
     host: Any = envoy(model, component, layer)
-    key = getattr(type(host), component).path(host)
+    value = getattr(type(host), component)
+    key, inside = value.path(host), standard.inside(value, host)
     while key.startswith("../"):
         host, key = host.parent, key[3:]
     parts = key.split(".")
-    inside = "source" in parts
     children, side = (parts[:parts.index("source")], "inside") if inside else (parts[:-1], parts[-1])
     for child in children:
         host = getattr(host, child)
