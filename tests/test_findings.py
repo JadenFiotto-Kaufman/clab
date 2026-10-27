@@ -11,7 +11,7 @@ from typing import Any
 import numpy
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, same
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, on_each, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 from transformers import AutoTokenizer
@@ -201,7 +201,7 @@ def test_b7_a_gate_inside_a_pca_encode_trains_on_the_pca_coordinates(engines, tm
     one = edited("dbm", change)
     compiled = Plan(**one.model_dump(exclude_defaults=True, exclude={"document"}),
                     document=os.path.join(root, "documents", "dbm.json")).compile()
-    got = [run(engines, compiled, kind).results for kind in ("nnterp", "hooks")]
+    got = [filled.results for filled in on_each(engines, compiled).values()]
     assert same(*got)
     assert got[0]["fit.mask"]["theta"].shape == (4,)
 

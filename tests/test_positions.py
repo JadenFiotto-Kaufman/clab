@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, plan_of, same
+from conftest import BATCH_SIZE, on_each, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 from transformers import AutoTokenizer
 
@@ -65,7 +65,7 @@ def run(engines, plan: Plan, kind: str = "nnterp", batch_size: int = BATCH_SIZE)
 
 def both(engines, plan: Plan) -> Any:
     """`plan` on nnterp and hooks, which agree to the bit and on every position; nnterp's run."""
-    a, b = run(engines, plan), run(engines, plan, "hooks")
+    a, b = on_each(engines, plan).values()
     assert same(a.results, b.results) and a.run.positions == b.run.positions
     return a
 

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, on_each, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
@@ -49,7 +49,7 @@ def swap(layers, operand: str, pos: Any = -1) -> dict:
 def both(engines, compiled: Plan) -> Any:
     """`compiled` run on each engine at the pinned batch size, the two agreeing to the bit in their results and
     in the positions they record: the nnterp run."""
-    a, b = (engines(kind, compiled.model).execute(compiled, batch_size=BATCH_SIZE) for kind in KINDS)
+    a, b = on_each(engines, compiled, kinds=KINDS).values()
     assert same(a.results, b.results) and a.run.positions == b.run.positions
     return a
 

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, TRIP, bundle_header, edited, same, stand_in
+from conftest import BATCH_SIZE, TRIP, bundle_header, edited, on_each, same, stand_in
 from safetensors.torch import save_file
 from test_fit import TINY, corpus_copy
 
@@ -147,7 +147,7 @@ def test_a_cross_site_adapter_adds_its_update_to_the_live_value_on_both_engines(
              "interventions": {"out": {"site": {"component": "attention_output", "layers": 0}, "pos": pos}}}
     plan = cross_site(root, {"clean": clean, "patched": adapted("patched", "oproj", pos)},
                       ["clean.out", "patched.premix", "patched.out"])
-    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results for kind in ("nnterp", "hooks")]
+    got = [filled.results for filled in on_each(engines, plan).values()]
     assert same(*got)
     values = got[0]
     bundle = points(plan.featurizers["oproj"])[0].bundle
@@ -166,7 +166,7 @@ def test_a_cross_site_adapter_trains_the_same_on_both_engines(engines, tmp_path)
            "steps": {"patched": adapted("patched", "fit.oproj", -1),
                      "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"}}}
     plan = cross_site(root, {"fit": fit}, ["fit.history.ce", "fit.oproj"], train=True)
-    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results for kind in ("nnterp", "hooks")]
+    got = [filled.results for filled in on_each(engines, plan).values()]
     assert same(*got)
     assert got[0]["fit.history.ce"][-1] < got[0]["fit.history.ce"][0]
 
@@ -191,7 +191,7 @@ def test_an_intervention_names_its_own_read_bare_and_each_step_uses_its_own(engi
     plan = cross_site(root, steps, saves, interventions={"oproj": OPROJ})
     step: Any = plan.steps["b"]
     assert [o.model_extra for o in step.interventions["adapt"].ops] == [{"featurizer": "oproj", "with": "b.premix"}]
-    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results for kind in ("nnterp", "hooks")]
+    got = [filled.results for filled in on_each(engines, plan).values()]
     assert same(*got)
     bundle = points(plan.featurizers["oproj"])[0].bundle
     assert bundle is not None

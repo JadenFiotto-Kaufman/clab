@@ -13,7 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, plain, plan_of, same, snapshot
+from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, on_each, plain, plan_of, same, snapshot
 
 from clab import Plan
 from clab.cli import main
@@ -199,7 +199,7 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
         d["saves"] = [f"{step}.n"]
     for name, step, frame in (("noise_write", "noisy", 0), ("generated_answer", "answer", "1:")):
         plan = edited(name, lambda d: pure(d, step, frame)).compile()
-        runs = [engines(kind, plan.model).execute(plan, batch_size=b) for kind in ("nnterp", "hooks") for b in (1, 4)]
+        runs = [filled for b in (1, 4) for filled in on_each(engines, plan, batch_size=b).values()]
         assert all(same(r.results, runs[0].results) for r in runs)
         got, where = runs[0].results[f"{step}.n"], runs[0].run.positions[f"{step}.n"]
         drawn = []
