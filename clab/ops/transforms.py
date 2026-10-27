@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 
 from clab import featurizers
-from clab.format import selectors
+from clab.format import address, selectors
 from clab.format.registry import Featurizer
 from clab.ops import VOCABULARY, op
 from clab.ops.metrics import ranked
@@ -24,6 +24,17 @@ def readout(of: Tensor, engine: "Engine") -> Tensor:
     """The engine's readout of a residual-stream value (the logit lens): the model's own on nnterp, the standard final
     norm, head and softcap on hooks."""
     return engine.readout(of)
+
+
+def unstreamed(component: str) -> str | None:
+    """Why `readout` cannot project a value read at `component`: the final norm takes the residual stream, and the
+    component is not a residual-stream value (`stream` in Components); None where it is. The one check, which compile
+    runs on a `readout` inside an entry and on a `readout` step over a read alike (a `mlp_norm_output` is normed
+    already, and a readout of it would norm it twice)."""
+    if address.COMPONENTS[component]["stream"]:
+        return None
+    streams = ", ".join(c for c, spec in address.COMPONENTS.items() if spec["stream"])
+    return f"readout projects a residual-stream value; {component} is not one: read one of {streams}"
 
 
 def coordinates(dims: list[str], args: dict, kind: str) -> list[str]:

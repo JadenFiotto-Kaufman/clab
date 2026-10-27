@@ -232,10 +232,25 @@ def test_a_forward_makes_one_call():
 
 
 def test_readout_projects_only_the_residual_stream():
+    """Inside an entry and as a step over a read alike (one check, `transforms.unstreamed`): the final norm takes
+    the residual stream, so a readout of the MLP's normed input would norm it twice."""
+    streams = "token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output"
+
     def change(d):
-        d["sites"]["resid"]["component"] = "mlp_activation"
-    with pytest.raises(PlanError, match="readout projects a residual-stream value; mlp_activation is not one"):
+        d["sites"]["resid"]["component"] = "mlp_norm_output"
+    with pytest.raises(PlanError, match=r"steps\.lens\.interventions\.logits\.ops\[0\] at layers=0: readout projects a "
+                                        rf"residual-stream value; mlp_norm_output is not one: read one of {streams}$"):
         edited("logit_lens", change).compile()
+
+    def as_step(d):
+        change(d)
+        d["steps"]["lens"]["interventions"]["logits"]["ops"] = []
+        d["steps"] = {"lens": d["steps"]["lens"], "readout": {"kind": "op", "op": "readout", "of": "lens.logits"},
+                      **{k: {**s, "of": "readout"} for k, s in d["steps"].items() if k != "lens"}}
+    with pytest.raises(PlanError, match=r"steps\.readout\.of at layers=0: 'lens\.logits' is read at mlp_norm_output: "
+                                        rf"readout projects a residual-stream value; mlp_norm_output is not one: read one of "
+                                        rf"{streams}$"):
+        edited("logit_lens", as_step).compile()
 
 
 # -- preflight, before any forward ----------------------------------------------------------------------------

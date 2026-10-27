@@ -147,8 +147,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
-        if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
-            fail(here, f"readout projects a residual-stream value; {site.component} is not one")
+        if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
+            fail(here, why)
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
             fail(here, narrowed_readout(f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
         if edits(o) and changed is not None:
