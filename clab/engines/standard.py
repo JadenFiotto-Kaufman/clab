@@ -123,6 +123,29 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     return {"dtype": dtype, "quantization_config": config}
 
 
+def placeable(device: str) -> None:
+    """`device` as every engine takes it: a device map transformers computes (`COMPUTED`), or one torch device.
+    Refused by name before anything loads: a string that is neither, a CUDA device where none is visible, and
+    one beyond those that are."""
+    import torch
+
+    if device in COMPUTED:
+        return
+    try:
+        where = torch.device(device)
+    except RuntimeError:
+        raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
+                         f"computes ({', '.join(map(repr, COMPUTED))})") from None
+    if where.type != "cuda":
+        return
+    if not torch.cuda.is_available():
+        raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
+                         "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
+    if where.index is not None and where.index >= torch.cuda.device_count():
+        n = torch.cuda.device_count()
+        raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
+
+
 def placing(model: Model, device: str) -> dict[str, str]:
     """Where nnsight's loader puts the model: as its `device_map` a map transformers computes, else as its `device`
     one torch device, and a quantized model's as its `device_map` too, since a model is quantized where
@@ -141,13 +164,22 @@ def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
     """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as
     they are. A key in
-    `OWNED` is refused by name, and one the loader rejects is reported as that key."""
+    `OWNED` is refused by name, and one the loader rejects is reported as that key. A checkpoint the loader cannot
+    get (its `OSError`) is refused as `model.key`, saying whether the run is offline and the cache lacks it."""
+    from huggingface_hub.constants import HF_HUB_OFFLINE
+
     extra = dict(model.model_extra or {})
     for key in extra:
         if key in OWNED:
             raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
     try:
         return call(extra)
+    except OSError as e:                   # before ValueError: the hub's not-found error is both
+        why = ("HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first"
+               if HF_HUB_OFFLINE else "the hub does not give it and the cache lacks it")
+        said = (str(e).strip().splitlines() or [""])[0]
+        raise ValueError(f"model.key {model.key!r} at revision {model.revision!r}: the {engine} engine cannot load "
+                         f"it: {why} (the loader says: {said})") from None
     except (TypeError, ValueError) as e:
         key = next((k for k in extra if repr(k) in str(e) or f"{k}=" in str(e) or f" {k} " in str(e)), None)
         if key is None:

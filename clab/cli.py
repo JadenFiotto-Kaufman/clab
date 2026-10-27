@@ -189,8 +189,9 @@ def command(args: argparse.Namespace) -> int:
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
                           device=args.device, **options)
-    except (ValueError, NotImplementedError, RemoteError) as e:
-        # A refusal on the server comes home as nnsight's error, its last line the reason.
+    except (ValueError, NotImplementedError, OSError, RemoteError) as e:
+        # A refusal on the server comes home as nnsight's error, its last line the reason; a missing document is
+        # the OSError that names it.
         reason = (str(e).strip().splitlines() or [""])[-1] if isinstance(e, RemoteError) else str(e)
         if first:
             print(f"clab: {reason}", file=sys.stderr)

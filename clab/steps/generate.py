@@ -146,14 +146,15 @@ def landed_at(record: Intervention, rows: list[dict], encoded: list[dict], said:
 
 def generated(engine: Engine, name: str, batch: dict, records: list[dict], options: dict) -> tuple[Tensor, dict]:
     """`engine.generate`, which validates its own options: an error it raises naming one of them is reported
-    as the step's, `<step>: generate rejected '<option>': <the engine's message>`. Each read at decode calls is
+    as the step's, `<step>: generate rejected '<option>': <the engine's message>`, and one naming none (an option
+    of the wrong type, `max_new_tokens: "3"`) with the options the step gave. Each read at decode calls is
     checked to hold one value per call the batch made (a read out of forward order shifts calls)."""
     try:
         ids, got = engine.generate(batch, records, options)
     except (TypeError, ValueError) as e:
         key = next((k for k in options if repr(k) in str(e)), None)
         if key is None:
-            raise
+            raise ValueError(f"{name}: generate rejected its options {options!r}: {e}") from None
         raise ValueError(f"{name}: generate rejected {key!r}: {e}") from None
     for record in records:
         if "calls" in record and "ops" not in record:

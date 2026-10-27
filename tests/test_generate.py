@@ -301,6 +301,12 @@ def test_an_option_the_engine_rejects_fails_naming_the_step(engines, kind):
     with pytest.raises(ValueError, match=r"^patched: generate rejected 'max_new_toknes': The following "
                                          r"`model_kwargs` are not used by the model"):
         engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+    # An option of the wrong type: the engine's error names no option, so the step's options are quoted whole.
+    plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_tokens="3")).compile()
+    with pytest.raises(ValueError, match=r"^patched: generate rejected its options \{'max_new_tokens': '3', "
+                                         r"'min_new_tokens': 3, 'do_sample': False\}: '<=' not supported between "
+                                         r"instances of 'str' and 'int'$"):
+        engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):

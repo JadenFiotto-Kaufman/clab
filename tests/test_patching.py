@@ -60,7 +60,10 @@ def test_execute_refuses_an_uncompiled_plan_and_dump_one_without_results(engines
     plan = Plan(document("patching"))
     with pytest.raises(ValueError, match="plan is not compiled; call plan.compile()"):
         engines("nnterp", plan.model).execute(plan)
-    with pytest.raises(ValueError, match="the plan has not run"):
+    for n in (0, -1):
+        with pytest.raises(ValueError, match=f"^batch_size {n}: a batch holds one row or more \\(--batch-size N, N at least 1\\)$"):
+            engines("nnterp", plan.model).execute(plan.compile(), batch_size=n)
+    with pytest.raises(ValueError, match="^the plan has not run, so it has no results; execute it first$"):
         plan.compile().dump(str(tmp_path))
 
 
@@ -253,9 +256,13 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
         load("ndif", model, remote="yes")
 
 
-def test_an_option_the_engine_cannot_honor_is_refused_by_name():
+def test_an_option_the_engine_cannot_honor_is_refused_by_name(monkeypatch):
+    # With a GPU visible (a stand-in says so; without one `load` refuses the device before any engine decides).
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 1)
     with pytest.raises(ValueError, match="device: the ndif engine cannot honor 'cuda': the server places the model"):
         clab.run(document("patching"), engine="ndif", device="cuda")
+    monkeypatch.undo()
     with pytest.raises(ValueError, match=r"device: the ndif engine places a local model on one torch device \('cpu', "
                                          r"'cuda:0'\), not 'auto'"):
         clab.run(document("patching"), engine="ndif", device="auto", remote="local")

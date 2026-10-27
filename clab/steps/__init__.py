@@ -43,16 +43,26 @@ if TYPE_CHECKING:
 
 
 def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
-    """What every engine's `execute` checks first, and the run record it starts: the engine, the batch size,
-    the device and the options it loaded with; returns the start time."""
+    """What every engine's `execute` checks first (a compiled plan, for this engine's checkpoint, at a batch size of
+    one row or more), and the run record it starts: the engine, the batch size, the device and the options it
+    loaded with; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
+    batched(batch_size)
     if plan.model != engine.spec:
         raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
                          f"{plan.model.key}@{plan.model.revision}")
     plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=engine.options,
                    started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
+
+
+def batched(batch_size: int) -> int:
+    """`batch_size` as every run takes it: one row or more per batch, refused by name below that (`clab.run` asks
+    before the model loads, `begin` for an engine's `execute` called on its own)."""
+    if batch_size < 1:
+        raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
+    return batch_size
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:

@@ -89,3 +89,19 @@ def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
     os.close(reading)
     monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w"))
     assert main(["show", out]) == 0
+def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
+    """A missing document, a device that is no torch device, a CUDA device where none is visible (the suite runs
+    with none) and a batch size below 1 are each one `clab:` line and exit status 1."""
+    out = str(tmp_path / "out")
+    assert main(["run", "nowhere.json", "--out", out]) == 1
+    assert capsys.readouterr().err == "clab: [Errno 2] No such file or directory: 'nowhere.json'\n"
+    assert main(["run", document("patching"), "--device", "gpu", "--out", out]) == 1
+    assert capsys.readouterr().err == ("clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map "
+                                       "transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')\n")
+    for engine in ("nnterp", "hooks", "ndif"):
+        assert main(["run", document("patching"), "--engine", engine, "--device", "cuda:0", "--out", out]) == 1
+        assert capsys.readouterr().err == ("clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() "
+                                           "is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)\n")
+    assert main(["run", document("patching"), "--batch-size", "0", "--out", out]) == 1
+    assert capsys.readouterr().err == "clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)\n"
+    assert not os.path.exists(out)                       # and nothing loaded: each refusal came before the model

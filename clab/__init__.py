@@ -25,7 +25,9 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     engine was placed and configured when it loaded, so it takes no `device` or option here. Under torchrun
     (the nnterp engine's `tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`."""
     from clab.engines import load
+    from clab.steps import batched
 
+    batched(batch_size)
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):
         engine = load(engine, compiled.model, device or "cpu", **options)
