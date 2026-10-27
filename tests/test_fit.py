@@ -36,7 +36,8 @@ from clab import Plan, featurizers, ops
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
-from clab.plan import Model, PlanError
+from clab.format.sweeps import points
+from clab.plan import Fit, Model, PlanError, entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -533,7 +534,8 @@ def test_a_scalar_over_the_bodys_encodes_needs_an_open_encode_in_the_body():
                                             r"coordinates in the body, or make the term an op over what it decodes$"):
             edited("sae_train", body(ops_)).compile()
     compiled = edited("sae_train", body([{"op": "encode", "featurizer": "fit.dictionary"}])).compile()
-    assert compiled.steps["fit"].steps["read"].interventions["z"].gathered
+    fit = cast(Fit, points(compiled.steps["fit"])[0])
+    assert entries(points(fit.steps["read"])[0])["z"].gathered
 
 
 def test_a_write_through_a_probe_is_refused():

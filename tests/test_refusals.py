@@ -4,9 +4,10 @@ import re
 from typing import Callable
 
 import pytest
-from conftest import BATCH_SIZE, edited, plan_of, same
+from conftest import BATCH_SIZE, dims, edited, plan_of, same
 
 from clab.engines import load
+from clab.format.sweeps import points
 from clab.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
@@ -221,8 +222,7 @@ def test_an_operand_must_have_the_writes_layout():
         d["steps"]["m"] = {"kind": "op", "op": "mean", "of": "iia", "over": ["rows", "pos"]}
         d["steps"]["again"] = {"kind": "forward", "input": "pairs.input", "interventions": {
             "w": {"site": "target", "pos": -1, "ops": [{"op": "scale", "factor": "m"}]}}}
-    compiled = edited("patching", scalar).compile()
-    assert compiled.steps["m"].dims == []
+    assert dims(edited("patching", scalar).compile(), "m") == []
 
 
 def test_a_select_mismatch_the_document_decides_is_refused_at_compile():
@@ -530,7 +530,8 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
                                         r"static number of them with an index of static width \(\{'frame': '1:4', "
                                         r"'index': ':3'\}\)$"):
         edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
-    assert edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile().steps["kl"][0].width == 3
+    compiled = edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile()
+    assert points(compiled.steps["kl"])[0].width == 3
 
 
 def test_a_quantized_dtype_names_what_it_computes_in():

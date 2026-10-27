@@ -16,6 +16,7 @@ from transformers import AutoTokenizer
 
 from clab import Plan
 from clab.cli import main
+from clab.format.sweeps import points
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -323,7 +324,7 @@ def test_a_scopes_occurrence_takes_a_sweep_as_the_grammar_says(engines):
 
     plan = doc(TINY, [{"input": "one two one two"}], {"f": forward({"x": {
         "site": LAYER0, "pos": {"scope": {"text": "one", "occurrence": {"sweep": [0, 1]}}}}})}, ["f.x"])
-    assert [p.at for p in plan.steps["f"]] == [{"occurrence": 0}, {"occurrence": 1}]
+    assert [p.at for p in points(plan.steps["f"])] == [{"occurrence": 0}, {"occurrence": 1}]
     assert placed(run(engines, plan))["f.x"] == {"occurrence=0": [[1]], "occurrence=1": [[3]]}
     assert 'swept    := selector | {"sweep": [selector, ...]}' in (Pos.__doc__ or "") and \
         '"occurrence"?: swept' in (Pos.__doc__ or "")

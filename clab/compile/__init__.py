@@ -297,10 +297,10 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
     for p, k, e in given:
         try:
             records[k] = entry(cx, p, e, plan, spec, dataset, live, own, f"{name}.{k}", at)
-        except PlanError as e:              # a bundle's entry is refused where it is pulled in, which the path names
+        except PlanError as refused:        # a bundle's entry is refused where it is pulled in, which the path names
             if not p.startswith("interventions."):
                 raise
-            where, _, why = str(e).partition(": ")
+            where, _, why = str(refused).partition(": ")
             raise PlanError(f"{where} in {path}: {why}") from None
         # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
         # a generation's land call by call, so they may not yet.
@@ -467,9 +467,10 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            reads = []                      # the body's open encodes of the featurizer: entries, which the run gathers, and steps
+            reads = []                      # the body's open encodes of it: entries, which the run gathers, and steps
             for n, s in body.items():
-                if isinstance(s, OpStep) and s.op == "encode" and arguments(s)["featurizer"] in (thing, f"{name}.{thing}"):
+                if isinstance(s, OpStep) and s.op == "encode" and \
+                        arguments(s)["featurizer"] in (thing, f"{name}.{thing}"):
                     reads.append(n)
                 for k, e in entries(s).items():
                     if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")

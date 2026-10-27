@@ -221,8 +221,8 @@ def differs(tokenizer: PreTrainedTokenizerBase, value: str | list[str], strip: b
     first = value[0] if isinstance(value, list) else value
     written = trimmed(tokenizer, tokenizer(first, add_special_tokens=False)["input_ids"], strip)
     if strip and k > len(at) and not texts[written[0]].strip():
-        return (f"; its token 0, {texts[written[0]]!r}, is whitespace only, which an answer keeps and a scope under strip "
-                "does not cover: scope the column without strip")
+        return (f"; its token 0, {texts[written[0]]!r}, is whitespace only, which an answer keeps and a scope under "
+                "strip does not cover: scope the column without strip")
     if held is None:
         return ""
     if len(at) > k and not texts[held[0]].strip():
