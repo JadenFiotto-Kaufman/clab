@@ -28,6 +28,7 @@
      ],
      "dataset": "prompts",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -44,7 +45,8 @@
     "k"
    ],
    "dataset": "prompts",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -56,7 +58,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   }
  },
  "saves": [

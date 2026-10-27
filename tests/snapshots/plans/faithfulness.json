@@ -28,6 +28,7 @@
      ],
      "dataset": "pairs",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -53,6 +54,7 @@
       0
      ],
      "read": "counterfactual.v_cf",
+     "width": 1,
      "gathered": true
     }
    },
@@ -88,7 +90,8 @@
      "layers": [
       0
      ],
-     "read": "patched.patch"
+     "read": "patched.patch",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -102,6 +105,7 @@
      ],
      "dataset": "pairs",
      "read": "patched.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -117,7 +121,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   },
   "js": {
    "kind": "op",
@@ -129,7 +134,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -141,7 +147,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   }
  },
  "saves": [

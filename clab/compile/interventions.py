@@ -5,12 +5,12 @@ decides them), and what preflight checks of them against the model."""
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import text_ref
-from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, space_of
+from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, resolver, space_of
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found
 from clab.format import address, data, selectors
@@ -92,13 +92,13 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
 
 def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
           live: dict[str, Intervention], own: set[str], where: str, at: dict[str, int]) -> Intervention:
-    """One entry compiled: its site inlined, its positions checked against the step, its ops walked for their
-    layouts (each op's recorded on it), its labels written as far as the document decides them (`layers_of`,
-    `kept_of`), then each op's operands checked against what it meets (`met`, `arguments.mismatch`). Up to its
-    last edit each op acts on the live value, so no edit follows an op that changed the layout unless that was an
-    `encode` its `decode` closes, and every encode before the write-back is closed by then. `live` holds the
-    forward's earlier entries by name (`<step>.<entry>`); `own` names every entry of the step; `where` is this
-    one's name; `at` the step's point."""
+    """One entry compiled: its site inlined, its positions checked against the step, its labels written as far as
+    the document decides them (`layers_of`, `kept_of`, the static width of its `pos`), and its ops walked once for
+    their layouts and coordinates (each op's recorded on it) and for their operands, each checked against the value
+    the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
+    follows an op that changed the layout unless that was an `encode` its `decode` closes, and every encode before
+    the write-back is closed by then. `live` holds the forward's earlier entries by name (`<step>.<entry>`); `own`
+    names every entry of the step; `where` is this one's name; `at` the step's point."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -135,11 +135,15 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         tree = bracketed(spec.ops)
     except Unbracketed as e:
         fail(f"{path}.ops[{e.at}]", str(e))
+    nodes = {node["at"]: node for node, _ in visited(tree)}
     around = {node["at"]: list(outer) for node, outer in visited(tree)}
     closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
+    # The entry's labels, which every op's operand meets, and which its record carries.
+    labels = {"dataset": dataset, "read": where, "layers": layers_of(cast("Selector | None", site.layers)),
+              "kept": kept_of(cast("dict[str, Selector] | None", site.select)), "width": positions.width(pos)}
     before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
     changed = None                                          # the op that changed the layout, which no edit follows
-    laid: list[Op] = []                                     # each op with the layout of its value
+    laid: list[Op] = []                                     # each op with the layout and coordinates of its value
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
@@ -167,6 +171,17 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                      "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
+        # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.
+        ours = Labelled(dims=dims, space=space_of(cx.aliases, [n["op"] for n in outer]),
+                        **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
+                           "width": labels["width"] if "pos" in dims else None})
+        for key, (written, theirs) in references(o.op, args, resolver(cx, here, "classes" in dims, at, live)).items():
+            if written in live and gathers(live[written]):
+                fail(f"{here}.{key}", f"{written!r} runs {gathers(live[written])[0].op!r} once it is off the model, "
+                     "after this forward; an operand from the same forward is an entry with no op after its edits")
+            why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live)
+            if why:
+                fail(f"{here}.{key}", why)
         if i in closes:
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
@@ -176,33 +191,18 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             out = layout(here, o.op, args, dims, "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
-        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims))
+        open_after = outer + [nodes[i]] if o.op == "encode" else outer
+        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims,
+                       space=space_of(cx.aliases, [n["op"] for n in open_after])))
     unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
     if any(n["at"] < last for n in unclosed):
         j = max(n["at"] for n in unclosed if n["at"] < last)
         ref = arguments(spec.ops[j])["featurizer"]
         fail(f"{path}.ops[{last}]", f"the entry writes back here with the encode of {ref!r} (ops[{j}]) still open; "
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
-    record = Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
-                          dims=(["layers"] if address.stacks(site.layers) else []) + dims, dataset=dataset,
-                          layers=layers_of(cast("Selector | None", site.layers)), read=where,
-                          kept=kept_of(cast("dict[str, Selector] | None", site.select)),
-                          space=space_of(cx.aliases, [n["op"] for n in unclosed]))
-    for i, o in enumerate(laid):
-        here, ours = f"{path}.ops[{i}]", met(record, i, cx.aliases)
-        found = references(cx, here, o.op, arguments(o), "classes" in (ours.dims or []), at, live)
-        for key, (written, theirs) in found.items():
-            if written in live and gathers(live[written]):
-                fail(f"{here}.{key}", f"{written!r} runs {gathers(live[written])[0].op!r} once it is off the model, "
-                     "after this forward; an operand from the same forward is an entry with no op after its edits")
-            # The forward's own entries are not among the compiled steps yet: their width is their `pos`'s.
-            widths = (positions.width(pos) if "pos" in (ours.dims or []) else None,
-                      positions.width(positions.parse(live[written].pos)) if written in live
-                      else width_of(cx.steps, theirs, at, {}))
-            why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live, widths)
-            if why:
-                fail(f"{here}.{key}", why)
-    return record
+    return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
+                        dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
+                        space=space_of(cx.aliases, [n["op"] for n in unclosed]))
 
 
 def layers_of(layers: Selector | None) -> list[int] | None:
@@ -220,36 +220,6 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, list[int]]:
     return {axis: keys(s) if axis == "key" else layers_of(s) or [] for axis, s in (select or {}).items()}
 
 
-def met(record: Intervention, i: int, aliases: dict[str, str]) -> Labelled:
-    """The value op `i` of an entry meets, at each layer the entry is made at: what the op before it left (the
-    site's selection, before the first), in the coordinates of the encodes open around it, with the entry's labels
-    on the axes it has."""
-    tree = bracketed(record.ops)
-    outer = {node["at"]: around for node, around in visited(tree)}
-    closes = {node["closed"]: node["at"] for node, _ in visited(tree) if node.get("closed") is not None}
-    dims = record.ops[i - 1].dims if i else address.dims(cast(Site, record.site).component)
-    assert dims is not None
-    return Labelled(dims=dims, dataset=record.dataset, layers=record.layers, read=record.read,
-                    kept={a: v for a, v in record.kept.items() if a in dims},
-                    space=space_of(aliases, [n["op"] for n in outer[closes[i] if i in closes else i]]))
-
-
-def operands(plan: Plan, name: str, args: dict, at: dict[str, int]) -> dict[str, tuple[str, Labelled]]:
-    """Op `name`'s arguments that name a value or a column, each as written and resolved to its record at `at`,
-    inside the run, where every name is known to resolve (`arguments.references` does the same when the plan
-    compiles, checking each)."""
-    found = {}
-    for key, p in ops.parameters(name).items():
-        value = args.get(key)
-        if p.annotation == ops.Value and isinstance(value, str):
-            found[key] = (value, record_of(plan.steps, value, at))
-        elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
-            ref = data.column_of(value)
-            column = ref[0] if ref else str(value)
-            found[key] = (column, Labelled(dims=["rows"], dataset=column.partition(".")[0]))
-    return found
-
-
 def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
     """The positions per row the read `read` holds at `at`, under the dataset the run reads it over (`swap`, a
     fit body's substitution), where they are known: the prefill's before any forward, a generation's decode
@@ -257,18 +227,6 @@ def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -
     record = record_of(steps, read, at)
     assert isinstance(record, Intervention), f"{read} is no read"
     return record.positions.get(swap.get(cast(str, record.dataset), cast(str, record.dataset)))
-
-
-def width_of(steps: dict, record: Labelled, at: dict[str, int], swap: dict[str, str]) -> Any:
-    """How many positions a value holds per row, its read's: a tuple per row once they are resolved, else the
-    static width its `pos` names, else None (rows differ, and the run has yet to resolve them); None too for a
-    value with no `pos` axis."""
-    if record.read is None or "pos" not in (record.dims or []):
-        return None
-    got = resolved(steps, record.read, at, swap)
-    if got is not None:
-        return tuple(len(p) if isinstance(p, list) else 0 for p in got)
-    return positions.width(positions.parse(cast(Intervention, record_of(steps, record.read, at)).pos))
 
 
 # -- what preflight checks of the entries against the model ---------------------------------------------
@@ -293,10 +251,10 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                    found: Found) -> None:
     """A write's operands that another entry selected, beyond Ops' one rule (`arguments.mismatch`): from the
     write's own forward, read at a site this engine reaches first, at each layer the write is made at (where the
-    operand stacks, its read at that layer); an adapter's input (`apply`'s `with`) as wide per position as the
-    value the op acts on, its axes after the positions flattened, and from the same forward read at the write's
-    own positions; on a `key` axis, inputs that line up token for token, and an unscoped operand on another input
-    `windowed`."""
+    operand stacks, its read at that layer), and, where either holds no one width on every row, as many positions
+    as the write on each row; an adapter's input (`apply`'s `with`) as wide per position as the value the op acts
+    on, its axes after the positions flattened, and from the same forward read at the write's own positions; on a
+    `key` axis, inputs that line up token for token, and an unscoped operand on another input `windowed`."""
     args, sizes, site = arguments(o), engine.sizes(), cast(Site, record.site)
     adapts = o.op == "apply"
     for key, p in ops.parameters(o.op).items():
@@ -325,13 +283,17 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
-            ours, at = (resolved(plan.steps, n, step.at, found.swap) or [] for n in (where, value)) if same \
-                else ([], [])
+        if same and (adapts and key == "with" or None in (theirs.width, record.width)):
+            ours, at = (resolved(plan.steps, n, step.at, found.swap) or [] for n in (where, value))
             for row, (a, b) in enumerate(zip(at, ours)):
-                if a != b:
+                if adapts and key == "with" and a != b:
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")
+                if len(a) != len(b):
+                    raise ValueError(f"{where}: operand {value!r} holds {len(a)} position(s) on row {row} and this "
+                                     f"write {len(b)}; position i meets position i, so an entry of the write's own "
+                                     "forward without one width on every row is read at as many on each")
         producer_input, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer_input != consumer:
             for row, (a, b) in enumerate(zip(found.inputs[producer_input]["rows"], found.inputs[consumer]["rows"])):

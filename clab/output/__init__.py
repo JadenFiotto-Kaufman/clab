@@ -12,14 +12,14 @@ after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `
 never were there; `table` loads either again, from its file or the hub, and checks it against its `sha256`, as
 `dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
-its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `kept`, `space`), once, or per
-point by coordinate where its step is swept, as `shape` and `dtype` are, so that a result links back to the step
-that made it and says what each point of it is. It records the document's path relative to the corpus root, and
-each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and write, the
-positions it resolved to per row, which `table` uses to label positions; its `run` holds how each input
-tokenized, what each generate step's rows generated, the model's sizes and each featurizer's width, and what each
-step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens they fed).
-Values are never in the manifest.
+its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), once
+where every point agrees, else per point by coordinate, as `shape` and `dtype` are, so that a result links back to
+the step that made it and says what each point of it is. It records the document's path relative to the corpus
+root, and each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and
+write, the positions it resolved to per row, which `table` uses to label positions; its `featurizers` each one's
+width; its `run` holds how each input tokenized, what each generate step's rows generated, the model's sizes, and
+what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
+they fed). Values are never in the manifest.
 """
 
 import json
@@ -39,7 +39,7 @@ from clab.plan import Entry, Intervention, Labelled, Plan, Site, Step, agreeing,
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
-LABELS = ("dataset", "layers", "read", "kept", "space")
+LABELS = ("dataset", "layers", "read", "width", "kept", "space")
 
 
 def dump(plan: Plan, out: str) -> None:
@@ -68,23 +68,39 @@ def dump(plan: Plan, out: str) -> None:
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)
+        f.write(pretty({**manifest, "results": described}) + "\n")
+
+
+def pretty(value: Any, level: int = 0) -> str:
+    """JSON indented one space per level, as `json.dump(indent=1)` writes it, except that a list holding no object
+    (positions per row, a shape, a `layers` label) stays on one line, so the manifest reads as rows."""
+    pad = " " * (level + 1)
+    if isinstance(value, dict) and value:
+        inner = ",\n".join(f"{pad}{json.dumps(k, ensure_ascii=False)}: {pretty(v, level + 1)}" for k, v in value.items())
+        return "{\n" + inner + "\n" + " " * level + "}"
+    if isinstance(value, list) and any(isinstance(v, dict) for v in value):
+        return "[\n" + ",\n".join(f"{pad}{pretty(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
+    return json.dumps(value, ensure_ascii=False)
 
 
 def layouts(plan: Plan, name: str) -> dict[str, Any]:
-    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once, or, where its
-    step is swept, per point by coordinate, as the manifest records a result's `shape`."""
+    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where its step is
+    not swept or every point agrees, else per point by coordinate, as the manifest records a result's `shape`."""
     entry = plan.steps[name.partition(".")[0]]
     per = {labelled(plan, p.at): layout(record_of(plan.steps, name, p.at)) for p in points(entry)}
     if not isinstance(entry, list):
         return per[""]
-    return {k: {c: v.get(k) for c, v in per.items()} for k in ("dims", *LABELS) if any(k in v for v in per.values())}
+    out = {}
+    for key in ("dims", *LABELS):
+        each = {c: v.get(key) for c, v in per.items()}
+        if any(v is not None for v in each.values()):
+            out[key] = next(iter(each.values())) if len({json.dumps(v) for v in each.values()}) == 1 else each
+    return out
 
 
 def layout(record: Labelled) -> dict[str, Any]:
-    """A value's `dims` and the labels it has, as JSON."""
-    found = {"dims": record.dims, **{k: getattr(record, k) for k in LABELS}}
-    return {k: v for k, v in found.items() if v not in (None, {}, [])}
+    """A value's `dims` and the labels it has, as JSON (`dims` always: a value with no axes has `[]`)."""
+    return {"dims": record.dims, **{k: v for k in LABELS if (v := getattr(record, k)) not in (None, {}, [])}}
 
 
 def write(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
@@ -180,7 +196,7 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     """A bundle's header, when the value is one (at `step`, the point that made it), written from the records: an
     op step's whose op declares the featurizer kind its bundle is for, made at the site of the read it was taken
     over, as wide as that read's feature axis; or a fit's trained featurizer, made at the first site it is used at,
-    as wide as preflight found it (`run.widths`)."""
+    as wide as its record says (`Featurizer.width`)."""
     assert plan.run is not None
     member = name.partition(".")[2]
     if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
@@ -191,11 +207,12 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         width = len(value.kept["hidden_size"]) if "hidden_size" in value.kept else plan.run.sizes["hidden_size"]
         reads = None
     elif step.kind == "fit" and member in step.train:
-        kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
+        trained = agreeing(plan.featurizers[member], step.at)
+        kind, fields = kind_of(plan, member), trained.model_extra or {}
         used = uses(plan)[member]
         where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
         given = arguments(o).get("with")
-        site, width = at_layers(read), plan.run.widths[member]
+        site, width = at_layers(read), trained.width
         reads = at_layers(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:
         return None

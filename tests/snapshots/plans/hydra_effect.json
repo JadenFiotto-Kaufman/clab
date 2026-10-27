@@ -32,6 +32,7 @@
       0
      ],
      "read": "noise.v_noise",
+     "width": 1,
      "gathered": true
     }
    },
@@ -53,6 +54,7 @@
      ],
      "dataset": "sample",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     },
     "a0": {
@@ -71,6 +73,7 @@
       0
      ],
      "read": "clean.a0",
+     "width": 1,
      "gathered": true
     },
     "a1": {
@@ -89,6 +92,7 @@
       1
      ],
      "read": "clean.a1",
+     "width": 1,
      "gathered": true
     }
    },
@@ -124,7 +128,8 @@
      "layers": [
       0
      ],
-     "read": "ablated.resample"
+     "read": "ablated.resample",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -138,6 +143,7 @@
      ],
      "dataset": "sample",
      "read": "ablated.logits",
+     "width": 1,
      "gathered": true
     },
     "a1": {
@@ -156,6 +162,7 @@
       1
      ],
      "read": "ablated.a1",
+     "width": 1,
      "gathered": true
     }
    },
@@ -191,7 +198,8 @@
      "layers": [
       1
      ],
-     "read": "inj0_clean.inject"
+     "read": "inj0_clean.inject",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -205,6 +213,7 @@
      ],
      "dataset": "sample",
      "read": "inj0_clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -240,7 +249,8 @@
      "layers": [
       1
      ],
-     "read": "inj1_clean.inject"
+     "read": "inj1_clean.inject",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -254,6 +264,7 @@
      ],
      "dataset": "sample",
      "read": "inj1_clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -289,7 +300,8 @@
      "layers": [
       1
      ],
-     "read": "inj1_abl.inject"
+     "read": "inj1_abl.inject",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -303,6 +315,7 @@
      ],
      "dataset": "sample",
      "read": "inj1_abl.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -318,7 +331,8 @@
     "pos"
    ],
    "dataset": "sample",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "te_abl": {
    "kind": "op",
@@ -330,7 +344,8 @@
     "pos"
    ],
    "dataset": "sample",
-   "read": "ablated.logits"
+   "read": "ablated.logits",
+   "width": 1
   },
   "de0_c": {
    "kind": "op",
@@ -342,7 +357,8 @@
     "pos"
    ],
    "dataset": "sample",
-   "read": "inj0_clean.logits"
+   "read": "inj0_clean.logits",
+   "width": 1
   },
   "de1_c": {
    "kind": "op",
@@ -354,7 +370,8 @@
     "pos"
    ],
    "dataset": "sample",
-   "read": "inj1_clean.logits"
+   "read": "inj1_clean.logits",
+   "width": 1
   },
   "de1_a": {
    "kind": "op",
@@ -366,7 +383,8 @@
     "pos"
    ],
    "dataset": "sample",
-   "read": "inj1_abl.logits"
+   "read": "inj1_abl.logits",
+   "width": 1
   }
  },
  "saves": [

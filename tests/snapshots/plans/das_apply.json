@@ -52,6 +52,11 @@
         "rows",
         "pos",
         "features"
+       ],
+       "space": [
+        {
+         "featurizer": "rot"
+        }
        ]
       }
      ],
@@ -65,6 +70,7 @@
       0
      ],
      "read": "counterfactual.v_cf",
+     "width": 1,
      "space": [
       {
        "featurizer": "rot"
@@ -93,6 +99,11 @@
         "rows",
         "pos",
         "features"
+       ],
+       "space": [
+        {
+         "featurizer": "rot"
+        }
        ]
       },
       {
@@ -102,6 +113,11 @@
         "rows",
         "pos",
         "features"
+       ],
+       "space": [
+        {
+         "featurizer": "rot"
+        }
        ]
       },
       {
@@ -123,7 +139,8 @@
      "layers": [
       0
      ],
-     "read": "patched.patch"
+     "read": "patched.patch",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -137,6 +154,7 @@
      ],
      "dataset": "test",
      "read": "patched.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -153,7 +171,8 @@
     "pos"
    ],
    "dataset": "test",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   },
   "ce": {
    "kind": "op",
@@ -165,7 +184,8 @@
     "pos"
    ],
    "dataset": "test",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   }
  },
  "saves": [

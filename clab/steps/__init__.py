@@ -58,15 +58,14 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, over the plan `held`, without gradients except where a fit trains,
     each one's cost `measured` into `plan.run.costs`; then each saved value into `plan.results` (a trained
-    featurizer as its bundle's tensors), and what served the run: the model's sizes and each featurizer's width,
-    and the dtypes and devices of the model's parameters (`placed`). Where each read and write resolved is on its
-    record, which preflight and the steps complete in place."""
+    featurizer as its bundle's tensors), and what served the run: the model's sizes, and the dtypes and devices
+    of the model's parameters (`placed`). Where each read and write resolved, and each featurizer's width, is on
+    its record, which preflight and the steps complete in place."""
     plan = held(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
     found = preflight(engine, plan)
-    plan.run.widths = found.widths
-    state = made(plan, found.widths, home(engine))
+    state = made(plan, home(engine))
     costs: dict = {}
     with torch.no_grad():
         for name, entry in plan.steps.items():
@@ -133,13 +132,14 @@ def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def made(plan: Plan, widths: dict[str, int], device: str) -> ChainMap:
-    """The run's state at its start: each declared featurizer used at a site, at each of its points, made
-    where the model is (`device`)."""
+def made(plan: Plan, device: str) -> ChainMap:
+    """The run's state at its start: each declared featurizer used at a site (its record says its `width` there),
+    at each of its points, made where the model is (`device`)."""
     state: ChainMap = ChainMap()
     for name, entry in plan.featurizers.items():
-        for spec in points(entry) if name in widths else []:
-            put(state, name, spec.at, instance(plan, spec, widths[name], None, device))
+        for spec in points(entry):
+            if spec.width is not None:
+                put(state, name, spec.at, instance(plan, spec, spec.width, None, device))
     return state
 
 

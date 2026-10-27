@@ -71,6 +71,7 @@
       8
      ],
      "read": "counterfactual.h",
+     "width": 1,
      "gathered": true
     }
    },
@@ -108,6 +109,7 @@
        8
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -135,6 +137,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -144,6 +151,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -165,7 +177,8 @@
         "layers": [
          8
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -179,6 +192,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -198,6 +212,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 0
       }
@@ -213,6 +228,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 0
       }
@@ -258,6 +274,7 @@
        8
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -285,6 +302,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -294,6 +316,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -315,7 +342,8 @@
         "layers": [
          8
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -329,6 +357,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -348,6 +377,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 1
       }
@@ -363,6 +393,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 1
       }
@@ -408,6 +439,7 @@
        8
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -435,6 +467,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -444,6 +481,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -465,7 +507,8 @@
         "layers": [
          8
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -479,6 +522,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -498,6 +542,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 2
       }
@@ -513,6 +558,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 2
       }
@@ -558,6 +604,7 @@
        8
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -585,6 +632,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -594,6 +646,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.rot"
+           }
           ]
          },
          {
@@ -615,7 +672,8 @@
         "layers": [
          8
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -629,6 +687,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -648,6 +707,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 3
       }
@@ -663,6 +723,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "k": 3
       }
@@ -697,6 +758,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        }
       ],
@@ -710,6 +776,7 @@
        8
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -741,6 +808,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        }
       ],
@@ -754,6 +826,7 @@
        8
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -785,6 +858,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        }
       ],
@@ -798,6 +876,7 @@
        8
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -829,6 +908,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        }
       ],
@@ -842,6 +926,7 @@
        8
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.rot"
@@ -875,6 +960,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -884,6 +974,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -905,7 +1000,8 @@
       "layers": [
        8
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -919,6 +1015,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -945,6 +1042,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -954,6 +1056,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -975,7 +1082,8 @@
       "layers": [
        8
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -989,6 +1097,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1015,6 +1124,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -1024,6 +1138,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -1045,7 +1164,8 @@
       "layers": [
        8
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -1059,6 +1179,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1085,6 +1206,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -1094,6 +1220,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.rot"
+         }
         ]
        },
        {
@@ -1115,7 +1246,8 @@
       "layers": [
        8
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -1129,6 +1261,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1150,6 +1283,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "k": 0
     }
@@ -1165,6 +1299,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "k": 1
     }
@@ -1180,6 +1315,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "k": 2
     }
@@ -1195,6 +1331,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "k": 3
     }

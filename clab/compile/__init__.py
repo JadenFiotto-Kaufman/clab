@@ -22,13 +22,13 @@ from typing import Any, Callable
 
 from clab import featurizers, ops
 from clab.compile.answers import column_ref
-from clab.compile.arguments import called, carried, layout, mismatch, narrowed_readout, references, space_of, value_of
-from clab.compile.interventions import entry, items, width_of
+from clab.compile.arguments import called, carried, layout, mismatch, narrowed_readout, references, resolver, space_of, value_of
+from clab.compile.interventions import entry, items
 from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data
-from clab.format.sweeps import find_sweeps
+from clab.format.sweeps import find_sweeps, spelled
 from clab.plan import (
     Data,
     Entry,
@@ -39,6 +39,7 @@ from clab.plan import (
     Intervention,
     OpStep,
     Plan,
+    PlanError,
     arguments,
     corpus_root,
     entries,
@@ -144,13 +145,22 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
     """An entry compiled at every point of its axes: those in what it uses (its own spec, and the sites,
     interventions and featurizers it names: `footprint`), and those of every value it references, read off its
     text before it compiles (`referenced`), so that each point is built knowing its coordinates and resolves every
-    name at them."""
+    name at them; a refusal at one point of a sweep names the point after the document path (`index="-2:"`)."""
     own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
     inherited = {a for ref in referenced(cx, get(cx.doc, where)) for a in cx.axes_of.get(ref.partition(".")[0], [])}
     labels = [label for label in cx.values if label in own or label in inherited]
     cx.axes_of[name] = labels
-    built = [build(point(cx, at), at) for at in (dict(zip(labels, index)) for index in itertools.product(
-        *(range(len(cx.values[label])) for label in labels)))]
+    built = []
+    for index in itertools.product(*(range(len(cx.values[label])) for label in labels)):
+        at = dict(zip(labels, index))
+        document = point(cx, at)
+        try:
+            built.append(build(document, at))
+        except PlanError as e:              # a refusal at one point of a sweep names the point
+            if not at:
+                raise
+            path, _, why = str(e).partition(": ")
+            raise PlanError(f"{path} at {spelled(cx.values, at)}: {why}") from None
     return built if labels else built[0]
 
 
@@ -304,10 +314,9 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
         fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
              f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
     assert of.dims is not None
-    found = references(cx, path, spec.op, args, "classes" in of.dims, at)
+    found = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in found.items():
-        widths = (width_of(cx.steps, of, at, {}), width_of(cx.steps, theirs, at, {}))
-        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, widths)
+        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False)
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "readout" and "hidden_size" in of.kept:
@@ -315,11 +324,11 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     dims = layout(path, spec.op, args, of.dims, "step", kind)
     # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
     space = of.space + space_of(cx.aliases, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
-    layers, kept = carried(of, dims)
+    layers, kept, width = carried(of, dims)
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in found.values() if "rows" in (t.dims or [])), None)
     return OpStep(**spec.model_dump(exclude_defaults=True), at=at, dataset=dataset, dims=dims, layers=layers,
-                  read=of.read, kept=kept, space=space)
+                  read=of.read, kept=kept, width=width, space=space)
 
 
 # -- references --------------------------------------------------------------------------------------

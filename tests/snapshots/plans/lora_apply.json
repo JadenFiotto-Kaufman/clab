@@ -48,6 +48,7 @@
      ],
      "dataset": "test",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -99,6 +100,7 @@
      ],
      "dataset": "test",
      "read": "adapted.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -115,7 +117,8 @@
     "pos"
    ],
    "dataset": "test",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "adapted_ld": {
    "kind": "op",
@@ -128,7 +131,8 @@
     "pos"
    ],
    "dataset": "test",
-   "read": "adapted.logits"
+   "read": "adapted.logits",
+   "width": 1
   },
   "answer": {
    "kind": "generate",

@@ -31,6 +31,7 @@
      "dataset": "pairs",
      "layers": [],
      "read": "harvest.acts",
+     "width": 1,
      "gathered": true
     }
    },
@@ -98,6 +99,7 @@
      ],
      "dataset": "pairs",
      "read": "ablated.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -114,7 +116,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "ablated.logits"
+   "read": "ablated.logits",
+   "width": 1
   }
  },
  "saves": [

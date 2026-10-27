@@ -32,6 +32,7 @@
       0
      ],
      "read": "counterfactual.v_m4",
+     "width": 1,
      "gathered": true
     },
     "v_m3": {
@@ -50,6 +51,7 @@
       0
      ],
      "read": "counterfactual.v_m3",
+     "width": 1,
      "gathered": true
     },
     "v_m2": {
@@ -68,6 +70,7 @@
       0
      ],
      "read": "counterfactual.v_m2",
+     "width": 1,
      "gathered": true
     }
    },
@@ -103,7 +106,8 @@
      "layers": [
       0
      ],
-     "read": "patched.at_m4"
+     "read": "patched.at_m4",
+     "width": 1
     },
     "at_m3": {
      "site": {
@@ -131,7 +135,8 @@
      "layers": [
       0
      ],
-     "read": "patched.at_m3"
+     "read": "patched.at_m3",
+     "width": 1
     },
     "at_m2": {
      "site": {
@@ -159,7 +164,8 @@
      "layers": [
       0
      ],
-     "read": "patched.at_m2"
+     "read": "patched.at_m2",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -173,6 +179,7 @@
      ],
      "dataset": "pairs",
      "read": "patched.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -188,7 +195,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   },
   "logit_diff": {
    "kind": "op",
@@ -201,7 +209,8 @@
     "pos"
    ],
    "dataset": "pairs",
-   "read": "patched.logits"
+   "read": "patched.logits",
+   "width": 1
   }
  },
  "saves": [

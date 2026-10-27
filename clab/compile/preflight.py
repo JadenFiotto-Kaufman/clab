@@ -3,17 +3,19 @@ decides, what the run needs found, and what it cannot run refused by name."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+import inspect
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import check_classes, check_tokens
-from clab.compile.arguments import carried, mismatch
-from clab.compile.interventions import check_operands, met, operands, refuse, resolved, width_of
+from clab.compile.arguments import carried, mismatch, references
+from clab.compile.interventions import check_operands, refuse, resolved
 from clab.compile.positions import indices
 from clab.compile.state import Found
 from clab.compile.uses import widths
-from clab.format import data, selectors
+from clab.format import address, data, selectors
 from clab.format.selectors import Selector, picked, selected
 from clab.format.sweeps import put
 from clab.plan import (
@@ -39,10 +41,11 @@ if TYPE_CHECKING:
 def preflight(engine: Engine, plan: Plan) -> Found:
     """Everything that needs the model, checked before any forward, and the plan's records completed with it:
     each read's and write's `layers` and `kept` resolved among the engine's sizes, each prefill record's
-    `positions` per row, and every op step's labels from its producer's. Fills `plan.run.tokens` with each input's
+    `positions` per row and the `width` they confirm, every op step's labels from its producer's, and each
+    featurizer's `width` at the sites it is used at (`uses.widths`). Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs beside the records: each dataset input's encoded rows and padded width
-    (`inputs`), room for what each generate step's rows said (`said`), each featurizer's width (`widths`, the
-    root's alone), and for each fit point the same for its body (`bodies`): over its training rows (`train`) and
+    (`inputs`), room for what each generate step's rows said (`said`), and for each fit point the same for its body
+    (`bodies`): over its training rows (`train`) and
     under each of its named `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the
     body's steps and each substituted dataset's rows under the body's name for it.
 
@@ -67,8 +70,8 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     rows = {n: held_rows(plan, n) for n in plan.data}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
-    found = prepare(engine, plan, plan.steps, {}, classes, {})
-    found.widths = widths(engine, plan)
+    found = prepare(engine, plan, plan.steps, {}, classes)
+    widths(engine, plan)
     return found
 
 
@@ -80,7 +83,7 @@ def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swa
     rows a row number counts."""
     view = body_view(plan, fit, step.at, swap)
     try:
-        return view, prepare(engine, view, step.steps, swap, classes, {f: f"{fit}.{f}" for f in step.train})
+        return view, prepare(engine, view, step.steps, swap, classes)
     except ValueError as e:
         if label is None:
             raise ValueError(f"{fit}.{e}") from None
@@ -88,13 +91,11 @@ def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swa
         raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
-def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list],
-            aliases: dict[str, str]) -> Found:
+def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list]) -> Found:
     """`preflight`'s checks and findings for `steps`, in order (a fit's body prepared at the fit's place, over its
     training rows and under each eval), over the rows `plan` holds: the root's, or a body's. `swap` names each
     dataset as the run reads it (an eval substitution's `{"train": "test"}` records `train.input` as `test.input`
-    and the records' positions under `test`); `classes` is each probe's class list; `aliases` a body's names for
-    the featurizers its fit trains."""
+    and the records' positions under `test`); `classes` is each probe's class list."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
     found = Found(swap=swap)
@@ -109,10 +110,9 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             if step.kind == "op":
                 args, of = arguments(step), record_of(plan.steps, step.of, step.at)
                 assert step.dims is not None and of.dims is not None
-                step.layers, step.kept = carried(of, step.dims)         # completed from its producer's
-                for key, (written, theirs) in operands(plan, step.op, args, step.at).items():
-                    widths_ = (width_of(plan.steps, of, step.at, swap), width_of(plan.steps, theirs, step.at, swap))
-                    why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False, widths_)
+                step.layers, step.kept, step.width = carried(of, step.dims)     # completed from its producer's
+                for key, (written, theirs) in references(step.op, args, resolving(plan, step.at)).items():
+                    why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False)
                     if why:
                         raise ValueError(f"{name}: operand {why}")
                 if "classes" in of.dims:
@@ -161,6 +161,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved_ = indices(where, record, step, rows, encoded, tokenizer)
                     record.positions = {**record.positions, swap.get(step.dataset, step.dataset): resolved_}
+                    counts = {len(p) for p in resolved_}
+                    record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
                 probe = None                        # past a probe's encode, a column names its classes
                 for o in record.ops:
                     if probe is None:
@@ -172,17 +174,33 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         probe = arguments(o)["featurizer"]
             for key, record in entries(step).items():   # the operands, once every entry of the step has its labels
                 where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
+                dims = address.dims(cast(Site, record.site).component)
                 for i, o in enumerate(record.ops):
-                    ours = met(record, i, aliases)
-                    for k, (written, theirs) in operands(plan, o.op, arguments(o), step.at).items():
+                    # What the op meets: the op before it left it, as its record says (its labels the entry's).
+                    ours = Labelled(dims=dims, space=record.ops[i - 1].space if i else [], dataset=record.dataset,
+                                    layers=record.layers, read=record.read, width=record.width if "pos" in dims else None,
+                                    kept={a: v for a, v in record.kept.items() if a in dims})
+                    for k, (written, theirs) in references(o.op, arguments(o), resolving(plan, step.at)).items():
                         forward = written.partition(".")[0] == name
-                        widths_ = (width_of(plan.steps, ours, step.at, swap), width_of(plan.steps, theirs, step.at, swap))
-                        why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward, widths_)
+                        why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward)
                         if why:
                             raise ValueError(f"{where}: operand {why}")
                     if i < edits:
                         check_operands(engine, plan, where, o, step, record, found)
+                    dims = o.dims or dims
     return found
+
+
+def resolving(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, inspect.Parameter], Labelled | None]:
+    """How preflight resolves an op's named arguments (`arguments.references`), every name known to resolve: a
+    value to its record at `at`, a column to a row per example of its dataset, a featurizer to nothing."""
+    def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
+        if p.annotation == ops.Value:
+            return record_of(plan.steps, value, at)
+        if p.annotation == ops.Featurizer:
+            return None
+        return Labelled(dims=["rows"], dataset=(data.column_of(value) or (str(value),))[0].partition(".")[0])
+    return resolve
 
 
 def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list[list[int]] | None, list[list[int]] | None]:

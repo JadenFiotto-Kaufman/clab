@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
 from clab.format.selectors import selected
+from clab.format.sweeps import points
 from clab.plan import (
     Featurizer,
     Intervention,
@@ -77,10 +78,10 @@ def bundled_sites(plan: Plan) -> None:
                          f"{site.layers} ({where})")
 
 
-def widths(engine: Engine, plan: Plan) -> dict[str, int]:
-    """Each featurizer's width: the size of the last axis of every site it is used at, which is one size, and
-    the width its bundle's header says. A `select` on its features stays within them, and a featurizer a fit
-    trains is used somewhere."""
+def widths(engine: Engine, plan: Plan) -> None:
+    """Each featurizer's width, written on its record (`Featurizer.width`, at every point): the size of the last
+    axis of every site it is used at, which is one size, and the width its bundle's header says. A `select` on
+    its features stays within them, and a featurizer a fit trains is used somewhere."""
     sizes, out = engine.sizes(), {}
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
@@ -135,7 +136,9 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
         for f in step.train if step.kind == "fit" else []:
             if f not in out:
                 raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
-    return out
+    for name, width in out.items():
+        for f in points(plan.featurizers[name]):
+            f.width = width
 
 
 def at_layer(layers: object, n: int) -> str:

@@ -43,6 +43,7 @@
        0
       ],
       "read": "lens.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -81,6 +82,7 @@
        1
       ],
       "read": "lens.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -105,6 +107,7 @@
      0
     ],
     "read": "lens.logits",
+    "width": 1,
     "at": {
      "layers": 0
     }
@@ -123,6 +126,7 @@
      1
     ],
     "read": "lens.logits",
+    "width": 1,
     "at": {
      "layers": 1
     }
@@ -143,6 +147,7 @@
      0
     ],
     "read": "lens.logits",
+    "width": 1,
     "at": {
      "layers": 0
     }
@@ -161,6 +166,7 @@
      1
     ],
     "read": "lens.logits",
+    "width": 1,
     "at": {
      "layers": 1
     }

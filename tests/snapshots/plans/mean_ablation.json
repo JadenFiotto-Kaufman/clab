@@ -32,6 +32,7 @@
       0
      ],
      "read": "harvest.acts",
+     "width": 1,
      "gathered": true
     }
    },
@@ -66,6 +67,7 @@
      ],
      "dataset": "prompts",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -82,7 +84,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "ablated": {
    "kind": "forward",
@@ -114,7 +117,8 @@
      "layers": [
       0
      ],
-     "read": "ablated.ablate"
+     "read": "ablated.ablate",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -128,6 +132,7 @@
      ],
      "dataset": "prompts",
      "read": "ablated.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -144,7 +149,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "ablated.logits"
+   "read": "ablated.logits",
+   "width": 1
   }
  },
  "saves": [

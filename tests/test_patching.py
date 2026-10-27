@@ -126,8 +126,8 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert back.data["pairs"].rows is None and back.data["pairs"].sha256 == plan.data["pairs"].sha256
     manifest = json.loads((tmp_path / "manifest.json").read_text())
     assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"],
-                                          "dataset": "pairs", "read": "patched.logits", "axes": [], "shape": [4, 1],
-                                          "dtype": "float32"}
+                                          "dataset": "pairs", "read": "patched.logits", "width": 1, "axes": [],
+                                          "shape": [4, 1], "dtype": "float32"}
     assert "rows" not in manifest["data"]["pairs"]
     assert manifest["model"]["dtype"] == "float32"               # recorded though it is the default
 

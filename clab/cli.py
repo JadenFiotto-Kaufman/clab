@@ -49,8 +49,6 @@ def show(filled: Plan) -> str:
         if isinstance(entry, list):
             value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
         dims = output.layouts(filled, saved)["dims"]
-        if isinstance(dims, dict) and len({json.dumps(d) for d in dims.values()}) == 1:
-            dims = next(iter(dims.values()))
         rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
                      ", ".join(points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])

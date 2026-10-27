@@ -2,7 +2,7 @@
 featurizer), the layout of its result, and the one rule an operand keeps against the value it meets (`mismatch`)."""
 
 import inspect
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from clab import featurizers, ops
@@ -56,25 +56,42 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     return kind
 
 
-def references(cx: Compiling, path: str, name: str, args: dict, classes: bool, at: dict[str, int],
-               live: Mapping[str, Labelled] | None = None) -> dict[str, tuple[str, Labelled]]:
-    """Op `name`'s arguments that name a value or a column, each as written and resolved to the record of its
-    labelled layout at the consumer's point `at` (`value_of`; a column: a row per example of its dataset). A
-    column read as text or scored against the vocabulary holds text on every row; one scored against a probe's
-    `classes` holds its labels, whatever they are. A featurizer argument is checked to exist."""
+def references(name: str, args: dict, resolve: Callable[[str, Any, inspect.Parameter], Labelled | None]
+               ) -> dict[str, tuple[str, Labelled]]:
+    """Op `name`'s arguments that name a thing the run binds (a `Value`, a column scored or read as `Tokens` or
+    `Text`, a `Featurizer`), each as written and resolved by `resolve(key, written, parameter)` to the record of
+    its labelled layout (a column's: a row per example of its dataset; None for a featurizer, which is no
+    value): the one loop over an op's named arguments, which compile runs with `resolver` and preflight with
+    `plan.record_of`."""
     found = {}
     for key, p in ops.parameters(name).items():
-        value, where = args.get(key), f"{path}.{key}"
-        if p.annotation == ops.Value and isinstance(value, str):
-            found[key] = (value, value_of(cx, value, where, at, live))
-        elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
-            ref = data.column_of(value)
-            dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
-                else text_ref(cx, value, where, None)
-            found[key] = (ref[0] if ref else str(value), Labelled(dims=["rows"], dataset=dataset))
-        elif p.annotation == ops.Featurizer and value is not None:
-            featurizer_ref(cx, value, where)
+        value = args.get(key)
+        named = p.annotation in (ops.Tokens, ops.Text, ops.Featurizer) or p.annotation == ops.Value and isinstance(value, str)
+        record = resolve(key, value, p) if named and value is not None else None
+        if record is not None:
+            ref = data.column_of(value) if p.annotation != ops.Value else None
+            found[key] = (ref[0] if ref else str(value), record)
     return found
+
+
+def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
+             live: Mapping[str, Labelled] | None = None) -> Callable[[str, Any, inspect.Parameter], Labelled | None]:
+    """How compile resolves an op's named arguments (`references`) at `path`, at the consumer's point `at`: a value
+    to its record (`value_of`, an entry of the forward being compiled among `live`), a column to a row per example
+    of its dataset once it is checked to hold text on every row, or, scored against a probe's `classes`, its
+    labels, whatever they are (`classes`), and a featurizer to nothing, once it is checked to exist."""
+    def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
+        where = f"{path}.{key}"
+        if p.annotation == ops.Value:
+            return value_of(cx, value, where, at, live)
+        if p.annotation == ops.Featurizer:
+            featurizer_ref(cx, value, where)
+            return None
+        ref = data.column_of(value)
+        dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
+            else text_ref(cx, value, where, None)
+        return Labelled(dims=["rows"], dataset=dataset)
+    return resolve
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
@@ -92,11 +109,12 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, list[int]]]:
+def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, list[int]], int | None]:
     """What an op's value keeps of the labels of the value it is over: its layers, unless the op removed a
-    `layers` axis (then it is from no layer), and the indices kept on each selected axis it still has."""
-    layers = None if "layers" in (of.dims or []) and "layers" not in dims else of.layers
-    return layers, {a: v for a, v in of.kept.items() if a in dims}
+    `layers` axis (then it is from no layer), the indices kept on each selected axis it still has, and its width
+    where it still has a `pos` axis."""
+    return (None if "layers" in (of.dims or []) and "layers" not in dims else of.layers,
+            {a: v for a, v in of.kept.items() if a in dims}, of.width if "pos" in dims else None)
 
 
 def trained(cx: Compiling, thing: str, member: str) -> bool:
@@ -139,20 +157,18 @@ def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
 
 
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
-             forward: bool, widths: tuple[Any, Any]) -> str | None:
+             forward: bool) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
-    names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): every axis
-    the operand has is an axis of the value it meets, in its order, with the same label (`layers` by model layer,
-    the operand holding every layer the op acts at; `rows` by dataset; `pos` by the read whose positions both hold,
-    or by width; a selected axis by the indices kept, in order; `features` by the encodes it is in), and it may
-    leave out `rows`, `pos` and `layers`, which it broadcasts over; a number broadcasts in any coordinates; an
-    adapter's `with` is compared on its rows and positions alone. `write` says the op is one of an entry's up to its
-    last edit (what the messages call the value), `forward` that the operand is an entry of the value's own forward
-    (a ragged pair there is compared row by row, once preflight has the rows), and `widths` how many positions each
-    holds per row (`interventions.width_of`: an int on every row, a tuple per row, None where rows differ and the
-    run has yet to resolve them). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are
-    compared first, since two values in different coordinates differ in their last axis too, and that is the
-    reason."""
+    names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
+    may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
+    in the value's order, with the same label (`layers` by model layer, `rows` by dataset, `pos` by the read whose
+    positions both hold or by `width`, a selected axis by the indices kept in order, `features` by the encodes it is
+    in); a `layers` axis it has covers the layers the op acts at and is aligned by id. A number broadcasts in any
+    coordinates; an adapter's `with` is compared on its rows and positions alone. `write` says the op is one of an
+    entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
+    value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
+    rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
+    two values in different coordinates differ in their last axis too, and that is the reason."""
     group = ops.DECLARED[name]["group"]
     verb = "scores" if group == "metrics" else "acts on"
     whose = "this write's selection" if write else "the value it acts on"
@@ -170,8 +186,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
                 "encoded as it is")
     if [a for a in address.unstacked(own_axes) if a in their_axes] != address.unstacked(their_axes):
         return (f"{written!r} is laid out {theirs.dims}; {name!r} {verb} a value laid out {ours.dims}, and an "
-                "operand's axes are among the value's, in its order, rows, pos and layers left out where it "
-                "broadcasts over them")
+                "operand's axes are among the value's, in its order (those it leaves out it broadcasts over)")
     if "layers" in their_axes:
         if ours.layers is None:
             return (f"{written!r} has a layers axis, and this op acts at no layer (on a model's own value, or one "
@@ -185,14 +200,13 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
                 "takes one dataset's rows")
     if "pos" in their_axes and theirs.read != ours.read:
-        have, need = widths[1], widths[0]
-        if (have is None or need is None) and not forward:
-            ragged = repr(written) if have is None else f"the value {name!r} {verb}"
+        if (theirs.width is None or ours.width is None) and not forward:
+            ragged = repr(written) if theirs.width is None else f"the value {name!r} {verb}"
             return (f"{ragged} holds a different number of positions on each row, which pair with no other "
                     "value's; read both at a static index (pos -1, or {'index': '-3:'})")
-        if have is not None and need is not None and flat(have) != flat(need):
-            return (f"{written!r} holds {flat(have)} position(s) per row and the value {name!r} {verb} holds "
-                    f"{flat(need)}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "
+        if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
+            return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
+                    f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "
                     "both are read at as many (a pos axis does not broadcast)")
     for axis in their_axes:
         own, held = ours.kept.get(axis), theirs.kept.get(axis)
@@ -209,8 +223,3 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
                 f"{'every one' if own is None else own}; {why}: {fix}")
     return None
-
-
-def flat(width: Any) -> Any:
-    """A width per row as one number where every row's is the same."""
-    return width[0] if isinstance(width, tuple) and len(set(width)) == 1 else width

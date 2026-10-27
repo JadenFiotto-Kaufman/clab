@@ -28,6 +28,7 @@
      ],
      "dataset": "prompts",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -44,7 +45,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "zeroed": {
    "kind": "forward",
@@ -76,7 +78,8 @@
      "layers": [
       0
      ],
-     "read": "zeroed.zero"
+     "read": "zeroed.zero",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -90,6 +93,7 @@
      ],
      "dataset": "prompts",
      "read": "zeroed.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -106,7 +110,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "zeroed.logits"
+   "read": "zeroed.logits",
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -118,7 +123,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "zeroed.logits"
+   "read": "zeroed.logits",
+   "width": 1
   }
  },
  "saves": [

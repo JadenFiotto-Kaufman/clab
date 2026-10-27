@@ -61,6 +61,7 @@
      ],
      "dataset": "qa",
      "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -80,7 +81,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "hit_spelled": {
    "kind": "op",
@@ -96,7 +98,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "p_exact": {
    "kind": "op",
@@ -108,7 +111,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "p_any": {
    "kind": "op",
@@ -120,7 +124,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "hit_any": {
    "kind": "op",
@@ -132,7 +137,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   },
   "nll_any": {
    "kind": "op",
@@ -144,7 +150,8 @@
     "pos"
    ],
    "dataset": "qa",
-   "read": "clean.logits"
+   "read": "clean.logits",
+   "width": 1
   }
  },
  "saves": [

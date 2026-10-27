@@ -36,6 +36,7 @@ from transformers import PreTrainedTokenizerBase
 from clab import steps
 from clab.engines import engine, standard
 from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, served, stops
+from clab.format.sweeps import points
 from clab.plan import QUANTIZED, Model, Plan
 from clab.steps import batches
 from clab.steps.batches import landed, now
@@ -64,8 +65,9 @@ class NnterpEngine:
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
-        model `ready` first; the results, the run record and the step records as the run completed them (each
-        value's labels, and where each read and write resolved) are what comes home, into the client's own plan.
+        model `ready` first; the results, the run record and the records as the run completed them (each value's
+        labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
+        is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
         picks the same tokens on every rank, and the run record lists every rank's device."""
         started = steps.begin(self, plan, batch_size)
@@ -77,8 +79,13 @@ class NnterpEngine:
         with self.model.session(remote=self.remote):
             self.ready()
             steps.run(self, plan, batch_size)
-            home = nnsight.save({"results": plan.results, "run": plan.run, "steps": plan.steps})
+            home = nnsight.save({"results": plan.results, "run": plan.run, "steps": plan.steps,
+                                 "featurizers": {n: [f.model_copy(update={"bundle": None}) for f in points(e)]
+                                                 for n, e in plan.featurizers.items()}})
         plan.results, plan.run, plan.steps = home["results"], home["run"], home["steps"]
+        for name, completed in home["featurizers"].items():      # its width; the client keeps its own bundle
+            for mine, theirs in zip(points(plan.featurizers[name]), completed):
+                mine.width = theirs.width
         assert plan.run is not None
         if ranks > 1:
             every: list[Any] = [None] * ranks

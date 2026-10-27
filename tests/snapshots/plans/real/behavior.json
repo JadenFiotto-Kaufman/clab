@@ -37,6 +37,7 @@
      ],
      "dataset": "days",
      "read": "answer.correct",
+     "width": 1,
      "gathered": true
     },
     "p": {
@@ -60,6 +61,7 @@
      ],
      "dataset": "days",
      "read": "answer.p",
+     "width": 1,
      "gathered": true
     }
    },

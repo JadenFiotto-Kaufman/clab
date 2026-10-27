@@ -446,6 +446,8 @@ class Op(Record):
     op: str
     dims: list[str] | None = derived(None, "the layout of the op's value, at each layer the entry is made at (the "
                                            "op after it meets it; the first meets the site's selection)")
+    space: list[dict] = derived([], "the coordinates the op's value is in: the encodes open after it, outermost "
+                                    "first, each its `featurizer` and `select`; none in the site's own layout")
 
     @model_validator(mode="after")
     def _arguments(self) -> "Op":
@@ -471,6 +473,10 @@ class Labelled(Record):
                                              "a layer counted from the last")
     read: str | None = derived(None, "the entry whose value this is, or descends from through op steps, whose "
                                      "positions it holds where it has a `pos` axis; null for a value no read made")
+    width: int | None = derived(None, "how many positions the value holds on every row, where it has a `pos` axis "
+                                      "and that is one number: the static width its read's `pos` names, confirmed "
+                                      "from the positions preflight resolves; null where rows hold different numbers "
+                                      "of positions, or there is no `pos` axis")
     kept: dict[str, list[int]] = derived({}, "the indices a site's `select` keeps on each axis it selects, in their "
                                              "order (`key`: the keys it picks), an op step's those of the value it is "
                                              "over on the axes its own still has; an unselected axis is whole, and "
@@ -802,6 +808,9 @@ class Featurizer(Record):
         None, "the tensors of the bundle `file_path` names, checked against its header", exclude=True)
     header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
                                                   "checks the model's width against")
+    width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
+                                      "of them, which preflight finds among the model's sizes (null for one used "
+                                      "nowhere); a saved bundle's header records it")
 
     @model_validator(mode="after")
     def _fields(self) -> "Featurizer":
@@ -825,9 +834,9 @@ class Run(Record):
     where the model is: the server's, under `ndif`). `dtype` and `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
-    (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among, and `widths` each
-    featurizer's feature width at the sites it is used at: what a saved bundle's header records of an axis a site
-    keeps whole. `tokens` describes values without holding any: how each dataset input tokenized and what each
+    (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
+    bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
+    each dataset input tokenized and what each
     generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
     keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
     layout and labels are. `costs` holds what each step cost, by
@@ -844,7 +853,6 @@ class Run(Record):
     dtype: list[str] = []
     devices: list[str] = []
     sizes: dict[str, int] = {}
-    widths: dict[str, int] = {}
     started: str = ""
     seconds: float = 0.0
     tokens: dict[str, Any] = {}

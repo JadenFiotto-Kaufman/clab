@@ -34,6 +34,7 @@
       0
      ],
      "read": "clean.pattern",
+     "width": 1,
      "gathered": true
     }
    },
@@ -76,6 +77,7 @@
        0
       ],
       "read": "patched.zero",
+      "width": 1,
       "kept": {
        "num_heads": [
         0
@@ -94,6 +96,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -138,6 +141,7 @@
        0
       ],
       "read": "patched.zero",
+      "width": 1,
       "kept": {
        "num_heads": [
         1
@@ -156,6 +160,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -200,6 +205,7 @@
        0
       ],
       "read": "patched.zero",
+      "width": 1,
       "kept": {
        "num_heads": [
         2
@@ -218,6 +224,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -262,6 +269,7 @@
        0
       ],
       "read": "patched.zero",
+      "width": 1,
       "kept": {
        "num_heads": [
         3
@@ -280,6 +288,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -301,6 +310,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 0
     }
@@ -316,6 +326,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 1
     }
@@ -331,6 +342,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 2
     }
@@ -346,6 +358,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 3
     }
@@ -364,6 +377,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 0
     }
@@ -380,6 +394,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 1
     }
@@ -396,6 +411,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 2
     }
@@ -412,6 +428,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 3
     }

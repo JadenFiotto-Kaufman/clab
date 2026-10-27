@@ -43,6 +43,11 @@
         "rows",
         "pos",
         "features"
+       ],
+       "space": [
+        {
+         "featurizer": "dictionary"
+        }
        ]
       }
      ],
@@ -56,6 +61,7 @@
       0
      ],
      "read": "base.latents",
+     "width": 1,
      "space": [
       {
        "featurizer": "dictionary"
@@ -96,7 +102,8 @@
      "layers": [
       0
      ],
-     "read": "spliced.reconstruct"
+     "read": "spliced.reconstruct",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -110,6 +117,7 @@
      ],
      "dataset": "prompts",
      "read": "spliced.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -125,7 +133,8 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "spliced.logits"
+   "read": "spliced.logits",
+   "width": 1
   }
  },
  "saves": [

@@ -32,6 +32,7 @@
       0
      ],
      "read": "counterfactual.v_cf",
+     "width": 1,
      "gathered": true
     }
    },
@@ -71,7 +72,8 @@
       "layers": [
        0
       ],
-      "read": "patched.patch"
+      "read": "patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -87,6 +89,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -128,7 +131,8 @@
       "layers": [
        0
       ],
-      "read": "patched.patch"
+      "read": "patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -145,6 +149,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -186,7 +191,8 @@
       "layers": [
        0
       ],
-      "read": "patched.patch"
+      "read": "patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -203,6 +209,7 @@
       ],
       "dataset": "pairs",
       "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -227,6 +234,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "frame": 0
     }
@@ -242,6 +250,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "frame": 1
     }
@@ -257,6 +266,7 @@
     ],
     "dataset": "pairs",
     "read": "patched.logits",
+    "width": 1,
     "at": {
      "frame": 2
     }

@@ -206,9 +206,9 @@ def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
 
 
 # What the stand-in's trip shows of every run: the request by reference, and the results, the run record and the
-# completed step records home.
+# completed step and featurizer records home.
 TRIP = {"by_reference": True, "names": ["home"], "types": ["dict"],
-        "carried": {"results": "dict", "run": "Run", "steps": "dict"}}
+        "carried": {"results": "dict", "run": "Run", "steps": "dict", "featurizers": "dict"}}
 
 
 @pytest.fixture(scope="session")

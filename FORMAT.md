@@ -398,15 +398,15 @@ scored on the training rows after each epoch.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout)
+- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
-- `Op`: `dims` (the layout of the op's value, at each layer the entry is made at (the op after it meets it; the first meets the site's selection))
+- `Op`: `dims` (the layout of the op's value, at each layer the entry is made at (the op after it meets it; the first meets the site's selection)), `space` (the coordinates the op's value is in: the encodes open after it, outermost first, each its `featurizer` and `select`; none in the site's own layout)
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
 - `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over)
-- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against)
+- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere); a saved bundle's header records it)
 
 ## Ops
 
@@ -469,19 +469,20 @@ An operand (a `Value` argument that names a value) meets the value the op acts o
 entry, the entry's selection at each layer the entry is made at in turn (in the coordinates of the encodes open
 around the op); as a step, `of`, at the layers its `layers` axis is labelled with, or at the one layer a value
 without that axis was read at. One rule says what it may be, and compile refuses the rest by name (preflight,
-where a label waits on the model's sizes or the rows' positions): every axis the operand has is an axis of the
-value it meets, in the value's order, with the same label: `layers` by model layer (the operand holds every
-layer the op acts at, and at layer L the op takes its slice labelled L, whatever order either lists its layers
-in, so a `kl` step between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, and an entry at layer 3
-takes slice 3; an op at no layer, on a model's own value or one reduced over its layers, takes no layered
-operand); `rows` by dataset (an op takes one dataset's rows, its columns' too); `pos` by the read whose
-positions both hold, else by width, as many positions on every row (a read whose rows hold different numbers
-of positions pairs with no other read's, but an earlier entry of its own forward at the same positions, row by
-row); an axis a site selects (`num_heads`, ...) by the indices kept, in order (one head does not broadcast over
-several, and `[1, 4]` would trade places with `[4, 1]`); `features` by the encodes it is in (the same featurizers
-and `select`s: an operand inside a bracket is encoded as the bracket is). The operand may leave out `rows`, `pos`
-and `layers`, which it then broadcasts over, as a direction or a per-row dose does (a singleton axis stands for
-each where the value has one); a number, or a named value of one number (a `mean` over every axis), broadcasts
+where a label waits on the model's sizes or the rows' positions): an operand may leave out any axis of the value
+it meets, which it then broadcasts over (a singleton axis stands for each where the value has one: a direction
+over the rows and positions, a per-row dose over the positions and features, a `[rows, pos]` factor over
+`hidden_size`, a per-head scalar over `head_dim`); every axis it has is the value's, in the value's order, with
+the same label: `layers` by model layer (a `layers` axis it has covers the layers the op acts at and is aligned
+by id: at layer L the op takes its slice labelled L, whatever order either lists its layers in, so a `kl` step
+between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, and an entry at layer 3 takes slice 3; an
+op at no layer, on a model's own value or one reduced over its layers, takes no layered operand), `rows` by
+dataset (an op takes one dataset's rows, its columns' too), `pos` by the read whose positions both hold, else by
+width, as many positions on every row (a read whose rows hold different numbers of positions pairs with no
+other read's, but an earlier entry of its own forward, row by row), an axis a site selects (`num_heads`, ...)
+by the indices kept, in order (one head does not broadcast over several, and `[1, 4]` would trade places with
+`[4, 1]`), `features` by the encodes it is in (the same featurizers and `select`s: an operand inside a bracket
+is encoded as the bracket is). A number, or a named value of one number (a `mean` over every axis), broadcasts
 in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
 are the adapter's width.
 
@@ -868,14 +869,14 @@ after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `
 never were there; `table` loads either again, from its file or the hub, and checks it against its `sha256`, as
 `dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
-its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `kept`, `space`), once, or per
-point by coordinate where its step is swept, as `shape` and `dtype` are, so that a result links back to the step
-that made it and says what each point of it is. It records the document's path relative to the corpus root, and
-each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and write, the
-positions it resolved to per row, which `table` uses to label positions; its `run` holds how each input
-tokenized, what each generate step's rows generated, the model's sizes and each featurizer's width, and what each
-step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens they fed).
-Values are never in the manifest.
+its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), once
+where every point agrees, else per point by coordinate, as `shape` and `dtype` are, so that a result links back to
+the step that made it and says what each point of it is. It records the document's path relative to the corpus
+root, and each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and
+write, the positions it resolved to per row, which `table` uses to label positions; its `featurizers` each one's
+width; its `run` holds how each input tokenized, what each generate step's rows generated, the model's sizes, and
+what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
+they fed). Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 

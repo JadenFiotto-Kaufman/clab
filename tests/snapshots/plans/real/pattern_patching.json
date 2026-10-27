@@ -38,6 +38,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         0
@@ -75,6 +76,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         1
@@ -112,6 +114,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         2
@@ -149,6 +152,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         3
@@ -186,6 +190,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         4
@@ -223,6 +228,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         5
@@ -260,6 +266,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         6
@@ -297,6 +304,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         7
@@ -334,6 +342,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         8
@@ -371,6 +380,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         9
@@ -408,6 +418,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         10
@@ -445,6 +456,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         11
@@ -482,6 +494,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         12
@@ -519,6 +532,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         13
@@ -556,6 +570,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         14
@@ -593,6 +608,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         15
@@ -630,6 +646,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         16
@@ -667,6 +684,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         17
@@ -704,6 +722,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         18
@@ -741,6 +760,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         19
@@ -778,6 +798,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         20
@@ -815,6 +836,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         21
@@ -852,6 +874,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         22
@@ -889,6 +912,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         23
@@ -926,6 +950,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         24
@@ -963,6 +988,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         25
@@ -1000,6 +1026,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         26
@@ -1037,6 +1064,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         27
@@ -1074,6 +1102,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         28
@@ -1111,6 +1140,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         29
@@ -1148,6 +1178,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         30
@@ -1185,6 +1216,7 @@
        12
       ],
       "read": "counterfactual.their_pattern",
+      "width": 1,
       "kept": {
        "num_heads": [
         31
@@ -1236,6 +1268,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         0
@@ -1263,6 +1296,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1287,6 +1321,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1331,6 +1366,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         1
@@ -1358,6 +1394,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1382,6 +1419,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1426,6 +1464,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         2
@@ -1453,6 +1492,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1477,6 +1517,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1521,6 +1562,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         3
@@ -1548,6 +1590,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1572,6 +1615,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1616,6 +1660,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         4
@@ -1643,6 +1688,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1667,6 +1713,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1711,6 +1758,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         5
@@ -1738,6 +1786,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1762,6 +1811,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1806,6 +1856,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         6
@@ -1833,6 +1884,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1857,6 +1909,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1901,6 +1954,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         7
@@ -1928,6 +1982,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -1952,6 +2007,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1996,6 +2052,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         8
@@ -2023,6 +2080,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2047,6 +2105,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2091,6 +2150,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         9
@@ -2118,6 +2178,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2142,6 +2203,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2186,6 +2248,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         10
@@ -2213,6 +2276,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2237,6 +2301,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2281,6 +2346,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         11
@@ -2308,6 +2374,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2332,6 +2399,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2376,6 +2444,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         12
@@ -2403,6 +2472,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2427,6 +2497,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2471,6 +2542,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         13
@@ -2498,6 +2570,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2522,6 +2595,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2566,6 +2640,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         14
@@ -2593,6 +2668,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2617,6 +2693,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2661,6 +2738,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         15
@@ -2688,6 +2766,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2712,6 +2791,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2756,6 +2836,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         16
@@ -2783,6 +2864,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2807,6 +2889,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2851,6 +2934,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         17
@@ -2878,6 +2962,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2902,6 +2987,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -2946,6 +3032,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         18
@@ -2973,6 +3060,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -2997,6 +3085,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3041,6 +3130,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         19
@@ -3068,6 +3158,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3092,6 +3183,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3136,6 +3228,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         20
@@ -3163,6 +3256,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3187,6 +3281,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3231,6 +3326,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         21
@@ -3258,6 +3354,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3282,6 +3379,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3326,6 +3424,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         22
@@ -3353,6 +3452,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3377,6 +3477,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3421,6 +3522,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         23
@@ -3448,6 +3550,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3472,6 +3575,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3516,6 +3620,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         24
@@ -3543,6 +3648,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3567,6 +3673,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3611,6 +3718,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         25
@@ -3638,6 +3746,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3662,6 +3771,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3706,6 +3816,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         26
@@ -3733,6 +3844,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3757,6 +3869,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3801,6 +3914,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         27
@@ -3828,6 +3942,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3852,6 +3967,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3896,6 +4012,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         28
@@ -3923,6 +4040,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -3947,6 +4065,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -3991,6 +4110,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         29
@@ -4018,6 +4138,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -4042,6 +4163,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -4086,6 +4208,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         30
@@ -4113,6 +4236,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -4137,6 +4261,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },
@@ -4181,6 +4306,7 @@
        12
       ],
       "read": "patched.look_there",
+      "width": 1,
       "kept": {
        "num_heads": [
         31
@@ -4208,6 +4334,7 @@
       ],
       "dataset": "days",
       "read": "patched.hit",
+      "width": 1,
       "gathered": true
      },
      "diff": {
@@ -4232,6 +4359,7 @@
       ],
       "dataset": "days",
       "read": "patched.diff",
+      "width": 1,
       "gathered": true
      }
     },

@@ -32,6 +32,7 @@
       1
      ],
      "read": "counterfactual.v_cf",
+     "width": 1,
      "gathered": true
     }
    },
@@ -66,6 +67,7 @@
       4
      ],
      "read": "clean.resid",
+     "width": 2,
      "gathered": true
     }
    },
@@ -101,7 +103,8 @@
      "layers": [
       1
      ],
-     "read": "patched.patch"
+     "read": "patched.patch",
+     "width": 1
     },
     "resid": {
      "site": {
@@ -128,6 +131,7 @@
       4
      ],
      "read": "patched.resid",
+     "width": 2,
      "gathered": true
     }
    },
@@ -149,7 +153,8 @@
     2,
     4
    ],
-   "read": "patched.resid"
+   "read": "patched.resid",
+   "width": 2
   }
  },
  "saves": [

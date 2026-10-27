@@ -48,6 +48,7 @@
       0
      ],
      "read": "counterfactual.h",
+     "width": 1,
      "gathered": true
     }
    },
@@ -86,6 +87,7 @@
        0
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -113,6 +115,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -122,6 +129,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -143,7 +155,8 @@
         "layers": [
          0
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -157,6 +170,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -177,6 +191,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 0
       }
@@ -192,6 +207,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 0
       }
@@ -241,6 +257,7 @@
        0
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -268,6 +285,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -277,6 +299,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -298,7 +325,8 @@
         "layers": [
          0
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -312,6 +340,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -332,6 +361,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 1
       }
@@ -347,6 +377,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 1
       }
@@ -396,6 +427,7 @@
        0
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -423,6 +455,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -432,6 +469,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -453,7 +495,8 @@
         "layers": [
          0
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -467,6 +510,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -487,6 +531,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 2
       }
@@ -502,6 +547,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 2
       }
@@ -551,6 +597,7 @@
        0
       ],
       "read": "counterfactual.h",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -578,6 +625,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -587,6 +639,11 @@
            "rows",
            "pos",
            "features"
+          ],
+          "space": [
+           {
+            "featurizer": "fit.mask"
+           }
           ]
          },
          {
@@ -608,7 +665,8 @@
         "layers": [
          0
         ],
-        "read": "patched.patch"
+        "read": "patched.patch",
+        "width": 1
        },
        "logits": {
         "site": {
@@ -622,6 +680,7 @@
         ],
         "dataset": "train",
         "read": "patched.logits",
+        "width": 1,
         "gathered": true
        }
       },
@@ -642,6 +701,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 3
       }
@@ -657,6 +717,7 @@
       ],
       "dataset": "train",
       "read": "patched.logits",
+      "width": 1,
       "at": {
        "mask.mask": 3
       }
@@ -694,6 +755,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        }
       ],
@@ -707,6 +773,7 @@
        0
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -738,6 +805,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        }
       ],
@@ -751,6 +823,7 @@
        0
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -782,6 +855,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        }
       ],
@@ -795,6 +873,7 @@
        0
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -826,6 +905,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        }
       ],
@@ -839,6 +923,7 @@
        0
       ],
       "read": "held_counterfactual.v_cf",
+      "width": 1,
       "space": [
        {
         "featurizer": "fit.mask"
@@ -872,6 +957,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -881,6 +971,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -902,7 +997,8 @@
       "layers": [
        0
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -916,6 +1012,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -942,6 +1039,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -951,6 +1053,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -972,7 +1079,8 @@
       "layers": [
        0
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -986,6 +1094,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1012,6 +1121,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -1021,6 +1135,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -1042,7 +1161,8 @@
       "layers": [
        0
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -1056,6 +1176,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1082,6 +1203,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -1091,6 +1217,11 @@
          "rows",
          "pos",
          "features"
+        ],
+        "space": [
+         {
+          "featurizer": "fit.mask"
+         }
         ]
        },
        {
@@ -1112,7 +1243,8 @@
       "layers": [
        0
       ],
-      "read": "held_patched.patch"
+      "read": "held_patched.patch",
+      "width": 1
      },
      "logits": {
       "site": {
@@ -1126,6 +1258,7 @@
       ],
       "dataset": "test",
       "read": "held_patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -1148,6 +1281,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "mask.mask": 0
     }
@@ -1164,6 +1298,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "mask.mask": 1
     }
@@ -1180,6 +1315,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "mask.mask": 2
     }
@@ -1196,6 +1332,7 @@
     ],
     "dataset": "test",
     "read": "held_patched.logits",
+    "width": 1,
     "at": {
      "mask.mask": 3
     }

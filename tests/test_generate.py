@@ -254,27 +254,27 @@ def test_each_stage_narrows_the_one_before():
 
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": -1, "index": -1}),
-     r"steps\.patched\.interventions\.patch\.pos: frame -1 with index -1 names calls that depend on how far each row"),
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame -1 with index -1 names calls that depend on how far each row"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": 2, "scope": {"text": "is"}}),
-     r"steps\.patched\.interventions\.patch\.pos\.index: index ':': a scoped write lands at the call fed its text's"),
+     r"steps\.patched\.interventions\.patch\.pos\.index at frame=0: index ':': a scoped write lands at the call fed its text's"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:", "index": -1}),
-     r"steps\.patched\.interventions\.patch\.pos: frame '1:' with index -1 names calls that depend on how far"),
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame '1:' with index -1 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "1:4", "index": -1}),
-     r"steps\.patched\.interventions\.patch\.pos: frame '1:4' with index -1 names calls that depend on how far"),
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame '1:4' with index -1 names calls that depend on how far"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": 0}),
-     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index 0: over a frame that holds the prompt a "
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame ':' with index 0: over a frame that holds the prompt a "
      r"write's index is ':', since any other counts on through the prompt, whose length differs by row, into the "
      r"decode calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
      r"frame 0 and the decode calls you mean as another at their own frame \('1:' is every one\)$"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": "-1:"}),
-     r"steps\.patched\.interventions\.patch\.pos: frame ':' with index '-1:' counts back from the row's last "
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame ':' with index '-1:' counts back from the row's last "
      r"position, known only when the row stops"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "0:3", "index": "1:"}),
-     r"steps\.patched\.interventions\.patch\.pos: frame '0:3' with index '1:': over a frame that holds the "
+     r"steps\.patched\.interventions\.patch\.pos at frame=0: frame '0:3' with index '1:': over a frame that holds the "
      r"prompt a write's index is ':'"),
     (lambda d: d["steps"]["patched"]["interventions"].update(pattern={
         "site": {"component": "attention_probabilities", "layers": 0}, "pos": {"frame": 1, "index": -1}}),
-     r"steps\.patched\.interventions\.pattern\.site: attention_probabilities's key axis grows with every decode call"),
+     r"steps\.patched\.interventions\.pattern\.site at frame=0: attention_probabilities's key axis grows with every decode call"),
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(pos={"frame": 1, "scope": {"column": "pairs.said"}}),
      r"steps\.patched\.interventions\.logits\.pos\.scope\.column: dataset 'pairs' has no column 'said'"),
 ])
@@ -518,7 +518,7 @@ def test_a_decode_call_writes_operand_is_checked_before_any_forward():
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = {"index": "-4:-1"}
         d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"frame": 2, "index": -1}
-    with pytest.raises(PlanError, match=r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' holds 3 position\(s\) per row "
+    with pytest.raises(PlanError, match=r"patch\.ops\[0\]\.with at frame=0: 'counterfactual\.v_cf' holds 3 position\(s\) per row "
                                         r"and the value 'swap' acts on holds 1"):
         edited("generate_probe", change).compile()
 
@@ -732,9 +732,9 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
 
 
 @pytest.mark.parametrize("pos, message", [
-    ({"frame": ":", "scope": {"text": "is"}, "index": -1}, r"\.frame: frame ':': a scoped write beyond the"),
-    ({"frame": -1, "scope": {"text": "is"}, "index": -1}, r"\.frame: frame -1: a scoped write beyond the"),
-    ({"frame": "1:", "scope": {"text": "is"}}, r"\.index: index ':': a scoped write lands at the call fed"),
+    ({"frame": ":", "scope": {"text": "is"}, "index": -1}, r"\.frame at frame=0: frame ':': a scoped write beyond the"),
+    ({"frame": -1, "scope": {"text": "is"}, "index": -1}, r"\.frame at frame=0: frame -1: a scoped write beyond the"),
+    ({"frame": "1:", "scope": {"text": "is"}}, r"\.index at frame=0: index ':': a scoped write lands at the call fed"),
 ])
 def test_a_scoped_write_needs_decode_calls_and_its_texts_last_token(pos, message):
     with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
@@ -810,8 +810,8 @@ def test_strip_locates_the_text_without_its_surrounding_space(engines, strip, fo
 
 
 @pytest.mark.parametrize("scope, message", [
-    ({"text": "er", "occurrence": -1}, r"\.scope\.occurrence: occurrence -1 counts from the last occurrence, which"),
-    ({"text": "er", "occurrence": "0:-1"}, r"\.scope\.occurrence: occurrence '0:-1' counts from the last"),
+    ({"text": "er", "occurrence": -1}, r"\.scope\.occurrence at frame=0: occurrence -1 counts from the last occurrence, which"),
+    ({"text": "er", "occurrence": "0:-1"}, r"\.scope\.occurrence at frame=0: occurrence '0:-1' counts from the last"),
 ])
 def test_a_scoped_write_counts_its_occurrences_from_the_first(scope, message):
     def change(d):

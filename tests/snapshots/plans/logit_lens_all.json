@@ -41,6 +41,7 @@
      "dataset": "prompts",
      "layers": [],
      "read": "lens.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -58,7 +59,8 @@
    ],
    "dataset": "prompts",
    "layers": [],
-   "read": "lens.logits"
+   "read": "lens.logits",
+   "width": 1
   },
   "top1": {
    "kind": "op",
@@ -72,7 +74,8 @@
    ],
    "dataset": "prompts",
    "layers": [],
-   "read": "lens.logits"
+   "read": "lens.logits",
+   "width": 1
   }
  },
  "saves": [

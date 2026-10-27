@@ -48,7 +48,8 @@
      "layers": [
       0
      ],
-     "read": "blanked.blank"
+     "read": "blanked.blank",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -62,6 +63,7 @@
      ],
      "dataset": "chats",
      "read": "blanked.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -77,7 +79,8 @@
     "pos"
    ],
    "dataset": "chats",
-   "read": "blanked.logits"
+   "read": "blanked.logits",
+   "width": 1
   }
  },
  "saves": [
