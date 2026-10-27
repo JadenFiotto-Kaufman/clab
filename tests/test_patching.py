@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from typing import Any
 
 import pytest
@@ -441,3 +442,46 @@ def test_an_earlier_entry_at_the_writes_own_site_is_its_operand(engines, kind):
                                             "h": entry}
     with pytest.raises(PlanError, match=r"'s\.h' is this entry or one this forward makes after it"):
         edited("patching", later).compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_the_steps_before(
+        engines, monkeypatch, tmp_path, kind, capsys):
+    """A step's CUDA out-of-memory (torch's error, raised here by the `logit_diff` op step) is refused naming the
+    step, the batch size, torch's first sentences and every value the run holds with its shape, dtype and device;
+    the steps before it are recorded (`run.stopped`, their costs) and saved to `out` (`iia`, and no `logit_diff`),
+    which `show` says and `table` refuses by name."""
+    from clab import steps
+
+    op = steps.KINDS["op"]
+
+    def starved(engine, plan, name, step, *rest):
+        if name == "logit_diff":
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity "
+                                         "of 47.54 GiB of which 10.00 MiB is free. Including non-PyTorch memory, ...")
+        return op(engine, plan, name, step, *rest)
+    monkeypatch.setitem(steps.KINDS, "op", starved)
+    out = tmp_path / "patching"
+    # `patched.patch`, which nothing names, was never taken off the model, so the run does not hold it.
+    refusal = (r"^steps.logit_diff: out of CUDA memory at batch size 2 \(CUDA out of memory. Tried to allocate 20.00 "
+               r"MiB. GPU 0 has a total capacity of 47.54 GiB of which 10.00 MiB is free\); the run holds "
+               r"counterfactual.v_cf \[4, 1, 16\] float32 on cpu, patched.logits \[4, 1, 32000\] float32 on cpu, "
+               r"iia \[4, 1\] float32 on cpu, each on the model's device until the run ends; run with a smaller "
+               r"--batch-size, or name and save fewer values")
+    with pytest.raises(ValueError, match=refusal + f"; the steps before it are saved in {out}$"):
+        clab.run(document("patching"), engine=engines(kind, plan_of("patching").model), out=str(out),
+                 batch_size=BATCH_SIZE)
+    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json"]
+    back = Plan.load(str(out))
+    assert back.run is not None and re.match(refusal + "$", back.run.stopped or "")
+    assert list(back.results) == ["iia"] and list(back.run.costs) == ["counterfactual", "patched", "iia"]
+    assert main(["show", str(out)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    assert shown[3].startswith("  stopped: steps.logit_diff: out of CUDA memory at batch size 2")
+    assert shown[-1].split()[:2] == ["iia", "iia"] and not any(line.startswith("  logit_diff") for line in shown)
+    assert main(["table", str(out), "logit_diff"]) == 1
+    assert capsys.readouterr().err.startswith("clab: 'logit_diff' has no result: the run stopped before its step; "
+                                              "steps.logit_diff: out of CUDA memory")
+    assert main(["run", document("patching"), "--engine", kind, "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 1
+    said = capsys.readouterr().err.splitlines()[-1]           # after the loader's progress bar
+    assert said.startswith("clab: steps.logit_diff: out of CUDA memory at batch size 2 (") and said.endswith(str(out))

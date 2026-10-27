@@ -45,6 +45,8 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
+        if name not in plan.results:
+            raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
     found = {d: name for name in names if (d := dataset_of(plan, name)) is not None}
     if len(found) > 1:
         (a, x), (b, y) = list(found.items())[:2]

@@ -31,7 +31,7 @@ from clab.compile import materialized
 from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
-from clab.format.sweeps import by_coordinate, coordinate, lookup, put
+from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, put
 from clab.plan import Forward, OpStep, Plan, Run, arguments, entries, points, record_of
 from clab.steps import fit, generate
 from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, over, read, read_name, stacked, value_at
@@ -67,10 +67,12 @@ def batched(batch_size: int) -> int:
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, over the plan `held`, without gradients except where a fit trains,
-    each one's cost `measured` into `plan.run.costs`; then each saved value into `plan.results` (a trained
-    featurizer as its bundle's tensors), and what served the run: the model's sizes, and the dtypes and devices
-    of the model's parameters (`placed`). Where each read and write resolved, and each featurizer's width, is on
-    its record, which preflight and the steps complete in place."""
+    each one's cost `measured` into `plan.run.costs`; then (`ended`) each saved value into `plan.results` (a
+    trained featurizer as its bundle's tensors), and what served the run: the model's sizes, and the dtypes and
+    devices of the model's parameters (`placed`). Where each read and write resolved, and each featurizer's width,
+    is on its record, which preflight and the steps complete in place. A step that runs out of CUDA memory stops
+    the run: the refusal (`exhausted`) names the step, the batch size and every value the run holds, is recorded
+    as `plan.run.stopped`, and the steps that finished are recorded and saved as if the run had ended there."""
     plan = held(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
@@ -80,15 +82,53 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     with torch.no_grad():
         for name, entry in plan.steps.items():
             for step in points(entry):
-                put(costs, name, step.at, measured(engine, lambda: KINDS[step.kind](
-                    engine, plan, name, step, state, batch_size, found)))
+                try:
+                    put(costs, name, step.at, measured(engine, lambda: KINDS[step.kind](
+                        engine, plan, name, step, state, batch_size, found)))
+                except torch.OutOfMemoryError as e:
+                    plan.run.stopped = exhausted(plan, name, step.at, batch_size, state, e)
+                    ended(engine, plan, state, costs, found)
+                    raise ValueError(plan.run.stopped) from e
+    ended(engine, plan, state, costs, found)
+
+
+def ended(engine: Engine, plan: Plan, state: ChainMap, costs: dict, found: Found) -> None:
+    """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
+    every point finished (a trained featurizer as its bundle's tensors), how each input tokenized, and the dtypes
+    and devices of the model's parameters."""
+    assert plan.run is not None
     plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
-    for name in plan.saves:
+    done = {name for name, entry in plan.steps.items() if len(costs.get(name, {})) == len(points(entry))}
+    for name in (n for n in plan.saves if n.partition(".")[0] in done):
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
+
+
+def exhausted(plan: Plan, name: str, at: dict, batch_size: int, state: ChainMap, error: BaseException) -> str:
+    """The refusal for a step that ran out of CUDA memory: the step and its point, the batch size, what torch said
+    (its first sentences), and every value the run holds (`state`: each bound value stays on the model's device
+    until the run ends) with its shape, dtype and device, then what to do."""
+    where = f"steps.{name}" + (f" at {labelled(plan, at)}" if at else "")
+    said = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
+    held = [f"{n}{f'[{labelled(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
+            if isinstance(by_point, dict) for c, v in by_point.items() if (s := sized(v))]
+    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run holds "
+            + (", ".join(held) if held else "no value yet")
+            + ", each on the model's device until the run ends; run with a smaller --batch-size, or name and save "
+            "fewer values")
+
+
+def sized(value: Any) -> str | None:
+    """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict of tensors' per key; None for
+    anything else (a featurizer instance, token strings)."""
+    if isinstance(value, Tensor):
+        return f"{list(value.shape)} {str(value.dtype).removeprefix('torch.')} on {value.device}"
+    if isinstance(value, dict) and value and all(isinstance(v, Tensor) for v in value.values()):
+        return "{" + ", ".join(f"{k} {sized(v)}" for k, v in value.items()) + "}"
+    return None
 
 
 def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:

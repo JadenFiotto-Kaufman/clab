@@ -53,7 +53,7 @@ def dump(plan: Plan, out: str) -> None:
     ran(plan)
     os.makedirs(out, exist_ok=True)
     described = {}
-    for name in plan.saves:
+    for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
         entry = plan.steps[name.partition(".")[0]]
         value = plan.results[name]
         if isinstance(entry, list):
