@@ -64,10 +64,10 @@ class NnterpEngine:
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
-        """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
-        the results and the run record are the one thing that comes home, into the client's own plan. Under `tp`
-        every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation picks the same
-        tokens on every rank, and the run record lists every rank's device."""
+        """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
+        model `ready` first; the results and the run record are the one thing that comes home, into the client's
+        own plan. Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled
+        generation picks the same tokens on every rank, and the run record lists every rank's device."""
         started = steps.begin(self, plan, batch_size)
         ranks = self.options.get("tp", 1)
         if ranks > 1:
@@ -75,6 +75,7 @@ class NnterpEngine:
             torch.distributed.broadcast_object_list(seed, src=0)
             torch.manual_seed(seed[0])
         with self.model.session(remote=self.remote):
+            self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})
         plan.results, plan.run = home["results"], home["run"]
@@ -85,6 +86,14 @@ class NnterpEngine:
             plan.run.devices = list(dict.fromkeys(d for devices in every for d in devices))
         plan.run.seconds = round(time.time() - started, 3)
         return plan
+
+    def ready(self) -> None:
+        """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
+        (ndif under `remote="local"`) loads its weights, which it would at its first trace, and nnterp measures its
+        forward order (`rank`), which it would at the first site a step ranks (under `tp` the engine measured it at
+        load, on a meta shell); each is a no-op once done."""
+        self.model.dispatch()
+        self.rank("layer_output", 0)
 
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
@@ -120,12 +129,28 @@ class NnterpEngine:
         return {k: getattr(self.model, k) for k in SIZES}
 
     def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One trace over the batch, its one forward call done as `visited` says."""
+        """One trace over the batch, its one forward call done as `visited` says and stopped right after its last
+        site, the deepest (nnsight's `tracer.stop()`), unless the engine is remote (the ndif engine says why).
+
+        nnsight leaves the stop in reference cycles, which the collector can leave for many forwards: its two
+        tracebacks (`__traceback__`, and the `__intervention_tb__` nnsight stashes) hold the stopped forward's frames
+        and every activation in them, and its `__context__` (the exception nnsight skips this block's body with) holds
+        this frame and its callers'. The engine drops all three once the trace is done."""
         sites = by_site(records)
         order = sorted(sites, key=lambda s: self.rank(*s))
         got: dict[str, Tensor] = {}
-        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
+        stopped: list[BaseException] = []
+        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
+                                     batches.home(self))) as tracer:
             self.visited(order, sites, 0, [], got)
+            if not self.remote:
+                try:
+                    tracer.stop()
+                except BaseException as stop:
+                    stopped.append(stop)
+                    raise
+        for stop in stopped:
+            stop.__traceback__ = stop.__context__ = stop.__intervention_tb__ = None  # type: ignore[attr-defined]
         return got
 
     def generate(self, batch: dict[str, Tensor], records: list[dict],

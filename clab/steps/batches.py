@@ -3,6 +3,7 @@ with, its value with the ops after its last edit applied."""
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import torch
@@ -95,7 +96,9 @@ def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, a
                     out[-1]["features"] = torch.tensor(selectors.select(select["features"], f.size()))
                 out[-1]["inner"] = bind(node["inner"], dims[:-1] + [f.axis])
         return out
-    return bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(cast(Site, record.site).component))
+    edits = bind([n for n in bracketed(record.ops) if n["at"] < last], address.dims(cast(Site, record.site).component))
+    del bind            # it refers to itself, a cycle that would hold `state` until the collector ran
+    return edits
 
 
 def chunked(engine: Engine, step: Forward, found: Found, batch_size: int) -> Iterator[tuple[slice, dict, list[int]]]:
@@ -107,6 +110,14 @@ def chunked(engine: Engine, step: Forward, found: Found, batch_size: int) -> Ite
         chunk = slice(lo, min(lo + batch_size, n))
         ids = [e["ids"] for e in encoded["rows"][chunk]]
         yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
+
+
+def fed(batch: dict[str, Tensor], pads: list[int], calls: int = 1, decoded: int = 0) -> Counter:
+    """What one batch through the model costs in calls and tokens: `calls` model calls (a forward's one, or a
+    generation's prefill and decode calls), the prompt tokens of each row (the batch's width less the row's
+    padding) and the `decoded` tokens its decode calls fed."""
+    width = batch["input_ids"].shape[1]
+    return Counter(forwards=calls, tokens=sum(width - pad for pad in pads) + decoded)
 
 
 def read_name(key: str, layer: int | None, prefill: bool = False) -> str:

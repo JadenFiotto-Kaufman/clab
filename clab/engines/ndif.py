@@ -7,7 +7,10 @@ the plan (pure data) and the batch size; everything that needs the model, prefli
 server, and the results and the run record come home. The server holds the weights and shards the model as its
 deployment does, so on a server a quantized `dtype` is refused by name, and the engine takes no `tp`. The server's
 address and API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs
-nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace.
+nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
+forwards run whole, under either `remote`: in an NDIF server's model process nnsight keeps a stopped forward's
+frames, and every activation in them, in reference cycles out of the engine's reach, so the nnterp engine's stop
+waits for nnsight to clear them.
 """
 
 from typing import Literal

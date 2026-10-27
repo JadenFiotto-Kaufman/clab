@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -18,6 +19,7 @@ from clab.steps.batches import (
     chunked,
     decoding,
     edit,
+    fed,
     joined,
     layers,
     read,
@@ -39,7 +41,8 @@ def stops(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int, found: Found) -> None:
+def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int,
+             found: Found) -> Counter:
     """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
     options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
@@ -48,14 +51,17 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
     stopped before a call a write selects is not written there and is recorded as missing. The resolution is
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
-    their EOS to the longest batch's."""
+    their EOS to the longest batch's. Returns the model calls it made, one per new token of each batch (its
+    prefill, then a decode call for each token after the first), and the tokens they fed (`fed`): the
+    prompts', then each row's generated tokens but its last, which is its EOS (fed to it on the call after it says
+    it, and not counted, as the padding after it is not) or the generation's last token, which no call is fed."""
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
     picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
-    parts, new, resolved = [], [], {f"{name}.{key}": [] for key in after}
+    parts, new, resolved, count = [], [], {f"{name}.{key}": [] for key in after}, Counter()
     most = horizon(step)
     for chunk, batch, pads in chunked(engine, step, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
@@ -67,6 +73,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
                                           step.at, found.answers, layer) for layer in layers(engine, record)])
                for key, record in every.items() if key in first and record.gathered}
         said = [positions.continuation(x, eos) for x in ids.tolist()]
+        count += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
         for key, record in after.items():
             where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(step, record))
             resolved[f"{name}.{key}"] += where
@@ -85,6 +92,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
         put(found.positions, where, step.at, per_row)
     put(found.said, name, step.at,
         [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
+    return count
 
 
 def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,

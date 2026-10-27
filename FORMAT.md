@@ -791,7 +791,10 @@ the plan (pure data) and the batch size; everything that needs the model, prefli
 server, and the results and the run record come home. The server holds the weights and shards the model as its
 deployment does, so on a server a quantized `dtype` is refused by name, and the engine takes no `tp`. The server's
 address and API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs
-nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace.
+nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
+forwards run whole, under either `remote`: in an NDIF server's model process nnsight keeps a stopped forward's
+frames, and every activation in them, in reference cycles out of the engine's reach, so the nnterp engine's stop
+waits for nnsight to clear them.
 
 ## Names and scoping
 
@@ -843,9 +846,10 @@ dataset for the header of the bundle it saves) and without bundle tensors, its `
 `{file, step, dims, axes, shape, dtype}`: that is how a result links back to the step that made it. It records the
 document's path relative to the corpus root, and each dataset's `n_rows`.
 `shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
-tokenized, what each generate step's rows generated, and which position (as `pos` counts them: an index into the
+tokenized, what each generate step's rows generated, which position (as `pos` counts them: an index into the
 row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
-`table` uses to label positions. Values are never in the manifest.
+`table` uses to label positions, and what each step cost (`costs`: its seconds, its peak memory on each CUDA
+device, its model calls and the tokens they fed). Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 
