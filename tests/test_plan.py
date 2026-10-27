@@ -7,7 +7,8 @@ import pickle
 from typing import Any
 
 import pytest
-from conftest import NAMES, REAL, ROOT, document, edited, plan_of, snapshot
+from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, plan_of, snapshot
+from huggingface_hub import try_to_load_from_cache
 
 from clab import Plan
 from clab.compile import dataset, positions
@@ -420,3 +421,37 @@ def test_columns_renames_and_keeps_every_other_column():
 def test_a_dataset_option_that_cannot_apply_is_refused_by_name(d, message):
     with pytest.raises(PlanError, match=message):
         with_data(d).compile()
+
+
+# A tiny Llama-3.2, whose chat template calls `strftime_now` to write today's date into the system header it adds.
+LLAMA32 = {"key": "yujiepan/llama-3.2-tiny-random", "revision": "0bf108f80b7c6cdf6e7e85698f0464bfbf7f9ce5"}
+LLAMA32_CACHED = isinstance(try_to_load_from_cache(LLAMA32["key"], "model.safetensors", revision=LLAMA32["revision"]), str)
+
+
+@pytest.mark.skipif(not LLAMA32_CACHED, reason=f"needs {LLAMA32['key']} in the local Hugging Face cache")
+def test_a_chat_template_that_reads_the_clock_renders_only_with_its_date_pinned(engines):
+    """Llama-3.2's template writes `Today Date: <today>` into the system header it adds, so the same chat tokenizes
+    differently on another day while the rows' digest stays the same: a chat of it is refused by name before any
+    forward unless the dataset's `template` pins `date_string`, and with it the date in the prompt is the one given."""
+    def chat(template: dict) -> Plan:
+        return Plan(model=LLAMA32, data={"d": {"rows": [{"chat": [{"role": "user", "content": "Hello there."}]}],
+                                               "template": template}},
+                    steps={"a": {"kind": "forward", "input": "d.chat",
+                                 "interventions": {"l": {"site": {"component": "logits"}, "pos": -1}}}},
+                    saves=["a.l"]).compile()
+    engine = engines("nnterp", chat({}).model)
+    calls = []
+    original = engine.forward
+    engine.forward = lambda *args: calls.append(1) or original(*args)
+    try:
+        with pytest.raises(ValueError, match=r"^a: d\.chat: the checkpoint's chat template calls strftime_now, which writes "
+                                             r"today's date into the prompt, so these rows render to other tokens on "
+                                             r"another day and nothing in the run record says so; pin it in "
+                                             r"data\.d\.template, \{\"date_string\": \"26 Jul 2024\"\}$"):
+            engine.execute(chat({"add_generation_prompt": True}), batch_size=BATCH_SIZE)
+    finally:
+        del engine.forward
+    assert not calls
+    pinned = engine.execute(chat({"add_generation_prompt": True, "date_string": "26 Jul 2024"}), batch_size=BATCH_SIZE)
+    tokens = pinned.run.tokens["d.chat"][0]
+    assert "".join(tokens[tokens.index("Today"):]).startswith("TodayĠDate:Ġ26ĠJulĠ2024")

@@ -56,14 +56,17 @@ N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>
 it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
 fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
 `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
-"enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes. A row is
+"enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
+checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
+header it adds) renders a chat only with its date pinned, `{"date_string": "26 Jul 2024"}`, since the rows'
+digest cannot say that the tokens moved with the day. A row is
 JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
 `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
 several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
 rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-keeps neither), and a `template` on a dataset no step reads a chat column of. `sha256` and `n_rows` describe
-the rows these leave.
+keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
+a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -256,7 +259,9 @@ index has a static width (an int, picks, or a slice whose two ends count from th
 the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
 row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
 that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-is a call the row never reached: the row is `alignment_missing`, NaN all the way.
+is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
+row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
+name, since it has no token to write.
 
 ## Step kinds
 
@@ -545,8 +550,8 @@ stays missing: NaN.
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
 | `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`). |
 | `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose every key was knocked out stays zero). |
-| `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
-| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`). |
+| `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is left as it is, as `renormalize` leaves one. |
+| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector as it is. |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
@@ -884,7 +889,7 @@ width; its `run` holds how each input tokenized, what each generate step's rows 
 what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
 they fed). Values are never in the manifest.
 
-The saved values `names` as rows, joined wide on their shared axes, one column per name.
+The saved values `names` as rows, joined wide on the keys they share, one column per name.
 
 A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
 not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
@@ -893,8 +898,17 @@ layer), the token axes with their tokens (`pos`/`pos_token`, the position a read
 with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
 numbered the same way, the row's own keys only), the dataset columns the step used
 (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
-beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
-past its own are left out. A value with no rows axis gives a row per element with its axis indices.
+did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
+its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
+out. A value with no rows axis gives a row per element with its axis indices.
+
+Several values join on the keys they share, the sweep axes by coordinate and the axis columns (`row`, `layer`,
+`pos`, `key`; a value with no rows axis its own axes, under the same names), each row of the one with more keys
+beside every row of the other that agrees with it on them, an axis one value lacks broadcast over as an operand
+broadcasts over an axis it leaves out (an unswept number sits beside every row, a swept one beside every row at
+each of its points, a history over `epochs` beside every row at each epoch), the first value's columns first
+and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
+counting the positions of different inputs or a plain index beside a token position, is refused by name.
 
 ## A worked document
 

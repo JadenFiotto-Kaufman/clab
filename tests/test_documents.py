@@ -292,11 +292,15 @@ def test_a_chat_turn_scope_is_the_turns_own_tokens(filled):
     assert [tokens[r][i] for r, (i,) in enumerate(where["blanked.logits"])] == ["]"] * 4
 
 
-def test_top_k_saves_its_tokens_as_text(filled, tmp_path):
+def test_top_k_saves_its_tokens_as_text(filled, engines, tmp_path):
+    """`top3.tokens` spells each id as `pos_token` and `detokenize` do, the tokenizer's token string with its
+    word-start marker (`▁Finland`), not `decode`'s text without it."""
     plan = filled["readout", "nnterp"]
     top3 = plan.results["top3"]
     assert top3["ids"].shape == top3["probs"].shape == (4, 1, 3)
-    assert len(top3["tokens"][0][0]) == 3 and "▁" not in "".join(top3["tokens"][0][0])     # decoded text
+    tokenizer = engines("nnterp", plan.model).tokenizer
+    assert top3["tokens"][0][0] == tokenizer.convert_ids_to_tokens(top3["ids"][0, 0].tolist())
+    assert len(top3["tokens"][0][0]) == 3 and any(t.startswith("▁") for t in top3["tokens"][0][0])
     plan.dump(str(tmp_path))
     assert sorted(os.listdir(tmp_path)) == ["manifest.json", "p_answer.safetensors", "top3.json"]
     back = Plan.load(str(tmp_path)).results["top3"]

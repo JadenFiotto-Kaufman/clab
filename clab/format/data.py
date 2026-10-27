@@ -159,6 +159,15 @@ def lookup(row: dict, path: str) -> object:
 MARKER = "\ue000clab\ue001"
 
 
+def clocked(tokenizer: PreTrainedTokenizerBase, template: dict | None) -> bool:
+    """Whether the checkpoint's chat template reads the clock (`strftime_now`, which Llama-3.2's calls to write
+    today's date into the system header it adds) and `template` does not pin the date (`date_string`), so that
+    the same chat renders to other tokens on another day, which the rows' digest cannot say."""
+    source = getattr(tokenizer, "chat_template", None)
+    text = json.dumps(source) if isinstance(source, dict) else source or ""
+    return "strftime_now" in text and "date_string" not in (template or {})
+
+
 def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template: dict | None) -> dict:
     """One row's tokens: `ids`, each token's character `offsets` in `text` (None on a tokenizer without an
     offset mapping), and, for a chat, each message's `turns` as `(role, start, end)` in the rendered text.

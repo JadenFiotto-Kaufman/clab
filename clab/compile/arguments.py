@@ -156,6 +156,24 @@ def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
 # -- the one rule an operand keeps ---------------------------------------------------------------------
 
 
+def narrowed(ours: Labelled, name: str, key: str, written: str) -> str | None:
+    """Why the column `written`, argument `key` of op `name`, scored as `Tokens`, cannot score the value laid out
+    `ours`: its vocabulary axis is narrowed, by a site's `select` on `vocab_size` (`kept`) or a probe's `encode`
+    with a `select` (`space`), and the column resolves to ids of the whole vocabulary, where index i of the
+    selection is not id i; None where the axis is whole, or the argument is no column. Run from `mismatch`, so
+    compile checks it inside an entry and as a step alike."""
+    if ops.parameters(name)[key].annotation != ops.Tokens:
+        return None
+    axis = next((a for a in ops.VOCABULARY if a in (ours.dims or []) and (a in ours.kept or
+                                                                            ours.space and "select" in ours.space[-1])), None)
+    if axis is None:
+        return None
+    kept = f"{len(ours.kept[axis])} of its {axis} (select)" if ours.kept.get(axis) else f"some of its {axis} (select)"
+    return (f"the value {name!r} scores keeps {kept}, and it scores {written!r} by its id over the whole vocabulary, "
+            "where index i of the selection is not id i: score the whole vocabulary (read it without the select, and "
+            "narrow what the metric gives), or rank within the selection by index (argmax or top_k over it)")
+
+
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
              forward: bool) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
@@ -168,7 +186,10 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
-    two values in different coordinates differ in their last axis too, and that is the reason."""
+    two values in different coordinates differ in their last axis too, and that is the reason. A column scored as
+    `Tokens` is first held to a whole vocabulary axis (`narrowed`)."""
+    if why := narrowed(ours, name, key, written):
+        return why
     group = ops.DECLARED[name]["group"]
     verb = "scores" if group == "metrics" else "acts on"
     whose = "this write's selection" if write else "the value it acts on"

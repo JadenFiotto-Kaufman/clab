@@ -135,6 +135,13 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             rows = held_rows(plan, step.dataset)
             source = data.input_name(step.input)
             if source not in found.inputs:
+                read = swap.get(step.dataset, step.dataset)
+                if any(isinstance(data.field(r, step.input), list) for r in rows) and \
+                        data.clocked(tokenizer, plan.data[step.dataset].template):
+                    raise ValueError(f"{name}: {source}: the checkpoint's chat template calls strftime_now, which "
+                                     "writes today's date into the prompt, so these rows render to other tokens on "
+                                     f"another day and nothing in the run record says so; pin it in data.{read}."
+                                     "template, {\"date_string\": \"26 Jul 2024\"}")
                 encoded = []
                 for i, r in enumerate(rows):
                     try:
@@ -161,7 +168,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved_ = indices(where, record, step, rows, encoded, tokenizer)
                     record.positions = {**record.positions, swap.get(step.dataset, step.dataset): resolved_}
-                    counts = {len(p) for p in resolved_}
+                    counts = {len(p) if isinstance(p, list) else 0 for p in resolved_}     # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
                 probe = None                        # past a probe's encode, a column names its classes
                 for o in record.ops:
@@ -203,10 +210,10 @@ def resolving(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, inspect.Par
     return resolve
 
 
-def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list[list[int]] | None, list[list[int]] | None]:
-    """The positions per row a value holds (its read's, `resolved`), where they are known before the run, else
-    None; and each row's input ids where that read is a scope that is `before` (whose next tokens an answer
-    scores), else None."""
+def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list | None, list[list[int]] | None]:
+    """The positions per row a value holds (its read's, `resolved`: a list, or the marker of a row it does not
+    reach), where they are known before the run, else None; and each row's input ids where that read is a scope
+    that is `before` (whose next tokens an answer scores), else None."""
     if of.read is None:
         return None, None
     where, read = resolved(plan.steps, of.read, at, found.swap), of.read

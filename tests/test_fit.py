@@ -36,10 +36,11 @@ from clab import Plan, featurizers, ops
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
-from clab.plan import PlanError
+from clab.plan import Model, PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
+TINY_MODEL = Model.model_validate(TINY)
 
 
 def corpus_copy(root) -> str:
@@ -454,6 +455,44 @@ def test_both_named_evals_run_and_each_member_tables_over_its_own_rows(ran):
         assert [r["row"] for r in table] == [0, 1] and {r["pos_token"] for r in table} == {"▁is"}
         assert [r["input"] for r in table] == [r["input"] for r in rows if r["split"] == split]
         assert [r["value"] for r in table] == lora.results[f"fit.{label}.ce"].flatten().tolist()
+
+
+def test_two_histories_join_epoch_by_epoch_and_one_beside_a_member_with_rows_broadcasts(engines):
+    """`fit.history.iia` and `fit.history.ce` are over `epochs`, a value with no rows axis each: joined, they give one
+    row per epoch, each term's entry of that epoch beside the other's, not every pair of epochs; beside a value with
+    a row per example (`fit.train.iia`) a history shares no key, so each epoch's entry sits beside every row, as an
+    operand broadcasts over an axis it leaves out; and a trained featurizer (`fit.rot`) is a bundle with no rows."""
+    def change(d):
+        d["steps"]["fit"]["epochs"] = 3
+        d["saves"] = ["fit.history.iia", "fit.history.ce", "fit.train.iia", "fit.rot"]
+    filled = engines("nnterp", TINY_MODEL).execute(edited("das", change).compile(), batch_size=BATCH_SIZE)
+    joined = filled.table("fit.history.iia", "fit.history.ce")
+    assert [t["epochs"] for t in joined] == [0, 1, 2]
+    for term in ("iia", "ce"):
+        assert [t[f"fit.history.{term}"] for t in joined] == filled.results[f"fit.history.{term}"].tolist()
+    beside = filled.table("fit.history.ce", "fit.train.iia")
+    assert [(t["epochs"], t["row"]) for t in beside] == [(epoch, row) for row in range(2) for epoch in range(3)]
+    assert all(t["fit.history.ce"] == filled.results["fit.history.ce"][t["epochs"]].item() and
+               t["fit.train.iia"] == filled.results["fit.train.iia"][t["row"], 0].item() for t in beside)
+    with pytest.raises(ValueError, match=r"^'fit\.rot' is a trained featurizer's bundle, which has no rows to table; "
+                                         r"read it from plan\.results$"):
+        filled.table("fit.rot")
+
+
+def test_an_op_over_a_fit_members_value_tables_over_the_evals_rows(engines):
+    """A step after the fit over `fit.held_out.ce`, its mean over `pos`: tabled, its rows are the held-out split's,
+    with that split's text, and its values the member's; the chain from the op to the body's read through the
+    eval resolves in the records (it once crashed in `table`'s provenance walk)."""
+    def change(d):
+        d["steps"]["fit"]["epochs"] = 1
+        d["steps"]["m"] = {"kind": "op", "op": "mean", "of": "fit.held_out.ce", "over": ["pos"]}
+        d["saves"] = ["fit.held_out.ce", "m"]
+    filled = engines("nnterp", TINY_MODEL).execute(edited("lora_train", change).compile(), batch_size=BATCH_SIZE)
+    with open(os.path.join(ROOT, "data", "weekdays", "data.json")) as f:
+        held_out = [r["input"] for r in json.load(f) if r["split"] == "test"]
+    table = filled.table("m")
+    assert [(t["row"], t["input"]) for t in table] == list(enumerate(held_out))
+    assert [t["value"] for t in table] == filled.results["m"].tolist() == filled.results["fit.held_out.ce"].flatten().tolist()
 
 
 # -- refusals -------------------------------------------------------------------------------------------------

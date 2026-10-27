@@ -147,8 +147,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
-        if o.op == "readout" and not address.COMPONENTS[site.component]["stream"]:
-            fail(here, f"readout projects a residual-stream value; {site.component} is not one")
+        if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
+            fail(here, why)
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
             fail(here, narrowed_readout(f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
         if edits(o) and changed is not None:
@@ -290,6 +290,8 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")
+                if not isinstance(a, list):
+                    raise ValueError(unreached(where, value, row, b))
                 if len(a) != len(b):
                     raise ValueError(f"{where}: operand {value!r} holds {len(a)} position(s) on row {row} and this "
                                      f"write {len(b)}; position i meets position i, so an entry of the write's own "
@@ -304,6 +306,15 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         written = positions.parse(record.pos)
         if producer_input != consumer and written["scope"] is None and positions.parse(read.pos) == written:
             windowed(engine, plan, where, value, producer_input, consumer, found, step.at)
+
+
+def unreached(where: str, value: str, row: int, lands: list[int]) -> str:
+    """Why a write cannot take an operand of its own forward that does not reach a row it lands on: it would write
+    what the operand has not, NaN. (An operand of another forward without one width on every row is refused at
+    compile, Ops' one rule, so only an entry of the write's own forward can be missing on a row.)"""
+    return (f"{where}: operand {value!r} holds no position on row {row} ({positions.MISSING}: its pos picks none "
+            f"of the row's tokens) and this write lands at {lands} there; a write takes an operand read on every row "
+            "it lands on")
 
 
 def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, consumer: str, found: Found,

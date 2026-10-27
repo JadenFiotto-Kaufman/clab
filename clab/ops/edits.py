@@ -81,16 +81,20 @@ def renormalize(of: Tensor, original: Value, norm: Literal["l2", "sum"] = "l2") 
 
 @op("edits")
 def normalize(of: Tensor) -> Tensor:
-    """Each vector divided by its norm, of the entries that are there (`present`)."""
-    return of / present(of).norm(dim=-1, keepdim=True)
+    """Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is
+    left as it is, as `renormalize` leaves one."""
+    norm = present(of).norm(dim=-1, keepdim=True)
+    return of / norm.masked_fill(norm == 0, 1)
 
 
 @op("edits")
 def project_out(of: Tensor, direction: Value) -> Tensor:
     """Each vector less its component along `direction`, which is normalised first (its length does not matter),
-    over the entries both have (`present`)."""
+    over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector
+    as it is."""
     direction = torch.as_tensor(direction, device=of.device)
-    unit = direction / present(direction).norm(dim=-1, keepdim=True)
+    norm = present(direction).norm(dim=-1, keepdim=True)
+    unit = direction / norm.masked_fill(norm == 0, 1)
     return of - present(of * unit).sum(-1, keepdim=True) * unit
 
 

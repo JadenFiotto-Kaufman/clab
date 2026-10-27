@@ -169,9 +169,11 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
             head_only: bool = False) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, what it generated up to its first
     EOS (`said`), where its scope's text occurs (`occurrences`), and whether its prefill holds the last position
-    alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill that is a refusal: the data
-    decided. A scope that is `before` picks its tokens as any scope does, the row's last generated token among
-    them when the frame names its last call, and the record is the position before each."""
+    alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill a scope the row does not say
+    and a static index that does not fit are refusals: the data decided; an index that picks none of the row's
+    tokens (`"5:"` on a shorter row) names none there as anywhere, the marker. A scope that is `before` picks its
+    tokens as any scope does, the row's last generated token among them when the frame names its last call, and
+    the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = select(pos["frame"], max(len(said), 1))     # stage one: -1 is the row's last call, EOS or not
@@ -184,7 +186,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
         if prefill(pos):
             raise ValueError(str(e)) from None
         return MISSING
-    return got if got or prefill(pos) else MISSING
+    return got or MISSING
 
 
 # -- where a scope's text occurs ----------------------------------------------------------------------
@@ -310,24 +312,25 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
 
 
 def indices(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
-            tokenizer: PreTrainedTokenizerBase) -> list[list[int]]:
+            tokenizer: PreTrainedTokenizerBase) -> list[list[int] | str]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
-    hold no token of a row."""
+    hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
+    scope before a prompt token where a generation's prefill computes no head) does not reach it, the marker."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
     pos = parse(record.pos)
-    found = []
+    found: list[list[int] | str] = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
+        why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
+            "that is all call 0 holds of it" if head(step, record) else ""
         try:
             got = place(pos, row, enc, [], tokenizer, head(step, record))
         except ValueError as e:
-            why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
-                "that is all call 0 holds of it" if head(step, record) else ""
             raise ValueError(f"{where}: row {i}: {e}{why}") from None
-        if writes(record) and not got:
+        if writes(record) and got == MISSING:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
-                             "one to write")
-        found.append(list(got))
+                             f"one to write{why}")
+        found.append(got if isinstance(got, str) else list(got))
     return found
 
 

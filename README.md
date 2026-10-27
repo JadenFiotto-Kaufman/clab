@@ -298,7 +298,9 @@ which `tests/test_hub.py` reads and says how to fetch; `hf-internal-testing/tiny
 hybrid whose blocks are of two kinds, which `tests/test_tp.py` also shards), which `tests/test_engines.py` reads and
 says how to fetch; `trl-internal-testing/tiny-CohereForCausalLM` (`90bc56bd`) where it is cached, whose logit scale
 shows the hooks engine's standard readout differing from the model's own, which one test checks and skips without;
-and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B` (`4e20de36`).
+`yujiepan/llama-3.2-tiny-random` (`0bf108f8`) where it is cached, whose chat template reads the clock, which one test
+checks the `date_string` refusal against and skips without; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B`
+(`4e20de36`).
 
 Numbers reproduce to the bit at a fixed `--batch-size` and thread count. Every batch of an input is padded to
 that input's longest row, so at the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same

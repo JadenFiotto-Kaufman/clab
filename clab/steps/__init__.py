@@ -230,10 +230,13 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
 
 
 def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
-    """Each token id as the text it decodes to, nested as the ids are; None for a missing one (-1)."""
+    """Each token id as its token string, nested as the ids are; None for a missing one (-1). The tokenizer's
+    `convert_ids_to_tokens` is the one spelling of a token wherever a run shows one (`pos_token`, `run.tokens`,
+    `detokenize` with `tokens`), so a word-start marker (`▁Fed`, `ĠFed`) stays, where `decode` would drop it."""
     if ids.dim() > 1:
         return [decoded(tokenizer, x) for x in ids]
-    return [tokenizer.decode([i]) if i >= 0 else None for i in ids.tolist()]
+    texts = iter(tokenizer.convert_ids_to_tokens([i for i in ids.tolist() if i >= 0]))
+    return [next(texts) if i >= 0 else None for i in ids.tolist()]
 
 
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found)` and returning the model calls

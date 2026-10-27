@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 import json
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -65,13 +66,14 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
 
 
 def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
-                 placed: list[list[int]] | None, forced: list[list[int]] | None) -> None:
+                 placed: list | None, forced: list[list[int]] | None) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
     tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
     `dims` are known) and, where the read's positions are known before the run (`placed`, per row), each row
-    has as many. Where the read is a scope that is `before` on the step's own input (`forced`: each row's
-    input ids), the input's next token at each position is among the ids the answer's token there may be."""
+    the read reaches has as many (a row it does not reach, the marker, is missing, not refused). Where the read
+    is a scope that is `before` on the step's own input (`forced`: each row's input ids), the input's next token
+    at each position is among the ids the answer's token there may be."""
     for key, p in ops.parameters(name).items():
         if p.annotation != ops.Tokens or key not in args:
             continue
@@ -86,13 +88,13 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
             if aligned and dims is not None and "pos" not in dims:
                 raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
                                  f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
-            if aligned and placed is not None and len(placed[r]) != len(row):
+            if aligned and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
                 spaced = blank(engine.tokenizer, value, strip, len(row), placed[r], None if forced is None else forced[r])
                 raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}{spaced}")
         if forced is None or placed is None:
             continue
         for r, at in enumerate(placed):
-            for i, p in enumerate(at):
+            for i, p in enumerate(at if isinstance(at, list) else []):
                 ids, next_ = sets[r][i if aligned else 0], forced[r][p + 1]
                 if next_ not in ids:
                     shown = engine.tokenizer.convert_ids_to_tokens([next_])[0]
@@ -181,14 +183,17 @@ def answered(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int] 
                                 present(of, dims)):
         if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
             raise ValueError(unaligned(column, r, value, len(row), n))
-    return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
+    # `[rows, pos, m]` whatever `width` is: over a read no row reached it is 0, and the list alone would be `[rows, 0]`.
+    return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)]
+                         for row in sets]).reshape(len(sets), width, most)
 
 
 def present(of: Tensor, dims: list[str]) -> list[int]:
     """How many positions each row of `of` holds: those not NaN all the way (a row the value does not reach,
-    or a position past a row's own, is NaN)."""
+    or a position past a row's own, is NaN); 0 on every row of a value no row reached, which holds no position."""
     x = of.movedim((dims.index("rows"), dims.index("pos")), (0, 1))
-    return (~x.reshape(*x.shape[:2], -1).isnan().all(-1)).sum(1).tolist()
+    # The trailing size spelled out: a reshape with -1 is ambiguous on a value of no elements (a `pos` axis of 0).
+    return (~x.reshape(*x.shape[:2], math.prod(x.shape[2:])).isnan().all(-1)).sum(1).tolist()
 
 
 def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:

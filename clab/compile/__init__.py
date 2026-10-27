@@ -18,7 +18,7 @@ compiled records themselves are the symbol table (`plan.record_of`), each name r
 
 import itertools
 from dataclasses import replace
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from clab import featurizers, ops
 from clab.compile.answers import column_ref
@@ -40,9 +40,11 @@ from clab.plan import (
     OpStep,
     Plan,
     PlanError,
+    Site,
     arguments,
     corpus_root,
     entries,
+    entry_of,
     fail,
     gathers,
     kind_of,
@@ -319,6 +321,10 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
         why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False)
         if why:
             fail(f"{path}.{key}", why)
+    if spec.op == "readout" and of.read is not None:        # the one stream check, an entry's readout's too
+        site = cast(Site, entry_of(cx.steps, of.read, at)[1].site)
+        if why := ops.transforms.unstreamed(site.component):
+            fail(f"{path}.of", f"{spec.of!r} is read at {site.component}: {why}")
     if spec.op == "readout" and "hidden_size" in of.kept:
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)

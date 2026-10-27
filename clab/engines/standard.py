@@ -57,9 +57,16 @@ def inside(value: Any, host: Envoy) -> bool:
 
 
 def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] | None]:
-    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`."""
+    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`. A
+    component nnterp's answer does not name at all is refused by name, since nothing says it is served: a
+    component is one nnterp serves, under nnterp's name for it (`nnterp_name`)."""
     support = shell.support()
-    return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
+    unnamed = [c for c in COMPONENTS if nnterp_name(c) not in support]
+    if unnamed:
+        raise ValueError(f"nnterp's support() does not name {', '.join(nnterp_name(c) for c in unnamed)}, so nothing "
+                         f"says whether it serves {', '.join(unnamed)}; a component of address.COMPONENTS is one "
+                         "nnterp serves under that name")
+    return {c: support[nnterp_name(c)] for c in COMPONENTS}
 
 
 def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:
