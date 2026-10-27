@@ -106,6 +106,7 @@ On an RTX A6000 in bfloat16 the 3,000 queries take about 570 s at batch size 8. 
 - **The set is stable.** Resampling the 500 strips with replacement 200 times and recomputing the top 100 keeps 99% of the set on average and 98% at worst; the per-row values are in `gaze.own`, `[36, 3000, 1, 32]`, which is what a bootstrap needs.
 - **The same heads lead on Qwen3-VL-4B**: its top five by the same read are all among the 8B's top seven.
 - **`score` plus `others_mean` equals `image_mean`** to float rounding, as on the tiny checkpoint.
+- **The authors' own discovery script agrees.** Run on the same 100 strips (one row at a time, the paper's panel assignment), its per-head scores correlate with clab's at 0.9994, 98 of its top 100 heads are clab's, and the largest difference in a head's score is 0.03 (mean 0.002): the batch's padding in bfloat16, and a column at a panel boundary assigned the other way.
 
 ### Redirecting the answer, scored without a judge
 
