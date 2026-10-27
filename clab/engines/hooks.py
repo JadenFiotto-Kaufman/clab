@@ -1,15 +1,14 @@
 """The second engine: a plain HuggingFace model driven by forward hooks, in this process.
 
-It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
-`register_forward_hook` and `register_forward_pre_hook`. nnterp is used once, at load, as a meta shell
-(no weights): it says which native module and boundary each component is
-(the module whose output or input nnterp's own key for it names), the sizes,
-and what the checkpoint supports. A component nnterp reaches inside a
-module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs. `device` is one torch device, which the loaded model moves to (a quantized one, which
-cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
-`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs
-go where the model's first parameter is, and transformers moves them on from there.
+It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `register_forward_hook` and
+`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell (no weights): it says which native module
+and boundary each component is (the module whose output or input nnterp's own key for it names), the sizes, the
+final norm and head its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the
+checkpoint supports. A component nnterp reaches inside a module's forward (`.source`) is not a module boundary, and
+is refused by name before anything runs. `device` is one torch device, which the loaded model moves to (a quantized
+one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
+`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go
+where the model's first parameter is, and transformers moves them on from there.
 """
 
 import time
@@ -124,10 +123,14 @@ class HooksEngine:
                 handle.remove()
 
     def readout(self, hidden: Tensor) -> Tensor:
-        """The final norm, then the head: the modules nnterp's names for their outputs reach."""
+        """The standard form, not the model's own: the final norm and head nnterp's names reach, then `cap *
+        tanh(logits / cap)` where the text config sets `final_logit_softcapping`. It agrees with nnterp's on the
+        corpus and may differ from, or fail on, a family whose model does more after the head (Cohere's `logit_scale`,
+        Granite's `logits_scaling`, Falcon-H1's multiplier): what nnterp adds."""
         norm, head = (self.model.get_submodule(self.config["sites"][c]["paths"][None])
                       for c in ("final_norm_output", "lm_head_output"))
-        return head(norm(hidden))
+        cap, logits = getattr(self.model.config.get_text_config(), "final_logit_softcapping", None), head(norm(hidden))
+        return cap * torch.tanh(logits / cap) if cap else logits
 
 
 class _Stopped(Exception):

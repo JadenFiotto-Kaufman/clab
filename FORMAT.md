@@ -542,7 +542,7 @@ stays missing: NaN.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The model's own readout of a residual-stream value, its final norm and head (the logit lens). |
+| `readout` | — | needs hidden_size; removes hidden_size; adds vocab_size | The engine's readout of a residual-stream value (the logit lens): the model's own on nnterp, the standard final norm, head and softcap on hooks. |
 | `encode` | `featurizer: Featurizer`, `select: {features: selector} = null` | the last axis becomes the featurizer kind's: `features`, a probe's `classes` | The value's coordinates in `featurizer`'s space (a probe's: its scores, one per class); `select` (`{"features": <selector>}`, among them) keeps some. Inside an entry, a `decode` of the same featurizer closes it, and the ops between act on the coordinates. |
 | `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
 | `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
@@ -729,7 +729,9 @@ Ops: `apply`(with: Value or null = null) gives its version of the value, in the 
 
 ## Engines and run options
 
-The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`.
+The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`. The nnterp engine's `readout` is the
+model's own; the hooks engine's is the standard form (final norm, head, the config's softcap), which agrees on the
+corpus (the agreement matrix pins it, tiny Gemma-2's softcap included) and is not promised beyond it.
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement
@@ -777,16 +779,15 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 
 The second engine: a plain HuggingFace model driven by forward hooks, in this process.
 
-It executes only `AutoModelForCausalLM` (its forward and its `generate`) with
-`register_forward_hook` and `register_forward_pre_hook`. nnterp is used once, at load, as a meta shell
-(no weights): it says which native module and boundary each component is
-(the module whose output or input nnterp's own key for it names), the sizes,
-and what the checkpoint supports. A component nnterp reaches inside a
-module's forward (`.source`) is not a module boundary, and is refused by name
-before anything runs. `device` is one torch device, which the loaded model moves to (a quantized one, which
-cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
-`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs
-go where the model's first parameter is, and transformers moves them on from there.
+It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `register_forward_hook` and
+`register_forward_pre_hook`. nnterp is used once, at load, as a meta shell (no weights): it says which native module
+and boundary each component is (the module whose output or input nnterp's own key for it names), the sizes, the
+final norm and head its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the
+checkpoint supports. A component nnterp reaches inside a module's forward (`.source`) is not a module boundary, and
+is refused by name before anything runs. `device` is one torch device, which the loaded model moves to (a quantized
+one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...), which
+`from_pretrained` takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go
+where the model's first parameter is, and transformers moves them on from there.
 
 ### `ndif`
 

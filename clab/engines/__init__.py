@@ -1,4 +1,6 @@
-"""The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`.
+"""The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`. The nnterp engine's `readout` is the
+model's own; the hooks engine's is the standard form (final norm, head, the config's softcap), which agrees on the
+corpus (the agreement matrix pins it, tiny Gemma-2's softcap included) and is not promised beyond it.
 
 An engine registers under its name with `@engine("<name>")` and loads its checkpoint in `__init__(model, *,
 device="cpu", **options)` from a plan's `model` block: `device` is where it places the model (its one placement

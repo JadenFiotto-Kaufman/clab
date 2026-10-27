@@ -31,6 +31,9 @@ GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "gener
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
 INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
+# The one tiny model that softcaps its logits (tests/test_engines.py says how to fetch it).
+GEMMA2 = {"key": "hf-internal-testing/tiny-random-Gemma2ForCausalLM",
+          "revision": "de7c11b6c25d26ddd1bf4324fcf479b61d18e440", "dtype": "float32"}
 
 
 def document(name: str) -> str:
