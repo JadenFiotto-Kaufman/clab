@@ -290,6 +290,32 @@ def test_a_same_forward_with_that_cannot_mean_anything_is_refused_before_any_for
     assert not calls
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_with_of_another_width_than_the_apply_site_is_refused_before_any_forward(engines, tmp_path, kind):
+    """An adapter's `A` is as wide as the site it applies at, and `with` flattens its axes after the positions into
+    that width: where the two sites differ in width (`mlp_activation`, 64 wide, applied at `mlp_output`, 16) that is
+    refused by name at preflight, where the model's sizes are known (compile knows no size), not a matmul error in
+    the run."""
+    root = corpus_copy(tmp_path)
+    act, out = ({"component": c, "layers": 0} for c in ("mlp_activation", "mlp_output"))
+    step = {"kind": "forward", "input": "train.input", "interventions": {
+        "act": {"site": act, "pos": -1},
+        "adapt": {"site": out, "pos": -1, "ops": [{"op": "apply", "featurizer": "oproj", "with": "f.act"}]},
+        "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+    plan = cross_site(root, {"f": step}, ["f.logits"], train=True)
+    engine = engines(kind, plan.model)
+    calls = []
+    original = engine.forward
+    engine.forward = lambda *args: calls.append(1) or original(*args)
+    try:
+        with pytest.raises(ValueError, match=r"^f\.adapt: operand 'f\.act' is 64 wide per position, its axes after the "
+                                             r"positions flattened; this write's value is 16$"):
+            engine.execute(plan)
+    finally:
+        del engine.forward
+    assert not calls
+
+
 def test_each_engine_ranks_the_premix_before_the_attention_output(engines):
     for kind in ("nnterp", "hooks"):
         engine = engines(kind, lora_train().model)
