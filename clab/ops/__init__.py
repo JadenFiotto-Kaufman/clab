@@ -73,22 +73,32 @@ adapted value): an edit, which writes back. An entry that stops after `encode` r
 `encode` and `apply` take a read (an entry's value, at its one site; an op's value is refused by name), and
 `decode`, the close of an entry's `encode`, is no step.
 
-An op acts at the layers of the value it meets: inside an entry, at each layer the entry is made at in turn; as
-a step, at the layers `of`'s `layers` axis is labelled with, or at the one layer a value without that axis was
-read at. An operand with a `layers` axis is aligned to them by label: at layer L the op takes the operand's slice
-labelled L, whatever order either lists its layers in, so a `kl` step between lenses at `[0, 1, 2]` and
-`[2, 1, 0]` pairs layer with layer, and an entry at layer 3 takes slice 3; a layer the op acts at that the
-operand does not hold is refused by name before any forward, and so is such an operand where the op acts at no
-layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
-every layer, as a direction is.
+An operand (a `Value` argument that names a value) meets the value the op acts on at one point: inside an
+entry, the entry's selection at each layer the entry is made at in turn (in the coordinates of the encodes open
+around the op); as a step, `of`, at the layers its `layers` axis is labelled with, or at the one layer a value
+without that axis was read at. One rule says what it may be, and compile refuses the rest by name (preflight,
+where a label waits on the model's sizes or the rows' positions): every axis the operand has is an axis of the
+value it meets, in the value's order, with the same label: `layers` by model layer (the operand holds every
+layer the op acts at, and at layer L the op takes its slice labelled L, whatever order either lists its layers
+in, so a `kl` step between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, and an entry at layer 3
+takes slice 3; an op at no layer, on a model's own value or one reduced over its layers, takes no layered
+operand); `rows` by dataset (an op takes one dataset's rows, its columns' too); `pos` by the read whose
+positions both hold, else by width, as many positions on every row (a read whose rows hold different numbers
+of positions pairs with no other read's, but an earlier entry of its own forward at the same positions, row by
+row); an axis a site selects (`num_heads`, ...) by the indices kept, in order (one head does not broadcast over
+several, and `[1, 4]` would trade places with `[4, 1]`); `features` by the encodes it is in (the same featurizers
+and `select`s: an operand inside a bracket is encoded as the bracket is). The operand may leave out `rows`, `pos`
+and `layers`, which it then broadcasts over, as a direction or a per-row dose does (a singleton axis stands for
+each where the value has one); a number, or a named value of one number (a `mean` over every axis), broadcasts
+in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
+are the adapter's width.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
-value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
-reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
-tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
-axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
-`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
-coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
+`Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
+vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
+`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else
+is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
+its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
 

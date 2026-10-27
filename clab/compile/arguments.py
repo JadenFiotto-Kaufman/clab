@@ -1,14 +1,16 @@
-"""An op's arguments resolved against what compile knows: the names it references (a value, a column, a
-featurizer), the dataset its rows align to, the layout its operands must have, and the layout of its result."""
+"""An op's arguments resolved against the plan's own records: the names it references (a value, a column, a
+featurizer), the layout of its result, and the one rule an operand keeps against the value it meets (`mismatch`)."""
 
 import inspect
-from dataclasses import replace
+from collections.abc import Mapping
+from typing import Any
 
 from clab import featurizers, ops
 from clab.compile.answers import column_ref, text_ref
-from clab.compile.state import Compiling, Known
+from clab.compile.state import Compiling
 from clab.format import address, data
-from clab.plan import Op, OpStep, Plan, arguments, fail, kind_of
+from clab.format.sweeps import points
+from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
 
 
 def narrowed_readout(what: str) -> str:
@@ -17,11 +19,11 @@ def narrowed_readout(what: str) -> str:
             "the logits give")
 
 
-def space_of(cx: Compiling, encodes: list[Op] | list[OpStep]) -> list[dict]:
+def space_of(aliases: dict[str, str], encodes: list[Op] | list[OpStep]) -> list[dict]:
     """The coordinates a value is in: the encodes open around it, outermost first (an entry's ops, or an encode
     step), each its featurizer (by the name it resolves to here: inside a fit's body `rot` and `<fit>.rot` are
-    one) and `select`."""
-    return [{k: cx.aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
+    one, `aliases`) and `select`."""
+    return [{k: aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
              if k in ("featurizer", "select")} for o in encodes]
 
 
@@ -54,66 +56,25 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
     return kind
 
 
-def references(cx: Compiling, path: str, name: str, args: dict, classes: bool) -> dict[str, Known]:
-    """Op `name`'s arguments that name a value or a column, each resolved (`Known`, with `name` as written). A
+def references(cx: Compiling, path: str, name: str, args: dict, classes: bool, at: dict[str, int],
+               live: Mapping[str, Labelled] | None = None) -> dict[str, tuple[str, Labelled]]:
+    """Op `name`'s arguments that name a value or a column, each as written and resolved to the record of its
+    labelled layout at the consumer's point `at` (`value_of`; a column: a row per example of its dataset). A
     column read as text or scored against the vocabulary holds text on every row; one scored against a probe's
     `classes` holds its labels, whatever they are. A featurizer argument is checked to exist."""
     found = {}
     for key, p in ops.parameters(name).items():
-        value, at = args.get(key), f"{path}.{key}"
+        value, where = args.get(key), f"{path}.{key}"
         if p.annotation == ops.Value and isinstance(value, str):
-            found[key] = replace(value_ref(cx, value, at), name=value)
+            found[key] = (value, value_of(cx, value, where, at, live))
         elif p.annotation in (ops.Tokens, ops.Text) and value is not None:
             ref = data.column_of(value)
-            dataset = column_ref(cx, ref[0] if ref else value, at, None) if classes and p.annotation == ops.Tokens \
-                else text_ref(cx, value, at, None)
-            found[key] = Known(["rows"], dataset, "column", name=ref[0] if ref else value)
+            dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
+                else text_ref(cx, value, where, None)
+            found[key] = (ref[0] if ref else str(value), Labelled(dims=["rows"], dataset=dataset))
         elif p.annotation == ops.Featurizer and value is not None:
-            featurizer_ref(cx, value, at)
+            featurizer_ref(cx, value, where)
     return found
-
-
-def aligned(path: str, of: tuple[str | None, str], found: dict[str, Known]) -> str | None:
-    """The one dataset an op's rows align to: that of the value it acts on (`of`: its dataset, and how to name
-    it), of its operands with a rows axis, and of its columns."""
-    datasets = {of[0]: of[1]} if of[0] else {}
-    for info in found.values():
-        if info.data is not None and "rows" in info.dims:
-            datasets.setdefault(info.data, repr(info.name))
-    if len(datasets) > 1:
-        (a, x), (b, y) = list(datasets.items())[:2]
-        fail(path, f"{x} has a row per example of {a!r} and {y} of {b!r}; an op takes one dataset's rows")
-    return next(iter(datasets), None)
-
-
-def paired(path: str, name: str, dims: list[str], width: int | None, found: dict[str, Known],
-           step: bool = False) -> None:
-    """A metric's operand (`kl`'s `against`, `cosine`'s `with`), and in a step an edit's (inside an entry
-    `operands` checks those), is laid out as the value the op acts on, as many positions wide, or is one vector of
-    its features, each at one layer: a `layers` axis of either aligns by label (`acts_at`). One without a static
-    width lines up with nothing; an edit's of one number (at each layer) broadcasts as a literal does."""
-    group = ops.DECLARED[name]["group"]
-    if group != "metrics" and not (step and group == "edits"):
-        return
-    dims = address.unstacked(dims)
-    one = [a for a in dims if a not in address.EXAMPLE_AXES]
-    verb = "scores" if group == "metrics" else "acts on"
-    for key, info in found.items():
-        if info.kind != "value" or (name == "apply" and key == "with"):
-            continue
-        if "pos" in info.dims and info.width is None:
-            fail(f"{path}.{key}", f"{info.name!r} holds a different number of positions on each row, which pair "
-                 f"with no other value's; read both at a static index (pos -1, or {{'index': '-3:'}})")
-        if group == "edits" and not address.unstacked(info.dims):
-            continue                        # one number (at each layer), which broadcasts as a literal does
-        if address.unstacked(info.dims) not in (dims, one):
-            fail(f"{path}.{key}", f"{info.name!r} is laid out {info.dims}; {name!r} {verb} a value laid out "
-                 f"{dims}, so its {key!r} is laid out so too, or is one vector {one} (either with a layers axis "
-                 "first)")
-        if "pos" in dims and address.unstacked(info.dims) == dims and info.width != width:
-            fail(f"{path}.{key}", f"{info.name!r} holds {info.width} position(s) per row and the value "
-                 f"{name!r} {verb} holds {width}; position i {'scores against' if group == 'metrics' else 'meets'} "
-                 "position i, so both are read at as many (a pos axis does not broadcast)")
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
@@ -131,24 +92,125 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def value_ref(cx: Compiling, value: str, path: str) -> Known:
-    """A named value produced before this point, noted as referenced and used."""
-    info = cx.names.get(value)
-    if info is not None and info.kind == "featurizer":
-        fail(path, f"{value!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
-             f"{value!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
+def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, list[int]]]:
+    """What an op's value keeps of the labels of the value it is over: its layers, unless the op removed a
+    `layers` axis (then it is from no layer), and the indices kept on each selected axis it still has."""
+    layers = None if "layers" in (of.dims or []) and "layers" not in dims else of.layers
+    return layers, {a: v for a, v in of.kept.items() if a in dims}
+
+
+def trained(cx: Compiling, thing: str, member: str) -> bool:
+    """Whether `<thing>.<member>` is a featurizer a compiled fit trains."""
+    step = points(cx.steps[thing])[0] if thing in cx.steps else None
+    return step is not None and step.kind == "fit" and member in step.train
+
+
+def value_of(cx: Compiling, ref: str, path: str, at: dict[str, int],
+             live: Mapping[str, Labelled] | None = None) -> Labelled:
+    """The record of a named value produced before this point, at the consumer's point `at` (an entry of the
+    forward being compiled, among `live`, as it is), noted as used."""
+    thing, _, member = ref.partition(".")
+    if live and ref in live:
+        cx.used.add(ref)
+        return live[ref]
+    if thing in cx.featurizers or ref in cx.aliases.values() or trained(cx, thing, member):
+        fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
+             f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
              "binds is an operand")
-    if info is None or info.kind != "value":
-        known = sorted(k for k, v in cx.names.items() if v.kind == "value")
-        fail(path, f"{value!r} names no value produced before this step; known: {', '.join(known) or 'none'}")
-    cx.refs.append(value)
-    cx.used.add(value)
-    return info
+    known = produced(cx.steps, cx.featurizers)
+    if ref not in known:
+        fail(path, f"{ref!r} names no value produced before this step; known: {', '.join(sorted(known)) or 'none'}")
+    cx.used.add(ref)
+    return record_of(cx.steps, ref, at)
 
 
 def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
-    """A declared featurizer's name, noted as referenced."""
-    if not (isinstance(value, str) and value in cx.names and cx.names[value].kind == "featurizer"):
-        known = sorted(k for k, v in cx.names.items() if v.kind == "featurizer")
+    """A declared featurizer's name, or one a fit trains (`<fit>.<featurizer>`, and inside its body its bare name)."""
+    thing, _, member = str(value).partition(".")
+    if not (isinstance(value, str) and (value in cx.featurizers or value in cx.aliases.values()
+                                        or trained(cx, thing, member))):
+        known = sorted(set(cx.featurizers) | set(cx.aliases.values())
+                       | {f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1] if s.kind == "fit"
+                          for f in s.train})
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
-    cx.refs.append(value)
+
+
+# -- the one rule an operand keeps ---------------------------------------------------------------------
+
+
+def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
+             forward: bool, widths: tuple[Any, Any]) -> str | None:
+    """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
+    names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): every axis
+    the operand has is an axis of the value it meets, in its order, with the same label (`layers` by model layer,
+    the operand holding every layer the op acts at; `rows` by dataset; `pos` by the read whose positions both hold,
+    or by width; a selected axis by the indices kept, in order; `features` by the encodes it is in), and it may
+    leave out `rows`, `pos` and `layers`, which it broadcasts over; a number broadcasts in any coordinates; an
+    adapter's `with` is compared on its rows and positions alone. `write` says the op is one of an entry's up to its
+    last edit (what the messages call the value), `forward` that the operand is an entry of the value's own forward
+    (a ragged pair there is compared row by row, once preflight has the rows), and `widths` how many positions each
+    holds per row (`interventions.width_of`: an int on every row, a tuple per row, None where rows differ and the
+    run has yet to resolve them). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are
+    compared first, since two values in different coordinates differ in their last axis too, and that is the
+    reason."""
+    group = ops.DECLARED[name]["group"]
+    verb = "scores" if group == "metrics" else "acts on"
+    whose = "this write's selection" if write else "the value it acts on"
+    adapts = name == "apply" and key == "with"
+    own_axes, their_axes = ours.dims or [], theirs.dims or []
+    if adapts:                  # an adapter's input: on the value's rows and positions, its features its own
+        own_axes = [a for a in own_axes if a in address.EXAMPLE_AXES]
+        their_axes = [a for a in their_axes if a in address.EXAMPLE_AXES]
+    if not address.unstacked(their_axes):
+        return None             # one number (at each layer), which broadcasts in any coordinates as a literal does
+    featured = any(a not in address.EXAMPLE_AXES for a in their_axes)    # a column or a per-row dose is in none
+    if featured and ours.space != theirs.space:
+        where = ("this bracket" if ours.space else "this write") if write else f"the value {name!r} {verb}"
+        return (f"{written!r} is in {said(theirs.space)}; {where} is in {said(ours.space)}, so an operand is "
+                "encoded as it is")
+    if [a for a in address.unstacked(own_axes) if a in their_axes] != address.unstacked(their_axes):
+        return (f"{written!r} is laid out {theirs.dims}; {name!r} {verb} a value laid out {ours.dims}, and an "
+                "operand's axes are among the value's, in its order, rows, pos and layers left out where it "
+                "broadcasts over them")
+    if "layers" in their_axes:
+        if ours.layers is None:
+            return (f"{written!r} has a layers axis, and this op acts at no layer (on a model's own value, or one "
+                    "reduced over its layers); read the operand at one layer, or reduce it over layers")
+        missing = [layer for layer in ours.layers if layer not in theirs.layers] if theirs.layers else []
+        if missing:
+            return (f"{written!r} holds layers {theirs.layers}, and this op acts at layers {ours.layers}; at each "
+                    f"layer it takes the operand's slice of that layer, and it holds none of {missing}: read it at "
+                    "those layers too")
+    if "rows" in their_axes and theirs.dataset != ours.dataset:
+        return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
+                "takes one dataset's rows")
+    if "pos" in their_axes and theirs.read != ours.read:
+        have, need = widths[1], widths[0]
+        if (have is None or need is None) and not forward:
+            ragged = repr(written) if have is None else f"the value {name!r} {verb}"
+            return (f"{ragged} holds a different number of positions on each row, which pair with no other "
+                    "value's; read both at a static index (pos -1, or {'index': '-3:'})")
+        if have is not None and need is not None and flat(have) != flat(need):
+            return (f"{written!r} holds {flat(have)} position(s) per row and the value {name!r} {verb} holds "
+                    f"{flat(need)}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "
+                    "both are read at as many (a pos axis does not broadcast)")
+    for axis in their_axes:
+        own, held = ours.kept.get(axis), theirs.kept.get(axis)
+        if axis in address.EXAMPLE_AXES or adapts or own == [] or held == [] or own == held:
+            continue                                        # not a selected axis, pending, or the same
+        if own is not None and held is not None and sorted(own) == sorted(held):
+            why = "a select list is positional, so they would trade places"
+        elif held is not None and len(held) == 1:
+            why = "an operand broadcasts over rows and positions only"
+        else:
+            why = "an operand holds the same ones"
+        fix = f"select {axis} {own if own is not None else 'every one'} at the read" if write \
+            else f"select one {axis} list at both reads"
+        return (f"{written!r} holds {f'every {axis}' if held is None else f'{axis} {held}'}, and {whose} holds "
+                f"{'every one' if own is None else own}; {why}: {fix}")
+    return None
+
+
+def flat(width: Any) -> Any:
+    """A width per row as one number where every row's is the same."""
+    return width[0] if isinstance(width, tuple) and len(set(width)) == 1 else width

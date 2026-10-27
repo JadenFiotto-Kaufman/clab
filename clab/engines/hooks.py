@@ -71,6 +71,11 @@ class HooksEngine:
     def eos(self) -> list[int]:
         return stops(self.model.generation_config, self.tokenizer)
 
+    @property
+    def cuda(self) -> list[str]:
+        """The CUDA devices the model is on, whose peak memory a step's cost measures."""
+        return steps.gpus(self)
+
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """nnterp's answer, layer by layer, but at every layer with the module a value nnterp reads inside a forward."""
         return {c: site["refused"] for c, site in self.config["sites"].items()}

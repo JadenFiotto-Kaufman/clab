@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
-from clab.format.selectors import Selector, made_at, selected
+from clab.format.selectors import selected
 from clab.plan import (
     Featurizer,
     Intervention,
@@ -24,6 +24,7 @@ from clab.plan import (
     entry_of,
     fail,
     held_rows,
+    record_of,
     scope,
     visited,
     walk,
@@ -33,35 +34,28 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op | OpStep, list[Op]]]]:
-    """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
-    step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
-    applied to. An op step's is the read its `of` names (`read_of`), at that read's site and in its coordinates."""
+def uses(plan: Plan) -> dict[str, list[tuple[str, Intervention, dict, Op | OpStep, list[Op]]]]:
+    """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, the read it is
+    of (the entry's own record; an op step's the read its `of` names, whose site and coordinates its featurizer is
+    used at), its step's point, the op, and the encodes still open around it (outermost first), whose coordinates
+    it is applied to."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
         ref = arguments(step).get("featurizer") if step.kind == "op" else None
-        if ref is not None:
-            read = read_of(plan, name, step)
-            found.setdefault(declared(plan, ref), []).append((name, read.site, step.at, step,
+        if ref is not None:                 # a body's step sees the body's steps beside the root's
+            fit = name.rpartition(".")[0]
+            steps = {**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps
+            read = record_of(steps, cast(str, step.read), step.at)
+            assert isinstance(read, Intervention), f"{name}: an encode or apply step is over a read"
+            found.setdefault(declared(plan, ref), []).append((name, read, step.at, step,
                                                               [Op(op="encode", **s) for s in read.space]))
         for key, entry in entries(step).items():
             for node, around in visited(bracketed(entry.ops)):
                 ref = arguments(node["op"]).get("featurizer")
                 if ref is not None:
-                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at,
+                    found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry, step.at,
                                                                       node["op"], [a["op"] for a in around]))
     return found
-
-
-def read_of(plan: Plan, name: str, step: OpStep) -> Intervention:
-    """The entry whose value op step `name` (dotted, as `walk` names it) is over, which compile checks is a read:
-    among the steps it sees, or, for a fit's eval member `<fit>.<eval>.<step>.<entry>`, in that fit's body."""
-    fit = name.rpartition(".")[0]
-    steps, ref = ({**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps), step.of
-    producer = agreeing(steps[ref.partition(".")[0]], step.at)
-    if producer.kind == "fit":
-        steps, ref = {**steps, **producer.steps}, ref.split(".", 2)[2]
-    return entry_of(steps, ref, step.at)[1]
 
 
 def bundled_sites(plan: Plan) -> None:
@@ -70,8 +64,8 @@ def bundled_sites(plan: Plan) -> None:
     of those. A layer counted from the last, and a site that picks several, are the model's to resolve, and
     preflight checks each layer."""
     for name, records in uses(plan).items():
-        for where, site, at, _, _ in records:
-            f = agreeing(plan.featurizers[name], at)
+        for where, read, at, _, _ in records:
+            site, f = cast(Site, read.site), agreeing(plan.featurizers[name], at)
             if f.header is None:
                 continue
             known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
@@ -89,9 +83,9 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
     trains is used somewhere."""
     sizes, out = engine.sizes(), {}
     for name, used in uses(plan).items():
-        for where, site, at, o, around in used:
+        for where, read, at, o, around in used:
+            site, kept = cast(Site, read.site), read.kept
             last = address.dims(site.component)[-1]
-            kept = selectors.kept(cast("dict[str, Selector] | None", site.select), sizes)
             width = len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
@@ -112,7 +106,7 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
                                      f"{width} ({site.component}), which has no more than {width} directions; "
                                      f"{field} is at most {width}")
             stated = (f.model_extra or {}).get("site")
-            for layer in made_at(site, sizes["num_layers"]):         # each layer the use is made at
+            for layer in read.layers or [None]:                       # each layer the use is made at
                 which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
                 if stated is not None and (stated["component"], at_layer(stated["layers"], sizes["num_layers"])) != \
                         (site.component, str(layer)):
@@ -124,7 +118,7 @@ def widths(engine: Engine, plan: Plan) -> dict[str, int]:
                     raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'layer' is "
                                      f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                      f"layer {site.layers!r}, which {which}")
-                read_with(plan, where, at, f, o, layer, sizes["num_layers"])
+                read_with(plan, where, at, f, o, layer)
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "
@@ -149,7 +143,7 @@ def at_layer(layers: object, n: int) -> str:
     return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
-def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None, n: int) -> None:
+def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
     `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
     `with` that stacks is read there at that layer), and one made without reads none: the width check alone would
@@ -169,8 +163,9 @@ def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, l
         raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {recorded_layer} "
                          f"(with), and this use gives no 'with'; give 'with' an entry at {recorded} layer "
                          f"{recorded_layer}")
-    site = entry_of(scope(plan, where), given, at)[1].site
-    made = layer if address.stacks(site.layers) else made_at(site, n)[0]
+    read = entry_of(scope(plan, where), given, at)[1]
+    site = cast(Site, read.site)
+    made = layer if address.stacks(site.layers) else (read.layers or [None])[0]
     if site.component != recorded or made not in bundles.recorded(recorded_layer):
         raise ValueError(f"{where}: {file} was trained reading its input at {recorded} layer {recorded_layer} "
                          f"(with), and this use's with {given!r} is {site.component} layer {made}")

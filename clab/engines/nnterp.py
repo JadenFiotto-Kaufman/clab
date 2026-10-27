@@ -64,9 +64,10 @@ class NnterpEngine:
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
-        model `ready` first; the results and the run record are the one thing that comes home, into the client's
-        own plan. Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled
-        generation picks the same tokens on every rank, and the run record lists every rank's device."""
+        model `ready` first; the results, the run record and the step records as the run completed them (each
+        value's labels, and where each read and write resolved) are what comes home, into the client's own plan.
+        Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
+        picks the same tokens on every rank, and the run record lists every rank's device."""
         started = steps.begin(self, plan, batch_size)
         ranks = self.options.get("tp", 1)
         if ranks > 1:
@@ -76,8 +77,8 @@ class NnterpEngine:
         with self.model.session(remote=self.remote):
             self.ready()
             steps.run(self, plan, batch_size)
-            home = nnsight.save({"results": plan.results, "run": plan.run})
-        plan.results, plan.run = home["results"], home["run"]
+            home = nnsight.save({"results": plan.results, "run": plan.run, "steps": plan.steps})
+        plan.results, plan.run, plan.steps = home["results"], home["run"], home["steps"]
         assert plan.run is not None
         if ranks > 1:
             every: list[Any] = [None] * ranks
@@ -97,6 +98,13 @@ class NnterpEngine:
     @property
     def tokenizer(self) -> PreTrainedTokenizerBase:
         return self.model.tokenizer
+
+    @property
+    def cuda(self) -> list[str]:
+        """The CUDA devices the model is on, whose peak memory a step's cost measures; none under a remote session:
+        on an NDIF server the process is the server's, whose own per-request accounting a reset of the peak would
+        clobber, and its sandbox's runner would measure its own tensors."""
+        return [] if self.remote else steps.gpus(self)
 
     @property
     def eos(self) -> list[int]:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import ChainMap, Counter
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -14,7 +13,7 @@ from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
 from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, entries, held_rows
-from clab.steps.batches import home
+from clab.steps.batches import ROWS, home
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -103,11 +102,12 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
 def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind],
              source: tuple[Plan, Found], ids: list[int] | None) -> tuple[ChainMap, Counter]:
     """A fit's body over every row `source` holds (its training rows or eval's), or the minibatch of dataset row ids
-    `ids` (`Found.ids`), in a scope of its own that falls back to `state`, each trained featurizer under its
-    declared name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
-    Returns the body's namespace, and the model calls its steps made and the tokens they fed."""
-    plan, found = source[0], replace(source[1], ids=ids)
-    body = state.new_child()
+    `ids`, in a scope of its own that falls back to `state` and carries those ids (`batches.ROWS`: what its values'
+    rows are), each trained featurizer under its declared name and `<fit>.<name>`. With a minibatch it trains:
+    gradients on, gates soft; otherwise it scores. Returns the body's namespace, and the model calls its steps made
+    and the tokens they fed."""
+    plan, found = source
+    body = state.new_child({ROWS: ids} if ids is not None else {})
     for f, inst in trained.items():
         inst.training = ids is not None
         inst.seen = []
