@@ -6,16 +6,18 @@ from typing import Any, cast
 
 from torch import Tensor
 
+from clab import ops
 from clab.compile import materialized, positions
 from clab.format import data
 from clab.format.sweeps import agreeing, by_point, labelled
 from clab.plan import Intervention, Labelled, Plan, arguments, body_view, entries, entry_of, points, record_of, walk
 
-JOIN = ("at", "row", "layer", "pos", "key")
+# The column a value's example and token axes are tabled under.
+COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
 
 
 def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list[dict[str, Any]]:
-    """The saved values `names` as rows, joined wide on their shared axes, one column per name.
+    """The saved values `names` as rows, joined wide on the keys they share, one column per name.
 
     A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
     not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
@@ -24,8 +26,20 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
     numbered the same way, the row's own keys only), the dataset columns the step used
     (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
-    beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
-    past its own are left out. A value with no rows axis gives a row per element with its axis indices."""
+    did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
+    its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
+    out. A value with no rows axis gives a row per element with its axis indices.
+
+    Several values are joined on the keys both carry (`keyed`): the sweep axes they share, each by its coordinate,
+    and the columns they share (`row`, `layer`, `pos`, `key`; a value with no rows axis its own axes, so two
+    histories over `epochs` join epoch by epoch), each row of the first beside every row of the next that agrees
+    with it on them, so a row of a value with fewer keys (an unswept value beside a swept one, one over `src`
+    beside one over `src` and `dst`, one with no `layers` axis beside one with) repeats beside every row it
+    agrees with, and the joined `at` holds both points' coordinates. A value with no keys, one number, sits beside
+    every row. Two values that share no key are refused by name: a value with no rows axis (a fit's history, over
+    `epochs`) tables alone beside one with, and so do two over different axes; and two that share keys but agree
+    on no row (two reads at different positions share `pos`) are refused rather than joined to nothing, as are two
+    with a token axis read on different inputs, whose `pos` or `key` count different prompts."""
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -37,24 +51,74 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     if len(names) == 1:
         return rows_of(plan, names[0], columns)
     joined: list[dict[str, Any]] = []
-    for name in names:
+    keys: tuple[list[str], list[str], str | None] = ([], [], None)
+    for i, name in enumerate(names):
         rows = [{(name if k == "value" else k): v for k, v in row.items()} for row in rows_of(plan, name, columns)]
-        joined = join(joined, rows) if joined else rows
+        mine = keyed(plan, name)
+        if i:
+            joined = join(joined, keys, rows, mine, " and ".join(map(repr, names[:i])), name)
+        else:
+            joined = rows
+        keys = (keys[0] + [k for k in mine[0] if k not in keys[0]], keys[1] + [k for k in mine[1] if k not in keys[1]],
+                keys[2] or mine[2])
     return joined
 
 
-def join(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Two tables side by side on the axes both carry; a row of the side with fewer axes (an unswept value
-    beside a swept one, a value with no layer axis beside one with) repeats beside every row it agrees with."""
-    left_axes, right_axes = ([k for k in JOIN if any(k in row for row in rows)] for rows in (left, right))
-    many, few = (left, right) if len(left_axes) >= len(right_axes) else (right, left)
-    shared = [k for k in left_axes if k in right_axes]
+def keyed(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
+    """What a saved value's rows are keyed by, as its record says: the labels of its step's sweep axes (its `at`),
+    and its axis columns: for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has those axes
+    (`COLUMNS`); for one without, each of its axes. With a token axis, also the input its read was made on, whose
+    prompts its `pos` and `key` count."""
+    first = points(plan.steps[name.partition(".")[0]])[0]
+    record = record_of(plan.steps, name, first.at)
+    dims = record.dims or []
+    axes = [COLUMNS[a] for a in dims if a in COLUMNS] if "rows" in dims else list(dims)
+    source = data.input_name(entry_of(plan.steps, record.read, first.at)[0].input) \
+        if record.read is not None and ("pos" in dims or "key" in dims) else None
+    return list(first.at), axes, source
+
+
+def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | None], right: list[dict[str, Any]],
+         theirs: tuple[list[str], list[str], str | None], x: str, y: str) -> list[dict[str, Any]]:
+    """`left` (the rows of the values `x`, keyed by `mine`: sweep labels, axis columns and the input a token axis
+    counts, `keyed`) beside `right` (the rows of `y`, keyed by `theirs`), joined on the keys both carry, as `table`
+    says; `x` and `y` name them in a refusal."""
+    labels, axes = [k for k in mine[0] if k in theirs[0]], [k for k in mine[1] if k in theirs[1]]
+    if not (labels or axes) and any(mine[:2]) and any(theirs[:2]):
+        alone = ("a value with no rows axis tables alone" if ("row" in mine[1]) != ("row" in theirs[1])
+                 else "table them one at a time")
+        raise ValueError(f"{x} is keyed by {spelled(mine)} and {y!r} by {spelled(theirs)}, which share no axis "
+                         f"to join on; {alone}")
+    tokens = [a for a in axes if a in ("pos", "key")]
+    if tokens and None not in (mine[2], theirs[2]) and mine[2] != theirs[2]:
+        raise ValueError(f"{x} is read on {mine[2]} and {y!r} on {theirs[2]}, whose rows tokenize to positions of their "
+                         f"own, so the two {' and '.join(tokens)} columns count different prompts; table them one at a "
+                         "time")
+
+    def key(row: dict[str, Any]) -> str:
+        return json.dumps([row.get("at", {}).get(k) for k in labels] + [row.get(k) for k in axes])
     by_key: dict[str, list[dict[str, Any]]] = {}
-    for row in few:
-        by_key.setdefault(json.dumps([row.get(k) for k in shared]), []).append(row)
-    pairs = [(row, other) for row in many for other in by_key.get(json.dumps([row.get(k) for k in shared]), [])]
-    merged = [{**a, **b} if many is left else {**b, **a} for a, b in pairs]
-    return [{"at": m.pop("at"), **m} if "at" in m else m for m in merged]
+    for row in right:
+        by_key.setdefault(key(row), []).append(row)
+    out = []
+    for row in left:
+        for other in by_key.get(key(row), []):
+            merged = {**row, **other}
+            if "at" in merged:              # the two points' coordinates together, first
+                merged = {"at": {**row.get("at", {}), **other.get("at", {})},
+                          **{k: v for k, v in merged.items() if k != "at"}}
+            out.append(merged)
+    if not out and left and right:
+        raise ValueError(f"{x} and {y!r} share {', '.join(labels + axes)} and agree on no row of it (two reads at "
+                         "different positions share pos but never the same one); table them one at a time")
+    return out
+
+
+def spelled(keys: tuple[list[str], list[str], str | None]) -> str:
+    """A value's keys as a message names them: `sweep axes src, dst and columns row, pos`."""
+    labels, axes, _ = keys
+    parts = [f"sweep axes {', '.join(labels)}"] if labels else []
+    return " and ".join(parts + ([f"columns {', '.join(axes)}"] if axes else []))
 
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
@@ -63,6 +127,9 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
     if step.kind == "fit":
         if member.partition(".")[0] in ("history", *step.train):
             dims = record_of(plan.steps, name, {}).dims or []
+            if member in step.train:
+                raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
+                                 "from plan.results")
             return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
                     for row in elements(value, dims, None)]
         return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
@@ -70,6 +137,11 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
     for p, (at, value) in zip(points(plan.steps[thing]), by_point(plan, name)):
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
+        if isinstance(value, dict) and "rows" not in dims:
+            what = (f"a bundle (a {step.op}'s value)" if ops.DECLARED[step.op]["bundle"] else
+                    f"laid out {dims}, a {step.op} over a value with no rows axis, its ids and probabilities one list each"
+                    ) if step.kind == "op" else f"laid out {dims}"
+            raise ValueError(f"{name!r} has no rows to table: it is {what}; read it from plan.results")
         examples = materialized(plan, record.dataset) if record.dataset else []
         place = located(plan, record, p.at) if record.read else None
         used = columns_used(plan, name, p.at)

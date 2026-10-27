@@ -887,7 +887,7 @@ width; its `run` holds how each input tokenized, what each generate step's rows 
 what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
 they fed). Values are never in the manifest.
 
-The saved values `names` as rows, joined wide on their shared axes, one column per name.
+The saved values `names` as rows, joined wide on the keys they share, one column per name.
 
 A value with a rows axis gives a row per example and token: `at` (its point's coordinates; a value whose step is
 not swept has no `at`), `row`, `example_id` when the dataset has one, `layer` on a `layers` axis (the model's
@@ -896,8 +896,20 @@ layer), the token axes with their tokens (`pos`/`pos_token`, the position a read
 with the forward `call` holding it for a read in a generation; `key`/`key_token` on an attention pattern,
 numbered the same way, the row's own keys only), the dataset columns the step used
 (`columns=` to choose), and `value` last: the element, or the remaining axes as nested lists. A row a read
-beyond the prefill did not reach gives one row, `alignment_missing` true, with no value; a row's positions
-past its own are left out. A value with no rows axis gives a row per element with its axis indices.
+did not reach (a call beyond the prefill it never made, a scope it does not say, an index that picks none of
+its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
+out. A value with no rows axis gives a row per element with its axis indices.
+
+Several values are joined on the keys both carry (`keyed`): the sweep axes they share, each by its coordinate,
+and the columns they share (`row`, `layer`, `pos`, `key`; a value with no rows axis its own axes, so two
+histories over `epochs` join epoch by epoch), each row of the first beside every row of the next that agrees
+with it on them, so a row of a value with fewer keys (an unswept value beside a swept one, one over `src`
+beside one over `src` and `dst`, one with no `layers` axis beside one with) repeats beside every row it
+agrees with, and the joined `at` holds both points' coordinates. A value with no keys, one number, sits beside
+every row. Two values that share no key are refused by name: a value with no rows axis (a fit's history, over
+`epochs`) tables alone beside one with, and so do two over different axes; and two that share keys but agree
+on no row (two reads at different positions share `pos`) are refused rather than joined to nothing, as are two
+with a token axis read on different inputs, whose `pos` or `key` count different prompts.
 
 ## A worked document
 
