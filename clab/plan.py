@@ -401,13 +401,15 @@ class Pos(Record):
     message of is refused by name.
 
     **before** (default false): the positions that predict the scope's tokens, each the position just
-    before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
-    record is the calls' positions whose next token is the scope's. In the prefill that is the position
-    before each token; in a generation it is the call that chose each generated token, the last one
-    included (the prefill's last position chose generated token 0). A scope token at position 0 has no
-    position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
-    the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
-    `before`.
+    before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
+    the frame names the row's last call, the token that call chose (the row's last generated token, which
+    no call holds); the record is the position before each, which may belong to a call the frame does not
+    name: under `"frame": "1:"` a word said as generated token 0 is held by decode call 1 and recorded at
+    the prefill's last position, call 0, which chose it. In the prefill that is the position before each
+    token; in a generation, the call that chose each generated token, the last one included. A scope token
+    at position 0 has no position before it, which makes the row `alignment_missing` (a refusal in the
+    prefill). A write beyond the prefill lands as its call runs, before the token it would predict is
+    chosen, so it takes no `before`.
 
     **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
     in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as

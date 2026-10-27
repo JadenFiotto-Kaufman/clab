@@ -307,3 +307,19 @@ def test_a_key_mixing_op_step_over_a_pattern_takes_each_rows_own_keys(engines):
         n, pat, unit = len(row), filled.results["f.pat"][r], filled.results["unit"][r]
         torch.testing.assert_close(unit[..., :n], pat[..., :n] / pat[..., :n].norm(dim=-1, keepdim=True))
         assert unit[..., n:].isnan().all()
+
+
+def test_a_before_record_may_sit_in_a_call_its_frame_does_not_name():
+    """`before` searches the scope among the tokens the frame's calls hold (and the last call's chosen token where
+    the frame names it) and records the position before each: under `"frame": "1:"` (decode calls only) a word
+    said as generated token 0, held by call 1, is recorded at position 4 of a 5-token prompt, the prefill's last
+    position, call 0's; the last generated token, which no call holds, at the position before it; in the prefill
+    at the position before the token."""
+    from clab.compile.positions import resolve
+
+    before = {"frame": "1:", "scope": {"text": "x", "before": True}, "index": ":"}
+    prompt, said = 5, [7, 8, 9]                   # generated tokens 0, 1, 2 sit at positions 5, 6, 7
+    assert resolve(before, prompt, said, [{5}]) == [4]
+    assert resolve({**before, "frame": 1}, prompt, said, [{5}]) == [4]
+    assert resolve(before, prompt, said, [{7}]) == [6]
+    assert resolve({**before, "frame": 0}, prompt, said, [{3}]) == [2]

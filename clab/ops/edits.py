@@ -31,7 +31,8 @@ def sub(of: Tensor, with_: Value) -> Tensor:
 
 @op("edits")
 def scale(of: Tensor, factor: Value) -> Tensor:
-    """`of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step)."""
+    """`of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a
+    `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`)."""
     return of * torch.as_tensor(factor, device=of.device)
 
 
@@ -86,7 +87,8 @@ def normalize(of: Tensor) -> Tensor:
 
 @op("edits")
 def project_out(of: Tensor, direction: Value) -> Tensor:
-    """Each vector less its component along `direction`, over the entries both have (`present`)."""
+    """Each vector less its component along `direction`, which is normalised first (its length does not matter),
+    over the entries both have (`present`)."""
     direction = torch.as_tensor(direction, device=of.device)
     unit = direction / present(direction).norm(dim=-1, keepdim=True)
     return of - present(of * unit).sum(-1, keepdim=True) * unit

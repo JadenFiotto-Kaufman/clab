@@ -235,13 +235,15 @@ token is never an input to any call, so a word ending on it is `alignment_missin
 message of is refused by name.
 
 **before** (default false): the positions that predict the scope's tokens, each the position just
-before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
-record is the calls' positions whose next token is the scope's. In the prefill that is the position
-before each token; in a generation it is the call that chose each generated token, the last one
-included (the prefill's last position chose generated token 0). A scope token at position 0 has no
-position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
-the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
-`before`.
+before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
+the frame names the row's last call, the token that call chose (the row's last generated token, which
+no call holds); the record is the position before each, which may belong to a call the frame does not
+name: under `"frame": "1:"` a word said as generated token 0 is held by decode call 1 and recorded at
+the prefill's last position, call 0, which chose it. In the prefill that is the position before each
+token; in a generation, the call that chose each generated token, the last one included. A scope token
+at position 0 has no position before it, which makes the row `alignment_missing` (a refusal in the
+prefill). A write beyond the prefill lands as its call runs, before the token it would predict is
+chosen, so it takes no `before`.
 
 **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
 in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
@@ -542,10 +544,10 @@ stays missing: NaN.
 | `swap` | `with: Value` | keeps the layout | Replace the value with `with`, broadcast over its rows and positions. |
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
-| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step). |
+| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`). |
 | `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose every key was knocked out stays zero). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
-| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
+| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |

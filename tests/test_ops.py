@@ -93,6 +93,30 @@ def test_normalize_and_project_out():
     d = torch.randn(5)
     out = edits.project_out(X, d)
     torch.testing.assert_close(out @ d, torch.zeros(3, 2), atol=1e-6, rtol=0)
+    # `direction` is normalised first: a thousand times longer, the same result to float rounding.
+    torch.testing.assert_close(edits.project_out(X, 1000 * d), out, atol=1e-6, rtol=0)
+
+
+def test_a_rows_pos_factor_scales_each_positions_vector_by_its_own_number(engines):
+    """`scale` with a `[rows, pos]` factor, a probability read at three positions, broadcasts over `hidden_size`
+    (Ops' one rule, `batches.bound`): the written value is the stream times each position's own number."""
+    from conftest import BATCH_SIZE, edited
+
+    def change(d):
+        d["sites"]["head"] = {"component": "lm_head_output"}
+        d["steps"] = {
+            "clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+                "h": {"site": "target", "pos": {"index": "-3:"}},
+                "p": {"site": "head", "pos": {"index": "-3:"},
+                      "ops": [{"op": "token_prob", "token": "pairs.base_answer"}]}}},
+            "scaled": {"kind": "forward", "input": "pairs.input", "interventions": {
+                "patch": {"site": "target", "pos": {"index": "-3:"}, "ops": [{"op": "scale", "factor": "clean.p"}]}}}}
+        d["saves"] = ["clean.h", "clean.p", "scaled.patch"]
+    plan = edited("patching", change).compile()
+    results = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    h, p, patch = results["clean.h"], results["clean.p"], results["scaled.patch"]
+    assert h.shape == patch.shape == (4, 3, 16) and p.shape == (4, 3)
+    assert torch.equal(patch, h * p[..., None])
 
 
 def test_mean_over_the_example_axes_by_default():
