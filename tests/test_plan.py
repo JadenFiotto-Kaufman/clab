@@ -183,7 +183,7 @@ def test_two_datasets_in_one_op_are_refused():
     def change(d):
         d["data"]["other"] = {"path": "weekdays/train"}
         d["steps"]["iia"]["expected"] = "other.cf_answer"
-    with pytest.raises(PlanError, match=r"steps\.iia: 'patched\.logits' has a row per example of 'pairs' and "
+    with pytest.raises(PlanError, match=r"steps\.iia\.expected: 'patched\.logits' has a row per example of 'pairs' and "
                                         r"'other\.cf_answer' of 'other'; an op takes one dataset's rows"):
         edited("patching", change).compile()
 

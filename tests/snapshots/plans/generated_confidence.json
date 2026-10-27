@@ -32,47 +32,52 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "answer.logits",
      "gathered": true
     }
    },
-   "dataset": "prompts",
    "max_new_tokens": 6,
    "min_new_tokens": 6,
-   "do_sample": false
+   "do_sample": false,
+   "dataset": "prompts"
   },
   "p": {
    "kind": "op",
    "op": "token_prob",
    "of": "answer.logits",
-   "dataset": "prompts",
+   "token": "prompts.said",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "prompts.said"
+   "dataset": "prompts",
+   "read": "answer.logits"
   },
   "nll": {
    "kind": "op",
    "op": "cross_entropy",
    "of": "answer.logits",
-   "dataset": "prompts",
+   "target": "prompts.said",
    "dims": [
     "rows",
     "pos"
    ],
-   "target": "prompts.said"
+   "dataset": "prompts",
+   "read": "answer.logits"
   },
   "p_seq": {
    "kind": "op",
    "op": "sum",
    "of": "nll",
-   "dataset": "prompts",
+   "over": [
+    "pos"
+   ],
    "dims": [
     "rows"
    ],
-   "over": [
-    "pos"
-   ]
+   "dataset": "prompts",
+   "read": "answer.logits"
   }
  },
  "saves": [

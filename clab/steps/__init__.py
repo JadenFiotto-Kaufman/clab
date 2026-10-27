@@ -6,7 +6,8 @@ its tokenizer, its sizes, its readout and the ids its generation stops on (EOS),
 itself, in plain torch: positions in the prefill from the encoded rows, and beyond it from the ids each row
 generated, up to its first EOS. Under the nnterp and ndif engines it runs inside one session (on the server,
 under ndif); under the hooks engine, in plain Python. The cross-step state is a `ChainMap` (a fit's body runs in
-a child of it) that never leaves the run: each value under its name, by the coordinates of the point it is at.
+a child of it, carrying the minibatch's row ids: `batches.ROWS`) that never leaves the run: each value under its
+name, by the coordinates of the point it is at.
 Each step kind returns the model calls it made and the tokens they fed (`batches.fed`), which `run` records
 with the step's time and memory (`measured`).
 """
@@ -27,15 +28,13 @@ from torch import Tensor
 
 from clab import ops
 from clab.compile import materialized
-from clab.compile.answers import probe_of
-from clab.compile.interventions import acts_at
 from clab.compile.preflight import preflight
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, lookup, put
-from clab.plan import Forward, OpStep, Plan, Run, arguments, dims_of, entries, points
+from clab.plan import Forward, OpStep, Plan, Run, arguments, entries, points, record_of
 from clab.steps import fit, generate
-from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, read, read_name, stacked, value_at
+from clab.steps.batches import bind, bound, chunked, fed, home, joined, layers, over, read, read_name, stacked, value_at
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -59,13 +58,14 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step and point in document order, over the plan `held`, without gradients except where a fit trains,
     each one's cost `measured` into `plan.run.costs`; then each saved value into `plan.results` (a trained
-    featurizer as its bundle's tensors), and what served the run: the dtypes and devices of the model's parameters
-    (`placed`)."""
+    featurizer as its bundle's tensors), and what served the run: the model's sizes, and the dtypes and devices
+    of the model's parameters (`placed`). Where each read and write resolved, and each featurizer's width, is on
+    its record, which preflight and the steps complete in place."""
     plan = held(plan)
     assert plan.run is not None
-    plan.run.versions, plan.run.num_layers = versions(), engine.sizes()["num_layers"]
+    plan.run.versions, plan.run.sizes = versions(), engine.sizes()
     found = preflight(engine, plan)
-    state = made(plan, found.widths, home(engine))
+    state = made(plan, home(engine))
     costs: dict = {}
     with torch.no_grad():
         for name, entry in plan.steps.items():
@@ -77,14 +77,6 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
-    positions = dict(found.positions)
-    for fit, by_point in found.bodies.items():        # a body's records, as each eval run resolved them
-        for sources in by_point.values():
-            for label, (_, body) in sources["evals"].items():
-                for where, resolved in body.positions.items():
-                    key = f"{fit}.{label}.{where}"
-                    positions[key] = {**positions.get(key, {}), **resolved}
-    plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
 
@@ -93,10 +85,9 @@ def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:
     """What a step cost: `call`, which runs it, timed (`seconds`), with the model's CUDA devices (`gpus`)
     synchronized at both ends; the peak memory allocated on each of them while it ran, weights included, in bytes
     by device (`memory`, None where the model is not on CUDA); and the model calls it made and the tokens they
-    fed, which `call` returns (`forwards`, `tokens`). A remote engine's run makes no CUDA call and its `memory`
-    is None: on an NDIF server the process is the server's, whose own per-request accounting a reset of the
-    peak would clobber, and its sandbox's runner would measure its own tensors."""
-    devices = [] if engine.remote else gpus(engine)
+    fed, which `call` returns (`forwards`, `tokens`). The engine says which devices it measures (`engine.cuda`): a
+    remote engine's run makes no CUDA call and its `memory` is None."""
+    devices = engine.cuda
     for device in devices:
         torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)
@@ -111,7 +102,7 @@ def measured(engine: Engine, call: Callable[[], Counter]) -> dict[str, Any]:
 
 def gpus(engine: Engine) -> list[str]:
     """The CUDA devices the model is on: where its parameters are (a meta shell's, which loads its weights at its
-    first forward, where the engine places it: `home`)."""
+    first forward, where the engine places it: `home`). What an engine that runs here answers for `cuda`."""
     devices = dict.fromkeys(home(engine) if d == "meta" else d for d in placed(engine.model)[1])
     return [d for d in devices if d.startswith("cuda")]
 
@@ -141,13 +132,14 @@ def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def made(plan: Plan, widths: dict[str, int], device: str) -> ChainMap:
-    """The run's state at its start: each declared featurizer used at a site, at each of its points, made
-    where the model is (`device`)."""
+def made(plan: Plan, device: str) -> ChainMap:
+    """The run's state at its start: each declared featurizer used at a site (its record says its `width` there),
+    at each of its points, made where the model is (`device`)."""
     state: ChainMap = ChainMap()
     for name, entry in plan.featurizers.items():
-        for spec in points(entry) if name in widths else []:
-            put(state, name, spec.at, instance(plan, spec, widths[name], None, device))
+        for spec in points(entry):
+            if spec.width is not None:
+                put(state, name, spec.at, instance(plan, spec, spec.width, None, device))
     return state
 
 
@@ -202,7 +194,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     positions is as wide as the widest, NaN past a row's own."""
     parts, count = [], Counter()
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
-    for ids, batch, pads in chunked(engine, step, found, batch_size):
+    for ids, batch, pads in chunked(engine, step, state, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, ids, pads)
         got = engine.forward(batch, records)
         count += fed(batch, pads)
@@ -215,18 +207,21 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found) -> Counter:
-    """The op over the value `of` names at the rows the run is over (`found.ids`, else 0 to n-1 by its shape), given
-    each one's dataset row, at the layers `of` is at (`acts_at`), to which an operand's `layers` axis is aligned
-    (`bound`). `top_k`'s value over a vocabulary's tokens also holds them, decoded. It calls no model."""
-    of, dims = value_at(plan, state, step.of, step.at, found.ids, found), dims_of(plan, step.of)
+    """The op over the value `of` names at the rows the run is over (`over`, else every row of its dataset),
+    given each one's dataset row, at the layers `of`'s record says it is at (its `layers` axis's labels, or the one
+    layer it was read at), to which an operand's `layers` axis is aligned (`bound`); a `classes` axis's vocabulary
+    is the probe its coordinates are in. `top_k`'s value over a vocabulary's tokens also holds them, decoded. It
+    calls no model."""
+    of, record = value_at(plan, state, step.of, step.at, over(state)), record_of(plan.steps, step.of, step.at)
+    dims = record.dims or []
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
-    ids = found.ids or range(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None
+    ids = (over(state) if over(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
+        if "rows" in dims and record.dataset is not None else None
     rows = None if ids is None else torch.tensor(ids)
-    vocabulary = lookup(state, probe_of(plan, step.of), step.at).classes if "classes" in dims else None
-    sizes = engine.sizes()
-    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, found.ids, found, of,
-                                        vocabulary, dims=dims, layers=acts_at(plan, step.of, step.at, sizes),
-                                        sizes=sizes), engine=engine, dims=dims,
+    vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
+    acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
+    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, over(state), found, of,
+                                        vocabulary, dims=dims, layers=acts), engine=engine, dims=dims,
                      eos=generate.stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

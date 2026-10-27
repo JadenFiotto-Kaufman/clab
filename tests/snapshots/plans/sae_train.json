@@ -35,6 +35,11 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "harvest.acts",
      "gathered": true
     }
    },
@@ -61,13 +66,22 @@
      "kind": "op",
      "op": "encode",
      "of": "harvest.acts",
-     "dataset": "prompts",
+     "featurizer": "fit.dictionary",
      "dims": [
       "rows",
       "pos",
       "features"
      ],
-     "featurizer": "fit.dictionary"
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "harvest.acts",
+     "space": [
+      {
+       "featurizer": "fit.dictionary"
+      }
+     ]
     }
    },
    "eval": {

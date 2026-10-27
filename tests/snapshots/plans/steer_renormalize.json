@@ -27,6 +27,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "harvest.resid",
+     "width": 1,
      "gathered": true
     }
    },
@@ -36,10 +42,14 @@
    "kind": "op",
    "op": "mean",
    "of": "harvest.resid",
-   "dataset": "pairs",
    "dims": [
     "hidden_size"
-   ]
+   ],
+   "dataset": "pairs",
+   "layers": [
+    0
+   ],
+   "read": "harvest.resid"
   },
   "base": {
    "kind": "forward",
@@ -56,6 +66,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "base.resid",
+     "width": 1,
      "gathered": true
     }
    },
@@ -75,7 +91,12 @@
       {
        "op": "add",
        "with": "direction",
-       "scale": 4.0
+       "scale": 4.0,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -83,6 +104,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "steered.steer",
+     "width": 1,
      "gathered": true
     },
     "logits": {
@@ -95,6 +122,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "steered.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -114,14 +144,25 @@
       {
        "op": "add",
        "with": "direction",
-       "scale": 4.0
+       "scale": 4.0,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "steered_renormed.steer",
+     "width": 1
     },
     "restore": {
      "site": {
@@ -131,7 +172,12 @@
      "pos": -1,
      "ops": [
       {
-       "op": "renormalize"
+       "op": "renormalize",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
@@ -139,6 +185,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "steered_renormed.restore",
+     "width": 1,
      "gathered": true
     },
     "logits": {
@@ -151,6 +203,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "steered_renormed.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -160,36 +215,42 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "steered_renormed.logits",
-   "dataset": "pairs",
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "pairs.cf_answer",
-   "b": "pairs.base_answer"
+   "dataset": "pairs",
+   "read": "steered_renormed.logits",
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
    "op": "token_prob",
    "of": "steered_renormed.logits",
-   "dataset": "pairs",
+   "token": "pairs.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "pairs.cf_answer"
+   "dataset": "pairs",
+   "read": "steered_renormed.logits",
+   "width": 1
   },
   "steered_ld": {
    "kind": "op",
    "op": "logit_diff",
    "of": "steered.logits",
-   "dataset": "pairs",
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "pairs.cf_answer",
-   "b": "pairs.base_answer"
+   "dataset": "pairs",
+   "read": "steered.logits",
+   "width": 1
   }
  },
  "saves": [

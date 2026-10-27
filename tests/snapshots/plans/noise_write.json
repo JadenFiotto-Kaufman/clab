@@ -26,6 +26,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clean.logits",
+     "width": 1,
      "gathered": true
     },
     "resid": {
@@ -39,6 +42,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "clean.resid",
+     "width": 1,
      "gathered": true
     }
    },
@@ -48,13 +57,15 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clean.logits",
+   "width": 1
   },
   "noisy": {
    "kind": "forward",
@@ -72,14 +83,25 @@
       {
        "op": "noise",
        "scale": 0.5,
-       "seed": 7
+       "seed": 7,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "noisy.noise",
+     "width": 3
     },
     "logits": {
      "site": {
@@ -91,6 +113,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "noisy.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -100,26 +125,33 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "noisy.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "noisy.logits",
+   "width": 1
   },
   "jitter": {
    "kind": "op",
    "op": "noise",
    "of": "clean.resid",
-   "dataset": "prompts",
+   "scale": 0.5,
+   "seed": 7,
    "dims": [
     "rows",
     "pos",
     "hidden_size"
    ],
-   "scale": 0.5,
-   "seed": 7
+   "dataset": "prompts",
+   "layers": [
+    0
+   ],
+   "read": "clean.resid",
+   "width": 1
   }
  },
  "saves": [

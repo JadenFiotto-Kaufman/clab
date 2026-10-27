@@ -22,7 +22,9 @@ from conftest import (
     TRIP,
     bundle_header,
     close,
+    dims,
     edited,
+    placed,
     plain,
     same,
     snapshot,
@@ -34,7 +36,7 @@ from clab import Plan, featurizers, ops
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
-from clab.plan import PlanError, dims_of
+from clab.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -379,7 +381,7 @@ def test_a_probe_learns_its_classes(engines, kind):
     """Its scores are one per class, `[rows, pos, classes]`; cross_entropy and match resolve the label column
     against the class list, so the training ce falls and the trained probe calls every row right."""
     plan = probe()
-    assert dims_of(plan, "fit.train.scores") == ["rows", "pos", "classes"]
+    assert dims(plan, "fit.train.scores") == ["rows", "pos", "classes"]
     values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
     assert values["fit.train.scores"].shape == (8, 1, 2) and values["fit.probe"]["W"].shape == (16, 2)
     assert values["fit.history.ce"][-1] < values["fit.history.ce"][0]
@@ -541,7 +543,7 @@ def test_a_root_value_without_rows_is_the_bodys_to_use_whole(engines):
         d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "avg", "over": ["hidden_size"]}
         d["saves"] += ["avg", "fit.train.spread", "fit.history.spread"]
     plan = edited("das", change).compile()
-    assert dims_of(plan, "avg") == ["layers", "hidden_size"]
+    assert dims(plan, "avg") == ["layers", "hidden_size"]
     values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
     assert torch.equal(values["fit.train.spread"], values["avg"].mean(-1))
     assert torch.equal(values["fit.history.spread"], values["fit.train.spread"].mean().expand(10))
@@ -766,7 +768,7 @@ def test_a_fits_members_keep_their_forms_when_its_body_reads_a_harvest(engines):
     `train` eval member a row per training pair, `fit.rot` the trained rotation (saved as its bundle) and what
     the steps after the fit read; the early stop is judged on the history."""
     plan = with_history(lambda d: d["saves"].append("fit.train.v_cf"))
-    assert [dims_of(plan, n) for n in ("fit.history.ce", "fit.train.iia", "fit.train.v_cf", "fit.rot", "held_iia")] \
+    assert [dims(plan, n) for n in ("fit.history.ce", "fit.train.iia", "fit.train.v_cf", "fit.rot", "held_iia")] \
         == [["epochs"], ["rows", "pos"], ["rows", "pos", "features"], [], ["rows", "pos"]]
     values = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).results
     assert values["fit.history.ce"].shape == values["fit.history.iia"].shape == (10,)
@@ -835,8 +837,8 @@ def every_day(d):
 @pytest.mark.parametrize("plan, message", [
     (lambda: edited("das", chain(other_dataset, lambda d: d["steps"]["fit"]["steps"].update(gap={
         "kind": "op", "op": "sub", "of": "patched.logits", "with": "other.logits"}))).compile(),
-     r"steps\.fit\.steps\.gap: 'patched\.logits' has a row per example of 'train' and 'other\.logits' of 'test'; an "
-     r"op takes one dataset's rows"),
+     r"steps\.fit\.steps\.gap\.with: 'patched\.logits' has a row per example of 'train' and 'other\.logits' of 'test'; "
+     r"an op takes one dataset's rows"),
     (lambda: probe(few), r"steps\.fit\.steps: the body's datasets have \{.*'few': 4.*\} rows; it runs over minibatches "
                          r"of the same rows of each, paired row by row"),
     (lambda: edited("das", chain(other_dataset, lambda d: d["steps"]["fit"]["steps"].update(o={
@@ -947,12 +949,12 @@ def test_noise_in_a_fit_body_draws_by_dataset_row_in_any_minibatch(engines, monk
 
 
 def test_a_fits_eval_records_and_tables_by_dataset_row(engines):
-    """`run.positions` and `clab table` number a fit's eval values by dataset row as they number a forward's: the
+    """A record's `positions` and `clab table` number a fit's eval values by dataset row as they number a forward's: the
     eval's read of every token resolves on each row to that row's own positions, the plain forward's, and its
     table's rows are the plain forward's, row, position and token, with the same values."""
     plan = jittered()
     filled = engines("hooks", plan.model).execute(plan, batch_size=4)
-    positions = filled.run.positions
+    positions = placed(filled)
     assert positions["fit.train.noisy.every"] == positions["plain.every"]
     assert len({len(p) for p in positions["plain.every"]}) > 1          # rows of different lengths
     fit, plain = filled.table("fit.train.noisy.every"), filled.table("plain.every")

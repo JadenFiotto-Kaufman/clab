@@ -13,7 +13,8 @@ from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
 from clab.featurizers import FORMAT  # noqa: E402
-from clab.plan import Model  # noqa: E402
+from clab.format.sweeps import labelled, points  # noqa: E402
+from clab.plan import Model, entries, record_of  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -66,6 +67,38 @@ def snapshot(name: str, value) -> Any:
             f.write("\n")
     with open(path) as f:
         return json.load(f)
+
+
+def dims(plan: Plan, name: str) -> list[str]:
+    """The axes of the value `name`, as its record says (at its step's first point)."""
+    return record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).dims or []
+
+
+def placed(plan: Plan) -> dict[str, Any]:
+    """Where every read and write resolved, per row, as the plan's records hold it, keyed by `<step>.<entry>` (a
+    fit's eval members `<fit>.<eval>.<step>.<entry>`), a swept step's by coordinate: the one view the tests compare
+    runs by."""
+    out: dict[str, Any] = {}
+
+    def add(key: str, at: dict, record: Any, dataset: str) -> None:
+        got = record.positions.get(dataset)
+        if got is None:
+            return
+        if at:
+            out.setdefault(key, {})[labelled(plan, at)] = got
+        else:
+            out[key] = got
+    for name, entry in plan.steps.items():
+        for step in points(entry):
+            if step.kind == "fit":
+                for label, swap in step.eval.items():
+                    for n, s in step.steps.items():
+                        for k, e in entries(s).items():
+                            add(f"{name}.{label}.{n}.{k}", step.at, e, swap.get(s.dataset, s.dataset))
+                continue
+            for k, e in entries(step).items():
+                add(f"{name}.{k}", step.at, e, step.dataset)
+    return out
 
 
 def plain(value) -> Any:
@@ -172,8 +205,10 @@ def stand_in(engines, plan: Plan, monkeypatch) -> tuple[Plan, dict]:
     return client.execute(plan, batch_size=BATCH_SIZE), trip
 
 
-# What the stand-in's trip shows of every run: the request by reference, and the results and run record home.
-TRIP = {"by_reference": True, "names": ["home"], "types": ["dict"], "carried": {"results": "dict", "run": "Run"}}
+# What the stand-in's trip shows of every run: the request by reference, and the results, the run record and the
+# completed step and featurizer records home.
+TRIP = {"by_reference": True, "names": ["home"], "types": ["dict"],
+        "carried": {"results": "dict", "run": "Run", "steps": "dict", "featurizers": "dict"}}
 
 
 @pytest.fixture(scope="session")

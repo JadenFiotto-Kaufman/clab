@@ -95,8 +95,13 @@ def coordinate(plan: Plan, at: dict[str, int]) -> Any:
 
 def labelled(plan: Plan, at: dict[str, int]) -> str:
     """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`."""
-    return ",".join(f"{label}={json.dumps(plan.sweeps[label].values[i], separators=(',', ':'))}"
-                    for label, i in at.items())
+    return spelled({label: axis.values for label, axis in plan.sweeps.items()}, at)
+
+
+def spelled(values: dict[str, list], at: dict[str, int]) -> str:
+    """A point's coordinate as text, given each axis's `values`: the one spelling of a point, in the run record,
+    a saved file's keys and a refusal at one point of a sweep."""
+    return ",".join(f"{label}={json.dumps(values[label][i], separators=(',', ':'))}" for label, i in at.items())
 
 
 def put(state: MutableMapping, name: str, at: dict[str, int], value: Any) -> None:

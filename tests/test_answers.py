@@ -4,7 +4,7 @@ say, a set is any of its members, a scope that is `before` is the positions that
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, plan_of
+from conftest import BATCH_SIZE, placed, plan_of
 
 from clab import Plan, ops
 from clab.compile import answers
@@ -48,7 +48,7 @@ def test_before_reads_the_positions_that_predict_the_scope_and_each_scores_its_t
                "interventions": {"logits": {"site": HEAD, "pos": {"scope": {"column": "days.answer", "occurrence": -1}}}}},
         "nll": {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "days.answer"}})
     filled = run(engines, doc(steps, ["nll", "forced.logits"]), kind)
-    at, before = record(filled).positions["at.logits"], record(filled).positions["forced.logits"]
+    at, before = placed(filled)["at.logits"], placed(filled)["forced.logits"]
     assert [len(p) for p in at] == [3, 1] and before == [[p - 1 for p in row] for row in at]
     tokens = record(filled).tokens["days.input + days.answer"]
     assert tokens[0][-3:] == ["▁T", "ues", "day"] and tokens[1][-1] == "▁Friday"
@@ -77,7 +77,7 @@ def test_lower_searches_the_input_lowercased_and_the_positions_are_the_inputs(en
     plan = doc({"exact": read({"text": ["Monday", "Thursday"]}),
                 "lowered": read({"column": {"column": "days.lowered", "lower": True}}),
                 "text": read({"text": [" MONDAY ", "THURSDAY"], "lower": True, "strip": True})}, ["exact.x"])
-    positions = record(run(engines, plan)).positions
+    positions = placed(run(engines, plan))
     assert positions["lowered.x"] == positions["exact.x"] == positions["text.x"]
 
 
@@ -250,9 +250,9 @@ def test_a_before_scope_in_a_generation_is_the_calls_that_chose_its_tokens(engin
         saves=["gen.said"]).compile()
     filled = run(engines, plan)
     prompts = [len(t) for t in record(filled).tokens["days.input"]]
-    assert record(filled).positions["gen.prompt"] == ["alignment_missing"] * 2
-    assert record(filled).positions["gen.first"] == [[n - 1] for n in prompts]       # the prefill's last
-    assert record(filled).positions["gen.said"] == [[n] for n in prompts]             # the call fed `Handler`
+    assert placed(filled)["gen.prompt"] == ["alignment_missing"] * 2
+    assert placed(filled)["gen.first"] == [[n - 1] for n in prompts]       # the prefill's last
+    assert placed(filled)["gen.said"] == [[n] for n in prompts]             # the call fed `Handler`
 
 
 def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
@@ -291,7 +291,7 @@ def test_strip_and_lower_at_the_point_of_use(engines, kind):
                                                       r"whitespace only, which an answer keeps and a scope under strip "
                                                       r"does not cover: scope the column without strip$")
     filled = run(engines, scored({"column": "days.near", "strip": True, "lower": True}), kind)
-    assert record(filled).positions["read.logits"] == [[8, 9]]
+    assert placed(filled)["read.logits"] == [[8, 9]]
     tokenizer = engines(kind, filled.model).tokenizer
     classes = [answers.spellings(tokenizer, True, False, True)["new"],
                answers.spellings(tokenizer, False, True, True)[" york"]]

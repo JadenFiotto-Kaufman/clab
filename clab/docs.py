@@ -187,12 +187,20 @@ def markdown() -> str:
     for name, model in plan.KINDS.items():
         parts += [f"### `{name}`\n", block(model)]
     parts += ["### `fit` blocks\n"] + [part for name, model in FIT.items() for part in (f"`{name}`:\n", block(model))]
+    labels = derived(plan.Labelled)
+
+    def own(model: type[BaseModel]) -> list[str]:
+        """A model's derived fields beside a value's labels, which it has as a `Labelled`."""
+        return [f for f in derived(model) if not (issubclass(model, plan.Labelled) and f in labels)]
     parts += ["## Derived fields\n",
-              "Fields a document leaves out, which compile (or, for `run`, the engine) fills:\n",
-              "\n".join(f"- `{model.__name__}`: {', '.join(derived(model))}"
-                        for model in (plan.Plan, plan.Data, plan.Intervention, plan.Forward, plan.Generate, plan.OpStep,
-                                      plan.Featurizer)
-                        if derived(model)) + "\n"]
+              "Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the "
+              "document decides; preflight, with the model in hand, completes the same records in place (a `layers` or "
+              "`kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the "
+              "manifest holds the records as the run completed them.\n",
+              f"- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): {', '.join(labels)}\n"
+              + "\n".join(f"- `{model.__name__}`: {', '.join(own(model))}"
+                          for model in (plan.Plan, plan.Data, plan.Intervention, plan.Op, plan.Forward, plan.Generate,
+                                        plan.OpStep, plan.Featurizer) if own(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:
         parts += [f"### {group.capitalize()}\n",

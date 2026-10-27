@@ -21,7 +21,7 @@ from typing import Any
 from clab import output
 from clab.docs import WHAT, as_json, describe, markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, dims_of, name, points
+from clab.plan import Plan, Run, name, points
 
 
 def how(run: Run) -> str:
@@ -33,8 +33,8 @@ def how(run: Run) -> str:
 
 def show(filled: Plan) -> str:
     """A filled plan as text: how it ran (of what was installed, clab's and python's versions), what each step
-    cost (`costs`), then each result with the step that made it, its dims, its sweep axes and its shape (per
-    coordinate when swept)."""
+    cost (`costs`), then each result with the step that made it, its dims (per coordinate when swept and its
+    points differ), its sweep axes and its shape (per coordinate when swept)."""
     run = filled.run
     assert run is not None
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
@@ -48,7 +48,8 @@ def show(filled: Plan) -> str:
         value = filled.results[saved]
         if isinstance(entry, list):
             value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
-        rows.append([saved, saved.partition(".")[0], ", ".join(dims_of(filled, saved)),
+        dims = output.layouts(filled, saved)["dims"]
+        rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
                      ", ".join(points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 

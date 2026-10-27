@@ -26,6 +26,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -46,6 +49,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "counterfactual.v_cf",
+     "width": 1,
      "gathered": true
     }
    },
@@ -64,14 +73,25 @@
      "ops": [
       {
        "op": "swap",
-       "with": "counterfactual.v_cf"
+       "with": "counterfactual.v_cf",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "patched.patch",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -83,6 +103,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "patched.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -92,34 +115,40 @@
    "kind": "op",
    "op": "kl",
    "of": "patched.logits",
-   "dataset": "pairs",
+   "against": "clean.logits",
    "dims": [
     "rows",
     "pos"
    ],
-   "against": "clean.logits"
+   "dataset": "pairs",
+   "read": "patched.logits",
+   "width": 1
   },
   "js": {
    "kind": "op",
    "op": "js",
    "of": "patched.logits",
-   "dataset": "pairs",
+   "against": "clean.logits",
    "dims": [
     "rows",
     "pos"
    ],
-   "against": "clean.logits"
+   "dataset": "pairs",
+   "read": "patched.logits",
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
    "op": "token_prob",
    "of": "patched.logits",
-   "dataset": "pairs",
+   "token": "pairs.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "pairs.cf_answer"
+   "dataset": "pairs",
+   "read": "patched.logits",
+   "width": 1
   }
  },
  "saves": [

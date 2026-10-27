@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, bundle_header, edited, on_each, same
+from conftest import BATCH_SIZE, bundle_header, dims, edited, on_each, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 from test_featurizers import every_kind
@@ -17,7 +17,7 @@ from clab import Plan, featurizers, ops
 from clab.docs import describe
 from clab.featurizers.gate import Gate
 from clab.format.sweeps import points
-from clab.plan import PlanError, dims_of
+from clab.plan import PlanError
 from clab.steps import batches
 
 G = torch.Generator().manual_seed(3)
@@ -142,8 +142,8 @@ def reconstructed(more: dict | None = None) -> Plan:
 
 def test_apply_writes_the_featurizers_version_back_on_both_engines(engines):
     plan = reconstructed()
-    assert dims_of(plan, "base.recon") == ["rows", "pos", "hidden_size"]
-    assert dims_of(plan, "base.latents") == ["rows", "pos", "features"]
+    assert dims(plan, "base.recon") == ["rows", "pos", "hidden_size"]
+    assert dims(plan, "base.latents") == ["rows", "pos", "features"]
     got = [engines(kind, plan.model).execute(reconstructed(), batch_size=BATCH_SIZE).results
            for kind in ("nnterp", "hooks")]
     assert same(*got)
@@ -224,7 +224,7 @@ def test_a_gate_over_pca_coordinates_patches_through_both(engines, tmp_path):
              "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": "cf"},
              "patched": {"kind": "forward", "input": "train.input", "interventions": "patch"}}
     plan = chained(root, steps, ["clean.h", "counterfactual.v", "counterfactual.v_cf", "patched.patch"])
-    assert dims_of(plan, "counterfactual.v_cf") == ["rows", "pos", "features"]
+    assert dims(plan, "counterfactual.v_cf") == ["rows", "pos", "features"]
     got = list(on_each(engines, plan).values())
     assert same(got[0].results, got[1].results)
     values = got[0].results

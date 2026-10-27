@@ -101,8 +101,8 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
     """The rows of a per-row table for dataset row ids `ids` (None: every row, the table as it is), in their order:
     a list's, a tensor's along `axis` (on its device), each of a dict's. The one way per-row data is indexed: a
     dataset's rows, an input's encoded rows, a read's positions, an answer's tokens, a column's texts and a value's
-    rows. A table holds every row of its dataset in order, or, a value a run of a fit's body made, the rows that
-    run is over (`among`)."""
+    rows. A table holds every row of its dataset in order, or the rows `among`, in that order (a value a run of a
+    fit's body made holds the rows that run was over: `batches.value_at`)."""
     if ids is None:
         return table
     at = ids if among is None else [among.index(i) for i in ids]

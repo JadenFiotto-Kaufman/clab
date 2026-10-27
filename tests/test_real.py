@@ -19,7 +19,7 @@ import statistics
 import pytest
 import torch
 import transformers
-from conftest import REAL, close, plain, plan_of, same, snapshot
+from conftest import REAL, close, placed, plain, plan_of, same, snapshot
 from huggingface_hub import try_to_load_from_cache
 
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
@@ -70,7 +70,7 @@ def test_each_steps_memory_is_its_peak_on_the_gpu_weights_included(engines, fill
 @pytest.mark.parametrize("name", [n for n in REAL if n not in INSIDE])
 def test_the_engines_agree_to_the_bit(filled, name):
     assert same(filled[name, "nnterp"].results, filled[name, "hooks"].results)
-    assert filled[name, "nnterp"].run.positions == filled[name, "hooks"].run.positions
+    assert placed(filled[name, "nnterp"]) == placed(filled[name, "hooks"])
 
 
 def test_hooks_refuses_the_attention_pattern(engines):

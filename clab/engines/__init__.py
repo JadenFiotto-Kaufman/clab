@@ -31,7 +31,8 @@ checked, by `rank`, that the read's site comes first; an engine that runs the pl
 resolve such an argument the same way. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
 block it loaded, `name` the name it registered under, `device` and `options` how it loaded, `remote` what its
-session's `remote=` is (False for a run in this process; under any other, `steps.run` makes no CUDA call).
+session's `remote=` is (False for a run in this process), and `cuda` the CUDA devices a step's cost measures the
+peak memory of: the model's, or none where the run is remote (the server's process is its own to account).
 """
 
 import inspect
@@ -62,6 +63,9 @@ class Engine(Protocol):
 
     @property
     def device(self) -> str | None: ...
+
+    @property
+    def cuda(self) -> list[str]: ...
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...
 

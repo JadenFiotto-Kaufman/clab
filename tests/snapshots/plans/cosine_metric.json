@@ -27,6 +27,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      1
+     ],
+     "read": "counterfactual.v_cf",
+     "width": 1,
      "gathered": true
     }
    },
@@ -54,6 +60,14 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0,
+      2,
+      4
+     ],
+     "read": "clean.resid",
+     "width": 2,
      "gathered": true
     }
    },
@@ -72,14 +86,25 @@
      "ops": [
       {
        "op": "swap",
-       "with": "counterfactual.v_cf"
+       "with": "counterfactual.v_cf",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "pairs",
+     "layers": [
+      1
+     ],
+     "read": "patched.patch",
+     "width": 1
     },
     "resid": {
      "site": {
@@ -99,6 +124,14 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0,
+      2,
+      4
+     ],
+     "read": "patched.resid",
+     "width": 2,
      "gathered": true
     }
    },
@@ -108,13 +141,20 @@
    "kind": "op",
    "op": "cosine",
    "of": "patched.resid",
-   "dataset": "pairs",
+   "with": "clean.resid",
    "dims": [
     "layers",
     "rows",
     "pos"
    ],
-   "with": "clean.resid"
+   "dataset": "pairs",
+   "layers": [
+    0,
+    2,
+    4
+   ],
+   "read": "patched.resid",
+   "width": 2
   }
  },
  "saves": [

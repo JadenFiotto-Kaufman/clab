@@ -54,14 +54,24 @@
        "ops": [
         {
          "op": "apply",
-         "featurizer": "fit.lora"
+         "featurizer": "fit.lora",
+         "dims": [
+          "rows",
+          "pos",
+          "hidden_size"
+         ]
         }
        ],
        "dims": [
         "rows",
         "pos",
         "hidden_size"
-       ]
+       ],
+       "dataset": "train",
+       "layers": [
+        0
+       ],
+       "read": "adapted.adapt"
       },
       "logits": {
        "site": {
@@ -73,6 +83,9 @@
         "pos",
         "vocab_size"
        ],
+       "dataset": "train",
+       "read": "adapted.logits",
+       "width": 1,
        "gathered": true
       }
      },
@@ -82,12 +95,14 @@
      "kind": "op",
      "op": "cross_entropy",
      "of": "adapted.logits",
-     "dataset": "train",
+     "target": "train.cf_answer",
      "dims": [
       "rows",
       "pos"
      ],
-     "target": "train.cf_answer"
+     "dataset": "train",
+     "read": "adapted.logits",
+     "width": 1
     }
    },
    "eval": {

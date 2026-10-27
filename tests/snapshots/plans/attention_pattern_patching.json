@@ -33,6 +33,17 @@
        "num_heads",
        "key"
       ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.their_pattern",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        0
+       ]
+      },
       "gathered": true
      }
     },
@@ -60,6 +71,17 @@
        "num_heads",
        "key"
       ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.their_pattern",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        1
+       ]
+      },
       "gathered": true
      }
     },
@@ -87,6 +109,17 @@
        "num_heads",
        "key"
       ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.their_pattern",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        2
+       ]
+      },
       "gathered": true
      }
     },
@@ -114,6 +147,17 @@
        "num_heads",
        "key"
       ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.their_pattern",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        3
+       ]
+      },
       "gathered": true
      }
     },
@@ -140,7 +184,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -148,7 +198,18 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "patched.look_there",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        0
+       ]
+      }
      },
      "logits": {
       "site": {
@@ -160,6 +221,9 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "pairs",
+      "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -184,7 +248,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -192,7 +262,18 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "patched.look_there",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        1
+       ]
+      }
      },
      "logits": {
       "site": {
@@ -204,6 +285,9 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "pairs",
+      "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -228,7 +312,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -236,7 +326,18 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "patched.look_there",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        2
+       ]
+      }
      },
      "logits": {
       "site": {
@@ -248,6 +349,9 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "pairs",
+      "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -272,7 +376,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -280,7 +390,18 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "patched.look_there",
+      "width": 1,
+      "kept": {
+       "num_heads": [
+        3
+       ]
+      }
      },
      "logits": {
       "site": {
@@ -292,6 +413,9 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "pairs",
+      "read": "patched.logits",
+      "width": 1,
       "gathered": true
      }
     },
@@ -306,57 +430,65 @@
     "kind": "op",
     "op": "match",
     "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 0
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "pairs.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 1
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "pairs.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "patched.logits",
+    "expected": "pairs.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 2
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "pairs.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "patched.logits",
-    "at": {
-     "num_heads": 3
-    },
-    "dataset": "pairs",
+    "expected": "pairs.cf_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "expected": "pairs.cf_answer"
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
+    "at": {
+     "num_heads": 3
+    }
    }
   ],
   "logit_diff": [
@@ -364,61 +496,69 @@
     "kind": "op",
     "op": "logit_diff",
     "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 0
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 1
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "patched.logits",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
     "at": {
      "num_heads": 2
-    },
-    "dataset": "pairs",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "patched.logits",
-    "at": {
-     "num_heads": 3
-    },
-    "dataset": "pairs",
+    "a": "pairs.cf_answer",
+    "b": "pairs.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "a": "pairs.cf_answer",
-    "b": "pairs.base_answer"
+    "dataset": "pairs",
+    "read": "patched.logits",
+    "width": 1,
+    "at": {
+     "num_heads": 3
+    }
    }
   ]
  },
@@ -430,9 +570,6 @@
  "compiled": true,
  "sweeps": {
   "num_heads": {
-   "paths": [
-    "sites.one_head.select.num_heads"
-   ],
    "values": [
     0,
     1,

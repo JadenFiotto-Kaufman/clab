@@ -38,7 +38,17 @@
      "ops": [
       {
        "op": "encode",
-       "featurizer": "dictionary"
+       "featurizer": "dictionary",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ],
+       "space": [
+        {
+         "featurizer": "dictionary"
+        }
+       ]
       }
      ],
      "dims": [
@@ -46,6 +56,12 @@
       "pos",
       "features"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "base.latents",
+     "width": 1,
      "space": [
       {
        "featurizer": "dictionary"
@@ -69,14 +85,25 @@
      "ops": [
       {
        "op": "apply",
-       "featurizer": "dictionary"
+       "featurizer": "dictionary",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "spliced.reconstruct",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -88,6 +115,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "spliced.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -97,12 +127,14 @@
    "kind": "op",
    "op": "token_prob",
    "of": "spliced.logits",
-   "dataset": "prompts",
+   "token": "prompts.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "prompts.cf_answer"
+   "dataset": "prompts",
+   "read": "spliced.logits",
+   "width": 1
   }
  },
  "saves": [

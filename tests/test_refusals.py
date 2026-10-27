@@ -58,28 +58,28 @@ SWAP = {"op": "swap", "with": "counterfactual.v_cf"}
 
 
 @pytest.mark.parametrize("ops, message", [
-    ([DEC], r"patch\.ops\[0\]: decode of 'rot' closes no encode: none is open in this entry here"),
-    ([ENC, SWAP, DEC, DEC], r"patch\.ops\[3\]: decode of 'rot' closes no encode"),
-    ([ENC, SWAP], r"patch\.ops\[1\]: the entry writes back here with the encode of 'rot' \(ops\[0\]\) still open; "
+    ([DEC], r"patch\.ops\[0\] at seed=0: decode of 'rot' closes no encode: none is open in this entry here"),
+    ([ENC, SWAP, DEC, DEC], r"patch\.ops\[3\] at seed=0: decode of 'rot' closes no encode"),
+    ([ENC, SWAP], r"patch\.ops\[1\] at seed=0: the entry writes back here with the encode of 'rot' \(ops\[0\]\) still open; "
                   r"close it with \{'op': 'decode', 'featurizer': 'rot'\}"),
     ([ENC, {"op": "encode", "featurizer": "other"}, SWAP, DEC, {"op": "decode", "featurizer": "other"}],
-     r"patch\.ops\[3\]: decode of 'rot', and the open encode is of 'other' \(ops\[1\]\); close 'other' first: a "
+     r"patch\.ops\[3\] at seed=0: decode of 'rot', and the open encode is of 'other' \(ops\[1\]\); close 'other' first: a "
      r"decode closes the most recent encode not yet closed"),
     ([{"op": "readout"}, {"op": "scale", "factor": 2.0}],
      r"patch\.ops\[1\]: 'scale' is an edit, which writes back, and it follows 'readout', which turned the value into "
      r"\['rows', 'pos', 'vocab_size'\]: there is no live value to write"),
     ([ENC, {"op": "mean", "over": ["features"]}, DEC],
-     r"patch\.ops\[2\]: 'decode' is an edit, which writes back, and it follows 'mean'"),
+     r"patch\.ops\[2\] at seed=0: 'decode' is an edit, which writes back, and it follows 'mean'"),
     ([{"op": "swap", "with": 0.0}, ENC, {"op": "scale", "factor": 2.0}, DEC], None),
     ([ENC, {"op": "swap", "with": "counterfactual.raw"}, DEC],
-     r"patch\.ops\[1\]\.with: 'counterfactual\.raw' is in the site's own layout; this bracket is in the coordinates "
+     r"patch\.ops\[1\]\.with at seed=0: 'counterfactual\.raw' is in the site's own layout; this bracket is in the coordinates "
      r"of 'rot', so an operand is encoded as it is"),
-    ([SWAP], r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' is in the coordinates of 'rot'; this write is in the "
+    ([SWAP], r"patch\.ops\[0\]\.with at seed=0: 'counterfactual\.v_cf' is in the coordinates of 'rot'; this write is in the "
              r"site's own layout"),
     ([ENC, {"op": "apply", "featurizer": "rot"}, DEC],
-     r"patch\.ops\[1\]: 'apply' of 'rot' at ops\[1\] is inside the encode of 'rot' \(ops\[0\]\), so it would act on "
+     r"patch\.ops\[1\] at seed=0: 'apply' of 'rot' at ops\[1\] is inside the encode of 'rot' \(ops\[0\]\), so it would act on "
      r"'rot''s own coordinates; put it before that encode or after the decode that closes it"),
-    ([ENC, {"op": "encode", "featurizer": "rot"}, DEC, DEC], r"patch\.ops\[1\]: 'encode' of 'rot' at ops\[1\] is inside"),
+    ([ENC, {"op": "encode", "featurizer": "rot"}, DEC, DEC], r"patch\.ops\[1\] at seed=0: 'encode' of 'rot' at ops\[1\] is inside"),
     ([{"op": "encode", "featurizer": "probe"}, {"op": "swap", "with": 0.0}, {"op": "decode", "featurizer": "probe"}],
      r"patch\.ops\[2\]\.featurizer: 'probe' is a 'linear' featurizer, which has no decode: it serves encode; it has "
      r"no way back into the value"),
@@ -92,7 +92,9 @@ def test_a_bracket_is_refused_at_compile_by_name(ops, message):
     """Within an entry each decode closes the most recent encode not yet closed, of the same featurizer, and an
     entry writes back with none open; an edit follows no op that changed the layout but an open encode; between
     the brackets an operand is laid out on the coordinates; and a featurizer serves only the ops its kind has. An
-    edit before an encode, and one inside a bracket after it, are fine."""
+    edit before an encode, and one inside a bracket after it, are fine. random_subspace sweeps `rot`'s seed, so a
+    refusal in an entry that names `rot` names the point it is at (the first, `seed=0`); one in an entry that
+    does not is at no point."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["raw"] = {"site": "target", "pos": -1}
     more = {"other": {"kind": "subspace", "k": 4, "seed": 1},
@@ -119,15 +121,15 @@ def test_an_operand_in_other_coordinates_is_refused_by_name(k, select):
         d["steps"]["counterfactual"]["interventions"]["v_cf"]["ops"] = [
             {"op": "encode", "featurizer": "rot" if select else "rot3", **({"select": select} if select else {})}]
     theirs = r"'rot' \(select \{'features': \[0, 1\]\}\)" if select else r"'rot3'"
-    with pytest.raises(PlanError, match=r"patched\.interventions\.patch\.ops\[1\]\.with: 'counterfactual\.v_cf' is in the "
-                                        rf"coordinates of {theirs}; this bracket is in the coordinates of 'rot'"):
+    with pytest.raises(PlanError, match=r"patched\.interventions\.patch\.ops\[1\]\.with at seed=0: 'counterfactual\.v_cf' is "
+                                        rf"in the coordinates of {theirs}; this bracket is in the coordinates of 'rot'"):
         edited("random_subspace", change).compile()
 
 
 def test_decode_runs_only_inside_the_entry_that_encodes():
     def change(d):
         d["steps"]["text"] = {"kind": "op", "op": "decode", "of": "counterfactual.v_cf", "featurizer": "rot"}
-    with pytest.raises(PlanError, match=r"steps\.text: decode closes an encode of its own entry, so it runs inside the "
+    with pytest.raises(PlanError, match=r"steps\.text at seed=0: decode closes an encode of its own entry, so it runs inside the "
                                         r"entry that encodes.*\(detokenize turns a generation's ids into text\)"):
         edited("random_subspace", change).compile()
 
@@ -208,7 +210,8 @@ def test_an_operand_must_have_the_writes_layout():
         d["steps"]["counterfactual"]["interventions"]["logits"] = {"site": {"component": "lm_head_output"}, "pos": -1}
         d["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "counterfactual.logits"
     with pytest.raises(PlanError, match=r"'counterfactual\.logits' is laid out \['rows', 'pos', 'vocab_size'\]; "
-                                        r"this write's value is \['rows', 'pos', 'hidden_size'\] here"):
+                                        r"'swap' acts on a value laid out \['rows', 'pos', 'hidden_size'\], and an "
+                                        r"operand's axes are among the value's, in its order"):
         edited("patching", change).compile()
 
 
@@ -302,11 +305,14 @@ def test_a_select_on_key_outside_the_shortest_row_is_refused(engines, selector):
         forwards == 0
 
 
-def test_an_operand_of_another_width_is_refused(engines):
+def test_an_operand_of_another_width_is_refused():
+    """window_patch's write is three positions wide; an operand read at one is refused when the plan compiles,
+    both widths being static."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = -1
-    text, forwards = refused(engines, edited("window_patch", change).compile())
-    assert text.startswith("patched.patch: operand 'counterfactual.v_cf' is 1 token(s) wide") and forwards == 0, text
+    with pytest.raises(PlanError, match=r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' holds 1 position\(s\) per row "
+                                        r"and the value 'swap' acts on holds 3; position i meets position i"):
+        edited("window_patch", change).compile()
 
 
 def test_a_pattern_from_an_input_of_other_lengths_is_refused(engines):
@@ -380,12 +386,11 @@ def test_a_write_with_a_static_width_refuses_an_operand_without_one():
     def change(pos, d):
         d["steps"]["ablated"]["interventions"]["ablate"]["pos"] = pos
         d["steps"]["ablated"]["interventions"]["ablate"]["ops"] = [{"op": "swap", "with": "harvest.acts"}]
-    with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of positions "
-                                        r"on each row, which pair with no static width's; read it at a static index"):
-        edited("entity_mean_ablation", lambda d: change({"index": "-3:"}, d)).compile()
-    with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of positions "
-                                        r"on each row, which another forward's positions need not pair with"):
-        edited("entity_mean_ablation", lambda d: change({"scope": {"column": "prompts.entity"}, "index": ":"}, d)).compile()
+    for pos in ({"index": "-3:"}, {"scope": {"column": "prompts.entity"}, "index": ":"}):
+        with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of "
+                                            r"positions on each row, which pair with no other value's; read both at a "
+                                            r"static index"):
+            edited("entity_mean_ablation", lambda d: change(pos, d)).compile()
 
 
 def test_a_quantized_dtype_names_what_it_computes_in():

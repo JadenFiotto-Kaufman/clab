@@ -247,19 +247,22 @@ plan itself, without the rows it read from files (a hub dataset's never were in 
 replaced by where it is and what it is:
 
 ```json
-"results": {"iia": {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": ["pos"],
+"results": {"iia": {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "dataset": "pairs",
+                    "read": "patched.logits", "axes": ["pos"],
                     "shape": {"pos=-1": [4, 1], "pos=-2": [4, 1], "pos=-3": [4, 1]}, "dtype": {...}}}
 ```
 
-`step` names the step that made the value, and the manifest's `steps` hold that step as compiled (its entries
-one dict in execution order, each marked `gathered` when the run takes its value off the model), so a result
-links back to what computed it. `run.tokens` holds each input's tokens per row and `run.positions` the token
-every entry resolved to, which is how `table` labels `pos_token`.
+`step` names the step that made the value, and `dims` and the labels after it are the value's layout as its
+record holds it (`dataset`, `layers`, `read`, `kept`, `space`, those it has; per coordinate, like `shape`, where
+a swept step's points differ). The manifest's `steps` hold each step as the run completed it (its entries one dict
+in execution order, each with its labels, marked `gathered` when the run takes its value off the model, and with
+the `positions` every read and write resolved to per row, which is how `table` labels `pos_token`), so a result
+links back to what computed it. `run.tokens` holds each input's tokens per row.
 
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
 `pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an
 appended EOS included. A
-document's `pos`, `run.positions`, `table`'s `pos` and `key`, an attention pattern's
+document's `pos`, a record's `positions`, `table`'s `pos` and `key`, an attention pattern's
 `key` axis (each row's own keys, NaN past a shorter row's) and every refusal that counts tokens number them
 the same way.
 

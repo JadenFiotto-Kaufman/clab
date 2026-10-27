@@ -8,16 +8,18 @@ nothing else, except that a bundle a featurizer loads (the value of an op that d
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
-`manifest.json` is the compiled plan without the rows it read from files (a hub dataset's never were there; `table`
-loads either again, from its file or the hub, and checks it against its `sha256`, as `dump` does a probe's classes
-dataset for the header of the bundle it saves) and without bundle tensors, its `results` each replaced by
-`{file, step, dims, axes, shape, dtype}`: that is how a result links back to the step that made it. It records the
-document's path relative to the corpus root, and each dataset's `n_rows`.
-`shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
-tokenized, what each generate step's rows generated, which position (as `pos` counts them: an index into the
-row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
-`table` uses to label positions, and what each step cost (`costs`: its seconds, its peak memory on each CUDA
-device, its model calls and the tokens they fed). Values are never in the manifest.
+`manifest.json` is the compiled plan as the run completed it, without the rows it read from files (a hub dataset's
+never were there; `table` loads either again, from its file or the hub, and checks it against its `sha256`, as
+`dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
+`results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
+its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), once
+where every point agrees, else per point by coordinate, as `shape` and `dtype` are, so that a result links back to
+the step that made it and says what each point of it is. It records the document's path relative to the corpus
+root, and each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and
+write, the positions it resolved to per row, which `table` uses to label positions; its `featurizers` each one's
+width; its `run` holds how each input tokenized, what each generate step's rows generated, the model's sizes, and
+what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
+they fed). Values are never in the manifest.
 """
 
 import json
@@ -31,12 +33,13 @@ from torch import Tensor
 from clab import ops
 from clab.compile import materialized
 from clab.compile.uses import uses
-from clab.featurizers import KINDS, bundles, labels
-from clab.format import selectors
+from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
-from clab.output.table import provenance
-from clab.plan import Entry, Plan, Site, Step, agreeing, arguments, dims_of, entry_of, kind_of, points, scope
+from clab.plan import Entry, Intervention, Labelled, Plan, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
 from clab.plan import name as named
+
+# The labels a result's manifest record carries beside `dims`, each where the value has one.
+LABELS = ("dataset", "layers", "read", "width", "kept", "space")
 
 
 def dump(plan: Plan, out: str) -> None:
@@ -56,7 +59,7 @@ def dump(plan: Plan, out: str) -> None:
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
-        described[name] = {"file": file, "step": name.partition(".")[0], "dims": dims_of(plan, name),
+        described[name] = {"file": file, "step": name.partition(".")[0], **layouts(plan, name),
                            "axes": list(points(entry)[0].at), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True)
@@ -65,7 +68,39 @@ def dump(plan: Plan, out: str) -> None:
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        json.dump({**manifest, "results": described}, f, indent=1, ensure_ascii=False)
+        f.write(pretty({**manifest, "results": described}) + "\n")
+
+
+def pretty(value: Any, level: int = 0) -> str:
+    """JSON indented one space per level, as `json.dump(indent=1)` writes it, except that a list holding no object
+    (positions per row, a shape, a `layers` label) stays on one line, so the manifest reads as rows."""
+    pad = " " * (level + 1)
+    if isinstance(value, dict) and value:
+        inner = ",\n".join(f"{pad}{json.dumps(k, ensure_ascii=False)}: {pretty(v, level + 1)}" for k, v in value.items())
+        return "{\n" + inner + "\n" + " " * level + "}"
+    if isinstance(value, list) and any(isinstance(v, dict) for v in value):
+        return "[\n" + ",\n".join(f"{pad}{pretty(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
+    return json.dumps(value, ensure_ascii=False)
+
+
+def layouts(plan: Plan, name: str) -> dict[str, Any]:
+    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where its step is
+    not swept or every point agrees, else per point by coordinate, as the manifest records a result's `shape`."""
+    entry = plan.steps[name.partition(".")[0]]
+    per = {labelled(plan, p.at): layout(record_of(plan.steps, name, p.at)) for p in points(entry)}
+    if not isinstance(entry, list):
+        return per[""]
+    out = {}
+    for key in ("dims", *LABELS):
+        each = {c: v.get(key) for c, v in per.items()}
+        if any(v is not None for v in each.values()):
+            out[key] = next(iter(each.values())) if len({json.dumps(v) for v in each.values()}) == 1 else each
+    return out
+
+
+def layout(record: Labelled) -> dict[str, Any]:
+    """A value's `dims` and the labels it has, as JSON (`dims` always: a value with no axes has `[]`)."""
+    return {"dims": record.dims, **{k: v for k in LABELS if (v := getattr(record, k)) not in (None, {}, [])}}
 
 
 def write(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
@@ -146,10 +181,10 @@ def headed(plan: Plan, name: str, entry: Entry) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
     if not isinstance(entry, list):
-        return header(plan, name, plan.results[name], entry)
+        return header(plan, name, entry)
     found: dict[str, str] = {}
     for p in entry:
-        point = header(plan, name, plan.results[name][coordinate(plan, p.at)], p)
+        point = header(plan, name, p)
         if point is None:
             return None
         found["format"] = point.pop("format")
@@ -157,33 +192,39 @@ def headed(plan: Plan, name: str, entry: Entry) -> dict[str, str] | None:
     return found
 
 
-def header(plan: Plan, name: str, value: Any, step: Step) -> dict[str, str] | None:
-    """A bundle's header, when the value is one (`value`, at `step`, the point that made it): an op step's whose op
-    declares the featurizer kind its bundle is for, made at the site of the read it was taken over, or a fit's
-    trained featurizer, made at the first site it is used at."""
+def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
+    """A bundle's header, when the value is one (at `step`, the point that made it), written from the records: an
+    op step's whose op declares the featurizer kind its bundle is for, made at the site of the read it was taken
+    over, as wide as that read's feature axis; or a fit's trained featurizer, made at the first site it is used at,
+    as wide as its record says (`Featurizer.width`)."""
+    assert plan.run is not None
     member = name.partition(".")[2]
     if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
-        site = entry_of(plan.steps, provenance(plan, name)[0] or "", step.at)[1].site
+        value = record_of(plan.steps, name, step.at)
+        read = record_of(plan.steps, value.read or "", step.at)
+        site = at_layers(read)
+        width = len(value.kept["hidden_size"]) if "hidden_size" in value.kept else plan.run.sizes["hidden_size"]
         reads = None
     elif step.kind == "fit" and member in step.train:
-        kind, fields = kind_of(plan, member), agreeing(plan.featurizers[member], step.at).model_extra or {}
+        trained = agreeing(plan.featurizers[member], step.at)
+        kind, fields = kind_of(plan, member), trained.model_extra or {}
         used = uses(plan)[member]
-        where, site, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
+        where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
         given = arguments(o).get("with")
-        reads = entry_of(scope(plan, where), given, step.at)[1].site if given else None
+        site, width = at_layers(read), trained.width
+        reads = at_layers(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:
         return None
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
     classes = labels({dataset: materialized(plan, dataset)}, fields["classes"]) if dataset else None
-    site, reads = (counted(plan, s) for s in (site, reads))
-    return bundles.header(kind, fields, plan.model, classes, site, KINDS[kind].width(value), named(plan), reads)
+    return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads)
 
 
-def counted(plan: Plan, site: Site | None) -> Site | None:
-    """A site with the layers it was made at counted from the first, as a header records them: one int for one
-    layer, a list for several."""
-    if site is None or site.layers is None or plan.run is None or plan.run.num_layers is None:
-        return site
-    made = selectors.made_at(site, plan.run.num_layers)
-    return site.model_copy(update={"layers": made[0] if len(made) == 1 else made})
+def at_layers(read: Labelled) -> Site:
+    """A read's site with the layers its record says it was made at, counted from the first, as a header records
+    them: one int for one layer, a list for several."""
+    assert isinstance(read, Intervention)
+    site, made = read.site, read.layers
+    assert isinstance(site, Site)
+    return site if made is None else site.model_copy(update={"layers": made[0] if len(made) == 1 else made})

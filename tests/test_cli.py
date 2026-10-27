@@ -1,5 +1,7 @@
 """`clab show` and `clab table`: `Plan.load` and one call each, printed."""
 
+import json
+
 import pytest
 from conftest import BATCH_SIZE, ROOT, plan_of
 
@@ -27,6 +29,20 @@ def test_show_prints_how_it_ran_what_each_step_cost_and_each_result(out, capsys)
     assert shown[12].split() == ["p_answer", "p_answer", "rows,", "pos", "frame",
                                  '{"frame=0":[4,1],"frame=1":[4,1],"frame=2":[4,1]}']
     assert shown[13].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
+
+
+@pytest.mark.parametrize("name", ["generated_contains", "das"])
+def test_show_prints_a_value_with_no_axes_and_the_manifest_keeps_its_dims(engines, tmp_path, capsys, name):
+    """A `mean` over everything (generated_contains's `acc`) and a trained featurizer (das's `fit.rot`) have no
+    axes: `show` prints them with the rest, `[]`, and the manifest records their `dims` as it does every value's."""
+    plan = plan_of(name)
+    engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    assert main(["show", str(tmp_path)]) == 0
+    shown = capsys.readouterr().out
+    assert all(any(line.split()[:1] == [saved] for line in shown.splitlines()) for saved in plan.saves)
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    assert all("dims" in manifest["results"][saved] for saved in plan.saves)
+    assert manifest["results"]["acc" if name == "generated_contains" else "fit.rot"]["dims"] == []
 
 
 def test_table_prints_aligned_columns_or_csv(out, capsys, monkeypatch):

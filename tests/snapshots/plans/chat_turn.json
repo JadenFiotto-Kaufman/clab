@@ -31,14 +31,25 @@
      "ops": [
       {
        "op": "swap",
-       "with": 0.0
+       "with": 0.0,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "chats",
+     "layers": [
+      0
+     ],
+     "read": "blanked.blank",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -50,6 +61,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "chats",
+     "read": "blanked.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -59,12 +73,14 @@
    "kind": "op",
    "op": "token_prob",
    "of": "blanked.logits",
-   "dataset": "chats",
+   "token": "chats.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "chats.base_answer"
+   "dataset": "chats",
+   "read": "blanked.logits",
+   "width": 1
   }
  },
  "saves": [

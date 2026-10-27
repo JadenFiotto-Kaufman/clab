@@ -12,7 +12,7 @@ from clab.compile import positions
 from clab.compile.positions import head, place, texts
 from clab.compile.state import Found
 from clab.format import address, data
-from clab.format.sweeps import lookup, put
+from clab.format.sweeps import put
 from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, horizon, writes
 from clab.steps.batches import (
     bind,
@@ -22,8 +22,10 @@ from clab.steps.batches import (
     fed,
     joined,
     layers,
+    over,
     read,
     read_name,
+    read_over,
     site,
     stacked,
     with_ops,
@@ -49,7 +51,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     An entry in the prefill (`frame: 0`) binds as a forward's (`bind`); one beyond it goes to the engine in
     parts (`beyond`) and resolves after the generation from what each row generated (`landed_at`); a row that
     stopped before a call a write selects is not written there and is recorded as missing. The resolution is
-    recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
+    recorded per row on the entry's record (`positions`) and each row's continuation, as token strings, in
     `plan.run.tokens[<step>]`, by a run over every row (not over a fit's minibatch). A batch whose rows all stopped
     early makes fewer calls; its ids are filled after their EOS to the longest batch's. Returns the model calls it
     made, one per new token of each batch (its prefill, then a decode call per token after the first), and the
@@ -60,10 +62,10 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     every = entries(step)
     first = {k for k, r in every.items() if positions.prefill(positions.parse(r.pos))}
     after = {k: r for k, r in every.items() if k not in first}
-    picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
+    picks = {key: record.kept for key, record in after.items()}
     parts, new, resolved, count = [], [], {f"{name}.{key}": [] for key in after}, Counter()
     most = horizon(step)
-    for ids, batch, pads in chunked(engine, step, found, batch_size):
+    for ids, batch, pads in chunked(engine, step, state, found, batch_size):
         sites, records = bind(engine, plan, name, step, state, found, ids, pads, first)
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         for key, record in after.items():
@@ -89,9 +91,9 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     width = max(x.shape[1] for x in new)
     tokens = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
     put(state, name, step.at, tokens)
-    if found.ids is None:
-        for where, per_row in resolved.items():
-            put(found.positions, where, step.at, per_row)
+    if over(state) is None:          # a run over every row records where each record landed, on the record
+        for key, record in after.items():
+            record.positions = {**record.positions, read_over(step, found): resolved[f"{name}.{key}"]}
         put(found.said, name, step.at,
             [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in tokens.tolist()])
     return count
@@ -115,7 +117,7 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
             if pos["scope"] else {}
         where = [positions.prompted(p, head_only) for p in prompts]
         for layer in layers(engine, record):
-            edits = edit(plan, record, state, step.at, ids, found, layer, engine.sizes())
+            edits = edit(plan, record, state, step.at, ids, found, layer)
             if holds:
                 out.append({**site(record, picks, where, pads, padded, head_only), "layer": layer, "ops": edits})
             out.append({**decoding(record, picks, prompts), "layer": layer, "ops": edits,

@@ -28,6 +28,10 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "pairs",
+     "layers": [],
+     "read": "harvest.acts",
+     "width": 1,
      "gathered": true
     }
    },
@@ -37,11 +41,13 @@
    "kind": "op",
    "op": "mean",
    "of": "harvest.acts",
-   "dataset": "pairs",
    "dims": [
     "layers",
     "hidden_size"
-   ]
+   ],
+   "dataset": "pairs",
+   "layers": [],
+   "read": "harvest.acts"
   },
   "ablated": {
    "kind": "forward",
@@ -55,11 +61,20 @@
      "ops": [
       {
        "op": "project_out",
-       "direction": "direction"
+       "direction": "direction",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       },
       {
        "op": "cosine",
-       "with": "direction"
+       "with": "direction",
+       "dims": [
+        "rows",
+        "pos"
+       ]
       }
      ],
      "dims": [
@@ -67,6 +82,9 @@
       "rows",
       "pos"
      ],
+     "dataset": "pairs",
+     "layers": [],
+     "read": "ablated.ablate",
      "gathered": true
     },
     "logits": {
@@ -79,6 +97,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "ablated.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -88,13 +109,15 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "ablated.logits",
-   "dataset": "pairs",
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "pairs.cf_answer",
-   "b": "pairs.base_answer"
+   "dataset": "pairs",
+   "read": "ablated.logits",
+   "width": 1
   }
  },
  "saves": [

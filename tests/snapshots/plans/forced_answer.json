@@ -36,6 +36,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "days",
+     "read": "forced.logits",
      "gathered": true
     }
    },
@@ -45,59 +47,64 @@
    "kind": "op",
    "op": "cross_entropy",
    "of": "forced.logits",
-   "dataset": "days",
+   "target": "days.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "target": "days.base_answer"
+   "dataset": "days",
+   "read": "forced.logits"
   },
   "seq_nll": {
    "kind": "op",
    "op": "sum",
    "of": "nll",
-   "dataset": "days",
+   "over": [
+    "pos"
+   ],
    "dims": [
     "rows"
    ],
-   "over": [
-    "pos"
-   ]
+   "dataset": "days",
+   "read": "forced.logits"
   },
   "hit": {
    "kind": "op",
    "op": "match",
    "of": "forced.logits",
-   "dataset": "days",
+   "expected": "days.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "expected": "days.base_answer"
+   "dataset": "days",
+   "read": "forced.logits"
   },
   "exact": {
    "kind": "op",
    "op": "min",
    "of": "hit",
-   "dataset": "days",
+   "over": [
+    "pos"
+   ],
    "dims": [
     "rows"
    ],
-   "over": [
-    "pos"
-   ]
+   "dataset": "days",
+   "read": "forced.logits"
   },
   "per_tok": {
    "kind": "op",
    "op": "mean",
    "of": "hit",
-   "dataset": "days",
+   "over": [
+    "pos"
+   ],
    "dims": [
     "rows"
    ],
-   "over": [
-    "pos"
-   ]
+   "dataset": "days",
+   "read": "forced.logits"
   }
  },
  "saves": [

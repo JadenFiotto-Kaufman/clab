@@ -13,28 +13,15 @@ from pydantic import ValidationError
 from torch import Tensor
 
 from clab import ops
-from clab.compile import positions
 from clab.compile.state import Compiling, Found
 from clab.format import data
-from clab.format.sweeps import lookup
 from clab.ops.metrics import ONE_ID
-from clab.plan import Column, Plan, arguments, body_view, declared, entries, fail, held_rows, points
+from clab.plan import Column, Plan, declared, fail, held_rows
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
 
     from clab.engines import Engine
-
-
-def probe_of(plan: Plan, name: str) -> str:
-    """The probe whose `encode` made value `name`'s `classes` axis, as referenced where it was encoded."""
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    if step.kind == "op":
-        return arguments(step)["featurizer"] if step.op == "encode" else probe_of(plan, step.of)
-    if step.kind == "fit":
-        return probe_of(body_view(plan, thing), member.partition(".")[2])
-    return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")
 
 
 def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> str:
@@ -138,25 +125,6 @@ def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str
             raise ValueError(f"{where}: {e}") from None
         found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets))
     return found.answers[key]
-
-
-def placed(plan: Plan, found: Found, name: str, at: dict) -> tuple[list[list[int]] | None, list[list[int]] | None]:
-    """The positions per row of the read value `name`'s positions are (following `of` through op steps), where
-    they are known before the run, else None; and each row's input ids where that read is a scope that is
-    `before` (whose next tokens an answer scores), else None."""
-    while True:
-        thing, _, member = name.partition(".")
-        step = points(plan.steps[thing])[0]
-        if step.kind != "op":
-            break
-        name = step.of
-    try:
-        where = lookup(found.positions, name, at)
-    except KeyError:
-        return None, None
-    scope = positions.parse(entries(step)[member].pos)["scope"] or {}     # only an entry holds positions
-    return where, [e["ids"] for e in found.inputs[data.input_name(step.input)]["rows"]] \
-        if scope.get("before") else None
 
 
 def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict, swap: dict) -> None:

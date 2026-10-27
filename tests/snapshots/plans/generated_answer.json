@@ -32,6 +32,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "answer.at_said",
      "gathered": true
     },
     "at_last": {
@@ -45,24 +47,27 @@
       "rows",
       "pos",
       "vocab_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "read": "answer.at_last"
     }
    },
-   "dataset": "prompts",
    "max_new_tokens": 6,
    "min_new_tokens": 6,
-   "do_sample": false
+   "do_sample": false,
+   "dataset": "prompts"
   },
   "p_answer": {
    "kind": "op",
    "op": "token_prob",
    "of": "answer.at_said",
-   "dataset": "prompts",
+   "token": "prompts.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "prompts.cf_answer"
+   "dataset": "prompts",
+   "read": "answer.at_said"
   }
  },
  "saves": [

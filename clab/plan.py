@@ -65,6 +65,15 @@ class Record(BaseModel):
                     raise ValueError(f"unknown field {key!r}; valid: {', '.join(documented(cls))}")
         return given
 
+    @model_serializer(mode="wrap")
+    def _derived_last(self, handler: SerializerFunctionWrapHandler) -> Any:
+        """The record as written: the document's fields first, then what compile or the run derived."""
+        dumped = handler(self)
+        if not isinstance(dumped, dict):
+            return dumped
+        later = [k for k in type(self).model_fields if k not in documented(type(self))]
+        return {**{k: v for k, v in dumped.items() if k not in later}, **{k: v for k, v in dumped.items() if k in later}}
+
 
 def documented(cls: type[BaseModel]) -> list[str]:
     """The fields a document writes: every field but the derived ones."""
@@ -333,8 +342,8 @@ class Pos(Record):
 
     **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
     a chat template's markers, everything but padding, an appended EOS included** (`pos: 0` is BOS where there
-    is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: the
-    run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+    is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a
+    record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
     refusal's token counts.
 
     ```
@@ -435,6 +444,10 @@ class Op(Record):
     """An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops)."""
     model_config = ConfigDict(extra="allow")
     op: str
+    dims: list[str] | None = derived(None, "the layout of the op's value, at each layer the entry is made at (the "
+                                           "op after it meets it; the first meets the site's selection)")
+    space: list[dict] = derived([], "the coordinates the op's value is in: the encodes open after it, outermost "
+                                    "first, each its `featurizer` and `select`; none in the site's own layout")
 
     @model_validator(mode="after")
     def _arguments(self) -> "Op":
@@ -447,13 +460,38 @@ def arguments(op: "Op | OpStep") -> dict[str, Any]:
     return dict(op.model_extra or {})
 
 
+class Labelled(Record):
+    """A value's labelled layout, derived: the fields the record of every value carries (an entry's, an op step's, a
+    generation's), which compile writes as far as the document decides them and preflight completes with the model
+    in hand, so that every reader of a value's axes, labels, rows or positions reads its record and nothing else."""
+    dims: list[str] | None = derived(None, "the layout of the value: its axes, in order")
+    dataset: str | None = derived(None, DATASET)
+    layers: list[int] | None = derived(None, "the model layers the value is from, in the order its site picks them: "
+                                             "the labels of its `layers` axis where it has one, the one layer it was "
+                                             "read at where not; null for a value from no layer (a model's own, or "
+                                             "one reduced over its layers); `[]` until preflight resolves a slice or "
+                                             "a layer counted from the last")
+    read: str | None = derived(None, "the entry whose value this is, or descends from through op steps, whose "
+                                     "positions it holds where it has a `pos` axis; null for a value no read made")
+    width: int | None = derived(None, "how many positions the value holds on every row, where it has a `pos` axis "
+                                      "and that is one number: the static width its read's `pos` names, confirmed "
+                                      "from the positions preflight resolves; null where rows hold different numbers "
+                                      "of positions, or there is no `pos` axis")
+    kept: dict[str, list[int]] = derived({}, "the indices a site's `select` keeps on each axis it selects, in their "
+                                             "order (`key`: the keys it picks), an op step's those of the value it is "
+                                             "over on the axes its own still has; an unselected axis is whole, and "
+                                             "`[]` stands until preflight resolves a slice or a negative pick")
+    space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
+                                    "first, each its `featurizer` and `select`; none for the site's own layout")
+
+
 # What an entry's value spelled `reads` and `writes` is now, said where a document still spells them.
 SIDES = ("reads", "writes")
 SIDED = ("a step's reads and writes are one 'interventions' value, and a bundle is one dict of entries, "
          "{<name>: {'site', 'pos'?, 'ops'?}}: an entry whose ops include an edit writes, one without reads")
 
 
-class Intervention(Record):
+class Intervention(Labelled):
     """An entry of an `interventions` value: the `site` it lands on (a declared name, or one inline), the
     positions `pos` names there (default every token of the prompt, `{"frame": 0, "index": ":"}`), and the `ops` it
     runs on that selection, in the order written.
@@ -492,8 +530,8 @@ class Intervention(Record):
     positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
     in length is checked conservatively before any forward: each pair sits at one distance from the start within
     the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
-    past either counted in); any other is refused, and a scope names the token in each row. An operand holds the
-    indices of every axis a site narrows (`num_heads`, ...) that the value it meets holds, in the same order. A
+    past either counted in); any other is refused, and a scope names the token in each row. What an operand's
+    layout and labels must be is Ops' one rule. A
     bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
     step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
     entry of whichever step pulls it in, and `<a step>.<one of its entries>` is refused, since pulled into
@@ -502,11 +540,14 @@ class Intervention(Record):
     site: Annotated[str | Site, ByShape()]
     pos: Swept[int | Pos] = Pos()
     ops: list[Op] = []
-    dims: list[str] | None = derived(None, "the layout of the value the entry binds")
-    space: list[dict] = derived([], "the coordinates that value is in: the encodes its ops leave open, outermost "
-                                    "first, each its `featurizer` and `select`; none for the site's own layout")
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
                                     "or a later entry or step uses it")
+    positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
+                                             "index into the row's prompt tokens, BOS first, then its generated ones; "
+                                             "`alignment_missing` for a row it does not reach), under the dataset whose "
+                                             "rows they are (a fit body's entry has them under each dataset an eval "
+                                             "reads it over); the prefill's set by preflight, a generation's decode "
+                                             "calls' by the run")
 
 
 Entries = dict[str, Intervention]
@@ -596,7 +637,7 @@ FIXED = {
 }
 
 
-class Generate(Forward):
+class Generate(Forward, Labelled):
     """Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
     every other key goes to the engine's `generate` as-is (`max_new_tokens`, `min_new_tokens`, `do_sample`,
     ...), and may sweep. Its entries name forward calls by `pos`'s `frame`: the
@@ -625,6 +666,7 @@ class Generate(Forward):
     # Its other keys go to the engine, but `reads` and `writes` are refused, as on a forward (`SIDES`).
     model_config = ConfigDict(extra="allow")
     kind: Literal["generate"]  # type: ignore[assignment]
+    dims: list[str] | None = derived(["rows", "new"], "the layout of the step's own value, its new token ids")
 
     @model_validator(mode="after")
     def _fixed(self) -> "Generate":
@@ -636,7 +678,7 @@ class Generate(Forward):
         return self
 
 
-class OpStep(Record):
+class OpStep(Labelled):
     """An op over a value earlier steps produced: `of` names it, and the op's arguments sit beside it (see
     Ops). The step's value is the op's result; a step holds exactly one op, and chaining is the next step."""
     model_config = ConfigDict(extra="allow")
@@ -644,8 +686,6 @@ class OpStep(Record):
     op: str
     of: str
     at: dict[str, int] = derived({}, AT)
-    dataset: str | None = derived(None, DATASET)
-    dims: list[str] | None = derived(None, "the layout of the step's value")
 
     @model_validator(mode="after")
     def _arguments(self) -> "OpStep":
@@ -768,6 +808,9 @@ class Featurizer(Record):
         None, "the tensors of the bundle `file_path` names, checked against its header", exclude=True)
     header: dict[str, str] | None = derived(None, "the header of the bundle `file_path` names, which preflight "
                                                   "checks the model's width against")
+    width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
+                                      "of them, which preflight finds among the model's sizes (null for one used "
+                                      "nowhere); a saved bundle's header records it")
 
     @model_validator(mode="after")
     def _fields(self) -> "Featurizer":
@@ -780,8 +823,7 @@ FeaturizerEntry = Annotated[Union[Annotated[Featurizer, Tag("~one")], Annotated[
 
 
 class Axis(Record):
-    """A sweep axis: the document path of every sweep of its label, in document order, and their values."""
-    paths: list[str]
+    """A sweep axis: the values its sweeps stand for, in order."""
     values: list[Any]
 
 
@@ -791,13 +833,13 @@ class Run(Record):
     `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
     where the model is: the server's, under `ndif`). `dtype` and `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
-    packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `tokens` and
-    `positions` describe values without holding any: how each dataset input tokenized and what each generate
-    step's rows generated (token strings per row, under the input or the step's name), and the position every
-    read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt
-    tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept
-    step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
-    `layers` axis's labels are `selectors.select(site.layers, num_layers)`. `costs` holds what each step cost, by
+    packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
+    (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
+    bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
+    each dataset input tokenized and what each
+    generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
+    keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
+    layout and labels are. `costs` holds what each step cost, by
     name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
@@ -810,11 +852,10 @@ class Run(Record):
     versions: dict[str, str] = {}
     dtype: list[str] = []
     devices: list[str] = []
+    sizes: dict[str, int] = {}
     started: str = ""
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
-    positions: dict[str, Any] = {}
-    num_layers: int | None = None
     costs: dict[str, Any] = {}
 
 
@@ -839,8 +880,7 @@ class Plan(Record):
     document: str | None = derived(None, "the document file the plan was read from; written relative to its "
                                          "corpus root, where data paths and bundles resolve")
     compiled: bool = derived(False, "whether this is the compiled plan")
-    sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order: the paths its sweeps stand "
-                                          "at, and their values")
+    sweeps: dict[str, Axis] = derived({}, "each sweep axis by label, in axis order, with its values")
     results: dict[str, Any] = derived(
         {}, "each saved value by name; a swept one is a dict keyed by coordinate", exclude=True)
     run: Run | None = derived(None, "how the plan ran, set by `execute`")
@@ -963,21 +1003,23 @@ def message(error: ErrorDetails) -> str:
     return f"{path}: {text}" if path else text
 
 
-def dims_of(plan: Plan, name: str) -> list[str]:
-    """The axes of the value `name`: a step's value, a step's read, or a fit's member (a trained featurizer,
-    saved as its bundle, has none; `history.<op>` is per epoch)."""
-    return dims_in(plan.steps, name)
-
-
-def dims_in(steps: dict[str, Entry], name: str) -> list[str]:
-    thing, _, member = name.partition(".")
-    step = points(steps[thing])[0]
-    if step.kind == "fit":
-        inner, _, rest = member.partition(".")
-        return [] if inner in step.train else ["epochs"] if inner == "history" else dims_in(step.steps, rest)
-    if member:
-        return entries(step)[member].dims
-    return ["rows", "new"] if step.kind == "generate" else step.dims
+def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> list[str]:
+    """Every value `steps` produce, by name, in order: an op step's or a generation's own, each entry's
+    `<step>.<entry>`, and a fit's members (`<fit>.history.<term>` and its eval members, `<fit>.<eval>.<member>`);
+    not a trained featurizer, which is no value. `declared` are the plan's featurizers, whose kinds say the scalars
+    a fit's history holds."""
+    out: list[str] = []
+    for name, entry in steps.items():
+        step = points(entry)[0]
+        if step.kind != "fit":
+            out += [name] if step.kind != "forward" else []
+            out += [f"{name}.{k}" for k in entries(step)]
+            continue
+        out += [f"{name}.history.{n}" for n, s in step.steps.items() if s.kind == "op"]
+        out += [f"{name}.history.{f}.{scalar}" for f in step.train
+                for scalar in featurizers.KINDS[points(declared[f])[0].kind].scalars]
+        out += [f"{name}.{label}.{member}" for label in step.eval for member in produced(step.steps, declared)]
+    return out
 
 
 def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
@@ -999,12 +1041,36 @@ def kind_of(plan: Plan, ref: str) -> str:
     return points(plan.featurizers[declared(plan, ref)])[0].kind
 
 
-def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Any]:
-    """The step point and the entry `<step>.<entry>` names among `steps`, at the step's point that agrees with
-    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
+def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
+    """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, in
+    that fit's body), at the step's point that agrees with `at`: the one place a reference to an entry resolves,
+    so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
+    if step.kind == "fit":
+        return entry_of(step.steps, member.partition(".")[2], step.at)
     return step, entries(step)[member]
+
+
+def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
+    """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
+    labelled layout: an entry's (`<step>.<entry>`), an op step's or a generation's own (`<step>`), or a fit
+    member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's record with the dataset that
+    eval reads it over, its read named from the root), a term's history (`<fit>.history.<term>`, `[epochs]`) or
+    a trained featurizer (no axes)."""
+    thing, _, member = ref.partition(".")
+    step = agreeing(steps[thing], at)
+    if step.kind != "fit":
+        found = entries(step)[member] if member else step
+        assert isinstance(found, Labelled), f"{ref} names no value"
+        return found
+    label, _, rest = member.partition(".")
+    if label == "history" or label in step.train:
+        return Labelled(dims=["epochs"] if label == "history" else [])
+    inner = record_of(step.steps, rest, step.at)
+    inside = inner.read is not None and inner.read.partition(".")[0] in step.steps
+    return inner.model_copy(update={"dataset": step.eval[label].get(inner.dataset, inner.dataset),
+                                    "read": f"{thing}.{label}.{inner.read}" if inside else inner.read})
 
 
 def scope(plan: Plan, where: str) -> dict[str, Entry]:

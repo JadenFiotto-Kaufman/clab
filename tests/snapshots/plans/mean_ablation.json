@@ -27,6 +27,12 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "harvest.acts",
+     "width": 1,
      "gathered": true
     }
    },
@@ -36,10 +42,14 @@
    "kind": "op",
    "op": "mean",
    "of": "harvest.acts",
-   "dataset": "prompts",
    "dims": [
     "hidden_size"
-   ]
+   ],
+   "dataset": "prompts",
+   "layers": [
+    0
+   ],
+   "read": "harvest.acts"
   },
   "clean": {
    "kind": "forward",
@@ -55,6 +65,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clean.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -64,13 +77,15 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clean.logits",
+   "width": 1
   },
   "ablated": {
    "kind": "forward",
@@ -85,14 +100,25 @@
      "ops": [
       {
        "op": "swap",
-       "with": "mean"
+       "with": "mean",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "ablated.ablate",
+     "width": 1
     },
     "logits": {
      "site": {
@@ -104,6 +130,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "ablated.logits",
+     "width": 1,
      "gathered": true
     }
    },
@@ -113,13 +142,15 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "ablated.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "ablated.logits",
+   "width": 1
   }
  },
  "saves": [
