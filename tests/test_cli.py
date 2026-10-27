@@ -1,11 +1,13 @@
-"""`clab show` and `clab table`: `Plan.load` and one call each, printed."""
+"""`clab show` and `clab table`: `Plan.load` and one call each, printed; what `run` prints and refuses."""
 
 import json
+import os
+import sys
 
 import pytest
-from conftest import BATCH_SIZE, ROOT, plan_of
+from conftest import BATCH_SIZE, ROOT, document, edited, plan_of
 
-from clab.cli import main
+from clab.cli import main, shaped
 
 
 @pytest.fixture(scope="module")
@@ -61,3 +63,29 @@ def test_table_prints_aligned_columns_or_csv(out, capsys, monkeypatch):
 def test_table_refuses_a_name_that_was_not_saved(out, capsys):
     assert main(["table", out, "patched.logits"]) == 1
     assert "'patched.logits' was not saved; add it to saves" in capsys.readouterr().err
+
+
+def test_a_shape_is_printed_once_per_value_and_a_token_list_as_its_full_shape(engines, tmp_path, capsys):
+    """`run` and `show` print a swept value's shape counted over its points, the distinct shapes listed up to three
+    (`shaped`), and a nested token list's (`top_k`'s `tokens`) as its full shape, which the manifest records."""
+    assert shaped({"a": [4, 1], "b": [4, 2], "c": [4, 1]}, swept=True) == "3 points, each [4,1] or [4,2]"
+    assert shaped({k: [4, k] for k in range(4)}, swept=True) == "4 points of 4 shapes"
+    assert shaped({"ids": [4, 1, 3], "tokens": [4, 1, 3]}, swept=False) == '{"ids":[4,1,3],"tokens":[4,1,3]}'
+    out = tmp_path / "readout"
+    assert main(["run", document("readout"), "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 0
+    printed = capsys.readouterr().out.splitlines()
+    assert printed[1].split() == ["top3.json", "top3", '{"ids":[4,1,3],"probs":[4,1,3],"tokens":[4,1,3]}']
+    assert json.loads((out / "manifest.json").read_text())["results"]["top3"]["shape"]["tokens"] == [4, 1, 3]
+    out = tmp_path / "pos_sweep"
+    assert main(["run", document("pos_sweep"), "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 0
+    assert capsys.readouterr().out.splitlines()[1].split() == ["iia.safetensors", "iia", "3", "points,", "each", "[4,1]"]
+    assert main(["show", str(out)]) == 0
+    assert capsys.readouterr().out.splitlines()[-1].split()[-4:] == ["3", "points,", "each", "[4,1]"]
+
+def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
+    """`clab show OUT | head -1`: the pipe's reader is gone before `show` has written, and the command returns
+    0 with no traceback (stdout is sent to /dev/null for the interpreter's own flush at exit)."""
+    reading, writing = os.pipe()
+    os.close(reading)
+    monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w"))
+    assert main(["show", out]) == 0

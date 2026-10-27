@@ -128,13 +128,19 @@ def flat(value: dict[str, Any], prefix: str = "") -> dict[str, Tensor]:
 
 
 def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | dict[str, Any] | None:
-    """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a list's
-    length (and no dtype)."""
+    """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a nested list's
+    as far as its lists are of one length (`top_k`'s tokens, `[rows, pos, k]`; and no dtype)."""
     if isinstance(value, Tensor):
         return list(value.shape) if what == "shape" else str(value.dtype).removeprefix("torch.")
     if isinstance(value, dict):
         return {k: describe(v, what) for k, v in value.items()}
-    return [len(value)] if isinstance(value, list) and what == "shape" else None
+    if not isinstance(value, list) or what != "shape":
+        return None
+    shape, level = [len(value)], value
+    while level and all(isinstance(v, list) for v in level) and len({len(v) for v in level}) == 1:
+        shape.append(len(level[0]))
+        level = [x for v in level for x in v]
+    return shape
 
 
 def load(out: str) -> Plan:

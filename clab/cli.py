@@ -50,7 +50,8 @@ def show(filled: Plan) -> str:
             value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
         dims = output.layouts(filled, saved)["dims"]
         rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
+                     ", ".join(points(entry)[0].at) or "—",
+                     shaped(output.describe(value, "shape"), isinstance(entry, list))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
@@ -67,6 +68,21 @@ def costs(filled: Plan) -> list[list[str]]:
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
+
+
+def shaped(shape: Any, swept: bool) -> str:
+    """A saved value's shape as `run` and `show` print it: an unswept value's as it is (a dict value's per key); a
+    swept value's counted over its points, `3 points, each [4, 1]` where they share one shape, the distinct shapes
+    listed where there are at most three, else counted (the manifest holds each point's)."""
+    if not swept:
+        return cell(shape)
+    distinct = list(dict.fromkeys(cell(s) for s in shape.values()))
+    n = len(shape)
+    if len(distinct) == 1:
+        return f"{n} points, each {distinct[0]}"
+    if len(distinct) <= 3:
+        return f"{n} points, each {', '.join(distinct[:-1])} or {distinct[-1]}"
+    return f"{n} points of {len(distinct)} shapes"
 
 
 def cell(value: Any) -> str:
@@ -131,7 +147,18 @@ def main(argv: list[str] | None = None) -> int:
     tell.add_argument("--markdown", action="store_true", help="write FORMAT.md at the repo root")
     tell.add_argument("--verbose", action="store_true", help="say where --markdown wrote")
     args = parser.parse_args(argv)
+    try:
+        code = command(args)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # The reader went away (`| head -1`): the interpreter's own flush of stdout at exit goes nowhere too.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+    return code
 
+
+def command(args: argparse.Namespace) -> int:
+    """The parsed command, run: its exit status, a refusal said in one `clab:` line on stderr."""
     if args.command == "describe":
         if args.markdown:
             path = write_markdown()
@@ -175,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
     for d in described.values():
-        print(f"  {d['file']:28} {d['step']:16} {json.dumps(d['shape'])}")
+        print(f"  {d['file']:28} {d['step']:16} {shaped(d['shape'], bool(d['axes']))}")
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
 
