@@ -13,7 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, on_each, plain, plan_of, same, snapshot
+from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, on_each, placed, plain, plan_of, same, snapshot
 
 from clab import Plan
 from clab.cli import main
@@ -85,7 +85,7 @@ def test_numbers_match_the_snapshot(filled, name, kind):
 @pytest.mark.parametrize("name", [n for n in PLANS if n not in INSIDE])
 def test_the_engines_agree_to_the_bit(filled, name):
     assert same(filled[name, "nnterp"].results, filled[name, "hooks"].results)
-    assert filled[name, "nnterp"].run.positions == filled[name, "hooks"].run.positions
+    assert placed(filled[name, "nnterp"]) == placed(filled[name, "hooks"])
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -138,7 +138,7 @@ def test_a_layers_selector_picks_and_labels_the_model_layers(engines, filled, tm
     for layers, picked in (([1, 0], [1, 0]), ("-1:", [1])):
         plan = edited("logit_lens_all", lambda d: d["sites"]["resid"].update(layers=layers)).compile()
         got = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
-        assert got.run.num_layers == 2
+        assert got.run.sizes["num_layers"] == 2
         assert torch.equal(got.results["p_answer"], every.results["p_answer"][picked])
         assert [r["layer"] for r in got.table("p_answer")] == [l for l in picked for _ in range(4)]
         got.dump(str(tmp_path / str(layers)))
@@ -164,7 +164,7 @@ def test_cosine_is_one_where_the_patch_cannot_reach(filled):
     for kind in ("nnterp", "hooks"):
         got = filled["cosine_metric", kind]
         cos = got.results["similarity"]
-        assert cos.shape == (3, 4, 2) and got.run.num_layers == 5
+        assert cos.shape == (3, 4, 2) and got.run.sizes["num_layers"] == 5
         torch.testing.assert_close(cos[0], torch.ones(4, 2), atol=2e-7, rtol=0)
         torch.testing.assert_close(cos[:, :, 0], torch.ones(3, 4), atol=2e-7, rtol=0)
         assert (cos[1:, :, 1] < 1 - 1e-4).all()
@@ -201,7 +201,7 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
         plan = edited(name, lambda d: pure(d, step, frame)).compile()
         runs = [filled for b in (1, 4) for filled in on_each(engines, plan, batch_size=b).values()]
         assert all(same(r.results, runs[0].results) for r in runs)
-        got, where = runs[0].results[f"{step}.n"], runs[0].run.positions[f"{step}.n"]
+        got, where = runs[0].results[f"{step}.n"], placed(runs[0])[f"{step}.n"]
         drawn = []
         for r, places in enumerate(where):
             expected = torch.stack([torch.randn(16, generator=edits.seeded(7, r, t)) for t in places])
@@ -215,7 +215,7 @@ def test_ndif_remote_local_is_nnterp_to_the_bit(engines, filled, name):
     plan = PLANS[name]()
     there = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
     assert there.run.options == {"remote": "local"} and same(there.results, filled[name, "nnterp"].results)
-    assert there.run.positions == filled[name, "nnterp"].run.positions
+    assert placed(there) == placed(filled[name, "nnterp"])
 
 
 def test_the_logit_lens_at_the_last_layer_is_the_models_logits(engines):
@@ -249,9 +249,9 @@ def test_premix_and_head_outputs_are_one_tensor(engines):
 
 def test_a_column_scope_is_the_rows_own_text(filled):
     """entity_patch.json: the last token of each row's entity, ' Thursday' three tokens and the others one."""
-    run = filled["entity_patch", "nnterp"].run
-    at = [run.tokens["pairs.input"][r][i] for r, (i,) in enumerate(run.positions["patched.patch"])]
-    cf = [run.tokens["pairs.counterfactual_inputs[0]"][r][i] for r, (i,) in enumerate(run.positions["counterfactual.v_cf"])]
+    run, where = filled["entity_patch", "nnterp"].run, placed(filled["entity_patch", "nnterp"])
+    at = [run.tokens["pairs.input"][r][i] for r, (i,) in enumerate(where["patched.patch"])]
+    cf = [run.tokens["pairs.counterfactual_inputs[0]"][r][i] for r, (i,) in enumerate(where["counterfactual.v_cf"])]
     assert at == ["day", "▁Friday", "▁Saturday", "▁Sunday"]
     assert cf == ["▁Saturday", "▁Sunday", "day", "▁Friday"]
 
@@ -265,11 +265,11 @@ def test_a_read_of_every_token_of_a_scope_is_as_wide_as_the_widest_row(engines, 
     plan = edited("entity_mean_ablation", change).compile()
     done = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
     values, acts = done.results, done.results["harvest.acts"]
-    assert done.run.positions["harvest.acts"] == [[4, 5, 6], [4], [4], [4]]
+    assert placed(done)["harvest.acts"] == [[4, 5, 6], [4], [4], [4]]
     assert acts.shape == (4, 3, 16) and not acts[0].isnan().any() and not acts[1:, 0].isnan().any()
     assert acts[1:, 1:].isnan().all()
     assert torch.equal(values["mean"], acts.nanmean(dim=(0, 1)))
-    harvested = filled["pca_harvest", "nnterp"].run.positions["harvest.acts"]
+    harvested = placed(filled["pca_harvest", "nnterp"])["harvest.acts"]
     assert sum(map(len, harvested)) == 34 and all(0 not in row for row in harvested)
     basis = filled["pca_harvest", "nnterp"].results["basis"]
     torch.testing.assert_close(basis["basis"].T @ basis["basis"], torch.eye(4), atol=1e-5, rtol=0)
@@ -278,11 +278,11 @@ def test_a_read_of_every_token_of_a_scope_is_as_wide_as_the_widest_row(engines, 
 def test_a_chat_turn_scope_is_the_turns_own_tokens(filled):
     """chat_turn.json: the last token of the second user turn is the question's own last token, not `[/INST]`;
     `pos: -1` with no scope is the rendered prompt's last token."""
-    run = filled["chat_turn", "nnterp"].run
+    run, where = filled["chat_turn", "nnterp"].run, placed(filled["chat_turn", "nnterp"])
     tokens = run.tokens["chats.chat"]
     assert tokens[0][:4] == ["<s>", "[", "INST", "]"]
-    assert [tokens[r][i] for r, (i,) in enumerate(run.positions["blanked.blank"])] == ["▁is"] * 4
-    assert [tokens[r][i] for r, (i,) in enumerate(run.positions["blanked.logits"])] == ["]"] * 4
+    assert [tokens[r][i] for r, (i,) in enumerate(where["blanked.blank"])] == ["▁is"] * 4
+    assert [tokens[r][i] for r, (i,) in enumerate(where["blanked.logits"])] == ["]"] * 4
 
 
 def test_top_k_saves_its_tokens_as_text(filled, tmp_path):
@@ -409,7 +409,7 @@ def test_a_ragged_write_lands_only_on_each_rows_own_tokens(engines, kind):
     written, clean = (edited("patching", lambda d, w=w: change(d, w)).compile() for w in (True, False))
     engine = engines(kind, written.model)
     done = engine.execute(written, batch_size=BATCH_SIZE)
-    after, where = done.results["patched.whole"], done.run.positions["patched.whole"]
+    after, where = done.results["patched.whole"], placed(done)["patched.whole"]
     before = engine.execute(clean, batch_size=BATCH_SIZE).results["patched.whole"]
     zeroed = (after == 0).all(-1)
     assert [p for r, row in enumerate(where) for j, p in enumerate(row) if zeroed[r, j]] == \

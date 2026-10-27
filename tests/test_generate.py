@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, on_each, plain, plan_of, same, snapshot, stand_in
+from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, on_each, placed, plain, plan_of, same, snapshot, stand_in
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
@@ -50,7 +50,7 @@ def run(engines, plan: Plan, kind: str = "nnterp", **options) -> Any:
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_numbers_match_the_snapshot(filled, name, kind):
     plan = filled[name, kind]
-    values = {"results": plain(plan.results), "positions": plan.run.positions, "said": plan.run.tokens}
+    values = {"results": plain(plan.results), "positions": placed(plan), "said": plan.run.tokens}
     expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "values": values})
     assert expected["batch_size"] == BATCH_SIZE
     close(values, expected["values"])
@@ -60,14 +60,14 @@ def test_numbers_match_the_snapshot(filled, name, kind):
 def test_the_engines_agree_to_the_bit(filled, name):
     a, b = filled[name, "nnterp"], filled[name, "hooks"]
     assert same(a.results, b.results)
-    assert a.run.positions == b.run.positions and a.run.tokens == b.run.tokens
+    assert placed(a) == placed(b) and a.run.tokens == b.run.tokens
 
 
 @pytest.mark.parametrize("name", GENERATE)
 def test_remote_local_is_bit_equal_to_local(engines, filled, name):
     there = run(engines, plan_of(name), "ndif", remote="local")
     assert there.run.options == {"remote": "local"} and same(there.results, filled[name, "nnterp"].results)
-    assert there.run.positions == filled[name, "nnterp"].run.positions
+    assert placed(there) == placed(filled[name, "nnterp"])
 
 
 def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
@@ -76,8 +76,8 @@ def test_generated_answer_scores_the_two_rows_that_said_their_word(filled):
     word's last token where it is an input: row 0 said `▁substr` as token 1 (position 12, call 2), row 1
     `energcalc` ending on `calc`, token 3 (position 12, call 4)."""
     plan = filled["generated_answer", "nnterp"]
-    assert plan.run.positions["answer.at_said"] == [[12], [12], "alignment_missing", "alignment_missing"]
-    assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
+    assert placed(plan)["answer.at_said"] == [[12], [12], "alignment_missing", "alignment_missing"]
+    assert placed(plan)["answer.at_last"] == [[p + 4] for p in PROMPT]
     p = plan.results["p_answer"]
     assert p.shape == (4, 1) and not p[:2].isnan().any() and p[2:].isnan().all()
     said = plan.run.tokens["answer"]
@@ -141,9 +141,9 @@ def test_a_word_said_twice_takes_the_occurrence_asked_for(engines):
             d["saves"] = ["p_answer"]
         return changed
     first = run(engines, edited("generated_answer", change(0)).compile())
-    assert first.run.positions["answer.at_said"] == [[11], [10]]
+    assert placed(first)["answer.at_said"] == [[11], [10]]
     second = run(engines, edited("generated_answer", change(1)).compile())
-    assert second.run.positions["answer.at_said"] == [[14], "alignment_missing"]
+    assert placed(second)["answer.at_said"] == [[14], "alignment_missing"]
     assert [r.get("alignment_missing") for r in second.table("p_answer")] == [None, True]
 
 
@@ -160,7 +160,7 @@ def test_the_last_call_is_the_one_that_chose_eos_and_detokenize_stops_before_it(
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_last"] == [[p + 1] for p in PROMPT]
+        assert placed(values)["answer.at_last"] == [[p + 1] for p in PROMPT]
         assert values.results["answer"][:, 2].tolist() == [1] * 4
         assert values.results["text"] == ["Handler substr"] * 4
         assert values.results["pieces"] == [["Handler", "▁substr"]] * 4
@@ -175,7 +175,7 @@ def test_a_call_the_run_never_made_is_missing(engines, kind):
         d["steps"]["patched"]["interventions"]["logits"]["pos"] = {"frame": 5, "index": -1}
         d["saves"] = ["p_answer", "patched"]
     plan = run(engines, edited("generate_probe", change).compile(), kind)
-    assert plan.run.positions["patched.logits"] == ["alignment_missing"] * 4
+    assert placed(plan)["patched.logits"] == ["alignment_missing"] * 4
     assert plan.results["p_answer"].isnan().all() and plan.results["patched"].shape == (4, 3)
     assert plan.table("p_answer")[0] == {"row": 0, "alignment_missing": True,
                                          "input": "If today is Thursday, tomorrow is", "cf_answer": " Sunday"}
@@ -315,7 +315,7 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         values = run(engines, plan, kind)
-        assert values.run.positions["answer.at_last"] == [[p] for p in PROMPT]
+        assert placed(values)["answer.at_last"] == [[p] for p in PROMPT]
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
@@ -323,8 +323,8 @@ def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_pat
     out = tmp_path / "probe"
     filled["generate_probe", "nnterp"].dump(str(out))
     manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["run"]["positions"]["patched.logits"] == {f"frame={k}": [[p - 1 + k] for p in PROMPT]
-                                                              for k in range(3)}
+    assert [p["interventions"]["logits"]["positions"][p["dataset"]] for p in manifest["steps"]["patched"]] == \
+        [[[p - 1 + k] for p in PROMPT] for k in range(3)]
     assert manifest["run"]["tokens"]["patched"]["frame=0"][0] == ["Handler", "▁substr", "▁energ"]
     rows = Plan.load(str(out)).table("p_answer")
     assert [(r["at"], r["row"], r["pos"], r["pos_token"], r["call"]) for r in rows][4] == \
@@ -354,7 +354,7 @@ def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch, na
     home, trip = stand_in(engines, plan, monkeypatch)
     assert trip == TRIP
     assert home is plan and same(home.results, filled[name, "nnterp"].results)    # what came home, in the client's plan
-    assert home.run is not None and home.run.positions == filled[name, "nnterp"].run.positions
+    assert home.run is not None and placed(home) == placed(filled[name, "nnterp"])
 
 
 class Steer(LogitsProcessor):
@@ -435,7 +435,7 @@ def test_rows_that_stop_at_different_calls(engines):
     runs = {(kind, size): steered(engines, kind, size, held=False)
             for kind in ("nnterp", "hooks") for size in (1, 2, 4)}
     plan = runs["nnterp", 2]
-    v, positions = plan.results, plan.run.positions
+    v, positions = plan.results, placed(plan)
     assert v["answer"].tolist() == [[4598, 1, 1, 1, 1, 1], [4598, 25148, 18190, 28667, 28189, 9555],
                                     [4598, 25148, 18190, 1, 1, 1], [28728, 5117, 1325, 13194, 21367, 28630]]
     assert v["text"] == ["Handler", "Handler substr energcalc tossorter", "Handler substr energ",
@@ -450,7 +450,7 @@ def test_rows_that_stop_at_different_calls(engines):
     assert torch.equal(v["answer.resid0"], v["answer.resid"])          # the prompt's last token, either way
     for kind, size in runs:
         other = runs[kind, size]
-        assert other.run.positions == positions and other.run.tokens == plan.run.tokens, (kind, size)
+        assert placed(other) == positions and other.run.tokens == plan.run.tokens, (kind, size)
         assert torch.equal(other.results["answer"], v["answer"]), (kind, size)
         assert same(missing_as(other.results), missing_as(runs["nnterp", size].results)), (kind, size)
     rows = plan.table("iia", "top")
@@ -462,8 +462,8 @@ def test_min_new_tokens_holds_eos_off(engines):
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, 2, held=True)
         assert 1 not in plan.results["answer"].flatten().tolist()
-        assert plan.run.positions["answer.at_last"] == [[p + 4] for p in PROMPT]
-        assert plan.run.positions["answer.at2"] == [[p + 1] for p in PROMPT]
+        assert placed(plan)["answer.at_last"] == [[p + 4] for p in PROMPT]
+        assert placed(plan)["answer.at2"] == [[p + 1] for p in PROMPT]
 
 
 WRITE = {"site": {"component": "layer_output", "layers": 0}, "pos": {"frame": 2, "index": -1}}
@@ -496,7 +496,7 @@ def test_a_write_at_a_decode_call_changes_the_tokens_from_there_on(engines):
     v = runs["nnterp", 2].results
     for key in ("swapped", "added"):
         assert torch.equal(v[key][:, :2], v["clean"][:, :2]) and (v[key][:, 2] != v["clean"][:, 2]).any(), key
-        assert runs["nnterp", 2].run.positions[f"{key}.w"] == [[p + 1] for p in PROMPT]
+        assert placed(runs["nnterp", 2])[f"{key}.w"] == [[p + 1] for p in PROMPT]
     for where, other in runs.items():
         assert same(other.results, v), where
 
@@ -506,29 +506,21 @@ def test_a_write_at_a_call_a_row_never_reaches_skips_that_row(engines):
     missing there and its ids are those of the clean run; the other rows are written, on both engines."""
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, BATCH_SIZE, held=False, change=lambda d: written(d, held=False))
-        v, where = plan.results, plan.run.positions
+        v, where = plan.results, placed(plan)
         assert where["swapped.w"] == ["alignment_missing", [10], [10], [10]], kind
         assert torch.equal(v["swapped"][0], v["clean"][0]) and v["clean"][0].tolist()[:2] == [4598, 1]
         assert (v["swapped"][1:, 2] != v["clean"][1:, 2]).any()
 
 
-def test_a_decode_call_writes_operand_is_checked_before_any_forward(engines):
+def test_a_decode_call_writes_operand_is_checked_before_any_forward():
     """A decode call holds one position, so an operand read three tokens wide cannot be written there: refused
-    by name before the generation, not as a size error inside it."""
+    by name when the plan compiles (both widths are static), not as a size error inside the generation."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = {"index": "-4:-1"}
         d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"frame": 2, "index": -1}
-    plan = edited("generate_probe", change).compile()
-    engine = engines("hooks", plan.model)
-    calls = []
-    original = engine.generate
-    engine.generate = lambda *args: calls.append(1) or original(*args)
-    try:
-        with pytest.raises(ValueError, match=r"^patched\.patch: operand 'counterfactual\.v_cf' is 3 token\(s\) wide"):
-            engine.execute(plan)
-    finally:
-        del engine.generate
-    assert calls == []
+    with pytest.raises(PlanError, match=r"patch\.ops\[0\]\.with: 'counterfactual\.v_cf' holds 3 position\(s\) per row "
+                                        r"and the value 'swap' acts on holds 1"):
+        edited("generate_probe", change).compile()
 
 
 def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
@@ -557,7 +549,7 @@ def test_a_span_of_calls_with_every_position_is_as_wide_as_the_widest_row(engine
     plan = steered(engines, "nnterp", BATCH_SIZE, held=False, change=lambda d: (
         d["steps"]["answer"]["interventions"].update(span={"site": "head", "pos": {"frame": "1:4"}}),
         d["saves"].append("answer.span")))
-    assert plan.run.positions["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
+    assert placed(plan)["answer.span"] == [[11], [9, 10, 11], [9, 10, 11], [9, 10, 11]]
     value = plan.results["answer.span"]
     assert value.shape == (4, 3, 32000) and value[0, 1:].isnan().all() and not value[1:].isnan().any()
     assert torch.equal(value[:2, 0], plan.results["answer.at1"][:2, 0])               # call 1 of rows 0 and 1
@@ -571,8 +563,8 @@ def test_picked_calls_and_picked_tokens_keep_the_order_written(engines):
         d["steps"]["answer"]["interventions"].update(picked={"site": "head", "pos": {"frame": [3, 1], "index": [1, 0]}},
                                              stepped={"site": "head", "pos": {"frame": "1:6:2", "index": [0, 1]}}),
         d["saves"].extend(["answer.picked", "answer.stepped"])))
-    assert plan.run.positions["answer.picked"][1:] == [[9, 11]] * 3
-    assert plan.run.positions["answer.stepped"][1:] == [[9, 11]] * 3
+    assert placed(plan)["answer.picked"][1:] == [[9, 11]] * 3
+    assert placed(plan)["answer.stepped"][1:] == [[9, 11]] * 3
     value = plan.results["answer.picked"]
     assert value.shape == (4, 2, 32000) and value[0].isnan().all()      # the row that stopped after call 1
     assert torch.equal(value[1:], plan.results["answer.stepped"][1:])
@@ -596,7 +588,7 @@ def test_a_write_to_the_rows_last_call_lands_at_each_call_up_to_max_new_tokens(e
         open_ended = engines(kind, at(pos).model).execute(at(pos), batch_size=BATCH_SIZE)
         listed = engines(kind, at({"frame": calls}).model).execute(at({"frame": calls}), batch_size=BATCH_SIZE)
         assert torch.equal(open_ended.results["swapped"], listed.results["swapped"]), kind
-        assert open_ended.run.positions["swapped.w"] == listed.run.positions["swapped.w"], kind
+        assert placed(open_ended)["swapped.w"] == placed(listed)["swapped.w"], kind
         assert not torch.equal(open_ended.results["swapped"], open_ended.results["clean"]), kind
         runs[kind] = open_ended.results
     assert same(runs["nnterp"], runs["hooks"])
@@ -627,7 +619,7 @@ def test_a_write_over_a_span_of_calls_takes_an_index_counted_from_its_start(engi
     for pos in ({"frame": "2:3", "index": -1}, {"frame": "1:4", "index": 1}):
         other = at(pos)
         assert torch.equal(other.results["swapped"], base.results["swapped"]), pos
-        assert other.run.positions["swapped.w"] == base.run.positions["swapped.w"], pos
+        assert placed(other)["swapped.w"] == placed(base)["swapped.w"], pos
 
 
 def test_a_scope_the_prefills_head_does_not_hold_says_why(engines):
@@ -658,13 +650,13 @@ def test_a_scoped_write_lands_online_at_the_call_fed_its_text(engines):
     runs["local"] = steered(engines, "ndif", BATCH_SIZE, held=False, change=change, remote="local")
     plan = runs["nnterp", 2]
     v = plan.results
-    assert plan.run.positions["swapped.w"] == ["alignment_missing", [10], [10], "alignment_missing"]
+    assert placed(plan)["swapped.w"] == ["alignment_missing", [10], [10], "alignment_missing"]
     assert torch.equal(v["swapped"][[0, 3]], v["clean"][[0, 3]])
     assert torch.equal(v["swapped"][1:3, :2], v["clean"][1:3, :2])
     assert (v["swapped"][1:3, 2] != v["clean"][1:3, 2]).all()
     for where, other in runs.items():
         assert torch.equal(other.results["swapped"], v["swapped"]), where
-        assert other.run.positions == plan.run.positions, where
+        assert placed(other) == placed(plan), where
 
 
 def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
@@ -682,7 +674,7 @@ def test_a_scoped_write_lands_at_the_occurrence_it_picks(engines):
             scoped = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
             fixed = engines(kind, plan.model).execute(at({"frame": call, "index": -1}), batch_size=BATCH_SIZE)
             assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), (kind, occurrence)
-            assert scoped.run.positions["swapped.w"] == fixed.run.positions["swapped.w"] == \
+            assert placed(scoped)["swapped.w"] == placed(fixed)["swapped.w"] == \
                 [[p + call - 1] for p in PROMPT], (kind, occurrence)
             assert torch.equal(scoped.results["swapped"][:, :call], scoped.results["clean"][:, :call])
 
@@ -705,8 +697,8 @@ def test_a_scoped_write_in_a_later_frame_lands_where_a_read_of_it_resolves(engin
                    engines(kind, at(pos).model).execute(at({"frame": 4, "index": -1}), batch_size=BATCH_SIZE))
             for kind in ("nnterp", "hooks")}
     for kind, (scoped, fixed) in runs.items():
-        where = scoped.run.positions
-        assert where["swapped.w"] == where["clean.r"] == fixed.run.positions["swapped.w"] == \
+        where = placed(scoped)
+        assert where["swapped.w"] == where["clean.r"] == placed(fixed)["swapped.w"] == \
             [[p + 3] for p in PROMPT], kind
         assert torch.equal(scoped.results["swapped"], fixed.results["swapped"]), kind
     assert torch.equal(runs["nnterp"][0].results["swapped"], runs["hooks"][0].results["swapped"])
@@ -729,7 +721,7 @@ def test_an_occurrence_span_lands_at_each_occurrence_it_picks(engines):
     results = {}
     for kind in ("nnterp", "hooks"):
         scoped = engines(kind, at(span).model).execute(at(span), batch_size=BATCH_SIZE)
-        assert scoped.run.positions["swapped.w"] == [[11, 14], [9, 12], [9], [9, 11]], kind
+        assert placed(scoped)["swapped.w"] == [[11, 14], [9, 12], [9], [9, 11]], kind
         for rows, second in (([0, 1], 4), ([3], 3)):
             calls = {"w1": {"frame": 1, "index": -1}, "w2": {"frame": second, "index": -1}}
             fixed = engines(kind, at(calls).model).execute(at(calls), batch_size=BATCH_SIZE)
@@ -775,9 +767,9 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
         tokens = filled.run.tokens["pairs.input"]
         fridays = [[i for i, t in enumerate(row) if t == "▁Friday"] for row in tokens]
         assert all(len(f) == 2 for f in fridays)
-        assert filled.run.positions["look.there"] == [[f[i] for i in picks] for f in fridays], kind
+        assert placed(filled)["look.there"] == [[f[i] for i in picks] for f in fridays], kind
         there, every = filled.results["look.there"], filled.results["look.every"]
-        at = filled.run.positions["look.every"]
+        at = placed(filled)["look.every"]
         want = [every[r, at[r].index(f[i])] for r, f in enumerate(fridays) for i in picks]
         assert torch.equal(there.reshape(-1, there.shape[-1]), torch.stack(want)), kind
     assert same(runs["nnterp"].results, runs["hooks"].results)
@@ -796,8 +788,8 @@ def test_a_generated_text_said_twice_reads_the_occurrence_asked_for(engines):
     plan = edited("generated_answer", change).compile()
     for kind in ("nnterp", "hooks"):
         filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
-        assert filled.run.positions["answer.second"] == [[p + 3] for p in PROMPT]
-        assert filled.run.positions["answer.both"] == [[p, p + 2, p + 3] for p in PROMPT]    # the occurrences' only
+        assert placed(filled)["answer.second"] == [[p + 3] for p in PROMPT]
+        assert placed(filled)["answer.both"] == [[p, p + 2, p + 3] for p in PROMPT]    # the occurrences' only
         assert filled.results["answer.both"].shape == (4, 3, 32000) and not filled.results["answer.both"].isnan().any()
 
 
@@ -814,7 +806,7 @@ def test_strip_locates_the_text_without_its_surrounding_space(engines, strip, fo
             engine.execute(plan, batch_size=BATCH_SIZE)
         return
     filled = engine.execute(plan, batch_size=BATCH_SIZE)
-    assert [filled.run.tokens["pairs.input"][0][i] for (i,) in filled.run.positions["look.there"]] == ["▁Friday"]
+    assert [filled.run.tokens["pairs.input"][0][i] for (i,) in placed(filled)["look.there"]] == ["▁Friday"]
 
 
 @pytest.mark.parametrize("scope, message", [
@@ -859,8 +851,8 @@ def test_a_roles_messages_are_its_occurrences(engines):
     plan = edited("chat_turn", change).compile()
     runs = on_each(engines, plan)
     assert same(runs["nnterp"].results, runs["hooks"].results)
-    assert runs["nnterp"].run.positions == runs["hooks"].run.positions
-    where, tokens = runs["nnterp"].run.positions, runs["nnterp"].run.tokens["chats.chat"][0]
+    assert placed(runs["nnterp"]) == placed(runs["hooks"])
+    where, tokens = placed(runs["nnterp"]), runs["nnterp"].run.tokens["chats.chat"][0]
     said = {k: "".join(tokens[i] for i in where[f"look.{k}"][0]).replace("▁", " ").strip() for k in reads}
     assert said == {"first": "Name a weekday.", "second": "If today is Thursday, tomorrow is",
                     "last": "If today is Thursday, tomorrow is",
@@ -886,12 +878,12 @@ def test_a_list_of_texts_takes_its_occurrences_in_order(engines):
              "bob": {"scope": {"text": "Bob"}}, "larry": {"scope": {"text": "Larry"}}}
     plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
     runs = on_each(engines, plan)
-    where = runs["nnterp"].run.positions
+    where = placed(runs["nnterp"])
     bob, larry = where["look.bob"], where["look.larry"]
     assert where["look.first"] == [bob[0], larry[1]] and where["look.second"] == [larry[0], bob[1]]
     assert where["look.both"] == [sorted(b + l) for b, l in zip(bob, larry)]
     assert same(runs["nnterp"].results, runs["hooks"].results)
-    assert runs["nnterp"].run.positions == runs["hooks"].run.positions
+    assert placed(runs["nnterp"]) == placed(runs["hooks"])
 
 
 def test_overlapping_texts_take_the_union_of_their_tokens(engines):
@@ -899,7 +891,7 @@ def test_overlapping_texts_take_the_union_of_their_tokens(engines):
     reads = {"union": {"scope": {"text": ["this", "is"], "occurrence": ":"}}, "every": {"index": ":"}}
     plan = edited("patching", lambda d: listed(d, [{"input": "this is it, then"}], reads)).compile()
     filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
-    (got,), tokens = filled.run.positions["look.union"], filled.run.tokens["pairs.input"][0]
+    (got,), tokens = placed(filled)["look.union"], filled.run.tokens["pairs.input"][0]
     assert got == sorted(set(got)) and [tokens[i] for i in got] == ["▁this", "▁is"]
 
 
@@ -950,7 +942,7 @@ def test_a_list_of_columns_takes_the_first_of_either(engines):
              "entity": {"scope": {"column": "pairs.entity"}}, "number": {"scope": {"column": "pairs.number"}}}
     plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
     filled = engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
-    where = filled.run.positions
+    where = placed(filled)
     assert where["look.first"] == [where["look.entity"][0], where["look.number"][1]]
 
 
@@ -969,7 +961,7 @@ def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
         d["saves"] += ["clean.found"]
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, BATCH_SIZE, held=False, change=change)
-        v, where = plan.results, plan.run.positions
+        v, where = plan.results, placed(plan)
         assert where["clean.found"] == [[11 + 0], [9 + 0], [9 + 0], "alignment_missing"], kind     # P + token
         assert where["swapped.w"] == where["clean.found"], kind
         assert torch.equal(v["swapped"][3], v["clean"][3])

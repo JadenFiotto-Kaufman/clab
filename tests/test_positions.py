@@ -1,5 +1,5 @@
 """Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
-document's `pos`, `run.positions`, `clab table`'s `pos` and `key`, an attention pattern's
+document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
 `key` axis, and a refusal's token counts (PR 15; FINDINGS.md S4, S7, D7, D17).
 
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, on_each, plan_of, same
+from conftest import BATCH_SIZE, on_each, placed, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 from transformers import AutoTokenizer
 
@@ -66,7 +66,7 @@ def run(engines, plan: Plan, kind: str = "nnterp", batch_size: int = BATCH_SIZE)
 def both(engines, plan: Plan) -> Any:
     """`plan` on nnterp and hooks, which agree to the bit and on every position; nnterp's run."""
     a, b = on_each(engines, plan).values()
-    assert same(a.results, b.results) and a.run.positions == b.run.positions
+    assert same(a.results, b.results) and placed(a) == placed(b)
     return a
 
 
@@ -89,7 +89,7 @@ def test_every_token_of_a_chat_is_a_position(engines):
         "write": {"site": LAYER0, "pos": {"frame": ":"}, "ops": [{"op": "scale", "factor": 2.0}]},
         "logits": {"site": LOGITS, "pos": -1}}, "d.prompt")}, ["f.every", "f.logits"])
     filled = both(engines, plan)
-    where, tokens = filled.run.positions, filled.run.tokens["d.prompt"]
+    where, tokens = placed(filled), filled.run.tokens["d.prompt"]
     for r, row in enumerate(tokens):
         assert where["f.every"][r] == where["f.write"][r] == list(range(len(row)))
         markers = [p for p, t in enumerate(row) if t in ("<|im_start|>", "<|im_end|>")]
@@ -107,8 +107,8 @@ def test_a_window_from_the_end_of_a_chat_is_the_templates_tokens(engines):
                ["f.tail9"])
     filled = both(engines, plan)
     tokens = filled.run.tokens["d.prompt"][0]
-    assert tokens[13] == "Ġcruelty" and filled.run.positions["f.tail9"] == [list(range(14, 23))]
-    assert [tokens[p] for p in filled.run.positions["f.tail9"][0]] == TAIL
+    assert tokens[13] == "Ġcruelty" and placed(filled)["f.tail9"] == [list(range(14, 23))]
+    assert [tokens[p] for p in placed(filled)["f.tail9"][0]] == TAIL
     assert filled.results["f.tail9"].shape == (1, 9, 8)
 
 
@@ -124,7 +124,7 @@ def test_a_chats_last_position_is_its_templates_last_token(engines):
         "closed": forward({"last": {"site": LOGITS, "pos": -1}}, "d.closed")},
         ["chat.last", "prompt.last", "closed.last"])
     filled = both(engines, plan)
-    where, tokens = filled.run.positions, filled.run.tokens
+    where, tokens = placed(filled), filled.run.tokens
     for r in range(len(rows)):
         chat = tokens["d.chat"][r]
         assert where["chat.last"][r] == [len(chat) - 1] and chat[-2:] == ["<|im_end|>", "Ċ"]
@@ -147,7 +147,7 @@ def test_a_text_scope_takes_the_marker_it_spans_and_before_reaches_one(engines):
         "every": {"site": LAYER0, "pos": {"index": ":"}}}, "d.prompt")},
         ["f.asst", "f.before_end", "f.before_word", "f.every"])
     filled = both(engines, plan)
-    where, tokens = filled.run.positions, filled.run.tokens["d.prompt"]
+    where, tokens = placed(filled), filled.run.tokens["d.prompt"]
     every = filled.results["f.every"]
     for r, row in enumerate(tokens):
         assert [row[p] for p in where["f.asst"][r]] == ["<|im_start|>", "assistant"]
@@ -167,7 +167,7 @@ def test_position_0_is_bos_where_the_tokenizer_adds_one_and_the_first_word_where
     tokens, tokenizer = filled.run.tokens["d.input"], engines("nnterp", plan.model).tokenizer
     words = [tokenizer.convert_ids_to_tokens(tokenizer(row["input"], add_special_tokens=False)["input_ids"])
              for row in DAYS]
-    assert filled.run.positions["f.first"] == [[0]] * 4 and filled.run.positions["f.second"] == [[1]] * 4
+    assert placed(filled)["f.first"] == [[0]] * 4 and placed(filled)["f.second"] == [[1]] * 4
     assert [row[:2] for row in tokens] == [["<s>", w[0]] if bos else w[:2] for w in words]
     assert [(t["pos"], t["pos_token"]) for t in filled.table("f.first")] == [(0, row[0]) for row in tokens]
 
@@ -182,7 +182,7 @@ def test_the_table_and_the_run_record_number_positions_and_keys_as_the_document_
         "key3": {"site": {**PATTERN, "select": {"key": 3}}, "pos": -1},
         "keys": {"site": PATTERN, "pos": -1}})}, ["f.third", "f.last", "f.every", "f.key3", "f.keys"])
     filled = run(engines, plan)
-    where, tokens = filled.run.positions, filled.run.tokens["d.input"]
+    where, tokens = placed(filled), filled.run.tokens["d.input"]
     assert where["f.third"] == [[3]] * 4 and where["f.last"] == [[len(row) - 1] for row in tokens]
     assert where["f.every"] == [list(range(len(row))) for row in tokens]
     filled.dump(str(tmp_path))
@@ -224,7 +224,7 @@ def test_an_unselected_key_read_is_each_rows_own_pattern(engines):
         torch.testing.assert_close(batched.results["f.last"][r, ..., :n], alone["f.last"][0], atol=1e-6, rtol=0)
         assert batched.results["f.last"][r, ..., n:].isnan().all()
         mine = every[r, :n]
-        assert batched.run.positions["f.every"][r] == list(range(n)) and every[r, n:].isnan().all()
+        assert placed(batched)["f.every"][r] == list(range(n)) and every[r, n:].isnan().all()
         torch.testing.assert_close(mine[..., :n], alone["f.every"][0], atol=1e-6, rtol=0)
         assert mine[..., n:].isnan().all()
 
@@ -261,7 +261,7 @@ def test_a_refusal_counts_tokens_as_positions(engines):
         run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 11}})}, ["f.x"]))
     last = run(engines, doc(EAGER, DAYS[:1], {"f": forward({"x": {"site": LOGITS, "pos": 10},
                                                             "y": {"site": LOGITS, "pos": -1}})}, ["f.x", "f.y"]))
-    assert last.run.positions["f.x"] == last.run.positions["f.y"] == [[10]]
+    assert placed(last)["f.x"] == placed(last)["f.y"] == [[10]]
     assert torch.equal(last.results["f.x"], last.results["f.y"])
     keyed = run(engines, plan(-1, 3))
     assert [t["key_token"] for t in keyed.table("f.x") if t["row"] == 1] == [tokens[1][3]]

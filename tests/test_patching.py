@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, plan_of, same, snapshot, stand_in
+from conftest import BATCH_SIZE, ROOT, TRIP, by_reference, document, edited, placed, plan_of, same, snapshot, stand_in
 
 import clab
 from clab import Plan
@@ -53,7 +53,7 @@ def test_the_run_record_says_how_it_ran(filled):
     assert {"clab", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
     assert run.tokens["pairs.input"][0] == ["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom",
                                             "orrow", "▁is"]
-    assert run.positions["patched.patch"] == [[10], [8], [8], [8]]       # the last token, BOS-prefixed rows
+    assert placed(filled["nnterp"])["patched.patch"] == [[10], [8], [8], [8]]    # the last token, BOS-prefixed rows
 
 
 def test_execute_refuses_an_uncompiled_plan_and_dump_one_without_results(engines, tmp_path):
@@ -87,7 +87,7 @@ def test_the_way_home_through_a_stand_in_server(engines, filled, monkeypatch):
     assert trip == TRIP
     assert not any(m.split(".")[0] in ("clab", "nnterp") for m in cloudpickle.cloudpickle._PICKLE_BY_VALUE_MODULES)
     assert home is plan and same(home.results, filled["nnterp"].results)
-    assert home.run is not None and home.run.positions == filled["nnterp"].run.positions
+    assert home.run is not None and placed(home) == placed(filled["nnterp"])
 
 
 def test_the_by_reference_check_sees_a_function_shipped_by_value(engines, monkeypatch):
@@ -125,8 +125,9 @@ def test_dump_and_load_are_inverses(filled, tmp_path):
     assert back.document == "documents/patching.json"             # recorded relative to the corpus root
     assert back.data["pairs"].rows is None and back.data["pairs"].sha256 == plan.data["pairs"].sha256
     manifest = json.loads((tmp_path / "manifest.json").read_text())
-    assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"], "axes": [],
-                                          "shape": [4, 1], "dtype": "float32"}
+    assert manifest["results"]["iia"] == {"file": "iia.safetensors", "step": "iia", "dims": ["rows", "pos"],
+                                          "dataset": "pairs", "read": "patched.logits", "axes": [], "shape": [4, 1],
+                                          "dtype": "float32"}
     assert "rows" not in manifest["data"]["pairs"]
     assert manifest["model"]["dtype"] == "float32"               # recorded though it is the default
 

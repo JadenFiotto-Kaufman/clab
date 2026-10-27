@@ -11,7 +11,7 @@ from typing import Any
 import numpy
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, edited, on_each, same
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, bundle_header, dims, edited, on_each, placed, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 from transformers import AutoTokenizer
@@ -21,7 +21,7 @@ from clab.compile import answers, positions
 from clab.format import data
 from clab.format.sweeps import points
 from clab.ops import metrics, reductions, transforms
-from clab.plan import PlanError, dims_of
+from clab.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
@@ -159,7 +159,7 @@ def test_b6_a_call_a_whole_batch_never_reaches_is_missing(engines, kind):
     """trial-06 e09g: both rows of the first batch stop at once, so it makes no call 3; its rows are
     `alignment_missing`, NaN in the read and -1 from `argmax`, and the second batch's are read."""
     filled = run(engines, generate_at(3), kind)
-    assert filled.run.positions["g.at"] == ["alignment_missing", "alignment_missing", [6], [7]]
+    assert placed(filled)["g.at"] == ["alignment_missing", "alignment_missing", [6], [7]]
     assert filled.results["g.at"][:2].isnan().all() and not filled.results["g.at"][2:].isnan().any()
     assert filled.results["top"][:, 0].tolist()[:2] == [-1, -1]
 
@@ -324,7 +324,7 @@ def test_b12_a_message_that_says_its_role_header_is_found_in_its_own_text(engine
             "site": LAYER0, "pos": {"scope": {"turn": "user"}}}}}}, saves=["f.u"]).compile()
     filled = run(engines, compiled)
     tokens = filled.run.tokens["c.chat"][0]
-    assert [tokens[p] for p in filled.run.positions["f.u"][0]] == ["▁IN", "ST"]
+    assert [tokens[p] for p in placed(filled)["f.u"][0]] == ["▁IN", "ST"]
 
 
 def test_b13_top_k_over_a_read_of_every_token_keeps_each_rows_own(engines, tmp_path):
@@ -334,7 +334,7 @@ def test_b13_top_k_over_a_read_of_every_token_keeps_each_rows_own(engines, tmp_p
         "f": forward({"l": {"site": HEAD, "pos": {"index": ":"}}}),
         "k": {"kind": "op", "op": "top_k", "of": "f.l", "k": 3}}, saves=["k", "f.l"]).compile()
     filled = run(engines, compiled)
-    k, read, where = filled.results["k"], filled.results["f.l"], filled.run.positions["f.l"]
+    k, read, where = filled.results["k"], filled.results["f.l"], placed(filled)["f.l"]
     assert set(k) == {"ids", "probs", "tokens"} and k["ids"].shape == (2, len(where[0]), 3)
     for r, p in enumerate(where):
         assert torch.equal(k["ids"][r, :len(p), 0], read[r, :len(p)].argmax(-1))
@@ -365,8 +365,8 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
     filled = run(engines, compiled)
     tokens = filled.run.tokens["d.input"][0]
     assert tokens == ["<s>", "▁Then", ",", "▁S", "ara", "▁and", "▁Sarah", "▁went", ".", "▁S", "ara", "▁gave"]
-    assert filled.run.positions["f.first"] == [[3, 4]] and filled.run.positions["f.second"] == [[9, 10]]
-    assert filled.run.positions["f.every"] == [[3, 4, 9, 10]]
+    assert placed(filled)["f.first"] == [[3, 4]] and placed(filled)["f.second"] == [[9, 10]]
+    assert placed(filled)["f.every"] == [[3, 4, 9, 10]]
     gpt2 = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-gpt2",
                                          revision=plan_gpt2_revision())
     for tokenizer in (gpt2, engines("nnterp", compiled.model).tokenizer):
@@ -416,7 +416,7 @@ def test_s5_positions_past_where_two_prompts_differ_in_length_are_refused(engine
                                    r"of which is \d+ tokens; d\.input has \d+, so position \d+ pairs '.*' with '.*'; "
                                    r"use a scope to name the token in each row$")
     filled = run(engines, window("-4:-1"))
-    assert filled.run.positions["patched.w"] != filled.run.positions["abc.v"]      # the same tokens, from the end
+    assert placed(filled)["patched.w"] != placed(filled)["abc.v"]      # the same tokens, from the end
     run(engines, window("1:4"))
     run(engines, window(4, read=-1))
 
@@ -444,27 +444,31 @@ def heads(read, written) -> Plan:
 
 def test_s10_an_operands_heads_in_another_order_are_refused(engines):
     """trial-07 E3: a mean read at heads `[1, 3]` swapped into a write at `[3, 1]` would trade them, and so would
-    an op step or a metric over two reads in different orders; read in one order it lands head for head."""
-    refused_before_any_forward(engines, heads([1, 3], [3, 1]), r"patched\.w: operand 'm' holds num_heads \[1, 3\], "
-                               r"and this write's selection holds \[3, 1\]; a select list is positional, so they "
-                               r"would trade places: select num_heads \[3, 1\] at the read$")
+    an op step or a metric over two reads in different orders, refused when the plan compiles (picks are the
+    document's to resolve); read in one order it lands head for head."""
+    with pytest.raises(PlanError, match=r"patched\.interventions\.w\.ops\[0\]\.with: 'm' holds num_heads \[1, 3\], "
+                                        r"and this write's selection holds \[3, 1\]; a select list is positional, so "
+                                        r"they would trade places: select num_heads \[3, 1\] at the read$"):
+        heads([1, 3], [3, 1])
     filled = run(engines, heads([1, 3], [1, 3]))
     assert torch.equal(filled.results["patched.back"][:, :, [1, 3]], filled.results["m"].expand(4, 1, 2, 4))
     for site, axis, op in (({"component": "attention_premix", "layers": 1}, "num_heads", "sub"),
                            (LAYER0, "hidden_size", "cosine")):
         two = forward({"a": {"site": {**site, "select": {axis: [1, 3]}}, "pos": -1},
                        "b": {"site": {**site, "select": {axis: [3, 1]}}, "pos": -1}})
-        refused_before_any_forward(engines, plan(data={"d": DAYS}, steps={
-            "f": two, "d2": {"kind": "op", "op": op, "of": "f.a", "with": "f.b"}}).compile(),
-            rf"d2: operand 'f\.b' holds {axis} \[3, 1\], and the value it acts on holds \[1, 3\]; a select list "
-            rf"is positional, so they would trade places: select one {axis} list at both reads$")
+        with pytest.raises(PlanError, match=rf"steps\.d2\.with: 'f\.b' holds {axis} \[3, 1\], and the value it acts on "
+                                            rf"holds \[1, 3\]; a select list is positional, so they would trade places: "
+                                            rf"select one {axis} list at both reads$"):
+            plan(data={"d": DAYS}, steps={"f": two, "d2": {"kind": "op", "op": op, "of": "f.a", "with": "f.b"}}).compile()
 
 
 def test_s11_one_heads_operand_into_several_heads_is_refused(engines):
-    """trial-07 E5: an operand broadcasts over rows and positions only, never over heads."""
-    refused_before_any_forward(engines, heads([0], [0, 1, 3]), r"patched\.w: operand 'm' holds num_heads \[0\], and "
-                               r"this write's selection holds \[0, 1, 3\]; an operand broadcasts over rows and "
-                               r"positions only: select num_heads \[0, 1, 3\] at the read$")
+    """trial-07 E5: an operand broadcasts over rows and positions only, never over heads: picks are refused when
+    the plan compiles, a `":"` against picks once the model says how many heads it has."""
+    with pytest.raises(PlanError, match=r"patched\.interventions\.w\.ops\[0\]\.with: 'm' holds num_heads \[0\], and "
+                                        r"this write's selection holds \[0, 1, 3\]; an operand broadcasts over rows "
+                                        r"and positions only: select num_heads \[0, 1, 3\] at the read$"):
+        heads([0], [0, 1, 3])
     refused_before_any_forward(engines, heads(":", [2]), r"operand 'm' holds num_heads \[0, 1, 2, 3\], and this "
                                r"write's selection holds \[2\]; an operand holds the same ones: select num_heads "
                                r"\[2\] at the read$")
@@ -478,7 +482,7 @@ def test_s12_a_mean_without_over_keeps_a_layers_axis(engines):
         "f": forward({"h": {"site": stacked, "pos": -1}}), "m": {"kind": "op", "op": "mean", "of": "f.h"},
         "all": {"kind": "op", "op": "mean", "of": "f.h", "over": ["layers", "rows", "pos"]}},
         saves=["f.h", "m", "all"]).compile()
-    assert dims_of(compiled, "m") == ["layers", "hidden_size"] and dims_of(compiled, "all") == ["hidden_size"]
+    assert dims(compiled, "m") == ["layers", "hidden_size"] and dims(compiled, "all") == ["hidden_size"]
     assert reductions.reduced(["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "hidden_size"]
     filled = run(engines, compiled)
     assert torch.equal(filled.results["m"], filled.results["f.h"].mean(dim=[1, 2]))
@@ -774,7 +778,7 @@ def test_s18_a_strip_answer_and_scope_that_do_not_line_up_name_the_whitespace_on
                                r"read's position 2 predicts ' ', whitespace only, which the answer has no token for: "
                                r"write the answer with its space$")
     filled = run(engines, scored(year, {"column": "d.year"}), kind)
-    assert filled.run.positions["read.logits"] == [[2, 3, 4, 5, 6]]
+    assert placed(filled)["read.logits"] == [[2, 3, 4, 5, 6]]
     space = engines(kind, filled.model).tokenizer(" ", add_special_tokens=False)["input_ids"]
     probs = filled.results["read.logits"][0, 0].softmax(-1)
     assert len(space) == 1 and filled.results["p"][0, 0] == probs[space[0]]
@@ -807,7 +811,7 @@ def test_d6_a_chats_template_carries_the_generation_prompt_and_keeps_its_turns(e
     filled = run(engines, chat(), kind)
     tokens = filled.run.tokens
     assert tokens["d.chat"] == tokens["d.prompt"] and tokens["d.chat"][0][-9:] == HEADER
-    where = filled.run.positions
+    where = placed(filled)
     assert [tokens["d.chat"][0][p] for p in where["f.user"][0]] == ["Say", "Ġhi", "."]
     assert [tokens["d.chat"][0][p] for p in where["f.system"][0]] == ["Be", "Ġbrief", "."]
     assert where["f.last"] == [[len(tokens["d.chat"][0]) - 1]]
@@ -833,7 +837,7 @@ def test_o2_argmax_and_top_k_over_a_patterns_key_axis_rank_each_rows_own_keys(en
         "top": {"kind": "op", "op": "top_k", "of": "f.p", "over": "key", "k": 6}},
         saves=["f.p", "most", "top"]).compile())
     p, most, top = filled.results["f.p"], filled.results["most"], filled.results["top"]
-    assert dims_of(filled, "most") == ["rows", "pos", "num_heads"]
+    assert dims(filled, "most") == ["rows", "pos", "num_heads"]
     assert (~p[:, 0, 0].isnan()).sum(-1).tolist() == [9, 9, 4, 5]            # each row's own keys
     assert most[:, 0, 0].tolist() == [1, 1, 1, 0]
     assert torch.equal(most, p.nan_to_num(nan=-1).argmax(-1))
@@ -923,24 +927,34 @@ def test_d6_an_eval_reads_a_dataset_as_another_only_where_their_templates_agree(
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_o6_an_op_steps_dose_of_one_number_broadcasts_and_one_per_row_is_refused(engines, kind):
+def test_o6_an_op_steps_dose_of_one_number_broadcasts_and_one_per_row_broadcasts_by_row(engines, kind):
     """As a step too, a dose of one number is the bits its literal is; one laid out `[rows]` (a mean over the
-    positions and features) is no layout an edit takes, and the op-step operand check refuses it by name before
-    the run rather than broadcasting it against the features."""
+    positions and features) broadcasts by axis name, each row's dose over that row's positions and features, never
+    against the features as a bare tensor would; one with an axis the value lacks is refused by name."""
     def stepped(dose: Any, over: list[str]) -> Plan:
         return plan(data={"d": DAYS}, steps={
             "base": forward({"h": {"site": LAYER0, "pos": -1}}),
             "dose": {"kind": "op", "op": "mean", "of": "base.h", "over": over},
             "scaled": {"kind": "op", "op": "scale", "of": "base.h", "factor": dose},
-            "noisy": {"kind": "op", "op": "noise", "of": "base.h", "scale": dose}}, saves=["dose", "scaled", "noisy"])
+            "noisy": {"kind": "op", "op": "noise", "of": "base.h", "scale": dose}},
+                    saves=["base.h", "dose", "scaled", "noisy"])
     every = ["rows", "pos", "hidden_size"]
     named = run(engines, stepped("dose", every).compile(), kind).results
     assert named["dose"].shape == () and same(named, run(engines, stepped(named["dose"].item(), every).compile(),
                                                           kind).results)
-    with pytest.raises(PlanError, match=r"^steps\.scaled\.factor: 'dose' is laid out \['rows'\]; 'scale' acts on a "
-                                        r"value laid out \['rows', 'pos', 'hidden_size'\], so its 'factor' is laid "
-                                        r"out so too, or is one vector \['hidden_size'\]"):
-        stepped("dose", ["pos", "hidden_size"]).compile()
+    per_row = run(engines, stepped("dose", ["pos", "hidden_size"]).compile(), kind).results
+    assert per_row["dose"].shape == (4,)
+    assert torch.equal(per_row["scaled"], per_row["base.h"] * per_row["dose"][:, None, None])
+    torch.testing.assert_close(per_row["noisy"] - per_row["base.h"],       # the same draw, each row's dose
+                               (named["noisy"] - named["base.h"]) * (per_row["dose"] / named["dose"])[:, None, None],
+                               rtol=1e-5, atol=1e-7)
+    with pytest.raises(PlanError, match=r"^steps\.scaled\.factor: 'lens' is laid out \['rows', 'pos', 'vocab_size'\]; "
+                                        r"'scale' acts on a value laid out \['rows', 'pos', 'hidden_size'\], and an "
+                                        r"operand's axes are among the value's"):
+        plan(data={"d": DAYS}, steps={
+            "base": forward({"h": {"site": LAYER0, "pos": -1}}),
+            "lens": {"kind": "op", "op": "readout", "of": "base.h"},
+            "scaled": {"kind": "op", "op": "scale", "of": "base.h", "factor": "lens"}}).compile()
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -977,7 +991,7 @@ def test_m1_two_sweeps_of_one_label_zip_and_the_refusal_names_label():
                                                                          "y": {"site": "b", "pos": -1}})}).compile()
     zipped = two({"sweep": [0, 1]})
     assert [p.at for p in points(zipped.steps["f"])] == [{"layers": 0}, {"layers": 1}]
-    assert zipped.sweeps["layers"].paths == ["sites.a.layers", "sites.b.layers"]
+    assert list(zipped.sweeps) == ["layers"] and zipped.sweeps["layers"].values == [0, 1]
     with pytest.raises(PlanError, match=r"^sites\.b\.layers: label 'layers' is also the sweep at sites\.a\.layers, "
                                         r"over \[0, 1\]; one label is one axis, whose sweeps pair their points: give "
                                         r"one of them its own label to cross them \(\{'sweep': \[\.\.\.\], 'label': "
@@ -1012,7 +1026,7 @@ def test_m4_an_operand_without_a_static_width_into_such_a_write_says_what_differ
     """trial-01, trial-02: the two layouts print the same, so the message says the difference is where the
     positions come from."""
     with pytest.raises(PlanError, match=r"with: 'abc\.v' holds a different number of positions on each row, which "
-                                        r"another forward's positions need not pair with; read it at a static index"):
+                                        r"pair with no other value's; read both at a static index"):
         plan(data={"d": PAIR}, steps={
             "abc": {"kind": "forward", "input": "d.abc", "interventions": {"v": {"site": LAYER0, "pos": {"index": ":"}}}},
             "patched": forward({"w": {"site": LAYER0, "pos": {"index": ":"},
@@ -1032,7 +1046,7 @@ def test_m5_o2_argmax_ranks_the_axis_over_names_and_one_the_value_lacks_is_refus
         top().compile()
     with pytest.raises(PlanError, match=r"^steps\.top: it ranks the value's 'classes' axis"):
         top(over="classes").compile()
-    assert dims_of(top(over="features").compile(), "top") == ["rows", "pos"]
+    assert dims(top(over="features").compile(), "top") == ["rows", "pos"]
 
 
 def test_m6_take_on_a_file_keeps_its_first_rows():
@@ -1064,8 +1078,8 @@ def test_m8_a_turn_scope_on_text_says_the_input_is_text():
 
 def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_layer_it_lacks(engines):
     """trial-07 E6b: a mean that keeps a layers axis has no rows, so it crosses datasets; a one-layer write takes
-    its slice labelled with the write's layer, and one at a layer the axis does not hold is refused before any
-    forward, naming that layer (not "a row per example")."""
+    its slice labelled with the write's layer, and one at a layer the axis does not hold is refused when the plan
+    compiles, naming that layer (not "a row per example")."""
     def function_vector(read_at):
         return plan(data={"d": DAYS, "t": {"rows": DAYS["rows"][:2]}}, steps={
             "icl": forward({"a": {"site": {"component": "attention_premix", "layers": read_at}, "pos": -1}}),
@@ -1075,10 +1089,10 @@ def test_m9_a_rows_free_operand_with_a_layers_axis_names_the_layer_it_lacks(engi
                 "ops": [{"op": "swap", "with": "m"}]}}}}, saves=["m", "zs.w"]).compile()
     written = run(engines, function_vector([0, 1]))
     assert torch.equal(written.results["zs.w"], written.results["m"][1].expand(2, 1, 4, 4))
-    refused_before_any_forward(engines, function_vector([0]),
-                               r"^zs\.w: operand 'm' holds layers \[0\], and this op acts at layers \[1\]; at each "
-                               r"layer it takes the operand's slice of that layer, and it holds none of \[1\]: read it "
-                               r"at those layers too$")
+    with pytest.raises(PlanError, match=r"^steps\.zs\.interventions\.w\.ops\[0\]\.with: 'm' holds layers \[0\], and "
+                                        r"this op acts at layers \[1\]; at each layer it takes the operand's slice of "
+                                        r"that layer, and it holds none of \[1\]: read it at those layers too$"):
+        function_vector([0])
 
 
 def test_m10_a_generate_write_at_the_last_token_of_every_call_names_the_two_writes():

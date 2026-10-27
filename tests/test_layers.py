@@ -11,13 +11,13 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, on_each, same, stand_in
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, dims, edited, on_each, placed, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
 from clab.format.sweeps import points
 from clab.ops import metrics
-from clab.plan import PlanError, Sweep, dims_of
+from clab.plan import PlanError, Sweep
 
 GPT2 = {"key": "hf-internal-testing/tiny-random-gpt2", "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9"}
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -50,7 +50,7 @@ def both(engines, compiled: Plan) -> Any:
     """`compiled` run on each engine at the pinned batch size, the two agreeing to the bit in their results and
     in the positions they record: the nnterp run."""
     a, b = on_each(engines, compiled, kinds=KINDS).values()
-    assert same(a.results, b.results) and a.run.positions == b.run.positions
+    assert same(a.results, b.results) and placed(a) == placed(b)
     return a
 
 
@@ -166,8 +166,8 @@ def test_a_layer_the_operand_does_not_hold_is_refused_by_name_before_any_forward
                                         r"many things there are$"):
         plan({"run": forward({"w": {"site": stream("0:0"), "pos": -1, "ops": [{"op": "scale", "factor": 2.0}]}})}, [])
     with pytest.raises(PlanError, match=r"^steps\.run\.interventions\.w\.ops\[0\]\.with: 'cf\.h' is laid out "
-                                        r"\['layers', 'rows', 'pos', 'hidden_size'\]: an op takes an operand's slice "
-                                        r"of each layer it acts at, and logits is the model's own value, at no layer"):
+                                        r"\['layers', 'rows', 'pos', 'hidden_size'\]; 'add' acts on a value laid out "
+                                        r"\['rows', 'pos', 'vocab_size'\], and an operand's axes are among the value's"):
         plan({"cf": forward({"h": {"site": stream(":"), "pos": -1}}, CF),
               "run": forward({"w": {"site": {"component": "logits"}, "pos": -1,
                                     "ops": [{"op": "add", "with": "cf.h"}]}})}, [])
@@ -175,18 +175,18 @@ def test_a_layer_the_operand_does_not_hold_is_refused_by_name_before_any_forward
 
 def test_a_write_across_layers_binds_a_layers_axis_that_its_table_and_positions_say(engines, tmp_path):
     """The value `<step>.<name>` has a `layers` axis first, labelled with the layers picked, in their order;
-    `table` says each row's `layer`, after `Plan.load` too; `run.positions` records the write's landing once, as
+    `table` says each row's `layer`, after `Plan.load` too; the write's record holds its landing once, as
     a read's; and the ops after its last edit see the axis: `[add 0, readout, token_prob]` at every layer is
     the logit lens, a probability per layer."""
     compiled = plan({"run": forward({"w": {"site": stream([4, 1]), "pos": {"index": "-2:"},
                                            "ops": [{"op": "scale", "factor": 2.0}]},
                                      "r": {"site": stream(0), "pos": {"index": "-2:"}}})}, ["run.w", "run.r"])
     got = both(engines, compiled)
-    assert dims_of(compiled, "run.w") == ["layers", "rows", "pos", "hidden_size"]
+    assert dims(compiled, "run.w") == ["layers", "rows", "pos", "hidden_size"]
     assert got.results["run.w"].shape == (2, 4, 2, 32)
     rows = got.table("run.w")
     assert [r["layer"] for r in rows] == [4] * 8 + [1] * 8 and rows[0]["pos"] == 10
-    assert got.run.positions["run.w"] == got.run.positions["run.r"] == [[10, 11]] * 4
+    assert placed(got)["run.w"] == placed(got)["run.r"] == [[10, 11]] * 4
     got.dump(str(tmp_path))
     assert Plan.load(str(tmp_path)).table("run.w") == rows
     lens = [{"op": "readout"}, {"op": "token_prob", "token": "pairs.cf_answer"}]
@@ -271,7 +271,7 @@ def test_an_entrys_ops_act_at_each_layer_and_reduce_over_none():
     def written(over: list[str]) -> Plan:
         return plan({"run": forward({"w": {"site": stream(":"), "pos": {"index": "-2:"}, "ops": [
             {"op": "scale", "factor": 2.0}, {"op": "mean", "over": over}]}})}, ["run.w"])
-    assert dims_of(written(["pos"]), "run.w") == ["layers", "rows", "hidden_size"]
+    assert dims(written(["pos"]), "run.w") == ["layers", "rows", "hidden_size"]
     with pytest.raises(PlanError, match=r"^steps\.run\.interventions\.w\.ops\[1\]\.over: 'mean' over 'layers': "
                                         r"inside an entry an op acts at each layer the entry is made at, so it meets "
                                         r"no layers axis; reduce over layers in a step after the forward"):
@@ -300,22 +300,24 @@ def kl(mine, theirs, against: str = "b.lens") -> Plan:
 def test_a_steps_operand_is_aligned_to_ofs_layers_by_label(engines):
     """A `kl` step between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, as it does between
     lenses listed alike; against a value without a layers axis (the model's logits) every layer scores against
-    it; a layer `of` holds that the operand does not is refused by name before any forward."""
+    it; a layer `of` holds that the operand does not is refused by name when the plan compiles."""
     reversed_, alike = (both(engines, kl([0, 1, 2], theirs)).results["kl"] for theirs in ([2, 1, 0], [0, 1, 2]))
     assert reversed_.shape == (3, 4, 1) and torch.equal(reversed_, alike) and not torch.equal(alike[0], alike[2])
     against = both(engines, kl([0, 1, 2], [0], "a.logits")).results
     for i in range(3):
         assert torch.equal(against["kl"][i], metrics.kl(against["a.lens"][i], against["a.logits"])), i
     for mine, theirs, missing in (([0, 1], [2, 3], "[0, 1]"), ([0, 1, 2], [0, 1], "[2]")):
-        refused(engines, kl(mine, theirs), rf"^kl: operand 'b\.lens' holds layers {re.escape(str(theirs))}, and this "
-                                           rf"op acts at layers {re.escape(str(mine))}; at each layer it takes the "
-                                           rf"operand's slice of that layer, and it holds none of {re.escape(missing)}")
+        with pytest.raises(PlanError, match=rf"^steps\.kl\.against: 'b\.lens' holds layers {re.escape(str(theirs))}, "
+                                            rf"and this op acts at layers {re.escape(str(mine))}; at each layer it "
+                                            rf"takes the operand's slice of that layer, and it holds none of "
+                                            rf"{re.escape(missing)}"):
+            kl(mine, theirs)
 
 
 def test_an_edit_steps_operand_is_aligned_and_laid_out_as_its_of(engines):
     """`sub` of one layer's read (layer 1) with a read at `[0, 1]` takes the operand's slice labelled 1, and keeps
-    the read's layout; an operand laid out otherwise is refused when the plan compiles, and one with a layers axis
-    where `of` is at no layer (the final norm's output) before any forward."""
+    the read's layout; an operand laid out otherwise is refused when the plan compiles, and so is one with a layers
+    axis where `of` is at no layer (the final norm's output)."""
     reads = {"f": forward({"h": {"site": stream(1), "pos": -1}, "n": {"site": {"component": "final_norm_output"},
                                                                        "pos": -1},
                            "heads": {"site": {"component": "attention_premix", "layers": 1}, "pos": -1}}),
@@ -329,7 +331,8 @@ def test_an_edit_steps_operand_is_aligned_and_laid_out_as_its_of(engines):
                                         r"'head_dim'\]; 'sub' acts on a value laid out \['rows', 'pos', "
                                         r"'hidden_size'\]"):
         sub("f.h", "f.heads")
-    refused(engines, sub("f.n", "g.h"), r"^d: operand 'g\.h' has a layers axis, and this op acts at no layer")
+    with pytest.raises(PlanError, match=r"^steps\.d\.with: 'g\.h' has a layers axis, and this op acts at no layer"):
+        sub("f.n", "g.h")
 
 
 def test_a_bundle_made_across_layers_is_used_at_any_of_them(engines, tmp_path):
@@ -386,7 +389,7 @@ def test_two_labelled_sweeps_cross_into_a_grid_keyed_by_label(engines, tmp_path)
                             "b": "pairs.base_answer"}}, ["ld"])
     swept = grid({"sweep": [0, 1, 2], "label": "src"}, {"sweep": [0, 1, 2], "label": "dst"})
     assert list(swept.sweeps) == ["src", "dst"]
-    assert swept.sweeps["dst"].paths == ["steps.run.interventions.w.site.layers"]
+    assert swept.sweeps["dst"].values == [0, 1, 2]
     got = both(engines, swept)
     assert list(got.results["ld"]) == [(s, d) for s in range(3) for d in range(3)]
     assert torch.equal(got.results["ld"][2, 0], both(engines, grid(2, 0)).results["ld"])
@@ -399,11 +402,10 @@ def test_two_labelled_sweeps_cross_into_a_grid_keyed_by_label(engines, tmp_path)
 
 def test_two_sweeps_of_one_label_and_values_are_one_axis(engines):
     """A read's and a write's `layers`, each `{"sweep": [0, 1, 2]}`: one label, `layers`, so one axis whose
-    points pair up, the write at layer L given the read at L; the axis lists both paths."""
+    points pair up, the write at layer L given the read at L."""
     zipped = plan({"cf": forward({"h": {"site": stream({"sweep": [0, 1, 2]}), "pos": -1}}, CF),
                    "run": forward({"w": swap({"sweep": [0, 1, 2]}, "cf.h"), **LOGITS})}, ["run.logits"])
-    assert zipped.sweeps["layers"].paths == ["steps.cf.interventions.h.site.layers",
-                                             "steps.run.interventions.w.site.layers"]
+    assert list(zipped.sweeps) == ["layers"] and zipped.sweeps["layers"].values == [0, 1, 2]
     got = both(engines, zipped).results["run.logits"]
     assert list(got) == [0, 1, 2]
     for layer in range(3):
