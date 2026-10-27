@@ -1,7 +1,9 @@
 """FORMAT.md is generated from the code; the committed copy must be what the code generates now."""
 
 import os
+import shutil
 
+import pytest
 from conftest import ROOT
 
 from clab.docs import describe, markdown
@@ -10,7 +12,31 @@ from clab.docs import describe, markdown
 def test_format_md_is_what_the_code_generates():
     with open(os.path.join(ROOT, "FORMAT.md")) as f:
         committed = f.read()
-    assert committed == markdown(), "FORMAT.md is stale: run `clab describe --markdown` from the repo root"
+    assert committed == markdown(), "FORMAT.md is stale: run `clab describe --markdown`"
+
+
+def test_describe_markdown_writes_format_md_at_the_repo_root_from_anywhere(tmp_path, monkeypatch, capsys):
+    """`clab describe --markdown` writes FORMAT.md beside the package (the root `docs.ROOT` finds from the package's
+    file), not into the working directory, prints nothing, and says where on `--verbose`."""
+    from clab import docs
+    from clab.cli import main
+
+    root = tmp_path / "root"
+    (root / "documents").mkdir(parents=True)
+    shutil.copy(os.path.join(ROOT, "documents", "patching.json"), root / "documents")
+    monkeypatch.setattr(docs, "ROOT", str(root))
+    monkeypatch.chdir(tmp_path)
+    assert main(["describe", "--markdown"]) == 0
+    assert capsys.readouterr().out == "" and not (tmp_path / "FORMAT.md").exists()
+    assert (root / "FORMAT.md").read_text() == markdown()
+    assert main(["describe", "--markdown", "--verbose"]) == 0
+    assert capsys.readouterr().out == f"wrote {root / 'FORMAT.md'}\n"
+
+
+def test_describe_refuses_a_name_it_does_not_know_listing_the_registries():
+    with pytest.raises(ValueError, match="^describe 'bogus': nothing is described under that name; the registries are "
+                                         "records, steps, ops, components, featurizers, pos, engines$"):
+        describe("bogus")
 
 
 def test_describe_lists_every_registry():

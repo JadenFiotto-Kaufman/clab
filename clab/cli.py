@@ -19,7 +19,7 @@ import sys
 from typing import Any
 
 from clab import output
-from clab.docs import WHAT, as_json, describe, markdown
+from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.sweeps import coordinate, labelled
 from clab.plan import Plan, Run, name, points
 
@@ -128,14 +128,15 @@ def main(argv: list[str] | None = None) -> int:
     rows.add_argument("--csv", action="store_true", help="CSV on stdout, every cell whole")
     tell = commands.add_parser("describe", help="print the format's tables, read off the code")
     tell.add_argument("what", nargs="?", choices=WHAT)
-    tell.add_argument("--markdown", action="store_true", help="write FORMAT.md")
+    tell.add_argument("--markdown", action="store_true", help="write FORMAT.md at the repo root")
+    tell.add_argument("--verbose", action="store_true", help="say where --markdown wrote")
     args = parser.parse_args(argv)
 
     if args.command == "describe":
         if args.markdown:
-            with open("FORMAT.md", "w") as f:
-                f.write(markdown())
-            print("wrote FORMAT.md")
+            path = write_markdown()
+            if args.verbose:
+                print(f"wrote {path}")
         else:
             print(describe(args.what))
         return 0
