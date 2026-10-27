@@ -177,7 +177,7 @@ def stacked(record: Intervention, values: list) -> Any:
     if not address.stacks(cast(Site, record.site).layers):
         return values[0]
     # Under a device that spreads the model ("auto") the layers' values can live on different GPUs; they stack on
-    # the first's. (Not tested: this host has one GPU.)
+    # the first's.
     if isinstance(values[0], Tensor):
         return torch.stack([v.to(values[0].device) for v in values])
     return {k: torch.stack([v[k].to(values[0][k].device) for v in values]) for k in values[0]}

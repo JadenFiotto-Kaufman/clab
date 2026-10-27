@@ -19,8 +19,8 @@ clab = "clab.cli:main"
 [dependency-groups]
 dev = ["pytest", "bitsandbytes>=0.50"]
 
-# nnsight comes from PyPI; nnterp is the shared working checkout on this machine, installed editable. Leave
-# the nnterp entry alone; add your own dependencies above as needed.
+# nnsight comes from PyPI; nnterp is an editable checkout at the path below until nnterp 2 publishes. Leave the
+# nnterp entry alone; add your own dependencies above as needed.
 [tool.uv.sources]
 nnterp = { path = "/home/localjadenfk/wd/nnterp", editable = true }
 

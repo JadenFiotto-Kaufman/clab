@@ -1,6 +1,6 @@
 """Every input token is a position, BOS and a chat template's markers included, numbered one way everywhere: a
 document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's
-`key` axis, and a refusal's token counts (PR 15; FINDINGS.md S4, S7, D7, D17).
+`key` axis, and a refusal's token counts.
 
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
 Qwen3-8B's tokenizer is cached): `<|im_start|>` and `<|im_end|>` are its markers, and it adds no BOS."""
