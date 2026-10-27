@@ -125,6 +125,7 @@ TODO-STEER
 ## Pitfalls
 
 - **A region's grid is the processor's.** On the Qwen ViTs it is `image_grid_thw` merged two ways on each side; on a fixed-resolution tower (Llava's CLIP, Gemma 3's SigLIP) a square count. A tower clab knows no grid for refuses `region` by name; `{"scope": {"image": 0}}` still names the whole image.
+- **A batch's image tensors are the processor's, concatenated row after row.** That is the layout of the Qwen ViTs, CLIP and SigLIP; a processor whose image tensors carry a per-row axis (Idefics 3's `pixel_attention_mask`) cannot batch rows with different numbers of images, and the error is torch's, not a refusal. Run such rows at `--batch-size 1`.
 - **A head's mass on the image is not its mass on a panel.** `image_mean` is large on early blocks of most models, where the text reads the image out; the gaze score asks for the queried panel in particular, which is why the paper keeps the attention raw rather than normalized over panels: a head that ignores the image scores zero either way.
 - **Compare the bias to a null, not to clean alone.** `add` by 0 at the same heads and keys must equal the plain run to the bit; if it does not, the keys or the heads are not the ones meant ([interventions.md](../usage/interventions.md#the-null-control)).
 - **The hooks engine does not serve the attention interior**, so the pattern reads and the score writes run on nnterp; what both engines serve (the residual stream at the image's positions, the logits, a generation) agrees to the bit on the tiny checkpoints.

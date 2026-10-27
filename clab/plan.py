@@ -243,9 +243,6 @@ class Column(Record):
 ColumnRef = Union[str, Column]
 
 
-Box = list[float]
-
-
 class Scope(Record):
     """`{"column": <column>}`: the row's own text of that column (a `Column`: the string or the object), each
     member of a set; `{"text": "<literal>"}`: that text; `{"turn": "<role>"}`: that role's messages of a
@@ -272,7 +269,7 @@ class Scope(Record):
     text: str | list[str] | None = None
     turn: str | None = None
     image: Swept[Selector] | None = None
-    region: Swept[Box | list[Box] | str] | None = None
+    region: Swept[list[Any] | str] | None = None
     outside: bool = False
     occurrence: Swept[Selector] = 0
     strip: bool = False

@@ -105,8 +105,9 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     for _, step in walk(points(plan.steps[fit])[0].steps):
         if step.kind in ("forward", "generate") and data.input_name(step.input, swap) in plan.run.tokens:
             tokens[data.input_name(step.input)] = plan.run.tokens[data.input_name(step.input, swap)]
-    run = plan.run.model_copy(update={"tokens": tokens, "positions": {
-        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
+    run = plan.run.model_copy(update={"tokens": tokens, **{
+        field: {k.removeprefix(f"{fit}.{label}."): v for k, v in getattr(plan.run, field).items()
+                if k.startswith(f"{fit}.{label}.")} for field in ("positions", "keys")}})
     return body_view(plan, fit, swap=swap).model_copy(update={
         "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 

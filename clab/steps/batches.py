@@ -183,8 +183,8 @@ def stacked(record: Intervention, values: list) -> Any:
 def joined(state: dict, name: str, step: Forward, parts: list[dict]) -> None:
     """Each gathered entry's per-batch values joined along rows, on the first batch's device, as `stacked`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
-    under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`padded`)."""
+    under a device map batches can come back apart); a batch narrower than the widest along `pos`, or along
+    `key` where a scope names each row's keys, is padded to it first (`padded`)."""
     for key, record in entries(step).items():
         if not record.gathered:
             continue
@@ -192,8 +192,9 @@ def joined(state: dict, name: str, step: Forward, parts: list[dict]) -> None:
         values = [p[key] for p in parts]
 
         def cat(parts: list[Tensor]) -> Tensor:
-            if "pos" in dims:
-                parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
+            for axis in ("pos", "key"):
+                if axis in dims:
+                    parts = [padded(v, dims.index(axis), max(v.shape[dims.index(axis)] for v in parts)) for v in parts]
             return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
         put(state, f"{name}.{key}", step.at, cat(values) if isinstance(values[0], Tensor) else
             {k: cat([v[k] for v in values]) for k in values[0]})

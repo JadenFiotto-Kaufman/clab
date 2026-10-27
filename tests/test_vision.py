@@ -198,7 +198,7 @@ def doc_with(corpus: str, change) -> Plan:
 
 
 @pytest.mark.parametrize("scope, message", [
-    ({"image": 0, "region": [0, 0, 2, 1]}, r"region \[0\.0, 0\.0, 2\.0, 1\.0\]: a box is \[x0, y0, x1, y1\] with 0 <= x0 < x1 <= 1"),
+    ({"image": 0, "region": [0, 0, 2, 1]}, r"region \[0, 0, 2, 1\]: a box is \[x0, y0, x1, y1\] with 0 <= x0 < x1 <= 1"),
     ({"image": 0, "outside": True}, r"'outside' flips a region to the image's tokens outside it, and the scope gives no region"),
     ({"text": "a", "region": [0, 0, 1, 1]}, r"'region' and 'outside' narrow an image scope"),
     ({"image": 0, "occurrence": 1}, r"an image scope's occurrences are the row's images, which 'image' picks among"),
@@ -280,3 +280,71 @@ def test_the_ndif_engine_refuses_an_image_part(engines, corpus):
     with pytest.raises(ValueError, match=r"clean: d\.chat row 0 has an image part, a file under the corpus root's "
                                          r"data/, which the ndif engine's server cannot read"):
         engines("ndif", plan.model, remote="local").execute(plan, batch_size=2)
+
+
+# -- what the review found ------------------------------------------------------------------------------
+
+
+def test_aligned_merges_an_inserted_run_and_keeps_a_repeated_text_run():
+    """An image's tokens (one id, put in by the processor) all take the placeholder's span whichever of them the
+    alignment matched; repeated digits or newlines the plain tokenizer has too keep their own spans."""
+    from clab.format.data import aligned
+
+    plain, offsets = [7, 9, 9, 9, 5], [(0, 2), (2, 3), (3, 4), (4, 5), (5, 8)]
+    assert aligned(plain, offsets, plain) == offsets
+    # The processor expanded the placeholder 9 at index 1 into four 9s, and the alignment kept the last of them.
+    assert aligned([7, 9, 5], [(0, 2), (2, 9), (9, 12)], [7, 9, 9, 9, 9, 5]) == \
+        [(0, 2), (2, 9), (2, 9), (2, 9), (2, 9), (9, 12)]
+    # A BOS the processor added, before anything, covers nothing.
+    assert aligned([7, 5], [(0, 2), (2, 4)], [1, 7, 5]) == [(0, 0), (0, 2), (2, 4)]
+
+
+def test_a_region_may_be_a_list_of_boxes(engines, corpus):
+    """Two boxes are their union: the left half and the top-right quarter of the 6 x 12 grid name 36 + 9 keys."""
+    from clab.plan import Scope
+
+    assert Scope(image=0, region=[[0, 0, 0.5, 1], [0.5, 0, 1, 0.5]]).region == [[0, 0, 0.5, 1], [0.5, 0, 1, 0.5]]
+
+    def change(d):
+        d["sites"]["left_keys"]["select"]["key"] = {"scope": {"image": 0, "region": [[0, 0, 0.5, 1], [0.5, 0, 1, 0.5]]}}
+        d["steps"] = {"clean": d["steps"]["clean"]}
+        d["saves"] = ["clean.left"]
+    plan = doc_with(corpus, change).compile()
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=2)
+    rows, cols = TOKENS["qwen"][1]
+    start = filled.run.positions["clean.image"][0][0]
+    union = sorted({start + i * cols + c for i in range(rows) for c in range(cols // 2)}
+                   | {start + i * cols + c for i in range(rows // 2) for c in range(cols // 2, cols)})
+    assert filled.run.keys["clean.left"][0] == union and len(union) == 36 + 18
+
+
+def test_scoped_keys_of_different_widths_join_across_batches(engines, corpus):
+    """A region column that names 36 keys on one row and 18 on the next: read whole (no sum), at batch size 1
+    each batch is as wide as its own row, and the joined value is as wide as the widest, NaN past a row's own."""
+    def change(d):
+        d["data"]["d"] = {"rows": [{**ROWS[0], "box": [0, 0, 0.5, 1]}, {**ROWS[1], "box": [0, 0, 0.25, 1]},
+                                   {**ROWS[2], "box": [0, 0, 0.5, 1]}], "template": {"add_generation_prompt": True}}
+        d["sites"]["box_keys"] = {"component": "attention_probabilities", "layers": 1,
+                                  "select": {"key": {"scope": {"image": 0, "region": "d.box"}}}}
+        d["steps"] = {"clean": {"kind": "forward", "input": "d.chat",
+                                "interventions": {"boxed": {"site": "box_keys", "pos": -1}}}}
+        d["saves"] = ["clean.boxed"]
+    plan = doc_with(corpus, change).compile()
+    one = engines("nnterp", plan.model).execute(plan, batch_size=1)
+    two = engines("nnterp", plan.model).execute(plan, batch_size=2)
+    assert [len(k) for k in one.run.keys["clean.boxed"]] == [36, 18, 36]
+    value = one.results["clean.boxed"]
+    assert value.shape == (3, 1, 4, 36) and value[1, ..., 18:].isnan().all() and not value[1, ..., :18].isnan().any()
+    assert same(one.results, two.results)
+
+
+def test_a_fit_bodys_minibatches_keep_the_scoped_keys():
+    """`narrowed` hands a training minibatch the keys preflight resolved, like its positions."""
+    from clab.compile.state import Found
+    from clab.steps.fit import narrowed
+
+    found = Found(inputs={"d.chat": {"rows": [{"ids": [1]}, {"ids": [2]}, {"ids": [3]}], "width": 1}},
+                  positions={"f.x": {(): [[0], [1], [2]]}}, keys={"f.x": {(): [[4, 5], [6], [7, 8, 9]]}})
+    plan = Plan(model=QWEN, data={"d": {"rows": [{"chat": "a"}, {"chat": "b"}, {"chat": "c"}]}}, steps={})
+    _, part = narrowed(plan, found, [2, 0], ["d"])
+    assert part.keys == {"f.x": {(): [[7, 8, 9], [4, 5]]}} and part.positions == {"f.x": {(): [[2], [0]]}}

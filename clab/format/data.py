@@ -262,7 +262,9 @@ def aligned(plain: list[int], offsets: list[tuple[int, int]], ids: list[int]) ->
     tokens of it (with their `offsets`), aligned token by token: a token the two share keeps its span; one the
     processor put in place of a plain token (a newline it rewrote) takes the span of what it replaced; one it
     inserted (an image's tokens after its placeholder, a BOS it added) takes the span of the token before it, an
-    empty span at the start where there is none. So an image's tokens all cover its placeholder."""
+    empty span at the start where there is none; and a run of one repeated id that holds inserted tokens takes
+    the span of the token the alignment matched, so an image's tokens all cover its placeholder whichever of
+    them stood for it. A run the plain tokenizer has too keeps each token's own span."""
     out: list[tuple[int, int]] = [(0, 0)] * len(ids)
     kept = [False] * len(ids)                   # the tokens that stand for a plain token
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=plain, b=ids, autojunk=False).get_opcodes():
@@ -276,13 +278,14 @@ def aligned(plain: list[int], offsets: list[tuple[int, int]], ids: list[int]) ->
         elif tag == "insert":
             span = out[j1 - 1] if j1 > 0 else (offsets[i1][0], offsets[i1][0]) if i1 < len(offsets) else (0, 0)
             out[j1:j2] = [span] * (j2 - j1)
-    # A run of one repeated id (an image's tokens) is one thing: where the alignment matched the placeholder to
-    # any token of the run, every token of the run takes the placeholder's span.
+    # A run of one repeated id that the processor put in (an image's tokens) is one thing: where the alignment
+    # matched the placeholder to any token of the run, every token of the run takes the placeholder's span. A
+    # run the plain tokenizer has too (repeated digits, newlines) keeps each token's own span.
     start = 0
     for end in range(1, len(ids) + 1):
         if end == len(ids) or ids[end] != ids[start]:
             found = next((out[j] for j in range(start, end) if kept[j]), None)
-            if found is not None and end - start > 1:
+            if found is not None and not all(kept[start:end]):
                 out[start:end] = [found] * (end - start)
             start = end
     return out
