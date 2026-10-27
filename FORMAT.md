@@ -646,8 +646,10 @@ model or site it was made at, so the document states the layer, which every use 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), the scalars a fit's objective may name (`scalars`) and the fields that count directions of the
-value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
+(`drawn`), what a header field left unstated is where the kind rather than its signature decides it
+(`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
+published file must state), the scalars a fit's objective may name (`scalars`) and the fields that count
+directions of the value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
 methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -692,9 +694,9 @@ Ops: `encode` gives its coordinates, the last axis becoming features; `decode` w
 - `latents: int or null = null`
 - `file_path: str or null = null`
 - `seed: int or null = null`
-- `activation: one of "relu", "jumprelu", "topk" = "relu"`
+- `activation: one of "relu", "jumprelu", "topk" or null = null`
 - `k: int or null = null`
-- `centered: bool = true`
+- `centered: bool or null = null`
 - `site: str or {component: str, layers: int} or null = null`
 
 A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
@@ -704,15 +706,17 @@ both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec)
 `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a `decode` keeps its error term exactly.
 `activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
 published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
-zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
-`W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-are checked against each other and the site's width, and nothing in it says what model it was trained on, so
-the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
-the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
-site it is used at is, component and layer, at each layer the site picks (`layers: -1` counting as the
-layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the body read its
-coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and
-`l1`, the mean |z|.
+zero). Left unstated (`null`), `activation` and `centered` are a drawn dictionary's, `relu` and centered,
+which its bundle's header records and a document loading a clab bundle is checked against; a published file
+has no default for them. Its `file_path` may name a published SAE, a safetensors file with no clab header
+holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish
+them: its shapes are checked against each other and the site's width, and nothing in it says what model it
+was trained on or how it encodes, so the document states what the file cannot: its `activation` and
+`centered`, and the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one
+layer), which every site it is used at is, component and layer, at each layer the site picks (`layers: -1`
+counting as the layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the
+body read its coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec +
+b_dec)‖², and `l1`, the mean |z|.
 
 Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term.
 

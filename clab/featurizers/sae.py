@@ -28,25 +28,30 @@ class Sae(Kind):
     `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a `decode` keeps its error term exactly.
     `activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
     published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
-    zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
-    `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-    are checked against each other and the site's width, and nothing in it says what model it was trained on, so
-    the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
-    the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
-    site it is used at is, component and layer, at each layer the site picks (`layers: -1` counting as the
-    layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the body read its
-    coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and
-    `l1`, the mean |z|."""
+    zero). Left unstated (`null`), `activation` and `centered` are a drawn dictionary's, `relu` and centered,
+    which its bundle's header records and a document loading a clab bundle is checked against; a published file
+    has no default for them. Its `file_path` may name a published SAE, a safetensors file with no clab header
+    holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish
+    them: its shapes are checked against each other and the site's width, and nothing in it says what model it
+    was trained on or how it encodes, so the document states what the file cannot: its `activation` and
+    `centered`, and the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one
+    layer), which every site it is used at is, component and layer, at each layer the site picks (`layers: -1`
+    counting as the layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the
+    body read its coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec +
+    b_dec)‖², and `l1`, the mean |z|."""
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
+    unstated = {"activation": "relu", "centered": True}
     scalars = ("reconstruction", "l1")
     threshold: Tensor       # a published JumpReLU's, set with the bundle's other tensors
 
     def __init__(self, width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
-                 activation: Literal["relu", "jumprelu", "topk"] = "relu", k: int | None = None,
-                 centered: bool = True, site: str | TrainedAt | None = None,
+                 activation: Literal["relu", "jumprelu", "topk"] | None = None, k: int | None = None,
+                 centered: bool | None = None, site: str | TrainedAt | None = None,
                  bundle: dict[str, Tensor] | None = None) -> None:
-        self.activation, self.k, self.centered = activation, k, centered
+        self.activation = self.unstated["activation"] if activation is None else activation
+        self.centered = self.unstated["centered"] if centered is None else centered
+        self.k = k
         if bundle is not None:
             for name, tensor in bundle.items():
                 setattr(self, name, tensor)
@@ -62,7 +67,7 @@ class Sae(Kind):
     def check(cls, fields: dict[str, Any]) -> None:
         """`k` comes with `topk` and only with it, and `jumprelu` loads the threshold a published file holds."""
         super().check(fields)
-        activation, k = fields.get("activation", "relu"), fields.get("k")
+        activation, k = fields.get("activation") or cls.unstated["activation"], fields.get("k")
         if isinstance(activation, dict):
             return                          # swept: checked per point
         if (activation == "topk") != (k is not None):

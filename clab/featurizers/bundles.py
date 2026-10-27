@@ -22,12 +22,13 @@ OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "laye
 
 def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None, site: Site | None = None,
            width: int | None = None, document: str | None = None, reads: Site | None = None) -> dict[str, str]:
-    """A bundle's header: the kind and its header fields (with their defaults; a probe's classes as its class
-    list), the model, and, when written, the site it was used at (its `layer` the one int, or the list, of the
-    layers it was made at, counted from the first), its width and the document's name, and the site it read its
-    input at when that was another (`reads`, a cross-site adapter's `with`: `with.component`, `with.layer`)."""
+    """A bundle's header: the kind and its header fields (with their defaults, and what the kind takes an unstated
+    one to be, `unstated`; a probe's classes as its class list), the model, and, when written, the site it was
+    used at (its `layer` the one int, or the list, of the layers it was made at, counted from the first), its
+    width and the document's name, and the site it read its input at when that was another (`reads`, a
+    cross-site adapter's `with`: `with.component`, `with.layer`)."""
     params = inspect.signature(KINDS[kind]).parameters
-    given = {**{k: p.default for k, p in params.items()}, **fields, "classes": labels}
+    given = {**{k: p.default for k, p in params.items()}, **KINDS[kind].unstated, **fields, "classes": labels}
     # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
     own = {k: json.dumps(v) if isinstance(v, (list, bool)) else str(int(v)) if isinstance(v, float) and v.is_integer()
            else str(v) for k in KINDS[kind].header if (v := given[k]) is not None}
