@@ -120,7 +120,24 @@ The paper judges redirection with an LLM. `documents/gaze/gaze_steer.json` score
              "ops": [{"op": "add", "with": -10000.0}]}
 ```
 
-TODO-STEER
+Over the 3,000 (strip, target) pairs, about 83 minutes on the A6000 (eight forwards of 3,000 rows, most of it the processor's work on the images):
+
+| question | condition | answer is the target panel's letter | answer is the asked panel's letter |
+|---|---|---|---|
+| "the k-th panel" | clean | 0.000 | 1.000 |
+| | gaze heads | 0.664 (95% CI 0.644 to 0.683) | 0.073 |
+| | 100 random heads, layers 20 to 35 | 0.033 (0.027 to 0.040) | 0.959 |
+| | null (gaze heads, bias 0) | 0.000 | 1.000 |
+| "this panel" | clean | 0.171 | 0.167 |
+| | gaze heads | 0.660 (0.636 to 0.684) | 0.040 |
+| | 100 random heads, layers 20 to 35 | 0.669 (0.644 to 0.693) | 0.068 |
+| | null | 0.171 | 0.167 |
+
+- **The model reads the letters**: asked for the k-th panel's letter, it answers it on every row; asked about "this panel", it answers at chance, with no preferred panel.
+- **The gaze heads overrule the instruction.** Biased toward another panel, the model answers that panel's letter on two thirds of the rows against a prompt that names the panel; the same bias on 100 random heads of the same layers leaves the instruction intact (3%). The confidence intervals are bootstraps over strips (2,000 resamples), as the paper reports them.
+- **An ambiguous question is redirected by either set.** With no panel named, 100 random mid-late heads forced onto a panel resolve the question to it as often as the gaze heads do. The paper's non-gaze control fails on its description task (14.6%); reading a letter asks less of the model than describing a scene, and any hundred heads whose image attention is pinned to a panel bring that panel's letter forward. The instruction-overriding case is the one that separates the sets here.
+- **The null is the clean run to the bit**: `kl` between the null's and the clean logits is exactly 0 on both questions, so the 68 entries touch the keys and heads they name and nothing else.
+- Redirection is weaker toward the first panels (0.52 to 0.61 for panels 1 to 3, 0.69 to 0.82 for panels 4 to 6) and from the first and last asked panels (0.53 and 0.47): the per-row `gaze_kth_hit` is what such a breakdown reads from.
 
 ## Pitfalls
 
