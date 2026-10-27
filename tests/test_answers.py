@@ -315,6 +315,25 @@ def test_a_column_with_an_answer_of_several_tokens_lines_up_every_row(engines):
     assert one.shape == (2, 3)
 
 
+def test_a_metric_over_a_read_no_row_reached_holds_no_position_whatever_its_answers_width(engines):
+    """A `before` scope on a word no row says, over the decode calls: the read reaches no row and holds no position,
+    `[rows, 0]`, and so does a metric of it, with an answer of one token and with one of several (which lines its
+    tokens up with the read's positions, of which there are none); the table says each row is `alignment_missing`."""
+    rows = [{**r, "never": " Sunday", "two": " Monday morning"} for r in DAYS]
+    steps = {"g": {"kind": "generate", "input": "days.input", "max_new_tokens": 3, "min_new_tokens": 3,
+                   "do_sample": False, "interventions": {"at": {"site": HEAD, "pos": {
+                       "frame": "1:", "scope": {"column": "days.never", "before": True}}}}},
+             "one": {"kind": "op", "op": "token_prob", "of": "g.at", "token": "days.never"},
+             "two": {"kind": "op", "op": "cross_entropy", "of": "g.at", "target": "days.two"}}
+    filled = run(engines, doc(steps, ["one", "two", "g.at"], rows))
+    assert placed(filled)["g.at"] == ["alignment_missing"] * 2
+    assert filled.results["g.at"].shape[:2] == filled.results["one"].shape == filled.results["two"].shape == (2, 0)
+    for name in ("one", "two", "g.at"):
+        table = filled.table(name)
+        assert [(t["row"], t["alignment_missing"]) for t in table] == [(0, True), (1, True)]
+        assert not any("value" in t for t in table)
+
+
 def test_the_minimum_over_every_position_of_a_value_with_none_is_missing():
     empty = torch.zeros(2, 0)
     assert ops.call("min", empty, {"over": ["rows", "pos"]}, dims=["rows", "pos"]).isnan().all()

@@ -244,6 +244,52 @@ def test_a_write_on_an_unselected_key_axis_writes_the_rows_own_keys_only(engines
         assert pattern[..., n:].isnan().all()
 
 
+def test_a_prefill_index_that_picks_none_of_a_rows_tokens_is_missing_there_and_a_write_is_refused(engines):
+    """`{"index": "5:"}` on a row of 4 tokens picks nothing: a read's record says `alignment_missing` for the row,
+    its value is NaN there and its table one line with no value; a write with that pos has no token to write there,
+    and a write whose operand does not reach a row it lands on would write NaN: each refused by name before any
+    forward."""
+    rows = DAYS[:2]
+    read = doc(TINY, rows, {"f": forward({"h": {"site": LAYER0, "pos": {"index": "5:"}}})}, ["f.h"])
+    filled = both(engines, read)
+    assert placed(filled)["f.h"] == [[5, 6, 7, 8, 9, 10], "alignment_missing"]
+    assert filled.results["f.h"].shape == (2, 6, 16) and filled.results["f.h"][1].isnan().all()
+    assert not filled.results["f.h"][0].isnan().any()
+    table = filled.table("f.h")
+    assert [t["pos"] for t in table[:6]] == [5, 6, 7, 8, 9, 10] and table[6:] == [
+        {"row": 1, "alignment_missing": True, "input": "one two three"}]
+    for steps, message in (
+            ({"f": forward({"w": {"site": LAYER0, "pos": {"index": "5:"}, "ops": [{"op": "scale", "factor": 0.0}]}})},
+             r"^f\.w: row 1: the write's positions hold no token of this row; a write needs one to write$"),
+            ({"f": forward({"h": {"site": {"component": "layer_input", "layers": 0}, "pos": {"index": "5:"}},
+                            "w": {"site": LAYER0, "pos": {"index": "::2"}, "ops": [{"op": "add", "with": "f.h"}]}})},
+             r"^f\.w: operand 'f\.h' holds no position on row 1 \(alignment_missing: its pos picks none of the row's "
+             r"tokens\) and this write lands at \[0, 2\] there; a write takes an operand read on every row it lands "
+             r"on$")):
+        compiled = doc(TINY, rows, steps, [])
+        engine = engines("nnterp", compiled.model)
+        calls = []
+        original = engine.forward
+        engine.forward = lambda *args: calls.append(1) or original(*args)
+        try:
+            with pytest.raises(ValueError, match=message):
+                engine.execute(compiled, batch_size=BATCH_SIZE)
+        finally:
+            del engine.forward
+        assert not calls
+
+
+def test_a_before_scope_a_generations_prefill_head_does_not_hold_is_missing(engines):
+    """A generation's prefill computes the head at its last position only: a `before` scope on the prompt's last
+    word reads the position before it, which call 0 does not hold, so it reaches no row, the marker (it once
+    crashed, the marker taken as a list of its characters), and the read's value is NaN all the way."""
+    step = {"kind": "generate", "input": "d.input", "max_new_tokens": 2, "do_sample": False,
+            "interventions": {"l": {"site": LOGITS, "pos": {"scope": {"text": "is", "occurrence": -1, "before": True}}}}}
+    filled = both(engines, doc(TINY, DAYS[:1], {"g": step}, ["g.l"]))
+    assert placed(filled)["g.l"] == ["alignment_missing"]
+    assert filled.results["g.l"].shape == (1, 1, 32000) and filled.results["g.l"].isnan().all()
+
+
 def test_a_refusal_counts_tokens_as_positions(engines):
     """D17: a refusal's token counts are positions: the first row is 11 tokens, BOS included, so `pos: 10` is
     its last (`-1`), which does not fit the second's 4, and `pos: 11` does not fit its 11; the shortest row is 4,

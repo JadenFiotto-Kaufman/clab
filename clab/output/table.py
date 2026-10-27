@@ -191,34 +191,32 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
 
 def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
              ) -> list[dict[str, Any]]:
-    """A value's rows: one per index on its example and token axes, the rest of it as the row's value."""
-    if isinstance(value, dict) and "rows" not in dims:
-        raise ValueError("a bundle has no rows to table; read it from plan.results")
+    """A value's rows: one per index on its example and token axes, the rest of it as the row's value; a row the
+    read did not reach (`place` says so) is one row, `alignment_missing`, whatever its token axes hold, none
+    included (a read no row reached is `[rows, 0]`)."""
+    assert not isinstance(value, dict) or "rows" in dims, "a bundle has no rows to table (rows_of refuses it)"
     first = next(iter(value.values())) if isinstance(value, dict) else value
     shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
-    # The axes a row is per: the example and token axes, or every axis of a value with no rows.
-    axes = [i for i, a in enumerate(dims) if a in ("layers", "rows", "pos", "key") or "rows" not in dims]
-    out, marked = [], set()
-    for index in itertools.product(*(range(shape[i]) for i in axes)):
-        at = dict(zip(axes, index))
-        whole = {{"rows": "row", "layers": "layer"}.get(dims[i], dims[i]): layer(place, k) if dims[i] == "layers"
-                 else k for i, k in at.items() if dims[i] not in ("pos", "key")}
+    # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
+    outer = [i for i, a in enumerate(dims) if a in ("layers", "rows") or "rows" not in dims]
+    inner = [i for i, a in enumerate(dims) if a in ("pos", "key") and "rows" in dims]
+    out = []
+    for index in itertools.product(*(range(shape[i]) for i in outer)):
+        whole = {COLUMNS.get(dims[i], dims[i]): layer(place, k) if dims[i] == "layers" else k
+                 for i, k in zip(outer, index)}
         if place and "row" in whole and place["positions"][whole["row"]] == positions.MISSING:
-            if tuple(whole.items()) not in marked:      # one row says so, in place of its tokens
-                marked.add(tuple(whole.items()))
-                out.append({**whole, positions.MISSING: True})
+            out.append({**whole, positions.MISSING: True})      # one row says so, in place of its tokens
             continue
-        row: dict[str, Any] = dict(whole)
-        for i, k in at.items():
-            if dims[i] in ("pos", "key"):
-                # a value with no rows has no one row's tokens to name a position by
-                row.update(token(place, at[dims.index("rows")], dims[i], k) if place and "rows" in dims
-                           else {dims[i]: k})
-        if row.get("key", 0) is None or row.get("pos", 0) is None:
-            continue                                    # past the row's own keys or positions
-        pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
-        row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
-        out.append(row)
+        for within in itertools.product(*(range(shape[i]) for i in inner)):
+            at = {**dict(zip(outer, index)), **dict(zip(inner, within))}
+            row: dict[str, Any] = dict(whole)
+            for i, k in zip(inner, within):
+                row.update(token(place, at[dims.index("rows")], dims[i], k) if place else {dims[i]: k})
+            if row.get("key", 0) is None or row.get("pos", 0) is None:
+                continue                                    # past the row's own keys or positions
+            pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
+            row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
+            out.append(row)
     return out
 
 

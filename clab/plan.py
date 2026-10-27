@@ -425,7 +425,9 @@ class Pos(Record):
     the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
     row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
     that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-    is a call the row never reached: the row is `alignment_missing`, NaN all the way.
+    is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
+    row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
+    name, since it has no token to write.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None

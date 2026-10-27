@@ -25,15 +25,15 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def site(record: Intervention, picks: dict, rows: list[list[int]], pads: list[int], width: int,
-         last_only: bool) -> dict:
+def site(record: Intervention, picks: dict, rows: list, pads: list[int], width: int, last_only: bool) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
     its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
     batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
-    own), the part of the feature axes it keeps
+    own; a row the record does not reach, the marker in `rows`, holds none), the part of the feature axes it keeps
     (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys
     (`keys`). Where the value holds the last position alone (`last_only`: a generation's head in the prefill)
     every index is -1."""
+    rows = [row if isinstance(row, list) else [] for row in rows]
     n = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(rows, pads)]
