@@ -26,6 +26,7 @@ from conftest import BATCH_SIZE, GEMMA2, HYBRID, document, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 
 from clab import Plan
+from clab.engines import standard
 from clab.format.address import COMPONENTS
 from clab.plan import Model
 
@@ -85,6 +86,19 @@ def test_on_a_family_that_scales_its_logits_only_the_nnterp_engines_readout_is_t
     nnterp, hooks = ran(plan, engines)
     assert same(nnterp["f.lens"], nnterp["f.logits"]) and same(nnterp["f.logits"], hooks["f.logits"])
     assert not torch.equal(hooks["f.lens"], hooks["f.logits"])
+
+
+def test_a_component_nnterps_support_does_not_name_is_refused_not_served(engines, monkeypatch):
+    """`standard.unserved` reads nnterp's `support()` by each component's nnterp name: one the answer does not name
+    is refused by name rather than read as served (which `rank` would then fail on, with a KeyError)."""
+    shell = engines("nnterp", Model.model_validate(TINY["llama"])).model
+    original = type(shell).support
+    monkeypatch.setattr(type(shell), "support", lambda self: {k: v for k, v in original(self).items()
+                                                               if k != "mlp.mlp_output"})
+    with pytest.raises(ValueError, match=r"^nnterp's support\(\) does not name mlp\.mlp_output, so nothing says whether "
+                                         r"it serves mlp_output; a component of address\.COMPONENTS is one nnterp serves "
+                                         r"under that name$"):
+        standard.unserved(shell)
 
 
 def test_the_engines_differ_only_where_nnterp_reads_inside_a_forward(engines):
