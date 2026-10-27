@@ -21,6 +21,25 @@ def test_describe_lists_every_registry():
         assert word in text, word
 
 
+def test_the_components_table_shows_a_selections_layout_and_which_values_readout_projects():
+    """The table lays a component out as a selection presents it, `rows, pos` then its own axes, and says whether
+    it is a residual-stream value `readout` may project (`stream`), in `describe` and in FORMAT.md alike."""
+    lines = describe("components").splitlines()
+    assert "  layer_output             [rows, pos, hidden_size]  narrowed by layers, hidden_size  stream  — " \
+           "the residual stream leaving block i" in lines
+    assert "  attention_probabilities  [rows, pos, num_heads, key]  narrowed by layers, num_heads, key  — " \
+           "the pattern the values are mixed with" in lines
+    table = markdown()
+    assert "| component | dims | narrowed by | stream | meaning |" in table
+    assert "| `layer_output` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream leaving " \
+           "block i |" in table
+    assert "| `mlp_norm_output` | rows, pos, hidden_size | layers, hidden_size | no | the normed stream entering " \
+           "the MLP |" in table
+    rows = [line for line in table.partition("## Components")[2].partition("## Featurizer kinds")[0].splitlines()
+            if line.startswith("| `")]
+    assert len(rows) == 21 and not any("batch" in r or "seq" in r or "query" in r for r in rows)
+
+
 def test_describe_lists_the_engines_and_spells_literals_as_json():
     lines = describe("engines").splitlines()
     assert lines[2] == ('      device: str = "cpu" — one torch device ("cpu", "cuda:0") as the loader\'s device, or '

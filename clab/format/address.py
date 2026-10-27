@@ -1,8 +1,9 @@
 """The locations clab allows: what each component means, its layout, and what narrows it.
 
-A component's name is nnterp's name for the same value, and its `dims` are
-nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
-an attention pattern). `per_layer` says it is a block's value, so a site names
+A component's name is nnterp's name for the same value, and the table lists its layout as a selection of it
+presents it, `rows, pos` then its own axes in nnterp's order (`COMPONENTS` records nnterp's own layout,
+`batch` first and the token axis named `seq`, or `query` on an attention pattern, which is how an engine finds
+the token axis). `per_layer` says it is a block's value, so a site names
 its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the table lists as narrowing the
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
 in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int

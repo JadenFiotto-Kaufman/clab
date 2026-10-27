@@ -140,7 +140,8 @@ def describe(what: str | None = None) -> str:
         lines = ["components:"]
         for name, c in address.COMPONENTS.items():
             narrow = ", ".join(["layers"] * c["per_layer"] + address.selectable(name))
-            lines.append(f"  {name:24} [{', '.join(c['dims'])}]  narrowed by {narrow}  — {c['meaning']}")
+            lines.append(f"  {name:24} [{', '.join(address.dims(name))}]  narrowed by {narrow}"
+                         + ("  stream" if c["stream"] else "") + f"  — {c['meaning']}")
         sections.append("\n".join(lines))
     if what in (None, "featurizers"):
         lines = ["featurizer kinds:"]
@@ -209,9 +210,10 @@ def markdown() -> str:
                             summary(fn)]
                            for n, fn in ops.OPS.items() if ops.DECLARED[n]["group"] == group])]
     parts += ["## Components\n", doc(address) + "\n",
-              grid([["component", "dims", "narrowed by", "meaning"], ["---", "---", "---", "---"]]
-                    + [[f"`{n}`", ", ".join(c["dims"]), ", ".join(["layers"] * c["per_layer"] + address.selectable(n)),
-                        c["meaning"]] for n, c in address.COMPONENTS.items()])]
+              grid([["component", "dims", "narrowed by", "stream", "meaning"], ["---", "---", "---", "---", "---"]]
+                    + [[f"`{n}`", ", ".join(address.dims(n)),
+                        ", ".join(["layers"] * c["per_layer"] + address.selectable(n)),
+                        "yes" if c["stream"] else "no", c["meaning"]] for n, c in address.COMPONENTS.items()])]
     parts += ["## Featurizer kinds\n", doc(featurizers) + "\n"]
     for name, cls in featurizers.KINDS.items():
         params = [f"- `{p}`" for p in signature(registry.spelled(cls, featurizers.SUPPLIED))]

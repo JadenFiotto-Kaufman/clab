@@ -567,9 +567,10 @@ stays missing: NaN.
 
 The locations clab allows: what each component means, its layout, and what narrows it.
 
-A component's name is nnterp's name for the same value, and its `dims` are
-nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
-an attention pattern). `per_layer` says it is a block's value, so a site names
+A component's name is nnterp's name for the same value, and the table lists its layout as a selection of it
+presents it, `rows, pos` then its own axes in nnterp's order (`COMPONENTS` records nnterp's own layout,
+`batch` first and the token axis named `seq`, or `query` on an attention pattern, which is how an engine finds
+the token axis). `per_layer` says it is a block's value, so a site names
 its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the table lists as narrowing the
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
 in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int
@@ -586,29 +587,29 @@ first under `layers` that are a slice or a list of picks, a write's as a read's.
 different numbers of positions is as wide as its widest row, NaN past a row's own. How an engine reaches a
 component is that engine's business; the name says only what the value is.
 
-| component | dims | narrowed by | meaning |
-| --- | --- | --- | --- |
-| `token_embeddings` | batch, seq, hidden_size | hidden_size | the embedding module's output |
-| `layer_input` | batch, seq, hidden_size | layers, hidden_size | the residual stream entering block i |
-| `attention_norm_output` | batch, seq, hidden_size | layers, hidden_size | the normed stream the attention is called with |
-| `attention_queries` | batch, num_heads, seq, qk_head_dim | layers, num_heads, qk_head_dim | queries after projection, head split and RoPE |
-| `attention_keys` | batch, num_kv_heads, seq, qk_head_dim | layers, num_kv_heads, qk_head_dim | keys, before repeat_kv |
-| `attention_values` | batch, num_kv_heads, seq, head_dim | layers, num_kv_heads, head_dim | values, before repeat_kv |
-| `attention_scores` | batch, num_heads, query, key | layers, num_heads, key | scaled, masked scores entering the softmax |
-| `attention_probabilities` | batch, num_heads, query, key | layers, num_heads, key | the pattern the values are mixed with |
-| `attention_head_outputs` | batch, seq, num_heads, head_dim | layers, num_heads, head_dim | each head's output, before the output projection |
-| `attention_premix` | batch, seq, num_heads, head_dim | layers, num_heads, head_dim | every head's result as the output projection takes it |
-| `attention_output` | batch, seq, hidden_size | layers, hidden_size | what attention adds to the stream |
-| `layer_mid` | batch, seq, hidden_size | layers, hidden_size | the stream between the sublayers |
-| `mlp_norm_output` | batch, seq, hidden_size | layers, hidden_size | the normed stream entering the MLP |
-| `mlp_input` | batch, seq, hidden_size | layers, hidden_size | what the MLP is called with |
-| `mlp_activation` | batch, seq, intermediate_size | layers, intermediate_size | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
-| `mlp_neurons` | batch, seq, intermediate_size | layers, intermediate_size | what the down projection sums |
-| `mlp_output` | batch, seq, hidden_size | layers, hidden_size | what the MLP adds to the stream |
-| `layer_output` | batch, seq, hidden_size | layers, hidden_size | the residual stream leaving block i |
-| `final_norm_output` | batch, seq, hidden_size | hidden_size | the final norm's output, what the head projects |
-| `lm_head_output` | batch, seq, vocab_size | vocab_size | the head's own projection |
-| `logits` | batch, seq, vocab_size | vocab_size | what the model returns, after any softcap |
+| component | dims | narrowed by | stream | meaning |
+| --- | --- | --- | --- | --- |
+| `token_embeddings` | rows, pos, hidden_size | hidden_size | yes | the embedding module's output |
+| `layer_input` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream entering block i |
+| `attention_norm_output` | rows, pos, hidden_size | layers, hidden_size | no | the normed stream the attention is called with |
+| `attention_queries` | rows, pos, num_heads, qk_head_dim | layers, num_heads, qk_head_dim | no | queries after projection, head split and RoPE |
+| `attention_keys` | rows, pos, num_kv_heads, qk_head_dim | layers, num_kv_heads, qk_head_dim | no | keys, before repeat_kv |
+| `attention_values` | rows, pos, num_kv_heads, head_dim | layers, num_kv_heads, head_dim | no | values, before repeat_kv |
+| `attention_scores` | rows, pos, num_heads, key | layers, num_heads, key | no | scaled, masked scores entering the softmax |
+| `attention_probabilities` | rows, pos, num_heads, key | layers, num_heads, key | no | the pattern the values are mixed with |
+| `attention_head_outputs` | rows, pos, num_heads, head_dim | layers, num_heads, head_dim | no | each head's output, before the output projection |
+| `attention_premix` | rows, pos, num_heads, head_dim | layers, num_heads, head_dim | no | every head's result as the output projection takes it |
+| `attention_output` | rows, pos, hidden_size | layers, hidden_size | yes | what attention adds to the stream |
+| `layer_mid` | rows, pos, hidden_size | layers, hidden_size | yes | the stream between the sublayers |
+| `mlp_norm_output` | rows, pos, hidden_size | layers, hidden_size | no | the normed stream entering the MLP |
+| `mlp_input` | rows, pos, hidden_size | layers, hidden_size | no | what the MLP is called with |
+| `mlp_activation` | rows, pos, intermediate_size | layers, intermediate_size | no | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
+| `mlp_neurons` | rows, pos, intermediate_size | layers, intermediate_size | no | what the down projection sums |
+| `mlp_output` | rows, pos, hidden_size | layers, hidden_size | yes | what the MLP adds to the stream |
+| `layer_output` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream leaving block i |
+| `final_norm_output` | rows, pos, hidden_size | hidden_size | no | the final norm's output, what the head projects |
+| `lm_head_output` | rows, pos, vocab_size | vocab_size | no | the head's own projection |
+| `logits` | rows, pos, vocab_size | vocab_size | no | what the model returns, after any softcap |
 
 ## Featurizer kinds
 
