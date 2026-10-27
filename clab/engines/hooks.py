@@ -146,7 +146,7 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
         records = now(here, len(calls) - 1)
-        records = landed(records, calls[1:], engine.tokenizer) if len(calls) > 1 else records
+        records = landed(records, calls[1:], engine.tokenizer, len(calls) - 1) if len(calls) > 1 else records
         # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value

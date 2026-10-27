@@ -185,7 +185,7 @@ class NnterpEngine:
         doing there what `now` says and, at a decode call, `landed`, from the inputs `seen` so far."""
         for component, layer in order:
             here = now(sites[(component, layer)], call)
-            here = landed(here, seen, self.tokenizer) if call > 0 else here
+            here = landed(here, seen, self.tokenizer, call) if call > 0 else here
             if here:
                 host = envoy(self.model, component, layer)
                 value, wrote = batches.visit(getattr(host, component), component, here, got)
