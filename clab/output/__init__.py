@@ -35,19 +35,25 @@ from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Entry, Intervention, Labelled, Plan, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
+from clab.plan import Entry, Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
 LABELS = ("dataset", "layers", "read", "width", "kept", "space")
 
 
-def dump(plan: Plan, out: str) -> None:
+def ran(plan: Plan) -> Run:
+    """The run record of a plan that has run; one that has not is refused: it has no results to write or table."""
     if plan.run is None:
         raise ValueError("the plan has not run, so it has no results; execute it first")
+    return plan.run
+
+
+def dump(plan: Plan, out: str) -> None:
+    ran(plan)
     os.makedirs(out, exist_ok=True)
     described = {}
-    for name in plan.saves:
+    for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
         entry = plan.steps[name.partition(".")[0]]
         value = plan.results[name]
         if isinstance(entry, list):
@@ -128,18 +134,27 @@ def flat(value: dict[str, Any], prefix: str = "") -> dict[str, Tensor]:
 
 
 def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | dict[str, Any] | None:
-    """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a list's
-    length (and no dtype)."""
+    """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a nested list's
+    as far as its lists are of one length (`top_k`'s tokens, `[rows, pos, k]`; and no dtype)."""
     if isinstance(value, Tensor):
         return list(value.shape) if what == "shape" else str(value.dtype).removeprefix("torch.")
     if isinstance(value, dict):
         return {k: describe(v, what) for k, v in value.items()}
-    return [len(value)] if isinstance(value, list) and what == "shape" else None
+    if not isinstance(value, list) or what != "shape":
+        return None
+    shape, level = [len(value)], value
+    while level and all(isinstance(v, list) for v in level) and len({len(v) for v in level}) == 1:
+        shape.append(len(level[0]))
+        level = [x for v in level for x in v]
+    return shape
 
 
 def load(out: str) -> Plan:
-    with open(os.path.join(out, "manifest.json")) as f:
-        manifest = json.load(f)
+    try:
+        with open(os.path.join(out, "manifest.json")) as f:
+            manifest = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
     described = manifest.pop("results")
     plan = Plan(**manifest)
     for name, d in described.items():

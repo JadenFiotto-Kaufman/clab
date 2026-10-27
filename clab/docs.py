@@ -16,6 +16,9 @@ from clab.output import table
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
 
+# The repo root: the directory the package sits in, where FORMAT.md and the corpus are.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
            "A column read as text": plan.Column, "A literal in a list `input`": plan.TextPart,
@@ -117,7 +120,10 @@ def run_options(name: str) -> list[tuple[str, str]]:
 
 def describe(what: str | None = None) -> str:
     """The format's tables, read off the code: one of `records`, `steps`, `ops`, `components`, `featurizers`,
-    `pos`, `engines`, or all of them."""
+    `pos`, `engines`, or all of them; any other name is refused, naming those."""
+    if what is not None and what not in WHAT:
+        raise ValueError(f"describe {what!r}: nothing is described under that name; the registries are "
+                         + ", ".join(WHAT))
     sections = []
     if what in (None, "records"):
         sections.append("\n".join(["records:"] + [f"  {name.replace('`', '')}({', '.join(fields(model))})"
@@ -171,8 +177,7 @@ def markdown() -> str:
     def grid(rows: list[list[str]]) -> str:
         return "\n".join("| " + " | ".join(r) + " |" for r in rows) + "\n"
 
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with open(os.path.join(root, "documents", "patching.json")) as f:
+    with open(os.path.join(ROOT, "documents", "patching.json")) as f:
         example = f.read()
     parts = [
         "# The clab format\n",
@@ -232,3 +237,12 @@ def markdown() -> str:
               "## Saves and the output\n", doc(output) + "\n", doc(table.table) + "\n",
               "## A worked document\n", "`documents/patching.json`:\n", "```json\n" + example + "```\n"]
     return "\n".join(parts)
+
+
+def write_markdown() -> str:
+    """`clab describe --markdown`: `markdown()` written as FORMAT.md beside the package, at the repo root, from
+    whatever directory the command runs in; returns the path written."""
+    path = os.path.join(ROOT, "FORMAT.md")
+    with open(path, "w") as f:
+        f.write(markdown())
+    return path

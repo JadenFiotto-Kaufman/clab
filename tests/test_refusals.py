@@ -360,6 +360,43 @@ def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
         ENGINES[kind](plan.model)
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks", "ndif"])
+def test_a_checkpoint_the_loader_cannot_get_is_refused_as_the_model_key(kind):
+    """Offline (the suite sets HF_HUB_OFFLINE), a checkpoint the cache lacks is refused naming the key, the
+    revision and the cache, not as the loader's OSError about the files it looked for."""
+    plan = edited("patching", lambda d: d["model"].update(key="nobody/nothing-here", revision="main"))
+    with pytest.raises(ValueError, match=f"^model.key 'nobody/nothing-here' at revision 'main': the {kind} engine cannot "
+                                         r"load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part "
+                                         r"of it; fetch it online first \(the loader says: .+\)$"):
+        load(kind, plan.model, **({"remote": "local"} if kind == "ndif" else {}))
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_a_device_no_engine_can_place_a_model_on_is_refused_before_anything_loads(monkeypatch, kind, options):
+    """Every engine's constructor (`standard.loading`, before its loader; `load` too) refuses a device that is no
+    torch device or device map (the ndif engine by its own message, which test_patching pins), a CUDA device where
+    none is visible, and one past those that are (a stand-in says two are)."""
+    from clab.engines import ENGINES
+
+    model = plan_of("patching").model
+    if kind != "ndif":
+        with pytest.raises(ValueError, match=r"^device 'gpu': not a torch device \('cpu', 'cuda:0'\) or a device map "
+                                             r"transformers computes \('auto', 'balanced', 'balanced_low_0', 'sequential'\)$"):
+            load(kind, model, "gpu")
+    none = (r"^device 'cuda': no CUDA device is visible \(torch.cuda.is_available\(\) is False\); run on 'cpu', or "
+            r"make a GPU visible \(CUDA_VISIBLE_DEVICES\)$")
+    with pytest.raises(ValueError, match=none):
+        load(kind, model, "cuda", **options)
+    with pytest.raises(ValueError, match=none):
+        ENGINES[kind](model, device="cuda", **options)
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    monkeypatch.setattr("torch.cuda.device_count", lambda: 2)
+    with pytest.raises(ValueError, match="^device 'cuda:2': 2 CUDA devices visible, cuda:0 to cuda:1$"):
+        load(kind, model, "cuda:2", **options)
+    with pytest.raises(ValueError, match="^device 'cuda:2': 2 CUDA devices visible, cuda:0 to cuda:1$"):
+        ENGINES[kind](model, device="cuda:2", **options)
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
     from clab.engines import ENGINES

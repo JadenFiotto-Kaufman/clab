@@ -23,16 +23,28 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
     engine was placed and configured when it loaded, so it takes no `device` or option here. Under torchrun
-    (the nnterp engine's `tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`."""
+    (the nnterp engine's `tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`. A run
+    that stops at a step (out of CUDA memory, `plan.run.stopped`) is written to `out` as far as it got, in this
+    process, before its refusal is raised, which then says where."""
     from clab.engines import load
+    from clab.steps import batched
 
+    batched(batch_size)
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):
         engine = load(engine, compiled.model, device or "cpu", **options)
     elif options or (device is not None and device != engine.device):
         raise ValueError(f"the loaded {engine.name} engine runs on {engine.device} with {engine.options}; device "
                          "and options are given when an engine loads")
-    filled = engine.execute(compiled, batch_size=batch_size)
-    if os.environ.get("RANK", "0") == "0":
-        filled.dump(out or os.path.join("out", name(filled)))
+    first = os.environ.get("RANK", "0") == "0"
+    where = out or os.path.join("out", name(compiled))
+    try:
+        filled = engine.execute(compiled, batch_size=batch_size)
+    except ValueError as e:
+        if first and compiled.run is not None and compiled.run.stopped:
+            compiled.dump(where)
+            raise ValueError(f"{e}; the steps before it are saved in {where}") from e
+        raise
+    if first:
+        filled.dump(where)
     return filled

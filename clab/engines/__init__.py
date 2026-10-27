@@ -109,7 +109,7 @@ def options(name: str) -> dict[str, inspect.Parameter]:
 def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
     """Engine `name` loaded for `model`, on `device`, with its options `given`: an unknown engine, an option it
     does not declare, one of another type, and torchrun's processes for an engine without `tp` are refused before
-    anything loads."""
+    anything loads (a `device` no engine can place a model on, every constructor refuses: `standard.loading`)."""
     if name not in ENGINES:
         raise ValueError(f"unknown engine {name!r}; valid: {', '.join(ENGINES)}")
     for key in given:

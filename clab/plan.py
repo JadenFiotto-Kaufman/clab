@@ -854,7 +854,9 @@ class Run(Record):
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
     and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
-    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one)."""
+    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one).
+    `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
+    refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
     batch_size: int
     device: str | None
@@ -867,6 +869,7 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     costs: dict[str, Any] = {}
+    stopped: str | None = None
 
 
 class Plan(Record):
@@ -896,9 +899,15 @@ class Plan(Record):
     run: Run | None = derived(None, "how the plan ran, set by `execute`")
 
     def __init__(self, path: str | None = None, /, **fields: Any) -> None:
+        if isinstance(path, dict):
+            raise TypeError("Plan(dict): a document's fields are keywords, Plan(**fields); Plan(path) reads a "
+                            "document file, and Plan.load(out) a run's directory")
         if path is not None:
-            with open(path) as f:
-                fields = {**json.load(f), "document": os.path.abspath(path)}
+            try:
+                with open(path) as f:
+                    fields = {**json.load(f), "document": os.path.abspath(path)}
+            except FileNotFoundError:
+                raise FileNotFoundError(f"no document at {path!r}") from None
         try:
             super().__init__(**fields)
         except ValidationError as e:

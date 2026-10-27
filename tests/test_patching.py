@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from typing import Any
 
 import pytest
@@ -56,12 +57,17 @@ def test_the_run_record_says_how_it_ran(filled):
     assert placed(filled["nnterp"])["patched.patch"] == [[10], [8], [8], [8]]    # the last token, BOS-prefixed rows
 
 
-def test_execute_refuses_an_uncompiled_plan_and_dump_one_without_results(engines, tmp_path):
+def test_execute_refuses_an_uncompiled_plan_or_an_empty_batch_and_dump_or_table_one_that_has_not_run(engines, tmp_path):
     plan = Plan(document("patching"))
     with pytest.raises(ValueError, match="plan is not compiled; call plan.compile()"):
         engines("nnterp", plan.model).execute(plan)
-    with pytest.raises(ValueError, match="the plan has not run"):
+    for n in (0, -1):
+        with pytest.raises(ValueError, match=f"^batch_size {n}: a batch holds one row or more \\(--batch-size N, N at least 1\\)$"):
+            engines("nnterp", plan.model).execute(plan.compile(), batch_size=n)
+    with pytest.raises(ValueError, match="^the plan has not run, so it has no results; execute it first$"):
         plan.compile().dump(str(tmp_path))
+    with pytest.raises(ValueError, match="^the plan has not run, so it has no results; execute it first$"):
+        plan.compile().table("iia")
 
 
 def test_an_engine_refuses_a_plan_for_another_checkpoint(engines):
@@ -432,3 +438,106 @@ def test_an_earlier_entry_at_the_writes_own_site_is_its_operand(engines, kind):
                                             "h": entry}
     with pytest.raises(PlanError, match=r"'s\.h' is this entry or one this forward makes after it"):
         edited("patching", later).compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_the_steps_before(
+        engines, monkeypatch, tmp_path, kind, capsys):
+    """A step's CUDA out-of-memory (torch's error, raised here by the `logit_diff` op step) is refused naming the
+    step, the batch size, torch's first sentences and every value the run holds with its shape, dtype and device;
+    the steps before it are recorded (`run.stopped`, their costs) and saved to `out` (`iia`, and no `logit_diff`),
+    which `show` says and `table` refuses by name."""
+    from clab import steps
+
+    op = steps.KINDS["op"]
+
+    def starved(engine, plan, name, step, *rest):
+        if name == "logit_diff":
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity "
+                                         "of 47.54 GiB of which 10.00 MiB is free. Including non-PyTorch memory, ...")
+        return op(engine, plan, name, step, *rest)
+    monkeypatch.setitem(steps.KINDS, "op", starved)
+    out = tmp_path / "patching"
+    # `patched.patch`, which nothing names, was never taken off the model, so the run does not hold it.
+    refusal = (r"^steps.logit_diff: out of CUDA memory at batch size 2 \(CUDA out of memory. Tried to allocate 20.00 "
+               r"MiB. GPU 0 has a total capacity of 47.54 GiB of which 10.00 MiB is free\); the run holds "
+               r"counterfactual.v_cf \[4, 1, 16\] float32 on cpu, patched.logits \[4, 1, 32000\] float32 on cpu, "
+               r"iia \[4, 1\] float32 on cpu, each on the model's device until the run ends; run with a smaller "
+               r"--batch-size, or name and save fewer values")
+    with pytest.raises(ValueError, match=refusal + f"; the steps before it are saved in {out}$"):
+        clab.run(document("patching"), engine=engines(kind, plan_of("patching").model), out=str(out),
+                 batch_size=BATCH_SIZE)
+    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json"]
+    back = Plan.load(str(out))
+    assert back.run is not None and re.match(refusal + "$", back.run.stopped or "")
+    assert list(back.results) == ["iia"] and list(back.run.costs) == ["counterfactual", "patched", "iia"]
+    assert main(["show", str(out)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    assert shown[3].startswith("  stopped: steps.logit_diff: out of CUDA memory at batch size 2")
+    assert shown[-1].split()[:2] == ["iia", "iia"] and not any(line.startswith("  logit_diff") for line in shown)
+    assert main(["table", str(out), "logit_diff"]) == 1
+    assert capsys.readouterr().err.startswith("clab: 'logit_diff' has no result: the run stopped before its step; "
+                                              "steps.logit_diff: out of CUDA memory")
+    assert main(["run", document("patching"), "--engine", kind, "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 1
+    said = capsys.readouterr().err.splitlines()[-1]           # after the loader's progress bar
+    assert said.startswith("clab: steps.logit_diff: out of CUDA memory at batch size 2 (") and said.endswith(str(out))
+
+
+def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_show_prints_the_rest_blank(
+        engines, monkeypatch, tmp_path, capsys):
+    """pos_sweep's `logit_diff` runs out of memory at its second point: the refusal names the point and lists the
+    run's values by coordinate, the first point's cost is recorded and the others are not, `iia` (every point
+    finished) is saved and `logit_diff` is not, and `show` prints `—` for the points the run never reached."""
+    from clab import steps
+
+    op = steps.KINDS["op"]
+
+    def starved(engine, plan, name, step, *rest):
+        if name == "logit_diff" and step.at == {"pos": 1}:
+            raise torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB. GPU 0 has 10.00 MiB free.")
+        return op(engine, plan, name, step, *rest)
+    monkeypatch.setitem(steps.KINDS, "op", starved)
+    out = tmp_path / "pos_sweep"
+    with pytest.raises(ValueError, match=r"^steps.logit_diff at pos=-2: out of CUDA memory at batch size 2 \(CUDA out "
+                                         r"of memory. Tried to allocate 1.00 GiB. GPU 0 has 10.00 MiB free\); the run "
+                                         r"holds counterfactual.v_cf \[4, 1, 16\] float32 on cpu, "
+                                         r"patched.logits\[pos=-1\] \[4, 1, 32000\] float32 on cpu, "
+                                         r"patched.logits\[pos=-2\] \[4, 1, 32000\] float32 on cpu, "
+                                         r"patched.logits\[pos=-3\] \[4, 1, 32000\] float32 on cpu, "
+                                         r"iia\[pos=-1\] \[4, 1\] float32 on cpu, iia\[pos=-2\] \[4, 1\] float32 on cpu, "
+                                         r"iia\[pos=-3\] \[4, 1\] float32 on cpu, logit_diff\[pos=-1\] \[4, 1\] float32 "
+                                         r"on cpu, each on the model's device until the run ends; run with a smaller "
+                                         rf"--batch-size, or name and save fewer values; the steps before it are saved in {out}$"):
+        clab.run(document("pos_sweep"), engine=engines("nnterp", plan_of("pos_sweep").model), out=str(out),
+                 batch_size=BATCH_SIZE)
+    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json"]
+    back = Plan.load(str(out))
+    assert back.run is not None and list(back.run.costs["logit_diff"]) == ["pos=-1"]
+    assert main(["show", str(out)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    rows = [line.split() for line in shown if line.startswith("  logit_diff ")]
+    assert [r[:2] + r[3:] for r in rows] == [["logit_diff", "pos=-1", "—", "0", "0"],         # seconds left out
+                                            ["logit_diff", "pos=-2", "—", "—", "—"],
+                                            ["logit_diff", "pos=-3", "—", "—", "—"]]
+    assert float(rows[0][2]) >= 0
+    assert main(["table", str(out), "iia"]) == 0 and len(capsys.readouterr().out.splitlines()) == 13
+
+
+def test_the_oom_refusal_lists_a_dicts_tensors_and_says_when_nothing_is_held():
+    """`sized` lists a `top_k` value's `ids` and `probs` (its `tokens` are strings), and `exhausted` with nothing
+    held says so without the clause about the device."""
+    from collections import ChainMap
+
+    from clab.steps import exhausted, sized
+
+    top3 = {"ids": torch.zeros(4, 1, 3, dtype=torch.int64), "probs": torch.zeros(4, 1, 3), "tokens": [[["a"]]]}
+    assert sized(top3) == "{ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}"
+    assert sized({"tokens": [[["a"]]]}) is None and sized(object()) is None
+    plan, error = plan_of("readout"), torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB.")
+    assert exhausted(plan, "p_answer", {}, 2, ChainMap({"top3": {(): top3}}), error) == (
+        "steps.p_answer: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the run "
+        "holds top3 {ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}, each on the model's device until "
+        "the run ends; run with a smaller --batch-size, or name and save fewer values")
+    assert exhausted(plan, "clean", {}, 2, ChainMap(), error) == (
+        "steps.clean: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the run "
+        "holds no value yet; run with a smaller --batch-size, or name and save fewer values")

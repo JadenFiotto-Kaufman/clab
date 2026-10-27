@@ -17,6 +17,7 @@ compiled records themselves are the symbol table (`plan.record_of`), each name r
 """
 
 import itertools
+import re
 from dataclasses import replace
 from typing import Any, Callable, cast
 
@@ -283,6 +284,8 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
                 if not isinstance(data.field(row, part), str):
                     fail(here, f"{part!r} is not text on row {r} of {dataset!r}; a list input joins text")
     assert dataset is not None
+    for key, value in (spec.model_extra or {}).items() if spec.kind == "generate" else ():
+        option(f"{path}.{key}", key, value)
     given = items(plan, path, name, spec)
     keys = [k for _, k, _ in given]
     for k in keys:
@@ -300,6 +303,31 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
     made = Generate if spec.kind == "generate" else Forward
     return made(**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                 dataset=dataset, at=at)
+
+
+def option(path: str, key: str, value: Any) -> None:
+    """A generate step's option, refused by name at compile where no model is needed to decide it: one of
+    `generate`'s own parameters (`generation_config`, `logits_processor`, ...), which take what a document cannot
+    write (the type is named), where a step's options are a generation config's fields; and a field's value of the
+    wrong type (`max_new_tokens: "3"`), which transformers' `GenerationConfig` refuses with a TypeError. What else
+    it rejects is the engine's `generate`'s to say when the step runs."""
+    import inspect
+
+    from transformers import GenerationConfig
+    from transformers.generation.utils import GenerationMixin
+
+    own = inspect.signature(getattr(GenerationMixin, "generate")).parameters      # `self` is a protocol to pyright
+    if key in own and own[key].kind is not inspect.Parameter.VAR_KEYWORD:
+        takes = re.sub(r"\b[\w.]+\.(\w+)", r"\1", str(own[key].annotation).replace("typing.Optional[ForwardRef('", "")
+                       .replace("')]", "")).replace(" | None", "")
+        fail(path, f"{key!r} is a parameter of generate itself, taking {takes}, not a field of a generation config; "
+                   "a step's options are the config's fields (max_new_tokens, do_sample, ...)")
+    try:
+        GenerationConfig(**{key: value}).validate()
+    except TypeError as e:
+        fail(path, f"{value!r} is not a value generate takes: {e}")
+    except ValueError:
+        pass
 
 
 def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: dict[str, int]) -> OpStep:

@@ -38,9 +38,14 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
     counting the positions of different inputs or a plain index beside a token position, is refused by name.
     """
+    from clab.output import ran
+
+    run = ran(plan)
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
+        if name not in plan.results:
+            raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
     found = {d: name for name in names if (d := dataset_of(plan, name)) is not None}
     if len(found) > 1:
         (a, x), (b, y) = list(found.items())[:2]

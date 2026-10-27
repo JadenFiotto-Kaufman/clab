@@ -1,13 +1,16 @@
 """`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
-`show` prints what a run's directory holds (how the run ran and what each step cost, then each result with
-its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values, aligned or as CSV.
-Both are `Plan.load` and one call.
+`show` prints what a run's directory holds (how the run ran and what each step cost, where each entry resolved,
+then each result with its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values,
+aligned or as CSV. Both are `Plan.load` and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
 models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
-`describe --markdown` renders all of it as `FORMAT.md`.
+`describe --markdown` writes all of it as `FORMAT.md` beside the package, at the repo root.
+
+A refusal is one `clab: <reason>` line on stderr and exit status 1. A reader that goes away (`clab show OUT |
+head -1`) ends the command quietly.
 """
 
 import argparse
@@ -19,9 +22,10 @@ import sys
 from typing import Any
 
 from clab import output
-from clab.docs import WHAT, as_json, describe, markdown
+from clab.compile import positions
+from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, name, points
+from clab.plan import Plan, Run, entries, name, points
 
 
 def how(run: Run) -> str:
@@ -32,25 +36,29 @@ def how(run: Run) -> str:
 
 
 def show(filled: Plan) -> str:
-    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), what each step
-    cost (`costs`), then each result with the step that made it, its dims (per coordinate when swept and its
-    points differ), its sweep axes and its shape (per coordinate when swept)."""
+    """A filled plan as text: how it ran (of what was installed, clab's and python's versions; where it stopped,
+    if it did), what each step cost (`costs`), where each entry resolved (`resolved`), then each result with the
+    step that made it, its dims (per coordinate when swept and its points differ), its sweep axes and its shape
+    (`shaped`: counted over its points when swept)."""
     run = filled.run
     assert run is not None
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
+    lines += [f"  stopped: {run.stopped}"] if run.stopped else []
     lines += ["  " + line for line in aligned(costs(filled))] if run.costs else []        # a run before costs
+    lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
-    for saved in filled.saves:
+    for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
         entry = filled.steps[saved.partition(".")[0]]
         value = filled.results[saved]
         if isinstance(entry, list):
             value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
         dims = output.layouts(filled, saved)["dims"]
         rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(points(entry)[0].at) or "—", cell(output.describe(value, "shape"))])
+                     ", ".join(points(entry)[0].at) or "—",
+                     shaped(output.describe(value, "shape"), isinstance(entry, list))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
@@ -62,11 +70,70 @@ def costs(filled: Plan) -> list[list[str]]:
     rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
         for p in points(entry) if step in run.costs else []:
-            cost = run.costs[step][labelled(filled, p.at)] if isinstance(entry, list) else run.costs[step]
+            cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
+            if cost is None:                    # a point the run stopped before
+                rows.append([step, labelled(filled, p.at) or "—", "—", "—", "—", "—"])
+                continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
+
+
+def resolved(filled: Plan) -> list[list[str]]:
+    """Where each read and write resolved, as table rows: one per entry and distinct `positions` per row
+    (`compact`) under its step's dataset, with the point it is at, or how many of the step's points share it
+    (a grid's positions vary along one axis, or none); a fit body's entries under each eval, as
+    `<fit>.<eval>.<step>.<entry>`."""
+    rows = [["entry", "at", "positions"]]
+    for step, entry in filled.steps.items():
+        listed = points(entry)
+        found: dict[tuple[str, str], list[str]] = {}            # (entry, its positions) -> the points' coordinates
+        for p in listed:
+            for key, per_row in placed(step, p):
+                found.setdefault((key, compact(per_row)), []).append(labelled(filled, p.at))
+        for (key, cell_), ats in found.items():
+            shared = ats[0] or "—" if len(ats) == 1 else f"all {len(ats)} points" if len(ats) == len(listed) else \
+                f"{len(ats)} of {len(listed)} points"
+            rows.append([key, shared, cell_])
+    return rows
+
+
+def placed(step: str, p: Any) -> list[tuple[str, list | None]]:
+    """Each entry of step `step`'s point `p` by name with its positions per row under the step's dataset; a fit
+    body's under each eval, read as the eval reads it."""
+    if p.kind != "fit":
+        return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(p).items()]
+    return [(f"{step}.{label}.{n}.{k}", e.positions.get(swap.get(s.dataset, s.dataset)))
+            for label, swap in p.eval.items() for n, s in p.steps.items() for k, e in entries(s).items()]
+
+
+def compact(per_row: list | None) -> str:
+    """An entry's positions per row as one cell: the one list when every row resolved to the same (`[10] on all
+    4 rows`), else each row's in row order, `—` for a row the entry did not reach (`alignment_missing`)."""
+    if not per_row:
+        return "—"
+    cells = ["—" if r == positions.MISSING else cell(r) for r in per_row]
+    if len(cells) > 1 and len(set(cells)) == 1:
+        return f"{cells[0]} on all {len(cells)} rows"
+    return ", ".join(cells)
+
+
+def shaped(shape: Any, swept: bool) -> str:
+    """A saved value's shape as `run` and `show` print it: an unswept value's as it is (a dict value's per key); a
+    swept value's counted over its points, `3 points, each [4, 1]` where they share one shape, the distinct shapes
+    listed where there are at most three, else counted (the manifest holds each point's)."""
+    if not swept:
+        return cell(shape)
+    distinct = list(dict.fromkeys(cell(s) for s in shape.values()))
+    n = len(shape)
+    if n == 1:
+        return f"1 point, {distinct[0]}"
+    if len(distinct) == 1:
+        return f"{n} points, each {distinct[0]}"
+    if len(distinct) <= 3:
+        return f"{n} points, each {', '.join(distinct[:-1])} or {distinct[-1]}"
+    return f"{n} points of {len(distinct)} shapes"
 
 
 def cell(value: Any) -> str:
@@ -128,14 +195,26 @@ def main(argv: list[str] | None = None) -> int:
     rows.add_argument("--csv", action="store_true", help="CSV on stdout, every cell whole")
     tell = commands.add_parser("describe", help="print the format's tables, read off the code")
     tell.add_argument("what", nargs="?", choices=WHAT)
-    tell.add_argument("--markdown", action="store_true", help="write FORMAT.md")
+    tell.add_argument("--markdown", action="store_true", help="write FORMAT.md at the repo root")
+    tell.add_argument("--verbose", action="store_true", help="say where --markdown wrote")
     args = parser.parse_args(argv)
+    try:
+        code = command(args)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        # The reader went away (`| head -1`): the interpreter's own flush of stdout at exit goes nowhere too.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        return 0
+    return code
 
+
+def command(args: argparse.Namespace) -> int:
+    """The parsed command, run: its exit status, a refusal said in one `clab:` line on stderr."""
     if args.command == "describe":
         if args.markdown:
-            with open("FORMAT.md", "w") as f:
-                f.write(markdown())
-            print("wrote FORMAT.md")
+            path = write_markdown()
+            if args.verbose:
+                print(f"wrote {path}")
         else:
             print(describe(args.what))
         return 0
@@ -161,8 +240,9 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
                           device=args.device, **options)
-    except (ValueError, NotImplementedError, RemoteError) as e:
-        # A refusal on the server comes home as nnsight's error, its last line the reason.
+    except (ValueError, NotImplementedError, OSError, RemoteError) as e:
+        # A refusal on the server comes home as nnsight's error, its last line the reason; a missing document is
+        # the OSError that names it.
         reason = (str(e).strip().splitlines() or [""])[-1] if isinstance(e, RemoteError) else str(e)
         if first:
             print(f"clab: {reason}", file=sys.stderr)
@@ -174,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
     for d in described.values():
-        print(f"  {d['file']:28} {d['step']:16} {json.dumps(d['shape'])}")
+        print(f"  {d['file']:28} {d['step']:16} {shaped(d['shape'], bool(d['axes']))}")
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
 
