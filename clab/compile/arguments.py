@@ -8,7 +8,7 @@ from clab import featurizers, ops
 from clab.compile.answers import column_ref, text_ref
 from clab.compile.state import Compiling, Known
 from clab.format import address, data
-from clab.plan import Op, Plan, arguments, fail, kind_of
+from clab.plan import Op, OpStep, Plan, arguments, fail, kind_of
 
 
 def narrowed_readout(what: str) -> str:
@@ -17,9 +17,10 @@ def narrowed_readout(what: str) -> str:
             "the logits give")
 
 
-def space_of(cx: Compiling, encodes: list[Op]) -> list[dict]:
-    """The coordinates a value is in: the encodes open around it, outermost first, each its featurizer (by the
-    name it resolves to here: inside a fit's body `rot` and `<fit>.rot` are one) and `select`."""
+def space_of(cx: Compiling, encodes: list[Op] | list[OpStep]) -> list[dict]:
+    """The coordinates a value is in: the encodes open around it, outermost first (an entry's ops, or an encode
+    step), each its featurizer (by the name it resolves to here: inside a fit's body `rot` and `<fit>.rot` are
+    one) and `select`."""
     return [{k: cx.aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
              if k in ("featurizer", "select")} for o in encodes]
 

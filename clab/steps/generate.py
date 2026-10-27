@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import ChainMap, Counter
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
@@ -41,20 +41,20 @@ def stops(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict, batch_size: int,
+def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int,
              found: Found) -> Counter:
-    """The step's input in consecutive batches, each through `engine.generate` with the step's own keys as its
-    options; each gathered entry joined along rows, and the new ids joined into the step's value.
+    """The step's input in batches of dataset row ids (`chunked`), each through `engine.generate` with the step's
+    own keys as its options; each gathered entry joined along rows, and the new ids joined into the step's value.
 
     An entry in the prefill (`frame: 0`) binds as a forward's (`bind`); one beyond it goes to the engine in
     parts (`beyond`) and resolves after the generation from what each row generated (`landed_at`); a row that
     stopped before a call a write selects is not written there and is recorded as missing. The resolution is
     recorded per row in `plan.run.positions` and each row's continuation, as token strings, in
-    `plan.run.tokens[<step>]`. A batch whose rows all stopped early makes fewer calls; its ids are filled after
-    their EOS to the longest batch's. Returns the model calls it made, one per new token of each batch (its
-    prefill, then a decode call for each token after the first), and the tokens they fed (`fed`): the
-    prompts', then each row's generated tokens but its last, which is its EOS (fed to it on the call after it says
-    it, and not counted, as the padding after it is not) or the generation's last token, which no call is fed."""
+    `plan.run.tokens[<step>]`, by a run over every row (not over a fit's minibatch). A batch whose rows all stopped
+    early makes fewer calls; its ids are filled after their EOS to the longest batch's. Returns the model calls it
+    made, one per new token of each batch (its prefill, then a decode call per token after the first), and the
+    tokens they fed (`fed`): the prompts', then each row's generated tokens but its last, which is its EOS (fed on
+    the call after it says it, and not counted, as padding is not) or the generation's last, which no call is fed."""
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded, padded = (found.inputs[data.input_name(step.input)][k] for k in ("rows", "width"))
     every = entries(step)
@@ -63,40 +63,42 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
     picks = {key: lookup(found.selects, f"{name}.{key}", step.at) for key in after}
     parts, new, resolved, count = [], [], {f"{name}.{key}": [] for key in after}, Counter()
     most = horizon(step)
-    for chunk, batch, pads in chunked(engine, step, found, batch_size):
-        sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
+    for ids, batch, pads in chunked(engine, step, found, batch_size):
+        sites, records = bind(engine, plan, name, step, state, found, ids, pads, first)
+        inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         for key, record in after.items():
-            records += beyond(engine, plan, record, key, picks[key], step, state, found, chunk, pads, padded,
-                              encoded[chunk], rows[chunk], eos, most)
-        ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
-        out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk, state,
-                                          step.at, found.answers, layer) for layer in layers(engine, record)])
+            records += beyond(engine, plan, record, key, picks[key], step, state, found, ids, pads, padded, inputs,
+                              examples, eos, most)
+        tokens, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
+        out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], ids, state,
+                                          step.at, found, layer) for layer in layers(engine, record)])
                for key, record in every.items() if key in first and record.gathered}
-        said = [positions.continuation(x, eos) for x in ids.tolist()]
-        count += fed(batch, pads, ids.shape[1], sum(map(len, said)) - len(said))
+        said = [positions.continuation(x, eos) for x in tokens.tolist()]
+        count += fed(batch, pads, tokens.shape[1], sum(map(len, said)) - len(said))
         for key, record in after.items():
-            where = landed_at(record, rows[chunk], encoded[chunk], said, eos, engine.tokenizer, head(step, record))
+            where = landed_at(record, examples, inputs, said, eos, engine.tokenizer, head(step, record))
             resolved[f"{name}.{key}"] += where
             if record.gathered:
                 out[key] = stacked(record, [at_calls(engine, plan, record, picks[key], got.get(read_name(key, layer, True)),
-                                                     got[read_name(key, layer)], where, encoded[chunk], chunk, state,
-                                                     step.at, head(step, record), most, found.answers, layer)
+                                                     got[read_name(key, layer)], where, inputs, ids, state,
+                                                     step.at, head(step, record), most, found, layer)
                                             for layer in layers(engine, record)])
         parts.append(out)
-        new.append(ids)
+        new.append(tokens)
     joined(state, name, step, parts)
     width = max(x.shape[1] for x in new)
-    ids = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
-    put(state, name, step.at, ids)
-    for where, per_row in resolved.items():
-        put(found.positions, where, step.at, per_row)
-    put(found.said, name, step.at,
-        [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in ids.tolist()])
+    tokens = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
+    put(state, name, step.at, tokens)
+    if found.ids is None:
+        for where, per_row in resolved.items():
+            put(found.positions, where, step.at, per_row)
+        put(found.said, name, step.at,
+            [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in tokens.tolist()])
     return count
 
 
-def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
-           found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
+def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: ChainMap,
+           found: Found, ids: list[int], pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
            eos: set[int], most: int | None) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: at each layer it is made at, a
     write's prefill part, where its frame holds the prompt, and its decode part (`calls`: the frame's own, or None
@@ -113,7 +115,7 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
             if pos["scope"] else {}
         where = [positions.prompted(p, head_only) for p in prompts]
         for layer in layers(engine, record):
-            edits = edit(plan, record, state, step.at, chunk, found.answers, layer, engine.sizes())
+            edits = edit(plan, record, state, step.at, ids, found, layer, engine.sizes())
             if holds:
                 out.append({**site(record, picks, where, pads, padded, head_only), "layer": layer, "ops": edits})
             out.append({**decoding(record, picks, prompts), "layer": layer, "ops": edits,
@@ -161,8 +163,8 @@ def generated(engine: Engine, name: str, batch: dict, records: list[dict], optio
 
 
 def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whole: Tensor | None,
-             values: list[Tensor], where: list, encoded: list[dict], rows: slice, state: dict, at: dict,
-             head_only: bool, most: int | None, answers: dict, layer: int | None) -> Any:
+             values: list[Tensor], where: list, encoded: list[dict], ids: list[int], state: ChainMap, at: dict,
+             head_only: bool, most: int | None, found: Found, layer: int | None) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`where`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (`whole`, `[rows, width, ...]`, column `p` the row's token `p`; its one column under
@@ -187,11 +189,11 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, picks: dict, whol
             return whole[i, 0 if head_only else p]
         return by_call[call][i, 0]
 
-    found = [got if isinstance(got, list) else [] for got in where]      # a marker is a row with none
-    width = positions.width(pos) or max(map(len, found), default=0)
+    hit = [got if isinstance(got, list) else [] for got in where]      # a marker is a row with none
+    width = positions.width(pos) or max(map(len, hit), default=0)
     value = torch.full((len(where), width, *rest), float("nan"), dtype=dtype, device=device)
-    for i, got in enumerate(found):
+    for i, got in enumerate(hit):
         for j, p in enumerate(got):
             value[i, j] = at_position(i, p)
-    places = torch.tensor([got + [-1] * (width - len(got)) for got in found], dtype=torch.long).reshape(len(where), width)
-    return with_ops(engine, plan, record, value, state, at, rows, places, answers, layer)
+    places = torch.tensor([got + [-1] * (width - len(got)) for got in hit], dtype=torch.long).reshape(len(where), width)
+    return with_ops(engine, plan, record, value, state, at, ids, places, found, layer)

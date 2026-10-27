@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping, MutableMapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -98,12 +99,12 @@ def labelled(plan: Plan, at: dict[str, int]) -> str:
                     for label, i in at.items())
 
 
-def put(state: dict, name: str, at: dict[str, int], value: Any) -> None:
-    # A new dict each time: a fit's body namespace is a copy of the state, whose entries it must not change.
+def put(state: MutableMapping, name: str, at: dict[str, int], value: Any) -> None:
+    # A new dict each time: a fit's body namespace falls back to the state, whose entries it must not change.
     state[name] = {**state.get(name, {}), tuple(at.items()): value}
 
 
-def lookup(state: dict, name: str, at: dict[str, int]) -> Any:
+def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
     """The value `name` at the producer's point that agrees with `at` on the producer's axes."""
     for coords, value in state[name].items():
         if all(at.get(k) == i for k, i in coords):

@@ -1,5 +1,5 @@
 {
- "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer (the same two named evals, `held_out` and `train`), one more objective term and a falling temperature (the gate's own `temperature`, annealed over the epochs). The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
+ "description": "DBM on the tiny CPU Llama: learn WHICH units of layer 0's output carry the answer, as a binary mask, rather than which directions — das.json with a `gate` featurizer (the counterfactual harvested once before the fit, the body's `train` eval, the held-out split scored by steps after the fit), one more objective term and a falling temperature (the gate's own `temperature`, annealed over the epochs). The mask is soft, σ(θ/T), while the fit updates it and hard, θ > 0, whenever it is scored; `mask.mask` in the objective is the mean of the soft mask, the L1 pressure toward keeping few units. The L1 weight is swept, so the document is the sparsity curve: measured 2026-09-21, 4, 2, 1 and 0 of 16 units kept.",
  "model": {
   "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
   "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
@@ -28,6 +28,26 @@
   }
  },
  "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "input": "train.counterfactual_inputs[0]",
+   "interventions": {
+    "h": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "train"
+  },
   "fit": [
    {
     "kind": "fit",
@@ -46,39 +66,20 @@
      "lr": 0.05
     },
     "steps": {
-     "counterfactual": {
-      "kind": "forward",
-      "input": "train.counterfactual_inputs[0]",
-      "interventions": {
-       "v_cf": {
-        "site": {
-         "component": "layer_output",
-         "layers": 0
-        },
-        "pos": -1,
-        "ops": [
-         {
-          "op": "encode",
-          "featurizer": "fit.mask"
-         }
-        ],
-        "dims": [
-         "rows",
-         "pos",
-         "features"
-        ],
-        "space": [
-         {
-          "featurizer": "fit.mask"
-         }
-        ],
-        "gathered": true
-       }
-      },
+     "v_cf": {
+      "kind": "op",
+      "op": "encode",
+      "of": "counterfactual.h",
       "at": {
        "mask.mask": 0
       },
-      "dataset": "train"
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "featurizer": "fit.mask"
      },
      "patched": {
       "kind": "forward",
@@ -97,7 +98,7 @@
          },
          {
           "op": "swap",
-          "with": "counterfactual.v_cf"
+          "with": "v_cf"
          },
          {
           "op": "decode",
@@ -164,9 +165,6 @@
      "patience": 20
     },
     "eval": {
-     "held_out": {
-      "train": "test"
-     },
      "train": {}
     },
     "at": {
@@ -190,39 +188,20 @@
      "lr": 0.05
     },
     "steps": {
-     "counterfactual": {
-      "kind": "forward",
-      "input": "train.counterfactual_inputs[0]",
-      "interventions": {
-       "v_cf": {
-        "site": {
-         "component": "layer_output",
-         "layers": 0
-        },
-        "pos": -1,
-        "ops": [
-         {
-          "op": "encode",
-          "featurizer": "fit.mask"
-         }
-        ],
-        "dims": [
-         "rows",
-         "pos",
-         "features"
-        ],
-        "space": [
-         {
-          "featurizer": "fit.mask"
-         }
-        ],
-        "gathered": true
-       }
-      },
+     "v_cf": {
+      "kind": "op",
+      "op": "encode",
+      "of": "counterfactual.h",
       "at": {
        "mask.mask": 1
       },
-      "dataset": "train"
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "featurizer": "fit.mask"
      },
      "patched": {
       "kind": "forward",
@@ -241,7 +220,7 @@
          },
          {
           "op": "swap",
-          "with": "counterfactual.v_cf"
+          "with": "v_cf"
          },
          {
           "op": "decode",
@@ -308,9 +287,6 @@
      "patience": 20
     },
     "eval": {
-     "held_out": {
-      "train": "test"
-     },
      "train": {}
     },
     "at": {
@@ -334,39 +310,20 @@
      "lr": 0.05
     },
     "steps": {
-     "counterfactual": {
-      "kind": "forward",
-      "input": "train.counterfactual_inputs[0]",
-      "interventions": {
-       "v_cf": {
-        "site": {
-         "component": "layer_output",
-         "layers": 0
-        },
-        "pos": -1,
-        "ops": [
-         {
-          "op": "encode",
-          "featurizer": "fit.mask"
-         }
-        ],
-        "dims": [
-         "rows",
-         "pos",
-         "features"
-        ],
-        "space": [
-         {
-          "featurizer": "fit.mask"
-         }
-        ],
-        "gathered": true
-       }
-      },
+     "v_cf": {
+      "kind": "op",
+      "op": "encode",
+      "of": "counterfactual.h",
       "at": {
        "mask.mask": 2
       },
-      "dataset": "train"
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "featurizer": "fit.mask"
      },
      "patched": {
       "kind": "forward",
@@ -385,7 +342,7 @@
          },
          {
           "op": "swap",
-          "with": "counterfactual.v_cf"
+          "with": "v_cf"
          },
          {
           "op": "decode",
@@ -452,9 +409,6 @@
      "patience": 20
     },
     "eval": {
-     "held_out": {
-      "train": "test"
-     },
      "train": {}
     },
     "at": {
@@ -478,39 +432,20 @@
      "lr": 0.05
     },
     "steps": {
-     "counterfactual": {
-      "kind": "forward",
-      "input": "train.counterfactual_inputs[0]",
-      "interventions": {
-       "v_cf": {
-        "site": {
-         "component": "layer_output",
-         "layers": 0
-        },
-        "pos": -1,
-        "ops": [
-         {
-          "op": "encode",
-          "featurizer": "fit.mask"
-         }
-        ],
-        "dims": [
-         "rows",
-         "pos",
-         "features"
-        ],
-        "space": [
-         {
-          "featurizer": "fit.mask"
-         }
-        ],
-        "gathered": true
-       }
-      },
+     "v_cf": {
+      "kind": "op",
+      "op": "encode",
+      "of": "counterfactual.h",
       "at": {
        "mask.mask": 3
       },
-      "dataset": "train"
+      "dataset": "train",
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "featurizer": "fit.mask"
      },
      "patched": {
       "kind": "forward",
@@ -529,7 +464,7 @@
          },
          {
           "op": "swap",
-          "with": "counterfactual.v_cf"
+          "with": "v_cf"
          },
          {
           "op": "decode",
@@ -596,19 +531,410 @@
      "patience": 20
     },
     "eval": {
-     "held_out": {
-      "train": "test"
-     },
      "train": {}
     },
     "at": {
      "mask.mask": 3
     }
    }
+  ],
+  "held_counterfactual": [
+   {
+    "kind": "forward",
+    "input": "test.counterfactual_inputs[0]",
+    "interventions": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "space": [
+       {
+        "featurizer": "fit.mask"
+       }
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 0
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.counterfactual_inputs[0]",
+    "interventions": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "space": [
+       {
+        "featurizer": "fit.mask"
+       }
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 1
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.counterfactual_inputs[0]",
+    "interventions": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "space": [
+       {
+        "featurizer": "fit.mask"
+       }
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 2
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.counterfactual_inputs[0]",
+    "interventions": {
+     "v_cf": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "space": [
+       {
+        "featurizer": "fit.mask"
+       }
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 3
+    },
+    "dataset": "test"
+   }
+  ],
+  "held_patched": [
+   {
+    "kind": "forward",
+    "input": "test.input",
+    "interventions": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       },
+       {
+        "op": "swap",
+        "with": "held_counterfactual.v_cf"
+       },
+       {
+        "op": "decode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 0
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.input",
+    "interventions": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       },
+       {
+        "op": "swap",
+        "with": "held_counterfactual.v_cf"
+       },
+       {
+        "op": "decode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 1
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.input",
+    "interventions": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       },
+       {
+        "op": "swap",
+        "with": "held_counterfactual.v_cf"
+       },
+       {
+        "op": "decode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 2
+    },
+    "dataset": "test"
+   },
+   {
+    "kind": "forward",
+    "input": "test.input",
+    "interventions": {
+     "patch": {
+      "site": {
+       "component": "layer_output",
+       "layers": 0
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "encode",
+        "featurizer": "fit.mask"
+       },
+       {
+        "op": "swap",
+        "with": "held_counterfactual.v_cf"
+       },
+       {
+        "op": "decode",
+        "featurizer": "fit.mask"
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "hidden_size"
+      ]
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "mask.mask": 3
+    },
+    "dataset": "test"
+   }
+  ],
+  "held_iia": [
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "held_patched.logits",
+    "at": {
+     "mask.mask": 0
+    },
+    "dataset": "test",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "test.cf_answer",
+    "b": "test.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "held_patched.logits",
+    "at": {
+     "mask.mask": 1
+    },
+    "dataset": "test",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "test.cf_answer",
+    "b": "test.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "held_patched.logits",
+    "at": {
+     "mask.mask": 2
+    },
+    "dataset": "test",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "test.cf_answer",
+    "b": "test.base_answer"
+   },
+   {
+    "kind": "op",
+    "op": "logit_diff",
+    "of": "held_patched.logits",
+    "at": {
+     "mask.mask": 3
+    },
+    "dataset": "test",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "a": "test.cf_answer",
+    "b": "test.base_answer"
+   }
   ]
  },
  "saves": [
-  "fit.held_out.iia",
+  "held_iia",
   "fit.train.iia",
   "fit.train.ce",
   "fit.mask"

@@ -117,7 +117,7 @@ def test_das_accuracy_climbs_with_rank(filled, kind):
     """The held-out curve by rank, not the CPU's to the bit: twenty epochs of optimizer steps carry float32
     rounding forward, so a GPU run need not reproduce the CPU's 0, 0.75, 0.92, 1."""
     results = filled["real/das", kind].results
-    curve = [results["fit.held_out.iia"][k].mean().item() for k in (1, 4, 16, 64)]
+    curve = [results["held_iia"][k].mean().item() for k in (1, 4, 16, 64)]
     assert curve[0] == 0.0 and curve[-1] == 1.0 and curve == sorted(curve)
     for k, bundle in results["fit.rot"].items():
         basis = bundle["basis"]

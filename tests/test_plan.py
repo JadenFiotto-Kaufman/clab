@@ -164,7 +164,7 @@ def test_one_sweep_reached_from_two_steps_is_one_axis():
 
 def test_a_reference_carries_its_producers_axes():
     plan = edited("dbm", lambda d: d["steps"].update(               # the step's only link to the swept fit
-        accuracy={"kind": "op", "op": "mean", "of": "fit.held_out.iia"})).compile()
+        accuracy={"kind": "op", "op": "mean", "of": "fit.train.iia"})).compile()
     assert [p.at for p in points(plan.steps["accuracy"])] == [{"mask.mask": i} for i in range(4)]
     assert [p.objective["mask.mask"] for p in points(plan.steps["fit"])] == [0.0001, 0.002, 0.01, 0.05]
 

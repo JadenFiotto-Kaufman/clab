@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import ChainMap, Counter
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
 
-def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_size: int, found: Found) -> Counter:
+def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch_size: int, found: Found) -> Counter:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
@@ -100,22 +100,22 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: dict, batch_siz
     return count
 
 
-def body_run(engine: Engine, name: str, step: Fit, state: dict, trained: dict[str, Kind], source: tuple[Plan, Found],
-             index: list[int] | None) -> tuple[dict, Counter]:
-    """A fit's body over the rows `source` holds (its training rows or eval's), or the minibatch `index` of
-    them, in a namespace of its own that falls back to `state`, each trained featurizer under its declared
-    name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
+def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind],
+             source: tuple[Plan, Found], ids: list[int] | None) -> tuple[ChainMap, Counter]:
+    """A fit's body over every row `source` holds (its training rows or eval's), or the minibatch of dataset row ids
+    `ids` (`Found.ids`), in a scope of its own that falls back to `state`, each trained featurizer under its
+    declared name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
     Returns the body's namespace, and the model calls its steps made and the tokens they fed."""
-    plan, found = source if index is None else narrowed(source[0], source[1], index, datasets(step))
-    body = dict(state)
+    plan, found = source[0], replace(source[1], ids=ids)
+    body = state.new_child()
     for f, inst in trained.items():
-        inst.training = index is not None
+        inst.training = ids is not None
         inst.seen = []
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
     from clab.steps import KINDS
     count = Counter()
-    with torch.set_grad_enabled(index is not None):
+    with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
             count += KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
     return body, count
@@ -127,19 +127,7 @@ def datasets(step: Fit) -> list[str]:
     return sorted({s.dataset for s in body.values() if s.dataset is not None})
 
 
-def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tuple[Plan, Found]:
-    """A body's plan and findings over the rows `index` picks of each of its datasets (`names`)."""
-    data = {**plan.data, **{d: plan.data[d].model_copy(update={"rows": [held_rows(plan, d)[i] for i in index]})
-                            for d in names}}
-    return plan.model_copy(update={"data": data}), Found(
-        inputs={k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found.inputs.items()},
-        positions={w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found.positions.items()},
-        selects=found.selects,
-        answers={k: replace(a, values=[a.values[i] for i in index], sets=[a.sets[i] for i in index])
-                 if a.column.partition(".")[0] in names else a for k, a in found.answers.items()})
-
-
-def term(body: dict, trained: dict[str, Kind], name: str, at: dict) -> Tensor:
+def term(body: ChainMap, trained: dict[str, Kind], name: str, at: dict) -> Tensor:
     """An objective term: a body op's value averaged over every axis, or a trained featurizer's scalar."""
     thing, _, member = name.partition(".")
     if member and thing in trained:

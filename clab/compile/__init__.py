@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from clab import featurizers
 from clab.compile.answers import column_ref
-from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, value_ref
+from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, space_of, value_ref
 from clab.compile.interventions import entry, items
 from clab.compile.state import Compiling, Known
 from clab.compile.uses import bundled_sites
@@ -274,14 +274,18 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
     if spec.op == "contains" and not of.text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, args)
+    if "featurizer" in args and not of.read:
+        fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
+             f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
     found = references(cx, path, spec.op, args, "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
     paired(path, spec.op, of.dims, of.width, found, step=True)
     if spec.op == "readout" and "hidden_size" in of.select:
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)
-    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not args.get("tokens"),
-                           space=of.space if dims[-1:] == of.dims[-1:] else [],
+    # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
+    space = of.space + space_of(cx, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
+    cx.names[name] = Known(dims, dataset, text=spec.op == "detokenize" and not args.get("tokens"), space=space,
                            select={a: v for a, v in of.select.items() if a in dims},
                            width=of.width if "pos" in dims else None)
     return {**spec.model_dump(exclude_defaults=True), "dataset": dataset, "dims": dims}
@@ -342,8 +346,10 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
 
 def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> dict:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under each of `eval`'s substitutions too), and a value with a row per example it uses
-    is one the body makes. It trains featurizers that have something to train, and holds no fit."""
+    as many rows as each other (under each of `eval`'s substitutions too), a value made before the fit that the body
+    uses with a row per example is of a dataset a forward of the body reads (with no forward, of one dataset), and
+    no eval reads such a value's dataset as another. It trains featurizers that have something to train, its
+    objective depends on one of them, and it holds no fit."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
@@ -357,20 +363,22 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
     within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
     for f in spec.train:
         within.names[f"{name}.{f}"] = Known(kind="featurizer")
-    before = len(cx.refs)
-    body = {}
+    body, harvests = {}, {}         # harvests: each value made before the fit, with rows, that the body uses, by user
+    trained = set(spec.train) | set(within.aliases.values())    # what the fit trains, by either of its names
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")
         if n in plan.data or n in plan.featurizers or "." in n:
             fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
                  "a root's")
+        start = len(cx.refs)
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
+        for r in cx.refs[start:]:
+            if within.names[r] is cx.names.get(r) and "rows" in within.names[r].dims:
+                harvests.setdefault(r, n)
+        if any(r in trained or r.partition(".")[0] in trained for r in cx.refs[start:]):
+            trained.add(n)                  # a step whose value depends on what the fit trains
     inner = within.names
-    for ref in cx.refs[before:]:
-        if inner.get(ref) is cx.names.get(ref) and "rows" in cx.names[ref].dims:
-            fail(f"{path}.steps", f"the body uses {ref!r}, which has a row per example of the whole dataset; the "
-                 "body runs over minibatches of its rows, so such a value is one it makes")
     body_ops = [n for n, s in body.items() if s["kind"] == "op"]
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
@@ -384,6 +392,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
                     if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
                            for o in gathers(Intervention(**e))):
                         cx.used.add(f"{n}.{k}")
+    if not any(t.partition(".")[0] in trained for t in spec.objective):
+        fail(f"{path}.objective", f"none of its terms ({', '.join(spec.objective)}) depends on what the fit trains "
+             f"({', '.join(spec.train)}): each is a body op over values no trained featurizer reaches, so there is "
+             "no gradient to step on; make a term of an op over a value the trained featurizer's encode, decode or "
+             "apply made, or of its scalar")
     if spec.early_stop is not None and spec.early_stop.metric not in body_ops:
         fail(f"{path}.early_stop.metric",
              f"{spec.early_stop.metric!r} is not a body op; body ops: {', '.join(body_ops)}")
@@ -396,6 +409,12 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             for d in (a, b):
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
+            for ref in harvests:
+                if cx.names[ref].data == a:
+                    fail(where, f"the body uses {ref!r}, made before the fit with a row per example of {a!r}, and "
+                         f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
+                         "steps after the fit, which reach what it trained as "
+                         f"{', '.join(repr(f'{name}.{f}') for f in spec.train)}")
             if plan.data[a].template != plan.data[b].template:
                 fail(where, f"dataset {a!r} is read as {b!r}, and their templates differ ({a!r}: "
                      f"{plan.data[a].template}, {b!r}: {plan.data[b].template}); a chat renders with its own "
@@ -408,6 +427,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
                  + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
                  "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
+    # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
+    own = {s["dataset"] for s in body.values() if s["kind"] != "op"} or {cx.names[r].data for r in list(harvests)[:1]}
+    for ref, n in harvests.items():
+        if cx.names[ref].data not in own:
+            d, theirs = cx.names[ref].data, " and ".join(map(repr, sorted(own)))
+            fail(f"{path}.steps.{n}", f"the body uses {ref!r}, made before the fit with a row per example of {d!r}, "
+                 f"which no forward of the body reads; the body runs over the rows of {theirs}, so a minibatch would "
+                 f"take rows of {d!r} at the ids of its rows of {theirs}, pairing the two row by row: read {d!r} in a "
+                 f"forward of the body, or make {ref!r} over {theirs}")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = Known(kind="featurizer")
         for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:

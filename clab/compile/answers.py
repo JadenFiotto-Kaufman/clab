@@ -31,7 +31,7 @@ def probe_of(plan: Plan, name: str) -> str:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
     if step.kind == "op":
-        return probe_of(plan, step.of)
+        return arguments(step)["featurizer"] if step.op == "encode" else probe_of(plan, step.of)
     if step.kind == "fit":
         return probe_of(body_view(plan, thing), member.partition(".")[2])
     return next(arguments(o)["featurizer"] for o in reversed(entries(step)[member].ops) if o.op == "encode")
@@ -177,16 +177,15 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                                      f"{vocabulary}")
 
 
-def indexed(plan: Plan, column: str, vocabulary: list, rows: slice | None) -> Tensor:
+def indexed(plan: Plan, column: str, vocabulary: list, ids: list[int] | None) -> Tensor:
     """A column's values as their indices in a probe's class list."""
-    return torch.tensor([vocabulary.index(v) for v in column_texts(plan, column, rows)])   # each one, preflight checked
+    return torch.tensor([vocabulary.index(v) for v in column_texts(plan, column, ids)])   # each one, preflight checked
 
 
-def column_texts(plan: Plan, column: str, rows: slice | None) -> list:
-    """A column's value on each of its dataset's rows (a string, or a list of them), sliced to `rows`."""
+def column_texts(plan: Plan, column: str, ids: list[int] | None) -> list:
+    """A column's value on each of its dataset's rows `ids` (every one: None), a string or a list of them."""
     name, _, path = column.partition(".")
-    values = [data.lookup(r, path) for r in held_rows(plan, name)]
-    return values[rows] if rows is not None else values
+    return [data.lookup(r, path) for r in data.by_id(held_rows(plan, name), ids)]
 
 
 def refkey(ref: str | dict) -> str:
@@ -194,15 +193,15 @@ def refkey(ref: str | dict) -> str:
     return json.dumps(ref, sort_keys=True)
 
 
-def answered(answer: Answer, of: Tensor | None, dims: list[str], rows: slice | None) -> Tensor:
-    """Each row's answer (of `rows`) laid against the value `of` a metric scores, as the ids each position may
-    be, padded with -1 (`metrics._aligned`). A column whose every row is one token scores it at every position of
-    its row (`[rows, m]`); one with an answer of several tokens is `aligned`: token i of each row's at the row's
-    position i (`[rows, pos, m]`), which needs every row the value reaches to have as many positions as its
-    answer has tokens (`present`)."""
-    part, column = rows or slice(None), answer.column
-    most = max(len(ids) for row in answer.sets[part] for ids in row)
-    sets = [[ids + [-1] * (most - len(ids)) for ids in row] for row in answer.sets[part]]
+def answered(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int] | None) -> Tensor:
+    """Each row's answer (of dataset rows `ids`; every one, 0 to n-1 in order: None) laid against the value `of` a
+    metric scores, as the token ids each position may be, padded with -1 (`metrics._aligned`). A column whose every
+    row is one token scores it at every position of its row (`[rows, m]`); one with an answer of several tokens is
+    `aligned`: token i of each row's at the row's position i (`[rows, pos, m]`), which needs every row the value
+    reaches to have as many positions as its answer has tokens (`present`)."""
+    column, chosen = answer.column, data.by_id(answer.sets, ids)
+    most = max(len(t) for row in chosen for t in row)
+    sets = [[t + [-1] * (most - len(t)) for t in row] for row in chosen]
     if not answer.aligned:
         return torch.tensor([row[0] for row in sets])
     if "pos" not in dims:
@@ -210,9 +209,10 @@ def answered(answer: Answer, of: Tensor | None, dims: list[str], rows: slice | N
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    for r, (value, row, n) in enumerate(zip(answer.values[part], sets, present(of, dims))):
+    for r, value, row, n in zip(ids if ids is not None else range(len(sets)), data.by_id(answer.values, ids), sets,
+                                present(of, dims)):
         if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
-            raise ValueError(unaligned(column, (part.start or 0) + r, value, len(row), n))
+            raise ValueError(unaligned(column, r, value, len(row), n))
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)] for row in sets])
 
 

@@ -342,11 +342,12 @@ Train the featurizers `train` names, inside the run, through the frozen model.
 Each trained featurizer is made at the fit's start (drawn from its own `seed`, else the fit's), and the
 optimizer over its trainable tensors with it. Each epoch sets a gate's temperature, then runs the body
 `steps` over minibatches of `batch_size` rows of its datasets, shuffled by a generator seeded with `seed` and
-the epoch, with gradients on and gates soft, and steps the optimizer once per minibatch on the weighted sum
-`objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained featurizer's
-scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as every metric
-is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's dtype.
-Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
+the epoch (a minibatch is its rows' ids in their datasets, so `noise` draws a row's noise in any minibatch
+as it does outside the fit), with gradients on and gates soft, and steps the optimizer once per minibatch on
+the weighted sum `objective` (`{term: weight}`; a term is a body op averaged over every axis, or a trained
+featurizer's scalar, `<featurizer>.<scalar>`). On a model not in float32 a metric term is a float32 loss, as
+every metric is (see Ops), so the fit's bundle differs from one trained when metrics computed in the model's
+dtype. Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
 optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
 After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
 op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
@@ -358,13 +359,21 @@ so the two have the same one). The body's forwards run in batches of `batch_size
 size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
 exactly, a null control), and each history is empty, `[0]`.
 
-The body is a scope of its own that sees every value produced before the fit; a trained featurizer's
-name and `<fit>.<featurizer>` both mean the one being trained, and a value with a row per example it uses
-is one it makes. Nothing leaves it except through the fit's members: `<fit>.<featurizer>` the trained
-featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value from
-the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
-of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a
-list of points.
+The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
+`<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
+one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
+ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
+so the model runs while the fit trains only where the body has a forward. The body's datasets are those its
+forwards read (with none, the one its harvests are of): a harvest of another is refused, since a minibatch's
+ids would pair its rows with theirs. A reduction over rows inside the body is the minibatch's statistic; a
+statistic of the dataset is a step before the fit. An eval that reads a harvest's dataset as another is
+refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
+through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
+no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
+trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value
+from the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
+of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list
+of points.
 
 ### `fit` blocks
 
@@ -436,21 +445,23 @@ to the value's dtype, since an edit writes back; a value read from the model kee
 over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
 `values`, the ranked values in the value's own dtype.
 
-A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's
-space (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns
-them back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of
-the same featurizer, and the ops between them act on the coordinates. An operand there is in the same
-coordinates (a value read through the same encodes, with the same `select`s, or a number), and one in other
-coordinates is refused by name, whatever its width. `decode` writes the change of coordinates back as a
-delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no coordinate changes
-nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is scattered back and the
-rest gain a change of exactly zero (encoding the result again gives them back to float rounding, about
-1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s
-coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode` still
-open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
+A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
+(`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
+back: within an entry each `decode` closes the most recent `encode` not yet closed, which must be of the same
+featurizer, and the ops between them act on the coordinates. An operand there is in the same coordinates (a
+value read through the same encodes, or turned into them by `encode` steps, with the same `select`s, or a
+number), and one in other coordinates is refused by name, whatever its width. `decode` writes the change of
+coordinates back as a delta, so `[encode x, decode x]` is the identity to the bit, an op that changes no
+coordinate changes nothing, and a sparse autoencoder's error term survives; a `select`ed coordinate is
+scattered back and the rest gain a change of exactly zero (encoding the result again gives them back to float
+rounding, about 1e-9, not to the bit). Brackets nest: `[encode a, encode b, <edits>, decode b, decode a]`
+edits `b`'s coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry that writes back with an `encode`
+still open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
 `apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
 of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
-adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.
+adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates. As a step,
+`encode` and `apply` take a read (an entry's value, at its one site; an op's value is refused by name), and
+`decode`, the close of an entry's `encode`, is no step.
 
 An op acts at the layers of the value it meets: inside an entry, at each layer the entry is made at in turn; as
 a step, at the layers `of`'s `layers` axis is labelled with, or at the one layer a value without that axis was

@@ -11,7 +11,9 @@ from clab.format import address, selectors
 from clab.format.selectors import Selector, made_at, selected
 from clab.plan import (
     Featurizer,
+    Intervention,
     Op,
+    OpStep,
     Plan,
     Site,
     agreeing,
@@ -31,12 +33,17 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
+def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op | OpStep, list[Op]]]]:
     """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
     step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
-    applied to."""
+    applied to. An op step's is the read its `of` names (`read_of`), at that read's site and in its coordinates."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
+        ref = arguments(step).get("featurizer") if step.kind == "op" else None
+        if ref is not None:
+            read = read_of(plan, name, step)
+            found.setdefault(declared(plan, ref), []).append((name, read.site, step.at, step,
+                                                              [Op(op="encode", **s) for s in read.space]))
         for key, entry in entries(step).items():
             for node, around in visited(bracketed(entry.ops)):
                 ref = arguments(node["op"]).get("featurizer")
@@ -44,6 +51,17 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op, list[Op]]]]:
                     found.setdefault(declared(plan, ref), []).append((f"{name}.{key}", entry.site, step.at,
                                                                       node["op"], [a["op"] for a in around]))
     return found
+
+
+def read_of(plan: Plan, name: str, step: OpStep) -> Intervention:
+    """The entry whose value op step `name` (dotted, as `walk` names it) is over, which compile checks is a read:
+    among the steps it sees, or, for a fit's eval member `<fit>.<eval>.<step>.<entry>`, in that fit's body."""
+    fit = name.rpartition(".")[0]
+    steps, ref = ({**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps), step.of
+    producer = agreeing(steps[ref.partition(".")[0]], step.at)
+    if producer.kind == "fit":
+        steps, ref = {**steps, **producer.steps}, ref.split(".", 2)[2]
+    return entry_of(steps, ref, step.at)[1]
 
 
 def bundled_sites(plan: Plan) -> None:
@@ -131,7 +149,7 @@ def at_layer(layers: object, n: int) -> str:
     return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
-def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op, layer: int | None, n: int) -> None:
+def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None, n: int) -> None:
     """A bundle made reading its input at another site (a cross-site adapter's `with`, which its header records as
     `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
     `with` that stacks is read there at that layer), and one made without reads none: the width check alone would

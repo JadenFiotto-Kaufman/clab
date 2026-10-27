@@ -198,7 +198,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     record = {**spec.model_dump(exclude_defaults=True), "site": site.model_dump(exclude_defaults=True), "dims": dims,
               **({"space": space} if space else {})}
     return record, Known(dims, dataset, space=space, select={a: v for a, v in (site.select or {}).items() if a in dims},
-                         width=width if "pos" in dims else None)
+                         width=width if "pos" in dims else None, read=True)
 
 
 def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,

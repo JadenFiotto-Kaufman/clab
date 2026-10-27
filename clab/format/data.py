@@ -97,6 +97,22 @@ def parse_input(text: str) -> tuple[str, str, int | None]:
     return match.group(1), match.group(2), None if match.group(3) is None else int(match.group(3))
 
 
+def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axis: int = 0) -> Any:
+    """The rows of a per-row table for dataset row ids `ids` (None: every row, the table as it is), in their order:
+    a list's, a tensor's along `axis` (on its device), each of a dict's. The one way per-row data is indexed: a
+    dataset's rows, an input's encoded rows, a read's positions, an answer's tokens, a column's texts and a value's
+    rows. A table holds every row of its dataset in order, or, a value a run of a fit's body made, the rows that
+    run is over (`among`)."""
+    if ids is None:
+        return table
+    at = ids if among is None else [among.index(i) for i in ids]
+    if isinstance(table, dict):
+        return {k: by_id(v, ids, among, axis) for k, v in table.items()}
+    if isinstance(table, torch.Tensor):
+        return table.index_select(axis, torch.tensor(at, dtype=torch.long, device=table.device))
+    return [table[i] for i in at] if axis == 0 else [by_id(v, ids, among, axis - 1) for v in table]
+
+
 def input_columns(input: str | list[str | TextPart]) -> list[str]:
     """The columns an input names: itself, or a list's that are not `{"text": ...}` literals."""
     return [input] if isinstance(input, str) else [part for part in input if isinstance(part, str)]
