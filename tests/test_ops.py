@@ -119,6 +119,17 @@ def test_a_rows_pos_factor_scales_each_positions_vector_by_its_own_number(engine
     assert torch.equal(patch, h * p[..., None])
 
 
+def test_a_zero_vector_normalizes_to_itself_and_a_zero_direction_projects_nothing_out():
+    """As `renormalize` leaves a vector of norm zero: `normalize` divides by nothing (no NaN), and `project_out`
+    along a zero direction removes no component; the other vectors are edited as before."""
+    zeroed = X.clone()
+    zeroed[1, 0] = 0
+    unit = edits.normalize(zeroed)
+    assert torch.equal(unit[1, 0], torch.zeros(5)) and not unit.isnan().any()
+    torch.testing.assert_close(unit[0].norm(dim=-1), torch.ones(2))
+    assert torch.equal(edits.project_out(X, torch.zeros(5)), X)
+
+
 def test_mean_over_the_example_axes_by_default():
     assert torch.equal(reductions.mean(X, dims=["rows", "pos", "hidden_size"]), X.mean(dim=[0, 1]))
     assert torch.equal(reductions.mean(X, dims=["rows", "pos", "hidden_size"], over=["pos"]), X.mean(dim=1))
