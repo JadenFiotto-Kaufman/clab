@@ -19,7 +19,7 @@ So a position names a token of *this row*, never a column of the padded batch. R
 A `pos` narrows in three steps, each a selector over what the step before left ([FORMAT.md#pos](../../FORMAT.md#pos)):
 
 1. **frame** picks forward calls. A `forward` makes one call, the prefill (0).
-2. **scope** picks text among those calls' tokens: a column's value, a literal, or a chat turn, and which `occurrence` of it.
+2. **scope** picks text among those calls' tokens: a column's value, a literal, or a chat turn, and which `occurrence` of it; or an image of the prompt, which `image` picks, and a `region` of it.
 3. **index** counts positions within what the scope left, over every selected call in order.
 
 So `{"frame": "0:3", "index": -1}` and `{"frame": 2, "index": -1}` land on the same position, and `{"scope": {"text": " is"}, "index": -1}` is the last token of the first ` is`, because `occurrence` picks before `index` counts.
