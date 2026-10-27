@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, plain, plan_of, same, snapshot, stand_in
+from conftest import BATCH_SIZE, GENERATE, ROOT, TRIP, close, edited, on_each, plain, plan_of, same, snapshot, stand_in
 from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
@@ -770,7 +770,7 @@ def test_a_doubled_prefill_text_takes_the_occurrence_asked_for(engines, occurren
     Positions and values on both engines, to the bit, are those of the read of every position there."""
     scope = {"text": "Friday", "occurrence": occurrence}
     plan = edited("patching", lambda d: doubled(d, scope, index)).compile()
-    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    runs = on_each(engines, plan)
     for kind, filled in runs.items():
         tokens = filled.run.tokens["pairs.input"]
         fridays = [[i for i, t in enumerate(row) if t == "▁Friday"] for row in tokens]
@@ -857,7 +857,7 @@ def test_a_roles_messages_are_its_occurrences(engines):
                                                      "pos": {"scope": scope}} for k, scope in reads.items()}}}
         d["saves"] = [f"look.{k}" for k in reads]
     plan = edited("chat_turn", change).compile()
-    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    runs = on_each(engines, plan)
     assert same(runs["nnterp"].results, runs["hooks"].results)
     assert runs["nnterp"].run.positions == runs["hooks"].run.positions
     where, tokens = runs["nnterp"].run.positions, runs["nnterp"].run.tokens["chats.chat"][0]
@@ -885,7 +885,7 @@ def test_a_list_of_texts_takes_its_occurrences_in_order(engines):
              "both": {"scope": {"text": both, "occurrence": ":"}},
              "bob": {"scope": {"text": "Bob"}}, "larry": {"scope": {"text": "Larry"}}}
     plan = edited("patching", lambda d: listed(d, rows, reads)).compile()
-    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")}
+    runs = on_each(engines, plan)
     where = runs["nnterp"].run.positions
     bob, larry = where["look.bob"], where["look.larry"]
     assert where["look.first"] == [bob[0], larry[1]] and where["look.second"] == [larry[0], bob[1]]

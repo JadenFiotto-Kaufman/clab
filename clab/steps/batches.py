@@ -408,14 +408,14 @@ def now(records: list[dict], call: int) -> list[dict]:
     return [r for r in records if wanted(r)]
 
 
-def landed(records: list[dict], seen: list[Tensor], tokenizer: PreTrainedTokenizerBase) -> list[dict]:
-    """The records at a decode call, each write stamped with the call (`call`, the number of inputs `seen` so
-    far), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
-    `positions.landing` decides from those inputs (one `[rows, 1]` per decode call); one that lands on no row
-    is left out. A read is as it was."""
+def landed(records: list[dict], seen: list[Tensor], tokenizer: PreTrainedTokenizerBase, call: int) -> list[dict]:
+    """The records at decode call `call`, each write stamped with it (`call`, which positions its ops at the
+    call's own token), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
+    `positions.landing` decides from the inputs `seen` so far (one `[rows, 1]` per decode call); one that lands
+    on no row is left out. A read is as it was."""
     out = []
     for w in records:
-        w = {**w, "call": len(seen)} if "ops" in w else w
+        w = {**w, "call": call} if "ops" in w else w
         online = w.get("online")
         if online is None:
             out.append(w)

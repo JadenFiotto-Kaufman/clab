@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import shutil
@@ -103,6 +104,18 @@ def same(a, b) -> bool:
     if isinstance(a, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     return a == b
+
+
+def on_each(engines, plan: Plan, *, batch_size: int = BATCH_SIZE,
+            kinds: tuple[str, ...] = ("nnterp", "hooks")) -> dict[str, Any]:
+    """`plan` run on each of `kinds` in turn, by kind: a copy of the filled plan that holds that run's results and
+    run record alone. A run fills the plan's one `results` dict and rebinds its `run`, so the plan itself holds only
+    its last run, and a comparison of two engines' results needs each kept apart."""
+    out = {}
+    for kind in kinds:
+        filled = engines(kind, plan.model).execute(plan, batch_size=batch_size)
+        out[kind] = filled.model_copy(update={"results": copy.deepcopy(filled.results)})
+    return out
 
 
 # The modules a run's request names by reference, and the marks of something shipped by value: a class

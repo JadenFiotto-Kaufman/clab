@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, bundle_header, edited, same
+from conftest import BATCH_SIZE, bundle_header, edited, on_each, same
 from safetensors import safe_open
 from safetensors.torch import save_file
 from test_featurizers import every_kind
@@ -120,7 +120,7 @@ def test_an_entry_that_encodes_and_decodes_changes_nothing_on_the_model(engines,
     """Run on the tiny model, an entry `[encode f, decode f]` writes back what was there: the head's logits and
     the value at the site are the clean run's to the bit, and so is the entry's own value, on both engines."""
     plan = bracketed(corpus_copy(tmp_path), featurizer, file)
-    got = [engines(k, plan.model).execute(plan, batch_size=BATCH_SIZE).results for k in ("nnterp", "hooks")]
+    got = [filled.results for filled in on_each(engines, plan).values()]
     assert same(*got)
     values = got[0]
     assert torch.equal(values["through.same"], values["clean.h"]) and torch.equal(values["through.h"], values["clean.h"])
@@ -225,7 +225,7 @@ def test_a_gate_over_pca_coordinates_patches_through_both(engines, tmp_path):
              "patched": {"kind": "forward", "input": "train.input", "interventions": "patch"}}
     plan = chained(root, steps, ["clean.h", "counterfactual.v", "counterfactual.v_cf", "patched.patch"])
     assert dims_of(plan, "counterfactual.v_cf") == ["rows", "pos", "features"]
-    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")]
+    got = list(on_each(engines, plan).values())
     assert same(got[0].results, got[1].results)
     values = got[0].results
     pc: Any = featurizers.make("pca", {"file_path": "x"}, 16, {"basis": BASIS, "mean": MEAN}, None, None)
@@ -245,7 +245,7 @@ def test_a_gate_over_pca_coordinates_trains_on_both_engines(engines, tmp_path):
                      "patched": {"kind": "forward", "input": "train.input", "interventions": "patch"},
                      "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "train.cf_answer"}}}
     plan = chained(root, {"fit": fit}, ["fit.mask", "fit.history.ce"], mask="fit.mask")
-    got = [engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE) for kind in ("nnterp", "hooks")]
+    got = list(on_each(engines, plan).values())
     assert same(got[0].results, got[1].results)
     assert got[0].results["fit.mask"]["theta"].shape == (4,)
     assert not torch.equal(got[0].results["fit.mask"]["theta"], torch.ones(4))
