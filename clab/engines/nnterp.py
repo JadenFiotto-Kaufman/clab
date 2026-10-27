@@ -21,7 +21,7 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, mrope, nnterp_name, stops, vision
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -43,6 +43,8 @@ class NnterpEngine:
         placed = {"device_map": device} if device in COMPUTED else {"device": device}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
+        self.vision = vision(getattr(self.model, "processor", None), self.model.config)
+        self.mrope = mrope(self.model._module)
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there);
@@ -81,7 +83,7 @@ class NnterpEngine:
         sites = by_site(records)
         order = sorted(sites, key=lambda s: self.rank(*s))
         got: dict[str, Tensor] = {}
-        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self))):
+        with self.model.trace(inputs(batch, batches.home(self), self.mrope)):
             self.visited(order, sites, 0, [], got)
         return got
 
@@ -108,7 +110,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.home(self))):
+                with tracer.invoke(inputs(batch, batches.home(self), True)):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if online and step > 0:
                             seen.append(model.input_ids)

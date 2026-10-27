@@ -13,7 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
+from conftest import BATCH_SIZE, FORWARD, IMAGES, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 from clab import Plan
 from clab.cli import main
@@ -203,7 +203,7 @@ def test_noise_is_drawn_per_row_and_position_whatever_the_batch(engines, filled)
         assert len(set(drawn)) == len(drawn)
 
 
-@pytest.mark.parametrize("name", list(PLANS))
+@pytest.mark.parametrize("name", [n for n in PLANS if n not in IMAGES])
 def test_ndif_remote_local_is_nnterp_to_the_bit(engines, filled, name):
     plan = PLANS[name]()
     there = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)

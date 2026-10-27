@@ -16,8 +16,9 @@ from nnterp import StandardizedTransformer
 
 from clab.engines import engine
 from clab.engines.nnterp import NnterpEngine
-from clab.engines.standard import build
-from clab.plan import Model
+from clab.engines.standard import build, mrope, vision
+from clab.format import data
+from clab.plan import Model, Plan, walk
 
 
 @engine("ndif")
@@ -42,3 +43,17 @@ class NdifEngine(NnterpEngine):
         self.model = build(model, "ndif", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, device=device, dtype=getattr(torch, model.dtype),
             **extra))
+        self.vision = vision(getattr(self.model, "processor", None), self.model.config)
+        self.mrope = mrope(self.model._module)
+
+    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+        """The nnterp engine's `execute`, after refusing by name a chat with an image part: the image is a file
+        beside the document, which the server has no way to read."""
+        for name, step in walk(plan.steps):
+            for i, row in enumerate((plan.data[step.dataset].rows if step.kind in ("forward", "generate") and
+                                     step.dataset else None) or []):
+                if data.image_parts(data.field(row, step.input)):
+                    raise ValueError(f"{name}: {data.input_name(step.input)} row {i} has an image part, a file "
+                                     "under the corpus root's data/, which the ndif engine's server cannot read; "
+                                     "the nnterp and hooks engines run it here")
+        return super().execute(plan, batch_size=batch_size)

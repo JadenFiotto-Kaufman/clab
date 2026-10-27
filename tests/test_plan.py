@@ -31,9 +31,9 @@ def compiled_form(plan: Plan) -> dict:
 
 
 def test_the_corpus_is_the_31_documents_and_the_examples_since():
-    assert len(NAMES) == 31 + 14 and {"direction_ablation", "sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
+    assert len(NAMES) == 31 + 15 and {"direction_ablation", "sae_train", "sae_train_ablation", "lora_train", "lora_apply", "noise_write",
                                       "clamp_write", "cosine_metric", "forced_answer", "answer_spellings",
-                                      "generated_contains", "generated_confidence"} <= set(NAMES)
+                                      "generated_contains", "generated_confidence", "gaze_heads"} <= set(NAMES)
     assert REAL == ["real/behavior", "real/das", "real/head_patching", "real/layer_sweep", "real/pattern_patching"]
 
 

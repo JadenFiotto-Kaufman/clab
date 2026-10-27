@@ -60,14 +60,17 @@ class Compiling:
 @dataclass
 class Found:
     """What preflight found, which the run needs: each dataset input's encoded rows and padded width
-    (`inputs`), every prefill record's positions per row by point (`positions`, which the run extends with the
-    other records'), the indices every record's `select` keeps on each axis (`selects`), room for what each
+    (`inputs`, with the corpus root and the dataset's template, which a batch's image tensors need), every
+    prefill record's positions per row by point (`positions`, which the run extends with the other records'),
+    the keys each record whose site names keys by a scope resolved to, per row (`keys`), the indices every
+    record's `select` keeps on each axis (`selects`), room for what each
     generate step's rows said (`said`), each column reference's answers (`answers`, see `answers.answer`),
     each featurizer's width (`widths`, the root's alone), and for each fit point the same for its body
     (`bodies`): over its training rows (`train`) and under each of its named `eval` substitutions (`evals`),
     each beside the plan the body runs in."""
     inputs: dict[str, dict] = field(default_factory=dict)
     positions: dict = field(default_factory=dict)
+    keys: dict = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     selects: dict = field(default_factory=dict)
     answers: dict[str, Answer] = field(default_factory=dict)

@@ -15,7 +15,20 @@ from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import made_at, picked, selected
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Plan, arguments, body_view, dims_of, entries, gathers, held_rows, kind_of, points
+from clab.plan import (
+    Fit,
+    Intervention,
+    Plan,
+    arguments,
+    body_view,
+    corpus_root,
+    dims_of,
+    entries,
+    gathers,
+    held_rows,
+    kind_of,
+    points,
+)
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -118,10 +131,11 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 for i, r in enumerate(rows):
                     try:
                         encoded.append(data.encode(tokenizer, data.field(r, step.input),
-                                                   plan.data[step.dataset].template))
+                                                   plan.data[step.dataset].template, corpus_root(plan), engine.vision))
                     except ValueError as e:
                         raise ValueError(f"{name}: {source} row {i}: {e}") from None
-                found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
+                found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded),
+                                        "root": corpus_root(plan), "template": plan.data[step.dataset].template}
                 plan.run.tokens[data.input_name(step.input, swap)] = \
                     [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
             encoded = found.inputs[source]["rows"]
@@ -131,6 +145,14 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 if site.layers is not None:
                     picked(where, site.layers, sizes["num_layers"])
                 for axis, index in (site.select or {}).items():
+                    if selectors.scoped(index):         # each row's own keys, as a prefill record's positions
+                        named = indices(f"{where}: select key", Intervention(site=site, pos=index), step, rows,
+                                        encoded, tokenizer)
+                        for i, k in enumerate(named):
+                            if not k:
+                                raise ValueError(f"{where}: select key names no key of row {i}")
+                        put(found.keys, where, step.at, named)
+                        continue
                     shortest = min(len(e["ids"]) for e in encoded)
                     size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
                         if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")

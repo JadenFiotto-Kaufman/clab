@@ -28,6 +28,7 @@
 | Run on an NDIF server | [usage/engines.md](docs/usage/engines.md), [concepts/one-session.md](docs/concepts/one-session.md) |
 | Read a run back | [usage/output.md](docs/usage/output.md) |
 | Run a technique (patching, path patching, ablation, logit lens, steering, DAS, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
+| Run on a vision-language model: an image in a chat, the image's tokens, a region of it, gaze heads | [usage/data.md](docs/usage/data.md#image-parts), [usage/positions.md](docs/usage/positions.md#image-tokens), [patterns/vision.md](docs/patterns/vision.md) |
 | Fix a refusal | [errors/index.md](docs/errors/index.md) |
 | Find out why the numbers are wrong when nothing was refused | [errors/symptom-index.md](docs/errors/symptom-index.md) |
 | Look up an exact field, op, component or option | [FORMAT.md](FORMAT.md), [reference/index.md](docs/reference/index.md) |
@@ -50,6 +51,7 @@
 - **Compare runs to the bit only at one `--batch-size` and one thread count.** A different batch shape moves the last bits. See [usage/running.md](docs/usage/running.md).
 - **Score a large model's logits inside the forward's head entry, not in an op step over two saved reads.** Every value a step binds stays on the model's device until the run ends, a read's batches are joined there, and an op step computes over the whole value at once, so a `kl` step over two full-vocabulary reads can exhaust memory and write nothing; `{"op": "kl", "against": "clean.logits"}` in the later forward's head entry keeps only the reference. See [usage/ops.md](docs/usage/ops.md#a-step-or-an-entry).
 - **Recompute a few points in float32 before reading small effects from a bfloat16 run.** A bit-exact null in bfloat16 certifies the wiring, not small effects: on Qwen3-4B a head with exactly zero effect in float32 shows about ±0.02 in a mean logit difference over 120 rows. See [usage/ops.md](docs/usage/ops.md#the-float32-rule).
+- **Load a vision-language checkpoint with `"task": "image-text-to-text"` in the model block, and name a part of an image by a `region` on an `image` scope.** Without `task` the text model loads alone and a chat with an image part is refused; the image's tokens are positions like any other, so `pos: -1` and a `turn` include them, and a head's attention onto a part of the image is the pattern at `select: {"key": {"scope": {"image": 0, "region": …}}}` summed over `key`. See [usage/data.md](docs/usage/data.md#image-parts), [usage/positions.md](docs/usage/positions.md#image-tokens), [usage/sites.md](docs/usage/sites.md#select).
 
 ## Before changing clab
 

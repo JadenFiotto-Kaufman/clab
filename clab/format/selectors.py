@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import TYPE_CHECKING, Annotated, Union, cast
+from typing import TYPE_CHECKING, Annotated, Any, Union, cast
 
 from pydantic import BeforeValidator
 
@@ -52,10 +52,19 @@ def select(selector: Selector, n: int) -> list[int]:
     return got
 
 
-def kept(selects: dict[str, Selector] | None, sizes: dict[str, int]) -> dict[str, list[int]]:
+def kept(selects: dict[str, Any] | None, sizes: dict[str, int]) -> dict[str, list[int]]:
     """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
-    and on `key` its `keys`."""
-    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
+    and on `key` its `keys`; a `key` named by a pos object is each row's own (`scoped`), decided per row in
+    preflight, so it is not here."""
+    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()
+            if not scoped(s)}
+
+
+def scoped(selector: object) -> bool:
+    """Whether a `select` value names keys by a pos object (a `Pos`, or its dict with a `scope`), each row's own,
+    rather than by a selector."""
+    return selector is not None and not isinstance(selector, (int, str, list)) and \
+        not (isinstance(selector, dict) and "sweep" in selector)
 
 
 def keys(selector: Selector) -> list[int]:

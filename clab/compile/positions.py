@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, cast
 
 from clab.format import data, selectors
 from clab.format.selectors import Selector, bound, covers, every, fixed, from_end, select
-from clab.plan import Forward, Generate, Intervention, Pos, Site, Sweep, Swept, fail, writes
+from clab.plan import Forward, Generate, Intervention, Pos, Site, Sweep, Swept, boxes, fail, writes
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -137,20 +137,22 @@ def call_of(position: int, prompt: int) -> int:
 
 def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]]) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
-    role's messages) among `tokens`, in order. Under `before` an occurrence beginning the row (at position 0)
-    has no position before it."""
+    role's messages, or the row's images, which `image` picks among) among `tokens`, in order. Under `before`
+    an occurrence beginning the row (at position 0) has no position before it."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
-    which = scope.get("occurrence", 0)
+    which = scope["image"] if "image" in scope else scope.get("occurrence", 0)
     picked = select(which, len(found))
-    key = next(k for k in ("column", "text", "turn") if k in scope)
+    key = next(k for k in ("column", "text", "turn", "image") if k in scope)
     what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
     if not found:
         raise Unaligned(f"the row has no {scope['turn']!r} message" if "turn" in scope else
-                        f"{what} is not in its input")
+                        "the row's input has no image" if "image" in scope else f"{what} is not in its input")
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise Unaligned(f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
+        raise Unaligned(f"the row's input has {len(found)} image{'s' * (len(found) != 1)}; it has no {what}"
+                        if "image" in scope else
+                        f"{what} occurs {len(found)} times in the row's input; it has no occurrence {which}")
     if scope.get("before") and any(0 in found[i] for i in picked):
         raise Unaligned(f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in found[i] for i in picked)]
@@ -191,8 +193,9 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
 
 
 def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTrainedTokenizerBase, texts: list[tuple],
-                online: bool = False) -> list[set[int]]:
-    """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, or each
+                online: bool = False, regions: list[list[float]] | None = None) -> list[set[int]]:
+    """Each place the scope names, as the positions that overlap it: a chat turn of the prompt, each of the
+    row's images (its tokens, within `regions` of it where the scope gives some: `image_tokens`), or each
     occurrence of any of its texts (`texts`: `(text, strip, lower)`, the columns' or the literals) in the
     prompt, by the tokenizer's offsets, then in the generated inputs (under `before`, every generated token,
     the last included: the tokens the calls chose), by decoding growing prefixes; each part's in order of
@@ -201,6 +204,8 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
     occurrence's end is not checked against the character after it (`located`)."""
     if scope is None:
         return []
+    if "image" in scope:
+        return image_tokens(scope, row, regions)
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
     # A role's messages in the order the template rendered them, so by where each ends, as `located` orders text.
     spans = [(a, b) for role, a, b in row["turns"] if role == scope["turn"]] if "turn" in scope else \
@@ -212,6 +217,35 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
         words, chars = char_spans(tokenizer, inputs)
         found += [covering(chars, a, b, prompt) for a, b in located(texts, words, chars, not online)]
     return found
+
+
+def image_tokens(scope: dict, row: dict, regions: list[list[float]] | None) -> list[set[int]]:
+    """Each image of the row as the positions of its tokens (the encoded row's `images`): within `regions`
+    (boxes in fractions of the image, their union) where the scope gives some, the tokens whose cell's centre a
+    box holds on the grid the tokens tile the image in, in raster order; outside them under `outside`. A row
+    whose images' tokens cannot be told apart, an image whose tokens tile it in no grid clab knows, and a region
+    that keeps no token of an image are refused by name (in the prefill, where every image is)."""
+    if row.get("image_note"):
+        raise ValueError(f"image: {row['image_note']}")
+    out = []
+    for i, image in enumerate(row.get("images") or []):
+        tokens = set(range(image["start"], image["start"] + image["n"]))
+        if regions is None:
+            out.append(tokens)
+            continue
+        if image["grid"] is None:
+            raise ValueError(f"region: image {i}'s {image['n']} tokens tile it in no grid clab knows (the processor "
+                             "gives no image_grid_thw, and the count is no square), so no region of it names tokens")
+        rows, cols = image["grid"]
+        kept = {image["start"] + r * cols + c for r in range(rows) for c in range(cols)
+                if any(x0 <= (c + 0.5) / cols and ((c + 0.5) / cols < x1 or x1 >= 1) and
+                       y0 <= (r + 0.5) / rows and ((r + 0.5) / rows < y1 or y1 >= 1) for x0, y0, x1, y1 in regions)}
+        kept = tokens - kept if scope.get("outside") else kept
+        if not kept:
+            raise ValueError(f"region {regions}{' outside' if scope.get('outside') else ''} keeps no token of image "
+                             f"{i}, whose {image['n']} tokens tile it {rows} rows by {cols} columns")
+        out.append(kept)
+    return out
 
 
 def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None,
@@ -334,8 +368,8 @@ def indices(where: str, record: Intervention, step: Forward | Generate, rows: li
 def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,
           head_only: bool) -> list[int] | str:
     """`resolve` for one row (its dataset row and its encoding), with what that needs: where the
-    scope's text occurs."""
-    found = occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row))
+    scope's text occurs, or which part of the row's images it names."""
+    found = occurrences(pos["scope"], encoded, said, tokenizer, texts(pos, row), regions=regions(pos, row))
     got = resolve(pos, len(encoded["ids"]), said, found, head_only)
     if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
             any(p < len(encoded["ids"]) - 1 for p in got):
@@ -358,6 +392,23 @@ def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
     given = scope.get("text")
     given = [] if given is None else given if isinstance(given, list) else [given]
     return [(t, bool(scope.get("strip")), bool(scope.get("lower"))) for t in given]
+
+
+def regions(pos: dict, row: dict) -> list[list[float]] | None:
+    """The boxes an image scope's `region` names in one row, each `[x0, y0, x1, y1]`: the literal's (one box,
+    or a list), or the row's value of the column it names, checked as a literal is (`boxes`); None where the
+    scope gives none."""
+    scope = pos["scope"] or {}
+    given = scope.get("region")
+    if given is None:
+        return None
+    if isinstance(given, str):
+        value = data.lookup(row, given.partition(".")[2])
+        try:
+            return boxes(value)
+        except ValueError as e:
+            raise ValueError(f"region {given}: {e}") from None
+    return boxes(given)
 
 
 def head(step: Forward | Generate, record: Intervention) -> bool:

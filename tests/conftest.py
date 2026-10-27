@@ -30,7 +30,9 @@ FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "ra
 GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "generated_contains"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # What the hooks engine refuses by name: values nnterp reads inside a module's forward.
-INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
+INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query", "gaze_heads"}
+# What the ndif engine refuses by name: a chat with an image part, a file beside the document the server cannot read.
+IMAGES = {"gaze_heads"}
 
 
 def document(name: str) -> str:

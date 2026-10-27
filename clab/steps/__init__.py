@@ -78,6 +78,7 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
                     key = f"{fit}.{label}.{where}"
                     positions[key] = {**positions.get(key, {}), **resolved}
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
+    plan.run.keys = {where: by_coordinate(plan, by_point) for where, by_point in found.keys.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
 

@@ -8,3 +8,4 @@ documents/artifacts/*
 !documents/artifacts/sae_gemma_scope.safetensors
 !documents/artifacts/sae_saelens.safetensors
 .coverage
+data/comics/

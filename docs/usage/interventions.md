@@ -141,4 +141,4 @@ If `null_ld` differs from `clean_ld`, the read and the write are not the same se
 
 - A write's `pos` swept alone moves where the counterfactual's value lands, not where it was read; sweep the read's `pos` with it ([activation patching](../patterns/activation-patching.md#a-layer-by-position-map)).
 - `normalize` of a zero vector is NaN everywhere it is added, a dose of 0 included; check a direction's norm before normalizing it ([steering](../patterns/steering.md)).
-- A write selects on one axis: `{"num_heads": [1], "head_dim": [0, 1]}` on a write is refused.
+- A write selects on one axis: `{"num_heads": [1], "head_dim": [0, 1]}` on a write is refused. Keys a scope names do not count: `{"num_heads": [1], "key": {"scope": {"image": 0}}}` biases one head toward the image ([sites.md](sites.md#select)).

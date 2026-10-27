@@ -19,6 +19,7 @@ from clab.steps.batches import (
     decoding,
     edit,
     joined,
+    keyed,
     layers,
     read,
     read_name,
@@ -61,7 +62,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
         sites, records = bind(engine, plan, name, step, state, found, chunk, pads, first)
         for key, record in after.items():
             records += beyond(engine, plan, record, key, picks[key], step, state, found, chunk, pads, padded,
-                              encoded[chunk], rows[chunk], eos, most)
+                              encoded[chunk], rows[chunk], eos, most, keyed(found, f"{name}.{key}", step.at, chunk))
         ids, got = generated(engine, name, batch, records, dict(step.model_extra or {}))
         out = {key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk, state,
                                           step.at, found.answers, layer) for layer in layers(engine, record)])
@@ -89,12 +90,13 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: dict,
 
 def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: dict, step: Generate, state: dict,
            found: Found, chunk: slice, pads: list[int], padded: int, encoded: list[dict], rows: list[dict],
-           eos: set[int], most: int | None) -> list[dict]:
+           eos: set[int], most: int | None, scoped_keys: list[list[int]] | None = None) -> list[dict]:
     """An entry past the prefill as the engine takes it in one batch, in parts: at each layer it is made at, a
     write's prefill part, where its frame holds the prompt, and its decode part (`calls`: the frame's own, or None
     for every decode call; a write with a text scope goes to every call with each row's texts, `online`, and lands
-    where `positions.landing` says); then a gathered entry's whole prefill (which of its positions it means can
-    depend on what the row says) and its decode calls, one read per layer, each at the call's one position."""
+    where `positions.landing` says), each with the prompt's keys a scope named (`scoped_keys`) where its site
+    names keys so; then a gathered entry's whole prefill (which of its positions it means can depend on what the
+    row says) and its decode calls, one read per layer, each at the call's one position."""
     pos = positions.parse(record.pos)
     holds, calls, _ = positions.reach(pos, most)
     head_only = head(step, record)
@@ -107,8 +109,9 @@ def beyond(engine: Engine, plan: Plan, record: Intervention, key: str, picks: di
         for layer in layers(engine, record):
             edits = edit(plan, record, state, step.at, chunk, found.answers, layer, engine.sizes())
             if holds:
-                out.append({**site(record, picks, where, pads, padded, head_only), "layer": layer, "ops": edits})
-            out.append({**decoding(record, picks, prompts), "layer": layer, "ops": edits,
+                out.append({**site(record, picks, where, pads, padded, head_only, scoped_keys), "layer": layer,
+                            "ops": edits})
+            out.append({**decoding(record, picks, prompts, pads, scoped_keys), "layer": layer, "ops": edits,
                         "calls": None if online else calls, **online})
     for layer in layers(engine, record) if record.gathered else []:
         if holds:

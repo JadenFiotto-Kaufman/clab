@@ -17,7 +17,11 @@ dependencies = [
 clab = "clab.cli:main"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pillow>=12.3.0",
+    "pytest",
+    "torchvision>=0.29.1",
+]
 
 # nnsight comes from PyPI; nnterp is the shared working checkout on this machine, installed editable. Leave
 # the nnterp entry alone; add your own dependencies above as needed.

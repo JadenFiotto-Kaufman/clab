@@ -1,7 +1,7 @@
 ---
 title: Positions
-one_liner: "Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, every token, the generated tokens, and reading back where each read and write landed."
-tags: [usage, positions, pos, scope, occurrence, before]
+one_liner: "Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, an image's tokens or a region of them, every token, the generated tokens, and reading back where each read and write landed."
+tags: [usage, positions, pos, scope, occurrence, before, image, region]
 related: [docs/concepts/positions.md, docs/usage/sites.md, docs/usage/generate.md, docs/usage/output.md, docs/errors/alignment-missing.md, docs/usage/data.md, docs/usage/interventions.md]
 sources: [clab/compile/positions.py, clab/format/selectors.py, clab/plan.py]
 ---
@@ -71,6 +71,21 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 ## Chat turns
 
 `{"scope": {"turn": "<role>"}}` is one message of that role, `occurrence` counting that role's messages (`":"` is all of them). Its tokens are the message's content as the template renders it; the template's markers (`[INST]`, `[/INST]`, `</s>`) belong to no turn, so `index: -1` of a turn is the message's own last token. Without a scope, `-1` is the template's close of the last message: 36 `]` in `documents/chat_turn.json`. A turn takes frame 0, and on an input that is text, not a chat, it is refused. A turn is a message the row holds: a system header that the template writes when the chat has none (Llama-3.2's does) is positions but no turn, and `{"turn": "system"}` there is refused with `row 0: the row has no 'system' message`. Rendering chats is [data.md](data.md#chat-inputs).
+
+## Image tokens
+
+On a checkpoint loaded with its processor ([data.md](data.md#image-parts)), `{"scope": {"image": 0}}` is the tokens of the row's first image, where the processor put them; each image of the row is an occurrence, and `image` picks which (`":"` every one), in place of `occurrence`. `region` keeps the tokens of a part of the image:
+
+```json
+"pos": {"scope": {"image": 0, "region": [0, 0, 0.5, 1]}}
+```
+
+- **A box is `[x0, y0, x1, y1]` in fractions of the image**, the origin top left: the left half above, `[0.5, 0, 1, 0.5]` the top-right quarter. A list of boxes is their union; a column, `"region": "q.panel"`, is each row's own box or list, so one document names a different part of the image on every row. `"outside": true` flips it to the image's tokens outside the region.
+- **A region keeps the tokens whose cell's centre lies in a box**, on the grid the image's tokens tile it in, in raster order: Qwen-VL's processor gives the grid (`image_grid_thw`, merged two ways on each side: the 1536 x 256 strip is 8 rows by 48 columns), and a fixed-resolution tower's tokens are a square (Llava's 576 are 24 by 24). A grid clab cannot know, or a region that keeps no token, is refused by name.
+- **A `turn` holds its images**: the user turn of a chat whose message carries an image is the image's tokens and the message's words together.
+- **An image scope takes frame 0**: the image is in the prompt. Check `run.positions` as for any scope; the image tokens are many, so the record is long.
+
+The same scope on a site's `select` names an attention pattern's keys by the image, which is how a head's attention onto a part of the image is read ([sites.md](sites.md#select)).
 
 ## Generated tokens
 

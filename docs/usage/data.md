@@ -1,7 +1,7 @@
 ---
 title: Data and Inputs
-one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
-tags: [usage, data, inputs, chat]
+one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs, and image parts in a chat on a vision-language checkpoint; list inputs for teacher forcing; answer columns with strip, lower and sets."
+tags: [usage, data, inputs, chat, images, vision]
 related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md]
 sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py]
 ---
@@ -110,6 +110,26 @@ clab renders a chat only from a column that already holds `{"role", "content"}` 
 ```
 
 Llama-3.1's template writes a fixed default date and reads no clock.
+
+### Image parts
+
+A message's `content` may be a list of parts instead of a string, as the checkpoint's processor takes them: `{"type": "text", "text": "..."}` and `{"type": "image", "image": "<file under data/>"}`. The image is a file beside the rows under the corpus root's `data/`, held by reference; a row stays JSON. The model block loads the checkpoint with its processor under `"task": "image-text-to-text"`, and the processor renders the chat, expands each image part into the image's tokens where the part stands, and makes the image tensors each batch carries:
+
+```json
+"model": {"key": "Qwen/Qwen3-VL-8B-Instruct", "revision": "…", "dtype": "bfloat16", "task": "image-text-to-text", "attn_implementation": "eager"},
+"data": {"q": {"path": "comics/queries", "template": {"add_generation_prompt": true}}}
+```
+
+```json
+{"chat": [{"role": "user", "content": [{"type": "image", "image": "comics/strips/comic001.png"},
+                                        {"type": "text", "text": "What is happening in the first panel from the left?"}]}]}
+```
+
+- **Every image token is a position**, as the template's markers are: on Qwen3-VL a 1536 x 256 strip is 384 tokens between `<|vision_start|>` and `<|vision_end|>`, and `run.tokens` shows them as `<|image_pad|>`. `{"scope": {"image": 0}}` names them, and a `region` of the image names some of them ([positions.md](positions.md#image-tokens)).
+- **The processor tokenizes the chat as the checkpoint does**, special tokens included: Llava's adds a BOS the text template does not write, Qwen's adds none. A text-only chat on a checkpoint loaded with its processor renders through the processor too.
+- **Without `task` the text model loads alone**, and a chat with an image part is refused at the run: `the chat has an image part, and this model loaded no processor; load the checkpoint with 'task': 'image-text-to-text'`.
+- **An image needs Pillow, and most processors torchvision.** A missing file is refused by name: `image part 0: no file data/comics/none.png under the corpus root`.
+- **The ndif engine refuses an image part**: the file is beside the document, which the server cannot read. The nnterp and hooks engines run it ([engines.md](engines.md)).
 
 ## Answer columns
 

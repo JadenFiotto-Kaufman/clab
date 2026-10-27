@@ -15,8 +15,8 @@ An engine loads the document's checkpoint and runs the compiled plan on it. clab
 | engine | runs the model | serves | use it for |
 |---|---|---|---|
 | `nnterp` (default) | here, as nnterp's standardized model inside one nnsight session | every component nnterp serves on the checkpoint, the attention interior included | everything, by default |
-| `hooks` | here, as a plain `AutoModelForCausalLM` with forward hooks, no nnsight at run time | components at a module boundary only | a second implementation to cross-check a result |
-| `ndif` | on an NDIF server; the client holds a model with no weights | what nnterp serves on the server's model | models too large to load yourself |
+| `hooks` | here, as a plain `AutoModelForCausalLM` (`AutoModelForImageTextToText` under `task: image-text-to-text`) with forward hooks, no nnsight at run time | components at a module boundary only | a second implementation to cross-check a result |
+| `ndif` | on an NDIF server; the client holds a model with no weights | what nnterp serves on the server's model; not a chat with an image part, a file the server cannot read | models too large to load yourself |
 
 ```text
 clab run documents/patching.json                                   # nnterp, on cpu
