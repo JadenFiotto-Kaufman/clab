@@ -202,11 +202,11 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     positions is as wide as the widest, NaN past a row's own."""
     parts, count = [], Counter()
     gathered = {k: r for k, r in entries(step).items() if r.gathered}
-    for chunk, batch, pads in chunked(engine, step, found, batch_size):
-        sites, records = bind(engine, plan, name, step, state, found, chunk, pads)
+    for ids, batch, pads in chunked(engine, step, found, batch_size):
+        sites, records = bind(engine, plan, name, step, state, found, ids, pads)
         got = engine.forward(batch, records)
         count += fed(batch, pads)
-        parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], chunk,
+        parts.append({key: stacked(record, [read(engine, plan, record, got[read_name(key, layer)], sites[key], ids,
                                                  state, step.at, found, layer)
                                             for layer in layers(engine, record)])
                       for key, record in gathered.items()})
@@ -215,9 +215,9 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found) -> Counter:
-    """The op over the value `of` names at the rows the run is over (`found.ids`), given each one's dataset row,
-    at the layers `of` is at (`acts_at`), to which an operand's `layers` axis is aligned (`bound`). `top_k`'s value
-    over a vocabulary's tokens also holds them, decoded. It calls no model."""
+    """The op over the value `of` names at the rows the run is over (`found.ids`, else 0 to n-1 by its shape), given
+    each one's dataset row, at the layers `of` is at (`acts_at`), to which an operand's `layers` axis is aligned
+    (`bound`). `top_k`'s value over a vocabulary's tokens also holds them, decoded. It calls no model."""
     of, dims = value_at(plan, state, step.of, step.at, found.ids, found), dims_of(plan, step.of)
     producer = points(plan.steps[step.of.partition(".")[0]])[0]
     ids = found.ids or range(of.shape[dims.index("rows")]) if "rows" in dims and isinstance(of, Tensor) else None

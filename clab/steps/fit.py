@@ -101,21 +101,21 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
 
 
 def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind],
-             source: tuple[Plan, Found], index: list[int] | None) -> tuple[ChainMap, Counter]:
+             source: tuple[Plan, Found], ids: list[int] | None) -> tuple[ChainMap, Counter]:
     """A fit's body over every row `source` holds (its training rows or eval's), or the minibatch of dataset row ids
-    `index` (`Found.ids`), in a scope of its own that falls back to `state`, each trained featurizer under its
+    `ids` (`Found.ids`), in a scope of its own that falls back to `state`, each trained featurizer under its
     declared name and `<fit>.<name>`. With a minibatch it trains: gradients on, gates soft; otherwise it scores.
     Returns the body's namespace, and the model calls its steps made and the tokens they fed."""
-    plan, found = source[0], replace(source[1], ids=index)
+    plan, found = source[0], replace(source[1], ids=ids)
     body = state.new_child()
     for f, inst in trained.items():
-        inst.training = index is not None
+        inst.training = ids is not None
         inst.seen = []
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
     from clab.steps import KINDS
     count = Counter()
-    with torch.set_grad_enabled(index is not None):
+    with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
             count += KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
     return body, count
