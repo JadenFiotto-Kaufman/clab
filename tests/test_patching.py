@@ -260,12 +260,13 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
     with pytest.raises(ValueError, match="unknown engine 'vllm'; valid: nnterp, hooks, ndif"):
         load("vllm", model)
     assert list(options("nnterp")) == ["tp"] and list(options("ndif")) == ["remote"]
-    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its options: device, tp$"):
+    where = r" \(where the model runs is `device`, given as --device\)$"
+    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its options: tp" + where):
         load("nnterp", model, remote="local")
-    for kind, theirs in (("nnterp", "device, tp"), ("hooks", "device")):  # where the model goes is `device`
-        with pytest.raises(ValueError, match=f"the {kind} engine takes no 'device_map'; its options: {theirs}$"):
+    for kind, theirs in (("nnterp", "tp"), ("hooks", "none")):  # where the model goes is `device`, never an option
+        with pytest.raises(ValueError, match=f"the {kind} engine takes no 'device_map'; its options: {theirs}" + where):
             load(kind, model, device_map="auto")
-    with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; its options: device, remote$"):
+    with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; its options: remote" + where):
         load("ndif", model, device_map="auto")
     with pytest.raises(ValueError, match="remote: 'yes' is not one of True, 'local'"):
         load("ndif", model, remote="yes")
@@ -324,9 +325,10 @@ def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
     assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
         ("ndif", "cpu", {"remote": "local"}, ["float32"], ["cpu"])
     assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'remote'; its options: device, tp" in capsys.readouterr().err
+    assert "clab: the nnterp engine takes no 'remote'; its options: tp (where the model runs is `device`, given as " \
+        "--device)" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device_map=auto", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'device_map'; its options: device, tp" in capsys.readouterr().err
+    assert "clab: the nnterp engine takes no 'device_map'; its options: tp (where" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device=cuda", "--out", str(out)]) == 1
     assert "clab: -o device: it is given as --device" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "remote", "--out", str(out)]) == 1
@@ -355,7 +357,7 @@ def test_an_engine_option_goes_to_its_constructor_and_is_recorded(monkeypatch, t
     assert main(["run", document("patching"), "--engine", "scratch", "-o", "width=2",
                  "--batch-size", str(BATCH_SIZE), "--out", str(tmp_path / "c")]) == 0
     assert "(batch size 2, device cpu, width 2)" in capsys.readouterr().out
-    with pytest.raises(ValueError, match="the scratch engine takes no 'nope'; its options: device, width"):
+    with pytest.raises(ValueError, match="the scratch engine takes no 'nope'; its options: width \\(where"):
         clab.run(document("patching"), engine="scratch", nope=1)
     with pytest.raises(ValueError, match="width: 'x' is not int"):
         clab.run(document("patching"), engine="scratch", width="x")

@@ -110,8 +110,9 @@ def test_a_checkpoint_nnsight_cannot_split_is_refused_naming_tp_and_the_checkpoi
 def test_the_other_engines_refuse_tp_and_torchrun_by_name(unloadable, capsys):
     """The ndif engine's docstring says why it takes no `tp`: the server shards the model as its deployment does."""
     model = plan_of("patching").model
-    for kind, theirs in (("hooks", "device"), ("ndif", "device, remote")):
-        with pytest.raises(ValueError, match=f"^the {kind} engine takes no 'tp'; its options: {theirs}$"):
+    for kind, theirs in (("hooks", "none"), ("ndif", "remote")):
+        with pytest.raises(ValueError, match=f"^the {kind} engine takes no 'tp'; its options: {theirs} \\(where the model "
+                                             r"runs is `device`, given as --device\)$"):
             load(kind, model, tp=2)
     unloadable.setenv("WORLD_SIZE", "2")
     for kind in ("hooks", "ndif"):              # each rank would run the whole plan, under ndif each its own job

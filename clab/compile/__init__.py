@@ -295,7 +295,13 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
     records: dict[str, Intervention] = {}
     live: dict[str, Intervention] = {}
     for p, k, e in given:
-        records[k] = entry(cx, p, e, plan, spec, dataset, live, own, f"{name}.{k}", at)
+        try:
+            records[k] = entry(cx, p, e, plan, spec, dataset, live, own, f"{name}.{k}", at)
+        except PlanError as e:              # a bundle's entry is refused where it is pulled in, which the path names
+            if not p.startswith("interventions."):
+                raise
+            where, _, why = str(e).partition(": ")
+            raise PlanError(f"{where} in {path}: {why}") from None
         # A forward's entries may name the ones before them, which the engine makes as the forward reaches them;
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":

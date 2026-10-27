@@ -424,10 +424,30 @@ def test_a_device_no_engine_can_place_a_model_on_is_refused_before_anything_load
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
+    """The reason is the loader's one line that names the key, without the report of every class nnsight's loader
+    tried, so a misspelled key is refused by name on both engines alike."""
     from clab.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update(attn_implementation="nonsense"))
     with pytest.raises(ValueError, match=f"^model.attn_implementation: the {kind} engine's loader rejects it: "):
         ENGINES[kind](plan.model)
+    plan = edited("patching", lambda d: d["model"].update(attn_implementaton="eager"))
+    with pytest.raises(ValueError, match=f"^model.attn_implementaton: the {kind} engine's loader rejects it: "
+                                         r"LlamaForCausalLM.__init__\(\) got an unexpected keyword argument "
+                                         r"'attn_implementaton'$"):
+        ENGINES[kind](plan.model)
+
+
+def test_a_bundle_entrys_refusal_names_the_step_that_pulls_it_in():
+    """A bundle's entry has one document path and may be pulled into several steps; its operand resolves in the
+    step that pulls it in, so a refusal names that step after the path."""
+    def change(d):
+        d["steps"]["counterfactual"]["interventions"]["logits"] = {"site": {"component": "lm_head_output"}, "pos": -1}
+        d["interventions"] = {"b": {"patch": {"site": "target", "pos": -1,
+                                               "ops": [{"op": "swap", "with": "counterfactual.logits"}]}}}
+        d["steps"]["patched"]["interventions"] = ["b", {"logits": d["steps"]["patched"]["interventions"]["logits"]}]
+    with pytest.raises(PlanError, match=r"^interventions\.b\.patch\.ops\[0\]\.with in steps\.patched: "
+                                        r"'counterfactual\.logits' is laid out \['rows', 'pos', 'vocab_size'\]"):
+        edited("patching", change).compile()
 
 
 def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch():

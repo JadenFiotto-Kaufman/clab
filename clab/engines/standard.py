@@ -185,10 +185,16 @@ def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> A
         raise ValueError(f"model.key {model.key!r} at revision {model.revision!r}: the {engine} engine cannot load "
                          f"it: {why} (the loader says: {said})") from None
     except (TypeError, ValueError) as e:
-        key = next((k for k in extra if repr(k) in str(e) or f"{k}=" in str(e) or f" {k} " in str(e)), None)
+        def names(key: str, text: str) -> bool:
+            return repr(key) in text or f"{key}=" in text or f" {key} " in text
+        key = next((k for k in extra if names(k, str(e))), None)
         if key is None:
             raise
-        raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
+        # The last line that names the key, without its exception's name: nnsight's loader wraps the error in a
+        # report of every class it tried, with each one's traceback.
+        why = [line.strip() for line in str(e).splitlines() if names(key, line)][-1]
+        raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: "
+                         f"{why.partition(': ')[2] if why.split(': ')[0].endswith('Error') else why}") from None
 
 
 # The one transformers warning every load of a checkpoint whose config carries `pad_token_id: -1` prints (the tiny
