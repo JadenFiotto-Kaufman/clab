@@ -67,7 +67,9 @@ class Sae(Kind):
     def check(cls, fields: dict[str, Any]) -> None:
         """`k` comes with `topk` and only with it, and `jumprelu` loads the threshold a published file holds."""
         super().check(fields)
-        activation, k = fields.get("activation") or cls.unstated["activation"], fields.get("k")
+        activation, k = fields.get("activation"), fields.get("k")
+        if activation is None:
+            activation = cls.unstated["activation"]
         if isinstance(activation, dict):
             return                          # swept: checked per point
         if (activation == "topk") != (k is not None):

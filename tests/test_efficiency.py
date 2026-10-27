@@ -143,14 +143,15 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("name, expected", [("logit_lens", 4), ("generated_answer", 12)])
-def test_every_forward_the_model_runs_is_a_steps(engines, kind, name, expected):
-    """Counted at the model itself (a pre-hook on its root module), a run makes exactly the forwards its steps' costs
-    sum to: logit_lens's two points of two batches, generated_answer's two batches of a prefill and five decode
-    calls; no forward is made outside a step (nnterp measures its forward order in `ready`, once per engine)."""
+def test_every_forward_the_model_runs_is_a_steps(kind, name, expected):
+    """Counted at the model itself (a pre-hook on its root module), a fresh engine's first run makes exactly the
+    forwards its steps' costs sum to (logit_lens's two points of two batches, generated_answer's two batches of a
+    prefill and five decode calls) plus, on nnterp, the one forward `ready` makes before the first step to measure
+    the forward order (`rank`), once per engine; hooks measured it on a meta shell at load, so none."""
+    from clab.engines import load
+
     plan = plan_of(name)
-    engine = engines(kind, plan.model)
-    if hasattr(engine, "ready"):
-        engine.ready()
+    engine: Any = load(kind, plan.model)
     root = engine.model._module if kind == "nnterp" else engine.model
     calls: list[int] = []
     handle = root.register_forward_pre_hook(lambda module, args: calls.append(1))
@@ -158,8 +159,9 @@ def test_every_forward_the_model_runs_is_a_steps(engines, kind, name, expected):
         run = engine.execute(plan, batch_size=BATCH_SIZE).run
     finally:
         handle.remove()
+    assert run is not None
     counted = sum(c["forwards"] for by in run.costs.values() for c in (by.values() if "forwards" not in by else [by]))
-    assert len(calls) == counted == expected
+    assert counted == expected and len(calls) == counted + (kind == "nnterp")
 
 
 def test_show_prints_each_steps_cost(engines, tmp_path, capsys):

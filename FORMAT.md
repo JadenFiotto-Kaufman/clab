@@ -283,11 +283,10 @@ any other and belong to no `turn`, and a generate from it continues after the he
 `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
-row, with position ids that count real tokens. At one intra-op thread count a row's numbers then do not
-depend on which rows share its batch (the suite pins the count its snapshots were made with,
-`tests/conftest.py`; at another, the BLAS splits a matmul's reduction otherwise and they move by about 1e-8),
-but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can differ in the
-last bits. Results reproduce to the bit at a fixed batch size and thread count.
+row, with position ids that count real tokens. At the thread count the suite pins (`tests/conftest.py`, 12;
+8 and 24 give the same bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they
+can differ by about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix,
+and can differ in the last bits. Results reproduce to the bit at a fixed batch size and thread count.
 
 ### `generate`
 

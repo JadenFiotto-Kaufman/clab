@@ -300,8 +300,8 @@ says how to fetch; `trl-internal-testing/tiny-CohereForCausalLM` (`90bc56bd`) wh
 shows the hooks engine's standard readout differing from the model's own, which one test checks and skips without;
 and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B` (`4e20de36`).
 
-Numbers reproduce to the bit at a fixed `--batch-size` and intra-op thread count. Every batch of an input is
-padded to that input's longest row, so at one thread count a row's numbers do not depend on which rows share its
-batch (at another, the BLAS splits a matmul's reduction otherwise and they move by about 1e-8); they do depend on
-the batch's shape, and a trailing partial batch (a smaller matrix) can differ in the last bits. The snapshots pin
-the batch size for that reason, and `tests/conftest.py` the thread count they were made with.
+Numbers reproduce to the bit at a fixed `--batch-size` and thread count. Every batch of an input is padded to
+that input's longest row, so at the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same
+bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8.
+They do depend on the batch's shape, and a trailing partial batch (a smaller matrix) can differ in the last bits.
+The snapshots pin the batch size for that reason, and `tests/conftest.py` the thread count they were made with.
