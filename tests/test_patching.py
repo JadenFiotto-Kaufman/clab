@@ -56,7 +56,7 @@ def test_the_run_record_says_how_it_ran(filled):
     assert placed(filled["nnterp"])["patched.patch"] == [[10], [8], [8], [8]]    # the last token, BOS-prefixed rows
 
 
-def test_execute_refuses_an_uncompiled_plan_and_dump_one_without_results(engines, tmp_path):
+def test_execute_refuses_an_uncompiled_plan_or_an_empty_batch_and_dump_or_table_one_that_has_not_run(engines, tmp_path):
     plan = Plan(document("patching"))
     with pytest.raises(ValueError, match="plan is not compiled; call plan.compile()"):
         engines("nnterp", plan.model).execute(plan)
@@ -65,6 +65,8 @@ def test_execute_refuses_an_uncompiled_plan_and_dump_one_without_results(engines
             engines("nnterp", plan.model).execute(plan.compile(), batch_size=n)
     with pytest.raises(ValueError, match="^the plan has not run, so it has no results; execute it first$"):
         plan.compile().dump(str(tmp_path))
+    with pytest.raises(ValueError, match="^the plan has not run, so it has no results; execute it first$"):
+        plan.compile().table("iia")
 
 
 def test_an_engine_refuses_a_plan_for_another_checkpoint(engines):

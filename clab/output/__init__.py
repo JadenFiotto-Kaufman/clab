@@ -35,16 +35,22 @@ from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Entry, Intervention, Labelled, Plan, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
+from clab.plan import Entry, Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
 LABELS = ("dataset", "layers", "read", "width", "kept", "space")
 
 
-def dump(plan: Plan, out: str) -> None:
+def ran(plan: Plan) -> Run:
+    """The run record of a plan that has run; one that has not is refused: it has no results to write or table."""
     if plan.run is None:
         raise ValueError("the plan has not run, so it has no results; execute it first")
+    return plan.run
+
+
+def dump(plan: Plan, out: str) -> None:
+    ran(plan)
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in plan.saves:
