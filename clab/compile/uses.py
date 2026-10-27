@@ -11,6 +11,7 @@ from clab.format import address, selectors
 from clab.format.selectors import Selector, made_at, selected
 from clab.plan import (
     Featurizer,
+    Intervention,
     Op,
     OpStep,
     Plan,
@@ -19,7 +20,6 @@ from clab.plan import (
     arguments,
     bracketed,
     declared,
-    dims_in,
     entries,
     entry_of,
     fail,
@@ -36,13 +36,14 @@ if TYPE_CHECKING:
 def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op | OpStep, list[Op]]]]:
     """Every `encode` and `apply` of a declared featurizer, by featurizer: the entry's dotted name, its site, its
     step's point, the op, and the encodes still open around it (outermost first), whose coordinates it is
-    applied to. An op step's is at the site of the read its `of` comes from (`source`)."""
+    applied to. An op step's is the read its `of` names (`read_of`), at that read's site and in its coordinates."""
     found: dict[str, list] = {}
     for name, step in walk(plan.steps):
         ref = arguments(step).get("featurizer") if step.kind == "op" else None
         if ref is not None:
-            site, around = source(plan, name, step)
-            found.setdefault(declared(plan, ref), []).append((name, site, step.at, step, around))
+            read = read_of(plan, name, step)
+            found.setdefault(declared(plan, ref), []).append((name, read.site, step.at, step,
+                                                              [Op(op="encode", **s) for s in read.space]))
         for key, entry in entries(step).items():
             for node, around in visited(bracketed(entry.ops)):
                 ref = arguments(node["op"]).get("featurizer")
@@ -52,31 +53,15 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Site, dict, Op | OpStep, list[
     return found
 
 
-def source(plan: Plan, name: str, step: OpStep) -> tuple[Site, list[Op]]:
-    """Where op step `name` (dotted, as `walk` names it) meets a site: that of the read its `of` comes from,
-    followed through op steps (and into a fit's eval members), and the encodes its value is in, outermost first:
-    those the read leaves open, then each encode step on the way. A value whose layout a step other than an
-    encode changed on the way is no site's, and a featurizer acts on a site's value or its coordinates."""
+def read_of(plan: Plan, name: str, step: OpStep) -> Intervention:
+    """The entry whose value op step `name` (dotted, as `walk` names it) is over, which compile checks is a read:
+    among the steps it sees, or, for a fit's eval member `<fit>.<eval>.<step>.<entry>`, in that fit's body."""
     fit = name.rpartition(".")[0]
-    steps = {**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps
-    value, around = step.of, []
-    while True:
-        thing, _, member = value.partition(".")
-        producer = agreeing(steps[thing], step.at)
-        if producer.kind == "fit":
-            steps, value = {**steps, **producer.steps}, member.partition(".")[2]
-            continue
-        changed = producer.kind == "op" and producer.op != "encode" and \
-            (producer.dims or [])[-1:] != dims_in(steps, producer.of)[-1:]
-        if changed or producer.kind != "op" and not member:
-            raise ValueError(f"{name}: {arguments(step)['featurizer']!r} is used on {step.of!r}, which comes from "
-                             f"{value!r}, no site's value or its coordinates; a featurizer acts on one")
-        if producer.kind != "op":
-            entry = entries(producer)[member]
-            return entry.site, [Op(op="encode", **s) for s in entry.space] + around
-        if producer.op == "encode":
-            around.insert(0, Op(op="encode", **arguments(producer)))
-        value = producer.of
+    steps, ref = ({**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps), step.of
+    producer = agreeing(steps[ref.partition(".")[0]], step.at)
+    if producer.kind == "fit":
+        steps, ref = {**steps, **producer.steps}, ref.split(".", 2)[2]
+    return entry_of(steps, ref, step.at)[1]
 
 
 def bundled_sites(plan: Plan) -> None:

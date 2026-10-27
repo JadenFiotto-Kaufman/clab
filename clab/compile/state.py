@@ -17,7 +17,8 @@ class Known:
     and, for a value, its layout (`dims`), the dataset its rows are aligned to (`data`), the coordinates it is
     in (`space`: the encodes left open around it, outermost first, each its featurizer and `select`; none for a
     site's own layout), its site's `select` on the axes it still has, how many positions it holds on every row
-    (`width`, None when rows differ) and whether it is text (a `detokenize`). `name` is how an op's argument
+    (`width`, None when rows differ), whether it is text (a `detokenize`) and whether it is a read (`read`: an
+    entry's value, at its site, which an op step's `encode` or `apply` may meet). `name` is how an op's argument
     referenced it, where `references` resolved one."""
     dims: list[str] = field(default_factory=list)
     data: str | None = None
@@ -26,6 +27,7 @@ class Known:
     select: dict = field(default_factory=dict)
     width: int | None = None
     text: bool = False
+    read: bool = False
     name: str = ""
 
 

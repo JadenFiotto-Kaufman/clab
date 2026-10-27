@@ -69,7 +69,9 @@ edits `b`'s coordinates of `a`'s, `b` as wide as `a`'s coordinates. An entry tha
 still open, a `decode` with no `encode` open, one of another featurizer than the open one, and an `encode` or
 `apply` of a featurizer inside its own `encode`, are refused by name. `apply` is the featurizer's own version
 of the value (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's
-adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates.
+adapted value): an edit, which writes back. An entry that stops after `encode` reads coordinates. As a step,
+`encode` and `apply` take a read (an entry's value, at its one site; an op's value is refused by name), and
+`decode`, the close of an entry's `encode`, is no step.
 
 An op acts at the layers of the value it meets: inside an entry, at each layer the entry is made at in turn; as
 a step, at the layers `of`'s `layers` axis is labelled with, or at the one layer a value without that axis was

@@ -274,6 +274,9 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan) -> di
     if spec.op == "contains" and not of.text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, args)
+    if "featurizer" in args and not of.read:
+        fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
+             f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
     found = references(cx, path, spec.op, args, "classes" in of.dims)
     dataset = aligned(path, (of.data, repr(spec.of)), found)
     paired(path, spec.op, of.dims, of.width, found, step=True)

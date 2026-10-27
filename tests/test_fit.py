@@ -858,6 +858,22 @@ def test_a_harvest_of_a_dataset_the_body_does_not_read_is_refused(plan, message)
         plan()
 
 
+def test_a_featurizer_step_over_an_ops_value_is_refused_by_name():
+    """An encode step meets a read, at its site; one over an op's value (layer 0's read less layer 1's) has no one
+    site, so it is refused, naming the value."""
+    def two_layers(d):
+        d["steps"] = {"counterfactual": d["steps"]["counterfactual"],
+                      "upper": {"kind": "forward", "input": "train.counterfactual_inputs[0]", "interventions": {
+                          "h": {"site": {"component": "layer_output", "layers": 1}, "pos": -1}}},
+                      "diff": {"kind": "op", "op": "sub", "of": "counterfactual.h", "with": "upper.h"},
+                      **{k: v for k, v in d["steps"].items() if k != "counterfactual"}}
+        d["steps"]["fit"]["steps"]["v_cf"]["of"] = "diff"
+    with pytest.raises(PlanError, match=r"^steps\.fit\.steps\.v_cf\.of: 'diff' is an op's value, which no one site "
+                                        r"made, and a featurizer's encode acts on a value at its site: encode a read "
+                                        r"\(an entry's value\), or encode inside the entry that reads$"):
+        edited("das", two_layers).compile()
+
+
 @pytest.mark.parametrize("name, change, terms", [
     ("das", lambda d: (d["steps"]["fit"]["steps"].update(plain={"kind": "op", "op": "mean", "of": "counterfactual.h"}),
                        d["steps"]["fit"].update(objective={"plain": 1.0})), r"plain\) depends on what the fit trains \(rot\)"),
