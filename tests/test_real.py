@@ -59,6 +59,14 @@ def test_numbers_match_the_snapshot(filled, name, kind):
     close(values, expected["values"])
 
 
+@pytest.mark.parametrize("name, kind", SERVED)
+def test_each_steps_memory_is_its_peak_on_the_gpu_weights_included(engines, filled, name, kind):
+    plan = filled[name, kind]
+    weights = sum(p.numel() * p.element_size() for p in engines(kind, plan.model, device="cuda").model.parameters())
+    costs = [c for by in plan.run.costs.values() for c in (by.values() if "memory" not in by else [by])]
+    assert all(list(c["memory"]) == ["cuda:0"] and c["memory"]["cuda:0"] >= weights for c in costs)
+
+
 @pytest.mark.parametrize("name", [n for n in REAL if n not in INSIDE])
 def test_the_engines_agree_to_the_bit(filled, name):
     assert same(filled[name, "nnterp"].results, filled[name, "hooks"].results)

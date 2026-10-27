@@ -35,6 +35,7 @@ from clab.steps.batches import landed, now
 @engine("hooks")
 class HooksEngine:
     name: str
+    remote: bool | str = False          # it runs in this process
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` placed by `device` (`from_pretrained`'s
@@ -82,10 +83,14 @@ class HooksEngine:
         return self.config["sizes"]
 
     def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One call of the model, under the records' hooks (`hooked`)."""
+        """One call of the model, under the records' hooks (`hooked`), ended right after its deepest site, whose
+        hook raises `_Stopped`."""
         got: dict[str, Tensor] = {}
-        with self.hooked(records, got):
-            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+        with self.hooked(records, got, stop=True):
+            try:
+                self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+            except _Stopped:
+                pass
         return got
 
     def generate(self, batch: dict[str, Tensor], records: list[dict],
@@ -98,15 +103,17 @@ class HooksEngine:
         return ids[:, batch["input_ids"].shape[1]:], got
 
     @contextmanager
-    def hooked(self, records: list[dict], got: dict[str, Any]) -> Iterator[None]:
-        """A hook at every site the records name, removed after. A pre-hook on the model keeps each forward call's
-        `input_ids` (call 0 is a forward's one call, or a generation's prompt), and each site's hook does what `now`
-        (and, at a decode call, `landed`) says there."""
+    def hooked(self, records: list[dict], got: dict[str, Any], stop: bool = False) -> Iterator[None]:
+        """A hook at every site the records name, in `rank` order, removed after. A pre-hook on the model keeps
+        each forward call's `input_ids` (call 0 is a forward's one call, or a generation's prompt), and each site's
+        hook does what `now` (and, at a decode call, `landed`) says there; with `stop`, the deepest site's hook
+        then raises `_Stopped`, hooked last so that the sites sharing its module boundary are done first."""
         calls: list[Tensor] = []
         handles = [self.model.register_forward_pre_hook(lambda module, args, kwargs: calls.append(kwargs["input_ids"]),
                                                         with_kwargs=True)]
-        handles += [hook(self, component, layer, here, got, calls)
-                    for (component, layer), here in by_site(records).items()]
+        sites = sorted(by_site(records).items(), key=lambda site: self.rank(*site[0]))
+        handles += [hook(self, component, layer, here, got, calls, stop and i == len(sites) - 1)
+                    for i, ((component, layer), here) in enumerate(sites)]
         try:
             yield
         finally:
@@ -120,10 +127,15 @@ class HooksEngine:
         return head(norm(hidden))
 
 
+class _Stopped(Exception):
+    """What a forward's deepest hook raises once its site's records are done, ending the forward there."""
+
+
 def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
-         calls: list[Tensor]) -> RemovableHandle:
+         calls: list[Tensor], ends: bool) -> RemovableHandle:
     """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
-    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far)."""
+    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far); then, where it
+    `ends` the forward, raises `_Stopped`."""
     reach = engine.config["sites"][component]
     module = engine.model.get_submodule(reach["paths"][layer])
     shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
@@ -135,6 +147,8 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict
         flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = value.unflatten(-1, shape) if flat else value
         value, wrote = batches.visit(value, component, records, got)
+        if ends:
+            raise _Stopped
         return (value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":
