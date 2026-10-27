@@ -346,6 +346,8 @@ def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
             positions.scoped({"turn": "system"}, list(range(8)), [], [], encoded)
     assert positions.inside([("tom", False, False)], "If today is Thursday, tomorrow is") == "tomorrow"
     assert positions.inside([("Tom", False, True)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.inside([("day is", False, False)], "If today is Thursday, tomorrow is") == "today is"
+    assert positions.inside([("is Thurs", False, False)], "If today is Thursday, tomorrow is") == "is Thursday"
     assert positions.inside([("today", False, False)], "If today is Thursday, tomorrow is") is None
 
 

@@ -158,9 +158,9 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], t
             f"; the template wrote a {scope['turn']!r} header of its own, whose tokens are positions, not a message: "
             "locate its words with a {'text': ...} scope" if header else ""))
     if not found:
-        word_ = inside(texts, encoded["text"])
+        cut = inside(texts, encoded["text"])
         raise Unaligned(f"{what} is not in its input" + (
-            f"; it occurs inside the word {word_!r}, and an occurrence lies on word boundaries" if word_ else ""))
+            f"; it occurs only inside {cut!r}, cutting a word, and an occurrence lies on word boundaries" if cut else ""))
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
         raise Unaligned(f"{what} occurs {len(found)} time{'s' * (len(found) != 1)} in the row's input; it has no "
                         f"occurrence {which}")
@@ -170,16 +170,18 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], t
 
 
 def inside(texts: Sequence[tuple], words: str) -> str | None:
-    """The word one of `texts` occurs inside in `words` (`tom` in `tomorrow`), which an occurrence, lying on
-    word boundaries, does not cut; None where none does."""
+    """Where one of `texts` occurs in `words` cutting a word, which an occurrence, lying on word boundaries, does
+    not: the match widened to the word it cuts at either end (`tom` gives `tomorrow`, `day is` gives `today is`);
+    None where none does."""
     for text, strip, lower in texts:
         text = data.compared(text, strip, lower)
         for m in re.finditer(re.escape(text), data.compared(words, False, lower)) if text else []:
             a, b = m.span()
-            if word(words, a - 1, a) or word(words, b, b - 1):
-                while a > 0 and words[a - 1].isalnum():
+            start, end = word(words, a - 1, a), word(words, b, b - 1)
+            if start or end:
+                while start and words[a - 1].isalnum():
                     a -= 1
-                while b < len(words) and words[b].isalnum():
+                while end and b < len(words) and words[b].isalnum():
                     b += 1
                 return words[a:b]
     return None

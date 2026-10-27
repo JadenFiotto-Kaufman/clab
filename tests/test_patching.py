@@ -85,6 +85,9 @@ def test_an_engine_refuses_a_plan_for_another_checkpoint(engines):
     with pytest.raises(ValueError, match=r"^the plan's model is not the one this engine loaded: attn_implementation "
                                          r"'eager' where the engine's is None$"):
         engine.execute(edited("patching", lambda d: d["model"].update(attn_implementation="eager")).compile())
+    # A loader key written null is one left out: the same model, so the plan runs.
+    engine.execute(edited("patching", lambda d: d["model"].update(attn_implementation=None)).compile(),
+                   batch_size=BATCH_SIZE)
 
 
 def test_remote_local_is_bit_equal_to_local(engines, filled):

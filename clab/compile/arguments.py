@@ -95,10 +95,10 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
-    """The layout of op `name`'s result on a value laid out `dims`. Inside an entry (`where`: `write` up to the
-    entry's last edit, where the op acts on the live value, else `entry`) the op sees one batch, so it may not
-    aggregate over rows: a reduction of a read is a step after the forward, and one a write would write back is a
-    step before it, written in; `original` is only an entry's."""
+    """The layout of op `name`'s result on a value laid out `dims`. `where` is `step`, or inside an entry `live`
+    up to the entry's last edit, where the op acts on the live value the entry writes back, and `entry` after it;
+    inside an entry the op sees one batch, so it may not aggregate over rows: a reduction of a read is a step after
+    the forward, and one a write would write back is a step before it, written in. `original` is only an entry's."""
     if where == "step" and "original" in inspect.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside an entry")
     try:
@@ -108,7 +108,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     if where != "step" and "rows" in dims and "rows" not in out:
         fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; " + (
             "this entry writes it back, so make it an op step before the forward, over a read of the rows it "
-            f"aggregates, and write that in ({{'op': 'swap', 'with': '<that step>'}})" if where == "write" else
+            f"aggregates, and write that in ({{'op': 'swap', 'with': '<that step>'}})" if where == "live" else
             "make it a step after the forward"))
     return out
 

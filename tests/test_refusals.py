@@ -226,17 +226,22 @@ def test_an_operand_must_have_the_writes_layout():
 
 
 def test_a_select_mismatch_the_document_decides_is_refused_at_compile():
-    """An operand narrowed by `select` to other indices than the write's selection, both written as picks, is
-    refused when the plan compiles, before any model loads."""
-    def change(d):
-        d["steps"]["counterfactual"]["interventions"]["v_cf"]["site"] = {
-            "component": "layer_output", "layers": 0, "select": {"hidden_size": [0, 1]}}
-        d["steps"]["patched"]["interventions"]["patch"]["site"] = {
-            "component": "layer_output", "layers": 0, "select": {"hidden_size": [0, 1, 2]}}
-    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v_cf' "
-                                        r"holds hidden_size \[0, 1\], and this write's selection holds \[0, 1, 2\]; an "
-                                        r"operand holds the same ones: select hidden_size \[0, 1, 2\] at the read$"):
-        edited("patching", change).compile()
+    """An operand narrowed by `select` to other indices than the write's selection is refused when the plan
+    compiles, before any model loads, whether the two are written as picks or as front-bounded slices, which name
+    their indices as picks do (`kept_of`)."""
+    def change(theirs, ours):
+        def apply(d):
+            d["steps"]["counterfactual"]["interventions"]["v_cf"]["site"] = {
+                "component": "layer_output", "layers": 0, "select": {"hidden_size": theirs}}
+            d["steps"]["patched"]["interventions"]["patch"]["site"] = {
+                "component": "layer_output", "layers": 0, "select": {"hidden_size": ours}}
+        return apply
+    for theirs, ours in (([0, 1], [0, 1, 2]), ("0:2", "0:3"), (":2", [0, 1, 2])):
+        with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v_cf' "
+                                            r"holds hidden_size \[0, 1\], and this write's selection holds \[0, 1, 2\]; an "
+                                            r"operand holds the same ones: select hidden_size \[0, 1, 2\] at the read$"):
+            edited("patching", change(theirs, ours)).compile()
+    edited("patching", change("0:2", ":2")).compile()
 
 
 def test_an_op_that_aggregates_over_rows_says_where_it_goes():
@@ -319,6 +324,8 @@ def refused(engines, plan, kind: str = "hooks"):
      r"counterfactual.v_cf: select hidden_size -17 outside the model's 16"),
     ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": "20:"}),
      r"counterfactual.v_cf: select hidden_size '20:' keeps none of the model's 16"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": "14:20"}),
+     r"counterfactual.v_cf: select hidden_size '14:20' outside the model's 16"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"].update(scored={
         "site": {"component": "lm_head_output"}, "pos": -1, "ops": [{"op": "match", "expected": "pairs.input"}]}),
      "patched.scored: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens"),
@@ -330,8 +337,11 @@ def refused(engines, plan, kind: str = "hooks"):
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
      r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) is not in its input$"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "tom"}, "index": -1}),
-     r"patched.patch: row 0: text 'tom' is not in its input; it occurs inside the word 'tomorrow', and an occurrence "
-     r"lies on word boundaries$"),
+     r"patched.patch: row 0: text 'tom' is not in its input; it occurs only inside 'tomorrow', cutting a word, and an "
+     r"occurrence lies on word boundaries$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "day is"}, "index": -1}),
+     r"patched.patch: row 0: text 'day is' is not in its input; it occurs only inside 'today is', cutting a word, and "
+     r"an occurrence lies on word boundaries$"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "zebra"}, "index": -1}),
      r"patched.patch: row 0: text 'zebra' is not in its input$"),
     ("entity_patch", lambda d: d["steps"]["patched"]["interventions"]["patch"]["pos"]["scope"].update(occurrence=1),

@@ -298,6 +298,18 @@ class Scope(Record):
     lower: bool = False
     before: bool = False
 
+    @field_validator("column", mode="before")
+    @classmethod
+    def _references(cls, given: Any) -> Any:
+        """Each column a reference, the string or the object, so a number or a sweep is refused by name."""
+        for ref in given if isinstance(given, list) else [] if given is None else [given]:
+            if not isinstance(ref, (str, dict)) or "sweep" in ref:
+                raise ValueError(f"{ref!r} is not a column reference, '<dataset>.<column>' or {{'column': "
+                                 "'<dataset>.<column>', 'strip'?: bool, 'lower'?: bool}" + (
+                                     "; a scope's column takes no sweep (its occurrence does)" if isinstance(ref, dict)
+                                     else ""))
+        return given
+
     @field_validator("column")
     @classmethod
     def _columns(cls, given: str | Column | list[str | Column] | None) -> Column | list[Column] | None:
@@ -563,10 +575,16 @@ class Intervention(Labelled):
     @field_validator("pos", mode="before")
     @classmethod
     def _selectors(cls, given: Any) -> Any:
-        """A string is not read as a number: the int shorthand is an int, and a slice goes under `index`."""
-        if isinstance(given, str):
-            raise ValueError(f"{given!r} is a string, which is not read as a number; a pos is an int ({{'frame': 0, "
-                             f"'index': <int>}}) or an object, each of whose selectors is {selectors.FORMS}")
+        """A string, a float or a boolean is not read as a number, in a sweep's values too, as no selector is: the
+        int shorthand is an int, and a slice goes under `index`."""
+        swept = isinstance(given, dict) and isinstance(given.get("sweep"), list)
+        for value in given["sweep"] if swept else [given]:
+            if isinstance(value, str):
+                raise ValueError(f"{value!r} is a string, which is not read as a number; a pos is an int ({{'frame': 0, "
+                                 f"'index': <int>}}) or an object, each of whose selectors is {selectors.FORMS}")
+            if isinstance(value, (float, bool)):
+                raise ValueError(f"{value!r} is not a selector: {selectors.FORMS}; a pos is an int ({{'frame': 0, "
+                                 "'index': <int>}) or an object")
         return given
 
 

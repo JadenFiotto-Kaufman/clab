@@ -40,7 +40,7 @@ def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> st
         fail(path, f"{value!r} is not a column: '<dataset>.<column>' or {{'column': '<dataset>.<column>', "
                    "'strip'?: bool, 'lower'?: bool}")
     name, _, column = ref[0].partition(".")
-    column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}", path, dataset)
+    column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}" if column else ref[0], path, dataset)
     for i, row in enumerate(cx.rows[name]):
         try:
             found = data.lookup(row, column)
@@ -58,7 +58,7 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
     if name not in cx.rows:
         fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx.rows)}")
     if not column:
-        fail(path, f"{name!r} names a dataset, not a column reference, which is '<dataset>.<column>'; its columns: "
+        fail(path, f"{value!r} is not a column reference, '<dataset>.<column>'; dataset {name!r} has columns "
              f"{', '.join(cx.rows[name][0])}")
     if any(column not in r for r in cx.rows[name]):
         fail(path, f"dataset {name!r} has no column {column!r} on every row; columns: {', '.join(cx.rows[name][0])}")
@@ -291,7 +291,9 @@ def classed(text: str, lead: bool, trail: bool, lower: bool) -> str:
 @functools.cache
 def vocabulary(tokenizer: PreTrainedTokenizerBase) -> list[str]:
     """Each id's text: what it decodes to after another token (`a`'s first), so a leading space (` Positive`,
-    `▁Positive`) is its own. Made once per tokenizer."""
+    `▁Positive`) is its own. Made once per tokenizer. It is how a refusal shows a token, what a column or a text
+    scope can hold (`' signs'`); an output (`pos_token`, `run.tokens`, `top_k`'s `tokens`) spells the tokenizer's
+    own pieces (`Ġsigns`, `▁signs`)."""
     anchor = tokenizer("a", add_special_tokens=False)["input_ids"][0]
     lead = len(tokenizer.decode([anchor]))
     return [text[lead:] for text in tokenizer.batch_decode([[anchor, i] for i in range(len(tokenizer))])]

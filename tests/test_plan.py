@@ -264,10 +264,12 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
     (lambda d: d["steps"]["iia"].update(expected="pairs.answers"),
      r"steps\.iia\.expected: dataset 'pairs' has no column 'answers'"),
     (lambda d: d["steps"]["iia"].update(expected="pairs"),
-     r"steps\.iia\.expected: 'pairs' names a dataset, not a column reference, which is '<dataset>\.<column>'; its "
-     r"columns: answer, base_answer, "),
+     r"steps\.iia\.expected: 'pairs' is not a column reference, '<dataset>\.<column>'; dataset 'pairs' has columns "
+     r"answer, base_answer, "),
+    (lambda d: d["steps"]["iia"].update(expected="pairs."),
+     r"steps\.iia\.expected: 'pairs\.' is not a column reference, '<dataset>\.<column>'; dataset 'pairs' has columns"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"column": "pairs"}}),
-     r"steps\.patched\.interventions\.patch\.pos\.scope\.column: 'pairs' names a dataset, not a column reference"),
+     r"steps\.patched\.interventions\.patch\.pos\.scope\.column: 'pairs' is not a column reference"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
      r"steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
      r"known: counterfactual\.v_cf"),
@@ -356,12 +358,20 @@ def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
         edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["logits"].update(pos=fits))
 
 
-def test_a_pos_written_as_a_string_is_not_read_as_a_number():
-    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos: '-1' is a string, which is not read "
-                                        r"as a number; a pos is an int \(\{'frame': 0, 'index': <int>\}\) or an object, "
-                                        r"each of whose selectors is an int \(2, -1\), a slice in Python notation \('2:5', "
-                                        r"'-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)$"):
-        edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos="-1"))
+def test_a_pos_that_is_not_an_int_is_not_read_as_one():
+    """A string, a float or a boolean is refused, in a sweep's values too, as `index`, `frame` and `layers` refuse
+    them; nothing is coerced to a position."""
+    where = r"^steps\.patched\.interventions\.patch\.pos: "
+    forms = r"an int \(2, -1\), a slice in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)"
+    for pos in ("-1", {"sweep": ["-1", -2]}):
+        with pytest.raises(PlanError, match=where + r"'-1' is a string, which is not read as a number; a pos is an int "
+                                            r"\(\{'frame': 0, 'index': <int>\}\) or an object, each of whose selectors "
+                                            r"is " + forms + "$"):
+            edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
+    for pos in (1.0, True, {"sweep": [1.0, -2]}):
+        with pytest.raises(PlanError, match=where + r"(1\.0|True) is not a selector: " + forms
+                                            + r"; a pos is an int \(\{'frame': 0, 'index': <int>\}\) or an object$"):
+            edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
     with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos\.index: '-1' is not a selector"):
         edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "-1"}))
 
@@ -393,6 +403,12 @@ def test_a_sweep_over_pos_objects_names_the_fields_that_take_one():
      r"text: \{'text': 'Friday', 'strip': True\} is an object; a text is a literal, and its strip and lower go on the "
      r"scope beside it: \{'text': 'Friday', 'strip': true\}$"),
     ({"text": ["Friday", {"text": "Monday"}]}, r"text: \{'text': 'Monday'\} is an object; a text is a literal"),
+    ({"column": 3}, r"column: 3 is not a column reference, '<dataset>\.<column>' or \{'column': '<dataset>\.<column>', "
+                    r"'strip'\?: bool, 'lower'\?: bool\}$"),
+    ({"column": ["pairs.entity", 3]}, r"column: 3 is not a column reference"),
+    ({"column": {"sweep": ["pairs.entity", "pairs.answer"]}},
+     r"column: \{'sweep': \['pairs\.entity', 'pairs\.answer'\]\} is not a column reference, .*; a scope's column takes "
+     r"no sweep \(its occurrence does\)$"),
 ])
 def test_a_scope_object_error_names_the_field_and_its_keys(scope, message):
     """A column reference inside a scope is validated as the one thing its shape says it is, so an unknown key

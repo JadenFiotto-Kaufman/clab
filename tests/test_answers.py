@@ -369,11 +369,12 @@ WHOLE = (r"keeps {kept} of its {axis} \(select\), and it scores 'days\.answer' b
          r"narrow what the metric gives\), or rank within the selection by index \(argmax or top_k over it\)$")
 
 
-@pytest.mark.parametrize("select, kept", [([0, 1, 2, 3], "4"), (":4", "some")])
+@pytest.mark.parametrize("select, kept", [([0, 1, 2, 3], "4"), (":4", "4"), ("-4:", "some")])
 def test_a_metric_against_a_column_scores_the_whole_vocabulary(select, kept):
     """A site that keeps some of `vocab_size`: a metric resolves its column to ids of the whole vocabulary, which
     are not indices of the selection (the narrowed argmax 2 is id 27822), so it is refused at compile, as a step and
-    inside an entry alike; a slice the model resolves is refused the same, with its count unknown."""
+    inside an entry alike; a front-bounded slice names its count as picks do, and a slice the model resolves (one
+    counted from the end) is refused the same, with its count unknown."""
     narrow = {"component": "lm_head_output", "select": {"vocab_size": select}}
     with pytest.raises(PlanError, match=r"^steps\.m\.expected: the value 'match' scores " + WHOLE.format(kept=kept, axis="vocab_size")):
         doc({"f": {"kind": "forward", "input": "days.input", "interventions": {"h": {"site": narrow, "pos": -1}}},

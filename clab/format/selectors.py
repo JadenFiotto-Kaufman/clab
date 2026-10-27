@@ -151,8 +151,10 @@ def picked(where: str, layers: Selector, n: int) -> list[int]:
 
 
 def selected(where: str, axis: str, selector: Selector, n: int, what: str) -> None:
-    """Refuses a `select` on an axis of `n` (`what` says which) with a pick outside it, or that keeps none."""
-    written = [selector] if isinstance(selector, int) else selector if isinstance(selector, list) else []
+    """Refuses a `select` on an axis of `n` (`what` says which) with a pick outside it (a selector counted from the
+    start names its picks, a front-bounded slice's among them: `keyed`), or that keeps none."""
+    written = keys(selector) if keyed(selector) else [selector] if isinstance(selector, int) else \
+        selector if isinstance(selector, list) else []
     try:
         got = kept({axis: selector}, {axis: n})[axis]
     except ValueError as e:

@@ -14,7 +14,7 @@ from clab.compile.arguments import called, layout, mismatch, narrowed_readout, r
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found
 from clab.format import address, data, selectors
-from clab.format.selectors import Selector, keys, picked
+from clab.format.selectors import Selector, keyed, keys, picked
 from clab.plan import (
     Forward,
     Generate,
@@ -186,9 +186,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
             before[i] = dims
-            dims = layout(here, o.op, args, dims, "write" if i <= last else "entry", kind)
+            dims = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
         else:
-            out = layout(here, o.op, args, dims, "write" if i <= last else "entry", kind)
+            out = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
@@ -215,9 +215,10 @@ def layers_of(layers: Selector | None) -> list[int] | None:
 
 
 def kept_of(select: dict[str, Selector] | None) -> dict[str, list[int]]:
-    """A site's `select` as the indices it keeps on each axis, as far as the document decides them: a `key`
-    selector's keys, a non-negative int's or picks' own, else `[]` until preflight resolves it among the model's."""
-    return {axis: keys(s) if axis == "key" else layers_of(s) or [] for axis, s in (select or {}).items()}
+    """A site's `select` as the indices it keeps on each axis, as far as the document decides them: those of a
+    selector counted from the start (`keyed`: a non-negative int or picks, a front-bounded slice, every `key`
+    selector), else `[]` until preflight resolves it among the model's."""
+    return {axis: keys(s) if keyed(s) else [] for axis, s in (select or {}).items()}
 
 
 def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
