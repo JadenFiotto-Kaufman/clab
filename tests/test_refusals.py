@@ -206,12 +206,36 @@ def test_a_write_selects_on_one_axis():
 
 
 def test_an_operand_must_have_the_writes_layout():
+    """The one rule's sentence covers an operand with no axes too: it leaves out every axis and broadcasts, as a
+    mean over every axis (`dims: []`) does into a write."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["logits"] = {"site": {"component": "lm_head_output"}, "pos": -1}
         d["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "counterfactual.logits"
     with pytest.raises(PlanError, match=r"'counterfactual\.logits' is laid out \['rows', 'pos', 'vocab_size'\]; "
                                         r"'swap' acts on a value laid out \['rows', 'pos', 'hidden_size'\], and an "
-                                        r"operand's axes are among the value's, in its order"):
+                                        r"operand's axes are among the value's, in its order \(those it leaves out it "
+                                        r"broadcasts over\)$"):
+        edited("patching", change).compile()
+
+    def scalar(d):
+        d["steps"]["m"] = {"kind": "op", "op": "mean", "of": "iia", "over": ["rows", "pos"]}
+        d["steps"]["again"] = {"kind": "forward", "input": "pairs.input", "interventions": {
+            "w": {"site": "target", "pos": -1, "ops": [{"op": "scale", "factor": "m"}]}}}
+    compiled = edited("patching", scalar).compile()
+    assert compiled.steps["m"].dims == []
+
+
+def test_a_select_mismatch_the_document_decides_is_refused_at_compile():
+    """An operand narrowed by `select` to other indices than the write's selection, both written as picks, is
+    refused when the plan compiles, before any model loads."""
+    def change(d):
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["site"] = {
+            "component": "layer_output", "layers": 0, "select": {"hidden_size": [0, 1]}}
+        d["steps"]["patched"]["interventions"]["patch"]["site"] = {
+            "component": "layer_output", "layers": 0, "select": {"hidden_size": [0, 1, 2]}}
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v_cf' "
+                                        r"holds hidden_size \[0, 1\], and this write's selection holds \[0, 1, 2\]; an "
+                                        r"operand holds the same ones: select hidden_size \[0, 1, 2\] at the read$"):
         edited("patching", change).compile()
 
 
