@@ -71,8 +71,20 @@ def test_execute_refuses_an_uncompiled_plan_or_an_empty_batch_and_dump_or_table_
 
 
 def test_an_engine_refuses_a_plan_for_another_checkpoint(engines):
-    with pytest.raises(ValueError, match="this engine loaded hf-internal-testing/tiny-random-LlamaForCausalLM"):
-        engines("nnterp", plan_of("patching").model).execute(plan_of("gpt2_reach"))
+    """The refusal names each field of the model block that differs, never two identical sides."""
+    engine = engines("nnterp", plan_of("patching").model)
+    with pytest.raises(ValueError, match=r"^the plan's model is not the one this engine loaded: key "
+                                         r"'hf-internal-testing/tiny-random-gpt2' where the engine's is "
+                                         r"'hf-internal-testing/tiny-random-LlamaForCausalLM', revision "
+                                         r"'71034c5d8bde858ff824298bdedc65515b97d2b9' where the engine's is "
+                                         r"'9fb191250dd56d0ba7ec9785a025ed29c03d5998'$"):
+        engine.execute(plan_of("gpt2_reach"))
+    with pytest.raises(ValueError, match=r"^the plan's model is not the one this engine loaded: dtype 'bfloat16' where "
+                                         r"the engine's is 'float32'$"):
+        engine.execute(edited("patching", lambda d: d["model"].update(dtype="bfloat16")).compile())
+    with pytest.raises(ValueError, match=r"^the plan's model is not the one this engine loaded: attn_implementation "
+                                         r"'eager' where the engine's is None$"):
+        engine.execute(edited("patching", lambda d: d["model"].update(attn_implementation="eager")).compile())
 
 
 def test_remote_local_is_bit_equal_to_local(engines, filled):
