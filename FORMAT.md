@@ -751,11 +751,11 @@ rank runs the whole plan, which branches on nothing a rank computes, and samples
 rank 0 writes the output directory and prints, and its run record lists every rank's device. A value the ranks hold
 in pieces is refused by name (`split`): the attention's interior but its output projection's input
 (`attention_premix`), the MLP's activation, and the output of an embedding the plan shards by vocabulary
-(`token_embeddings` on a tied-embedding checkpoint); the residual stream, the attention's and the MLP's outputs, the
-head and the logits are whole on every rank. Results under tensor parallelism are not bit-equal to unsharded ones,
-since a sharded matmul sums its parts in another order: the ranks agree to the bit, and agree with `tp` 1 to that
-rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can flip a greedy generation's
-near-tie token too).
+(`token_embeddings`, where the checkpoint's plan says `embedding_rowwise`); the residual stream, the attention's
+and the MLP's outputs, the head and the logits are whole on every rank. Results under tensor parallelism are not
+bit-equal to unsharded ones, since a sharded matmul sums its parts in another order: the ranks agree to the bit, and
+agree with `tp` 1 to that rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can
+flip a greedy generation's near-tie token too).
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.

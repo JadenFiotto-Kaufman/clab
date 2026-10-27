@@ -21,8 +21,9 @@ from clab.engines.nnterp import split
 from clab.format.address import COMPONENTS
 from tp_ranks import HYBRID, planned
 
-# What the ranks hold in pieces on a Llama: the attention's interior but its output projection's input (which
-# nnsight gathers), and the MLP's activation.
+# What the ranks hold in pieces on a Llama at every layer: the attention's interior but its output projection's input
+# (which nnsight gathers), and the MLP's activation. The embedding's output is in pieces too where the plan shards
+# the embedding by vocabulary, which each test reads off the plan the checkpoint ships.
 PIECES = {"attention_queries", "attention_keys", "attention_values", "attention_scores", "attention_probabilities",
           "attention_head_outputs", "mlp_activation"}
 HYBRID_CACHED = isinstance(try_to_load_from_cache(HYBRID["key"], "config.json", revision=HYBRID["revision"]), str)
@@ -140,10 +141,20 @@ def test_split_reads_which_components_are_whole_off_the_models_plan():
     """On the tiny Llama's plan (q, k, v, gate and up `colwise`, o and down `rowwise`, the head
     `colwise_gather_output`) the attention's interior and the MLP's activation are in pieces, at every layer, and
     everything else is whole: the residual stream, the norms, the attention's premix (the output projection's input,
-    which nnsight gathers) and output, the MLP's neurons (the down projection's) and output, the head, the logits."""
+    which nnsight gathers) and output, the MLP's neurons (the down projection's) and output, the head, the logits,
+    and the embedding's output where the plan leaves the embedding replicated; whether it does differs between
+    transformers versions (an untied embedding is replicated by some, sharded by vocabulary as `embedding_rowwise` by
+    others), so the plan the model holds says which."""
     tiny = shell("hf-internal-testing/tiny-random-LlamaForCausalLM", "9fb191250dd56d0ba7ec9785a025ed29c03d5998")
+    plan: Any = tiny._module.tp_plan              # transformers' plan, one style per module
+    assert {plan[f"model.layers.*.{m}"] for m in ("self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj",
+                                                   "mlp.gate_proj", "mlp.up_proj")} == {"colwise"}
+    assert {plan["model.layers.*.self_attn.o_proj"], plan["model.layers.*.mlp.down_proj"]} == {"rowwise"}
+    assert plan["lm_head"] == "colwise_gather_output"
+    embedding = {"token_embeddings"} if plan.get("model.embed_tokens") == "embedding_rowwise" else set()
     for layer in (0, 1):
-        assert {c for c in COMPONENTS if split(tiny, c, layer if COMPONENTS[c]["per_layer"] else None)} == PIECES
+        assert {c for c in COMPONENTS if split(tiny, c, layer if COMPONENTS[c]["per_layer"] else None)} == \
+            PIECES | embedding
     assert split(tiny, "attention_scores", 1) == ("it is computed inside model.layers.1.self_attn, whose forward runs "
                                                   "on each rank's piece (model.layers.1.self_attn.q_proj is 'colwise')")
 
