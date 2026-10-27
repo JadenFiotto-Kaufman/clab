@@ -247,6 +247,27 @@ def test_a_trained_topk_dictionary_records_its_activation_and_loads_back(engines
         Plan(**doc, document=os.path.join(root, "documents", "sae_train_ablation.json")).compile()
 
 
+def test_an_saes_signature_prints_no_default_a_published_file_lacks():
+    """`activation` and `centered` are `null` in the signature, since a published file has no default for them
+    (its document states them, `Sae.published`); unstated, a drawn dictionary is relu and centered (`unstated`),
+    which its bundle's header records, and a clab bundle loaded with neither stated encodes as its header says."""
+    from clab.docs import describe
+    from clab.featurizers import bundles
+    from clab.plan import Model
+
+    listed = describe("featurizers")
+    assert 'activation: one of "relu", "jumprelu", "topk" or null = null' in listed and \
+        "centered: bool or null = null" in listed
+    model = Model(key="k", revision="r", dtype="float32")
+    header = bundles.header("sae", {"latents": 32}, model, None)
+    assert {k: header[k] for k in ("latents", "activation", "centered")} == \
+        {"latents": "32", "activation": "relu", "centered": "true"} and "k" not in header
+    unstated = featurizers.make("sae", {"file_path": "x"}, 16, TENSORS, None, None)
+    assert isinstance(unstated, Sae) and (unstated.activation, unstated.centered, unstated.k) == ("relu", True, None)
+    stated = Sae(16, file_path="x", activation="relu", centered=True, bundle=TENSORS)
+    assert torch.equal(unstated.call("encode", H, {}), stated.call("encode", H, {}))
+
+
 def test_a_clab_bundles_activation_and_centering_are_its_headers():
     """The committed fixture's header says relu and centered; a document that loads it states those or nothing,
     and one that states otherwise is refused naming the key."""

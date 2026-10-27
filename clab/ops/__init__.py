@@ -18,6 +18,7 @@ from torch import Tensor
 from clab.format import registry
 from clab.format.registry import Featurizer, Text, Tokens, Value  # noqa: F401  (each read as ops.<name>)
 
+# `<the edits group>` stands for the edits group, written in from `DECLARED` once the ops are registered (the end of this file).
 ABOUT = """An op runs in two places, always as the same function:
 
 - as a step, `{"kind": "op", "op": "mean", "of": "harvest.acts"}`, over a value earlier steps produced;
@@ -41,8 +42,7 @@ there, so a row's own keys are edited as the row has them, and its tail stays Na
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
 **reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
-over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`,
-`project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
+over `pos`, one value per row); **edits** (<the edits group>) keep the value's layout and change its contents, and inside
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
@@ -152,6 +152,11 @@ def op(group: str, needs: tuple[str | tuple[str, ...], ...] = (), removes: tuple
     return declare
 
 
+def listed(group: str) -> str:
+    """The ops of `group`, each in backticks, in the tables' order: what the prose names a group by."""
+    return ", ".join(f"`{name}`" for name in OPS if DECLARED[name]["group"] == group)
+
+
 def parameters(name: str) -> dict[str, inspect.Parameter]:
     """An op's parameters by document spelling, without `of` and the supplied ones, an optional thing (`Value |
     None`) as the thing."""
@@ -217,3 +222,4 @@ OPS.update((fn.__name__, fn) for fn in [
     metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k,
     transforms.argmax, transforms.detokenize, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
+ABOUT = ABOUT.replace("<the edits group>", listed("edits"))

@@ -1,5 +1,5 @@
 {
- "description": "Head-by-head patching on Llama-3.2-1B: one attention head's result at a time, at the last position, read from the counterfactual prompt and swapped into the base prompt, for each of the 32 heads of layers 10, 11 and 12, where layer_sweep.json sees the day leave its own token: 96 points, the `layers` and `num_heads` sweeps crossed. The site is `attention_premix`, the output projection's input with every head's result side by side, so `select` takes one head on `num_heads`; a write lands at one layer, so `layers` is a sweep, not picks. The head is scored as it is read, so a point keeps two numbers per pair rather than its logits: `iia` is the fraction of the 42 pairs where the patched top token is the counterfactual answer, and `logit_diff` the mean of the counterfactual answer's logit less the base answer's. Most heads leave it near the median, about -2.4, where nothing has moved; layer 12's head 28 alone lifts it to just above zero and flips half the pairs. Both engines reach the projection's input at the module boundary and agree to the bit; a GPU run finds the same head and flips the same pairs as a CPU run, its logit diffs within about 1e-5 of the CPU's.",
+ "description": "Head-by-head patching on Llama-3.2-1B: one attention head's result at a time, at the last position, read from the counterfactual prompt and swapped into the base prompt, for each of the 32 heads of layers 10, 11 and 12, where layer_sweep.json sees the day leave its own token: 96 points, the `layers` and `num_heads` sweeps crossed. The site is `attention_premix`, the output projection's input with every head's result side by side, so `select` takes one head on `num_heads`. The counterfactual is read once per head at every layer (`every_layer`, `layers: \":\"`: a `layers` axis, 32 points), and the write's `layers` is a sweep rather than picks, since picks would patch all three layers in one forward: each point patches one layer and takes the read's slice at that layer (an operand's `layers` axis is aligned by id), so the 96 patched forwards share 32 counterfactual ones. The head is scored as it is read, so a point keeps two numbers per pair rather than its logits: `iia` is the fraction of the 42 pairs where the patched top token is the counterfactual answer, and `logit_diff` the mean of the counterfactual answer's logit less the base answer's. Most heads leave it near the median, about -2.4, where nothing has moved; layer 12's head 28 alone lifts it to just above zero and flips half the pairs. Both engines reach the projection's input at the module boundary and agree to the bit; a GPU run finds the same head and flips the same pairs as a CPU run, its logit diffs within about 1e-5 of the CPU's.",
  "model": {
   "key": "meta-llama/Llama-3.2-1B",
   "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08"
@@ -20,22 +20,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 0
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -47,7 +46,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 0
     },
     "dataset": "days"
@@ -59,22 +57,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 1
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -86,7 +83,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 1
     },
     "dataset": "days"
@@ -98,22 +94,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 2
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -125,7 +120,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 2
     },
     "dataset": "days"
@@ -137,22 +131,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 3
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -164,7 +157,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 3
     },
     "dataset": "days"
@@ -176,22 +168,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 4
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -203,7 +194,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 4
     },
     "dataset": "days"
@@ -215,22 +205,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 5
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -242,7 +231,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 5
     },
     "dataset": "days"
@@ -254,22 +242,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 6
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -281,7 +268,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 6
     },
     "dataset": "days"
@@ -293,22 +279,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 7
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -320,7 +305,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 7
     },
     "dataset": "days"
@@ -332,22 +316,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 8
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -359,7 +342,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 8
     },
     "dataset": "days"
@@ -371,22 +353,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 9
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -398,7 +379,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 9
     },
     "dataset": "days"
@@ -410,22 +390,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 10
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -437,7 +416,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 10
     },
     "dataset": "days"
@@ -449,22 +427,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 11
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -476,7 +453,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 11
     },
     "dataset": "days"
@@ -488,22 +464,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 12
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -515,7 +490,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 12
     },
     "dataset": "days"
@@ -527,22 +501,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 13
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -554,7 +527,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 13
     },
     "dataset": "days"
@@ -566,22 +538,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 14
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -593,7 +564,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 14
     },
     "dataset": "days"
@@ -605,22 +575,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 15
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -632,7 +601,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 15
     },
     "dataset": "days"
@@ -644,22 +612,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 16
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -671,7 +638,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 16
     },
     "dataset": "days"
@@ -683,22 +649,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 17
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -710,7 +675,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 17
     },
     "dataset": "days"
@@ -722,22 +686,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 18
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -749,7 +712,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 18
     },
     "dataset": "days"
@@ -761,22 +723,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 19
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -788,7 +749,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 19
     },
     "dataset": "days"
@@ -800,22 +760,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 20
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -827,7 +786,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 20
     },
     "dataset": "days"
@@ -839,22 +797,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 21
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -866,7 +823,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 21
     },
     "dataset": "days"
@@ -878,22 +834,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 22
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -905,7 +860,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 22
     },
     "dataset": "days"
@@ -917,22 +871,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 23
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -944,7 +897,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 23
     },
     "dataset": "days"
@@ -956,22 +908,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 24
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -983,7 +934,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 24
     },
     "dataset": "days"
@@ -995,22 +945,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 25
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1022,7 +971,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 25
     },
     "dataset": "days"
@@ -1034,22 +982,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 26
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1061,7 +1008,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 26
     },
     "dataset": "days"
@@ -1073,22 +1019,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 27
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1100,7 +1045,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 27
     },
     "dataset": "days"
@@ -1112,22 +1056,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 28
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1139,7 +1082,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 28
     },
     "dataset": "days"
@@ -1151,22 +1093,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 29
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1178,7 +1119,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 29
     },
     "dataset": "days"
@@ -1190,22 +1130,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 30
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1217,7 +1156,6 @@
      }
     },
     "at": {
-     "layers": 0,
      "num_heads": 30
     },
     "dataset": "days"
@@ -1229,22 +1167,21 @@
      "v_cf": {
       "site": {
        "component": "attention_premix",
-       "layers": 10,
+       "layers": ":",
        "select": {
         "num_heads": 31
        }
       },
       "pos": -1,
       "dims": [
+       "layers",
        "rows",
        "pos",
        "num_heads",
        "head_dim"
       ],
       "dataset": "days",
-      "layers": [
-       10
-      ],
+      "layers": [],
       "read": "counterfactual.v_cf",
       "width": 1,
       "kept": {
@@ -1256,2503 +1193,6 @@
      }
     },
     "at": {
-     "layers": 0,
-     "num_heads": 31
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 0
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        0
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 0
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 1
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        1
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 1
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 2
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        2
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 2
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 3
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        3
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 3
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 4
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        4
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 4
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 5
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        5
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 5
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 6
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        6
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 6
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 7
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        7
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 7
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 8
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        8
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 8
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 9
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        9
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 9
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 10
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        10
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 10
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 11
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        11
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 11
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 12
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        12
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 12
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 13
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        13
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 13
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 14
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        14
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 14
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 15
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        15
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 15
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 16
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        16
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 16
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 17
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        17
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 17
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 18
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        18
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 18
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 19
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        19
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 19
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 20
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        20
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 20
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 21
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        21
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 21
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 22
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        22
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 22
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 23
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        23
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 23
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 24
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        24
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 24
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 25
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        25
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 25
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 26
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        26
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 26
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 27
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        27
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 27
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 28
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        28
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 28
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 29
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        29
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 29
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 30
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        30
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 30
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 11,
-       "select": {
-        "num_heads": 31
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       11
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        31
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 1,
-     "num_heads": 31
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 0
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        0
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 0
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 1
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        1
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 1
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 2
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        2
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 2
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 3
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        3
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 3
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 4
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        4
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 4
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 5
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        5
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 5
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 6
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        6
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 6
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 7
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        7
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 7
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 8
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        8
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 8
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 9
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        9
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 9
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 10
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        10
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 10
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 11
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        11
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 11
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 12
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        12
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 12
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 13
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        13
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 13
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 14
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        14
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 14
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 15
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        15
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 15
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 16
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        16
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 16
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 17
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        17
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 17
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 18
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        18
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 18
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 19
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        19
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 19
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 20
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        20
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 20
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 21
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        21
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 21
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 22
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        22
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 22
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 23
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        23
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 23
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 24
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        24
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 24
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 25
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        25
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 25
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 26
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        26
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 26
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 27
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        27
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 27
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 28
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        28
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 28
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 29
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        29
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 29
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 30
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        30
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
-     "num_heads": 30
-    },
-    "dataset": "days"
-   },
-   {
-    "kind": "forward",
-    "input": "days.counterfactual_inputs[0]",
-    "interventions": {
-     "v_cf": {
-      "site": {
-       "component": "attention_premix",
-       "layers": 12,
-       "select": {
-        "num_heads": 31
-       }
-      },
-      "pos": -1,
-      "dims": [
-       "rows",
-       "pos",
-       "num_heads",
-       "head_dim"
-      ],
-      "dataset": "days",
-      "layers": [
-       12
-      ],
-      "read": "counterfactual.v_cf",
-      "width": 1,
-      "kept": {
-       "num_heads": [
-        31
-       ]
-      },
-      "gathered": true
-     }
-    },
-    "at": {
-     "layers": 2,
      "num_heads": 31
     },
     "dataset": "days"

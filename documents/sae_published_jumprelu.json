@@ -1,5 +1,5 @@
 {
-  "description": "A published JumpReLU sparse autoencoder, spliced in. `documents/artifacts/sae_gemma_scope.safetensors` is laid out as Gemma Scope publishes one: `W_enc`, `W_dec`, `b_enc`, `b_dec` and a per-latent `threshold`, and no clab header, so nothing in it says what model or layer it was trained at, or how it encodes, and the document states what the file cannot: it was trained at the `target` site, layer 0's output (`site: \"target\"`, which every site it is used at is checked against, component and layer), its encoder does not subtract `b_dec` (`centered: false`), and a latent is its relu where its pre-activation exceeds its threshold, else zero (`activation: jumprelu`). `base.latents` reads the latents of layer 0's output at the last position; `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `kl` scores how far the next-token distribution moves from the clean forward's. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
+  "description": "A published JumpReLU sparse autoencoder, spliced in. `documents/artifacts/sae_gemma_scope.safetensors` is laid out as Gemma Scope publishes one: `W_enc`, `W_dec`, `b_enc`, `b_dec` and a per-latent `threshold`, and no clab header, so nothing in it says what model or layer it was trained at, or how it encodes, and the document states what the file cannot: it was trained at layer 0's output (`site: {\"component\": \"layer_output\", \"layers\": 0}`, the release's layer written inline, which every site it is used at is checked against, component and layer), its encoder does not subtract `b_dec` (`centered: false`), and a latent is its relu where its pre-activation exceeds its threshold, else zero (`activation: jumprelu`). `base.latents` reads the latents of layer 0's output at the last position; `spliced` replaces that vector with the dictionary's reconstruction (`apply`, without the error term), and `kl` scores how far the next-token distribution moves from the clean forward's. The file is a random 16->32 dictionary, a fixture: the mechanics are real, the latents mean nothing.",
   "model": {
     "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
@@ -12,7 +12,8 @@
   },
   "featurizers": {
     "dictionary": {"kind": "sae", "file_path": "documents/artifacts/sae_gemma_scope.safetensors",
-                   "activation": "jumprelu", "centered": false, "site": "target"}
+                   "activation": "jumprelu", "centered": false,
+                   "site": {"component": "layer_output", "layers": 0}}
   },
   "steps": {
     "base": {

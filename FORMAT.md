@@ -125,8 +125,7 @@ entry              := {"site": site, "pos"?: pos, "ops"?: [op, ...]}
 root.interventions := {<bundle>: {<name>: entry, ...}}
 ```
 
-An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
-`normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
+An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
 last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
 one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
 write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -236,13 +235,15 @@ token is never an input to any call, so a word ending on it is `alignment_missin
 message of is refused by name.
 
 **before** (default false): the positions that predict the scope's tokens, each the position just
-before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
-record is the calls' positions whose next token is the scope's. In the prefill that is the position
-before each token; in a generation it is the call that chose each generated token, the last one
-included (the prefill's last position chose generated token 0). A scope token at position 0 has no
-position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
-the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
-`before`.
+before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
+the frame names the row's last call, the token that call chose (the row's last generated token, which
+no call holds); the record is the position before each, which may belong to a call the frame does not
+name: under `"frame": "1:"` a word said as generated token 0 is held by decode call 1 and recorded at
+the prefill's last position, call 0, which chose it. In the prefill that is the position before each
+token; in a generation, the call that chose each generated token, the last one included. A scope token
+at position 0 has no position before it, which makes the row `alignment_missing` (a refusal in the
+prefill). A write beyond the prefill lands as its call runs, before the token it would predict is
+chosen, so it takes no `before`.
 
 **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
 in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
@@ -282,9 +283,10 @@ any other and belong to no `turn`, and a generate from it continues after the he
 `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
 Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
-row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
-batch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can
-differ in the last bits. Results reproduce to the bit at a fixed batch size.
+row, with position ids that count real tokens. At the thread count the suite pins (`tests/conftest.py`, 12;
+8 and 24 give the same bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they
+can differ by about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix,
+and can differ in the last bits. Results reproduce to the bit at a fixed batch size and thread count.
 
 ### `generate`
 
@@ -433,8 +435,7 @@ there, so a row's own keys are edited as the row has them, and its tail stays Na
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
 **reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
-over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`,
-`project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
+over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
@@ -542,10 +543,10 @@ stays missing: NaN.
 | `swap` | `with: Value` | keeps the layout | Replace the value with `with`, broadcast over its rows and positions. |
 | `add` | `with: Value`, `scale: float = 1.0` | keeps the layout | `of + scale * with`. |
 | `sub` | `with: Value` | keeps the layout | `of - with`. |
-| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step). |
+| `scale` | `factor: Value` | keeps the layout | `of * factor`, broadcast as `add`'s `with` is: a number, or a named value (a dose measured by a step; a `[rows, pos]` factor scales each position's vector by its own number, over `hidden_size`). |
 | `renormalize` | `norm: one of "l2", "sum" = "l2"` | keeps the layout | Each vector rescaled to `original`'s: under `norm` `l2`, to its L2 norm; under `sum`, to its sum, so a row of an attention pattern a write knocked keys out of is a distribution again. `original` is, inside an entry, the value at the site before the step's writes (inside an `encode`, its coordinates). Norms and sums take the entries that are there (`present`), and a vector whose norm or sum is zero is left as it is (a row whose every key was knocked out stays zero). |
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`). |
-| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, over the entries both have (`present`). |
+| `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`). |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
 | `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
@@ -565,9 +566,10 @@ stays missing: NaN.
 
 The locations clab allows: what each component means, its layout, and what narrows it.
 
-A component's name is nnterp's name for the same value, and its `dims` are
-nnterp's layout of it (`batch` first, the token axis named `seq`, or `query` on
-an attention pattern). `per_layer` says it is a block's value, so a site names
+A component's name is nnterp's name for the same value, and the table lists its layout as a selection of it
+presents it, `rows, pos` then its own axes in nnterp's order (`COMPONENTS` records nnterp's own layout,
+`batch` first and the token axis named `seq`, or `query` on an attention pattern, which is how an engine finds
+the token axis). `per_layer` says it is a block's value, so a site names
 its `layers`. A site's `select` (`{<axis>: <selector>}`) narrows any axis the table lists as narrowing the
 component, as a selector: among that axis's size (the model's `num_heads`, ...) it keeps the indices picked,
 in their order, and the axis stays in the layout, so that a site has one layout whatever its selector: an int
@@ -584,29 +586,29 @@ first under `layers` that are a slice or a list of picks, a write's as a read's.
 different numbers of positions is as wide as its widest row, NaN past a row's own. How an engine reaches a
 component is that engine's business; the name says only what the value is.
 
-| component | dims | narrowed by | meaning |
-| --- | --- | --- | --- |
-| `token_embeddings` | batch, seq, hidden_size | hidden_size | the embedding module's output |
-| `layer_input` | batch, seq, hidden_size | layers, hidden_size | the residual stream entering block i |
-| `attention_norm_output` | batch, seq, hidden_size | layers, hidden_size | the normed stream the attention is called with |
-| `attention_queries` | batch, num_heads, seq, qk_head_dim | layers, num_heads, qk_head_dim | queries after projection, head split and RoPE |
-| `attention_keys` | batch, num_kv_heads, seq, qk_head_dim | layers, num_kv_heads, qk_head_dim | keys, before repeat_kv |
-| `attention_values` | batch, num_kv_heads, seq, head_dim | layers, num_kv_heads, head_dim | values, before repeat_kv |
-| `attention_scores` | batch, num_heads, query, key | layers, num_heads, key | scaled, masked scores entering the softmax |
-| `attention_probabilities` | batch, num_heads, query, key | layers, num_heads, key | the pattern the values are mixed with |
-| `attention_head_outputs` | batch, seq, num_heads, head_dim | layers, num_heads, head_dim | each head's output, before the output projection |
-| `attention_premix` | batch, seq, num_heads, head_dim | layers, num_heads, head_dim | every head's result as the output projection takes it |
-| `attention_output` | batch, seq, hidden_size | layers, hidden_size | what attention adds to the stream |
-| `layer_mid` | batch, seq, hidden_size | layers, hidden_size | the stream between the sublayers |
-| `mlp_norm_output` | batch, seq, hidden_size | layers, hidden_size | the normed stream entering the MLP |
-| `mlp_input` | batch, seq, hidden_size | layers, hidden_size | what the MLP is called with |
-| `mlp_activation` | batch, seq, intermediate_size | layers, intermediate_size | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
-| `mlp_neurons` | batch, seq, intermediate_size | layers, intermediate_size | what the down projection sums |
-| `mlp_output` | batch, seq, hidden_size | layers, hidden_size | what the MLP adds to the stream |
-| `layer_output` | batch, seq, hidden_size | layers, hidden_size | the residual stream leaving block i |
-| `final_norm_output` | batch, seq, hidden_size | hidden_size | the final norm's output, what the head projects |
-| `lm_head_output` | batch, seq, vocab_size | vocab_size | the head's own projection |
-| `logits` | batch, seq, vocab_size | vocab_size | what the model returns, after any softcap |
+| component | dims | narrowed by | stream | meaning |
+| --- | --- | --- | --- | --- |
+| `token_embeddings` | rows, pos, hidden_size | hidden_size | yes | the embedding module's output |
+| `layer_input` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream entering block i |
+| `attention_norm_output` | rows, pos, hidden_size | layers, hidden_size | no | the normed stream the attention is called with |
+| `attention_queries` | rows, pos, num_heads, qk_head_dim | layers, num_heads, qk_head_dim | no | queries after projection, head split and RoPE |
+| `attention_keys` | rows, pos, num_kv_heads, qk_head_dim | layers, num_kv_heads, qk_head_dim | no | keys, before repeat_kv |
+| `attention_values` | rows, pos, num_kv_heads, head_dim | layers, num_kv_heads, head_dim | no | values, before repeat_kv |
+| `attention_scores` | rows, pos, num_heads, key | layers, num_heads, key | no | scaled, masked scores entering the softmax |
+| `attention_probabilities` | rows, pos, num_heads, key | layers, num_heads, key | no | the pattern the values are mixed with |
+| `attention_head_outputs` | rows, pos, num_heads, head_dim | layers, num_heads, head_dim | no | each head's output, before the output projection |
+| `attention_premix` | rows, pos, num_heads, head_dim | layers, num_heads, head_dim | no | every head's result as the output projection takes it |
+| `attention_output` | rows, pos, hidden_size | layers, hidden_size | yes | what attention adds to the stream |
+| `layer_mid` | rows, pos, hidden_size | layers, hidden_size | yes | the stream between the sublayers |
+| `mlp_norm_output` | rows, pos, hidden_size | layers, hidden_size | no | the normed stream entering the MLP |
+| `mlp_input` | rows, pos, hidden_size | layers, hidden_size | no | what the MLP is called with |
+| `mlp_activation` | rows, pos, intermediate_size | layers, intermediate_size | no | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
+| `mlp_neurons` | rows, pos, intermediate_size | layers, intermediate_size | no | what the down projection sums |
+| `mlp_output` | rows, pos, hidden_size | layers, hidden_size | yes | what the MLP adds to the stream |
+| `layer_output` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream leaving block i |
+| `final_norm_output` | rows, pos, hidden_size | hidden_size | no | the final norm's output, what the head projects |
+| `lm_head_output` | rows, pos, vocab_size | vocab_size | no | the head's own projection |
+| `logits` | rows, pos, vocab_size | vocab_size | no | what the model returns, after any softcap |
 
 ## Featurizer kinds
 
@@ -644,8 +646,10 @@ model or site it was made at, so the document states the layer, which every use 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), the scalars a fit's objective may name (`scalars`) and the fields that count directions of the
-value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
+(`drawn`), what a header field left unstated is where the kind rather than its signature decides it
+(`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
+published file must state), the scalars a fit's objective may name (`scalars`) and the fields that count
+directions of the value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
 methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -690,9 +694,9 @@ Ops: `encode` gives its coordinates, the last axis becoming features; `decode` w
 - `latents: int or null = null`
 - `file_path: str or null = null`
 - `seed: int or null = null`
-- `activation: one of "relu", "jumprelu", "topk" = "relu"`
+- `activation: one of "relu", "jumprelu", "topk" or null = null`
 - `k: int or null = null`
-- `centered: bool = true`
+- `centered: bool or null = null`
 - `site: str or {component: str, layers: int} or null = null`
 
 A sparse autoencoder (`W_enc`, `b_enc`, `W_dec`, `b_dec`), loaded from its bundle, or with `latents` a
@@ -702,15 +706,17 @@ both biases zero. Its coordinates are the latents `act(pre)`, `pre = (h - b_dec)
 `h @ W_enc + b_enc` when not `centered` (Gemma Scope's are not), and a `decode` keeps its error term exactly.
 `activation` is `relu` (`relu(pre)`), `jumprelu` (`relu(pre) * (pre > threshold)`, with the `threshold` a
 published file holds) or `topk` (the relu of the `k` largest of `pre` in each vector, every other latent
-zero). Its `file_path` may name a published SAE, a safetensors file with no clab header holding `W_enc`,
-`W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish them: its shapes
-are checked against each other and the site's width, and nothing in it says what model it was trained on, so
-the document states what the file cannot: its `activation` and `centered`, which have no default for it, and
-the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one layer), which every
-site it is used at is, component and layer, at each layer the site picks (`layers: -1` counting as the
-layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the body read its
-coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec + b_dec)‖², and
-`l1`, the mean |z|.
+zero). Left unstated (`null`), `activation` and `centered` are a drawn dictionary's, `relu` and centered,
+which its bundle's header records and a document loading a clab bundle is checked against; a published file
+has no default for them. Its `file_path` may name a published SAE, a safetensors file with no clab header
+holding `W_enc`, `W_dec`, `b_enc`, `b_dec` and optionally `threshold`, as SAELens and Gemma Scope publish
+them: its shapes are checked against each other and the site's width, and nothing in it says what model it
+was trained on or how it encodes, so the document states what the file cannot: its `activation` and
+`centered`, and the `site` it was trained at (a name from `sites`, or `{"component", "layers"}` with one
+layer), which every site it is used at is, component and layer, at each layer the site picks (`layers: -1`
+counting as the layer it is). A `site` given for any sae is checked so. Its scalars, over every vector the
+body read its coordinates of in that run of the body: `reconstruction`, the mean of ‖h − (z @ W_dec +
+b_dec)‖², and `l1`, the mean |z|.
 
 Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply` gives its version of the value, in the value's own layout: `h`'s reconstruction: the decoding of its latents, `z @ W_dec + b_dec`, without the error term.
 

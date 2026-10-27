@@ -401,13 +401,15 @@ class Pos(Record):
     message of is refused by name.
 
     **before** (default false): the positions that predict the scope's tokens, each the position just
-    before one, the same width: among a frame's calls, the tokens those calls predict are searched, and the
-    record is the calls' positions whose next token is the scope's. In the prefill that is the position
-    before each token; in a generation it is the call that chose each generated token, the last one
-    included (the prefill's last position chose generated token 0). A scope token at position 0 has no
-    position before it, which makes the row `alignment_missing` (a refusal in the prefill). A write beyond
-    the prefill lands as its call runs, before the token it would predict is chosen, so it takes no
-    `before`.
+    before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
+    the frame names the row's last call, the token that call chose (the row's last generated token, which
+    no call holds); the record is the position before each, which may belong to a call the frame does not
+    name: under `"frame": "1:"` a word said as generated token 0 is held by decode call 1 and recorded at
+    the prefill's last position, call 0, which chose it. In the prefill that is the position before each
+    token; in a generation, the call that chose each generated token, the last one included. A scope token
+    at position 0 has no position before it, which makes the row `alignment_missing` (a refusal in the
+    prefill). A write beyond the prefill lands as its call runs, before the token it would predict is
+    chosen, so it takes no `before`.
 
     **index** (default `":"`): counts the scope's tokens, over the tokens of every call the frame selected,
     in order: `{"frame": "0:3", "index": -1}` is one position, the last token of call 2, the same as
@@ -503,8 +505,7 @@ class Intervention(Labelled):
     root.interventions := {<bundle>: {<name>: entry, ...}}
     ```
 
-    An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
-    `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
+    An entry whose ops include an edit (the edits group: <the edits group>) writes back: its value after its
     last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
     one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
     write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -549,6 +550,9 @@ class Intervention(Labelled):
                                              "reads it over); the prefill's set by preflight, a generation's decode "
                                              "calls' by the run")
 
+
+# The edits group as `ops` declares it, written into the docstring where `<the edits group>` stands, so a new edit is listed.
+Intervention.__doc__ = (Intervention.__doc__ or "").replace("<the edits group>", ops.listed("edits"))
 
 Entries = dict[str, Intervention]
 Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries], ByShape()]]], ByShape()]
@@ -600,9 +604,10 @@ class Forward(Record):
     `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
     Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
-    row, with position ids that count real tokens. A row's numbers then do not depend on which rows share its
-    batch, but they do depend on the batch's shape: a trailing partial batch is a smaller matrix, and can
-    differ in the last bits. Results reproduce to the bit at a fixed batch size."""
+    row, with position ids that count real tokens. At the thread count the suite pins (`tests/conftest.py`, 12;
+    8 and 24 give the same bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they
+    can differ by about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix,
+    and can differ in the last bits. Results reproduce to the bit at a fixed batch size and thread count."""
     kind: Literal["forward"]
     input: str | list[str | TextPart]
     interventions: Interventions = {}

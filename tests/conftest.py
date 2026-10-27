@@ -21,6 +21,12 @@ DOCUMENTS = os.path.join(ROOT, "documents")
 SNAPSHOTS = os.path.join(ROOT, "tests", "snapshots")
 UPDATE = os.environ.get("CLAB_UPDATE_SNAPSHOTS") == "1"
 BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch size
+# The intra-op thread count the snapshots were made with (torch's default on the 12-core host that made them). The
+# BLAS splits a matmul's reduction by thread: 8, 12 and 24 threads give the snapshots' bits, 4 and fewer move a
+# row's numbers by about 1e-8 (1.9e-6 after a fit's ten epochs), past the snapshots and the tests that hold two
+# runs bit-equal. Pinned, OMP_NUM_THREADS and the host's core count stop mattering.
+THREADS = 12
+torch.set_num_threads(THREADS)
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
 # The real-model documents, by their path under documents/: compiled and schema-checked with the rest, run only by
 # test_real.py, on a GPU.

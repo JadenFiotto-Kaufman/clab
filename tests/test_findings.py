@@ -1,6 +1,6 @@
-"""What the trials found (`FINDINGS.md`), one test per finding on the tiny models: each bug fixed or refused by
-name, each silent behaviour a refusal or a check, and each refusal that did not say what to do saying it. A test
-is named after its finding's tag."""
+"""What the trials found, one test per finding on the tiny models: each bug fixed or refused by name, each silent
+behaviour a refusal or a check, and each refusal that did not say what to do saying it. A test is named after its
+finding's tag."""
 
 import json
 import os

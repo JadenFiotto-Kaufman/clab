@@ -32,8 +32,10 @@ model or site it was made at, so the document states the layer, which every use 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), the scalars a fit's objective may name (`scalars`) and the fields that count directions of the
-value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
+(`drawn`), what a header field left unstated is where the kind rather than its signature decides it
+(`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
+published file must state), the scalars a fit's objective may name (`scalars`) and the fields that count
+directions of the value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
 methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -87,6 +89,7 @@ class Kind:
     axis: ClassVar[str] = "features"
     header: ClassVar[tuple[str, ...]] = ()
     drawn: ClassVar[tuple[str, ...]] = ()
+    unstated: ClassVar[dict[str, Any]] = {}    # a header field left unstated, where the kind decides what it is
     scalars: ClassVar[tuple[str, ...]] = ()
     counts: ClassVar[tuple[str, ...]] = ()     # fields that count directions of the value: at most its width
     kind: ClassVar[str]

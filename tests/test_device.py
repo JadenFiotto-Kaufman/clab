@@ -1,8 +1,8 @@
 """On a GPU: every tensor clab builds where the plan runs (positions, masks, per-row indices, token ids,
 operands) meets an activation on that activation's device, and the engines run a document on `device`.
 
-The project's CPU-only suite skips this file. On this host the project venv's torch cannot use the driver;
-an env whose torch can, with clab installed in it, runs it with one command from the repo root:
+The project's CPU-only suite skips this file. Where the venv's torch cannot use the driver, an env whose torch
+can, with clab installed in it, runs it with one command from the repo root:
 
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 python -m pytest tests/test_device.py -q
 """

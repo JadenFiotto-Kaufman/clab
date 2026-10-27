@@ -13,7 +13,8 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, on_each, placed, plain, plan_of, same, snapshot
+from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, THREADS, close, document, edited, on_each, placed, plain,
+                      plan_of, same, snapshot)
 
 from clab import Plan
 from clab.cli import main
@@ -99,6 +100,12 @@ def test_a_rows_numbers_do_not_depend_on_its_batch_companions(engines, kind):
     b = engine.execute(regrouped, batch_size=BATCH_SIZE).results
     for key in a:
         assert torch.equal(a[key][order], b[key]), key
+
+
+def test_the_suite_runs_at_the_thread_count_the_snapshots_were_made_with():
+    """conftest pins torch's intra-op threads, whatever OMP_NUM_THREADS or the host's cores say: at 4 threads or
+    fewer the BLAS splits a matmul's reduction otherwise, and the test above fails by about 1e-8."""
+    assert torch.get_num_threads() == THREADS == 12
 
 
 def test_the_swapped_vector_is_the_counterfactuals_on_padded_rows(filled):
