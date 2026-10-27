@@ -32,10 +32,11 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 
     Several values are joined on the keys both carry (`keyed`): the sweep axes they share, each by its coordinate,
     and the columns they share (`row`, `layer`, `pos`, `key`; a value with no rows axis its own axes, so two
-    histories over `epochs` join epoch by epoch), each row of the first beside every row of the next that agrees
-    with it on them, so a row of a value with fewer keys (an unswept value beside a swept one, one over `src`
-    beside one over `src` and `dst`, one with no `layers` axis beside one with) repeats beside every row it
-    agrees with, and the joined `at` holds both points' coordinates. A value with no keys, one number, sits beside
+    histories over `epochs` join epoch by epoch), each row of the one with more keys, in its order, beside every row
+    of the other that agrees with it on them, so a row of a value with fewer keys (an unswept value beside a swept
+    one, one over `src` beside one over `src` and `dst`, one with no `layers` axis beside one with) repeats beside
+    every row it agrees with, the first value's columns first and the joined `at` holding both points'
+    coordinates. A value with no keys, one number, sits beside
     every row. Two values that share no key are refused by name: a value with no rows axis (a fit's history, over
     `epochs`) tables alone beside one with, and so do two over different axes; and two that share keys but agree
     on no row (two reads at different positions share `pos`) are refused rather than joined to nothing, as are two
@@ -97,15 +98,19 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
 
     def key(row: dict[str, Any]) -> str:
         return json.dumps([row.get("at", {}).get(k) for k in labels] + [row.get(k) for k in axes])
+    # The value with more keys (a swept one beside an unswept one) gives the rows their order; the left's columns
+    # come first either way.
+    many, few = (left, right) if len(mine[0]) + len(mine[1]) >= len(theirs[0]) + len(theirs[1]) else (right, left)
     by_key: dict[str, list[dict[str, Any]]] = {}
-    for row in right:
+    for row in few:
         by_key.setdefault(key(row), []).append(row)
     out = []
-    for row in left:
+    for row in many:
         for other in by_key.get(key(row), []):
-            merged = {**row, **other}
+            a, b = (row, other) if many is left else (other, row)
+            merged = {**a, **b}
             if "at" in merged:              # the two points' coordinates together, first
-                merged = {"at": {**row.get("at", {}), **other.get("at", {})},
+                merged = {"at": {**a.get("at", {}), **b.get("at", {})},
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
     if not out and left and right:
