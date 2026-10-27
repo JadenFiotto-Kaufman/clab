@@ -24,8 +24,9 @@ def test_describe_lists_every_registry():
 def test_describe_lists_the_engines_and_spells_literals_as_json():
     lines = describe("engines").splitlines()
     assert lines[2] == ('      device: str = "cpu" — one torch device ("cpu", "cuda:0") as the loader\'s device, or '
-                        '"auto", "balanced", ... as its device_map')
-    assert lines[7].startswith('      remote: one of true, "local" = true — true for the NDIF server')
+                        '"auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"')
+    assert lines[3].startswith("      tp: int = 1 — how many ranks tensor parallelism shards the model over")
+    assert lines[8].startswith('      remote: one of true, "local" = true — true for the NDIF server')
     assert "    match(expected: Tokens)  [" in describe("ops")
 
 

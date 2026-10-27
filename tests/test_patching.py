@@ -48,7 +48,7 @@ def test_results_are_detached_cpu_clones(filled):
 
 def test_the_run_record_says_how_it_ran(filled):
     run = filled["nnterp"].run
-    assert (run.engine, run.batch_size, run.device, run.options) == ("nnterp", BATCH_SIZE, "cpu", {})
+    assert (run.engine, run.batch_size, run.device, run.options) == ("nnterp", BATCH_SIZE, "cpu", {"tp": 1})
     assert (run.dtype, run.devices) == (["float32"], ["cpu"])               # the model's parameters, where it is
     assert {"clab", "nnsight", "nnterp", "transformers", "torch", "python"} <= set(run.versions)
     assert run.tokens["pairs.input"][0] == ["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom",
@@ -240,11 +240,11 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
         monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
     with pytest.raises(ValueError, match="unknown engine 'vllm'; valid: nnterp, hooks, ndif"):
         load("vllm", model)
-    assert list(options("nnterp")) == [] and list(options("ndif")) == ["remote"]
-    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its options: device$"):
+    assert list(options("nnterp")) == ["tp"] and list(options("ndif")) == ["remote"]
+    with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its options: device, tp$"):
         load("nnterp", model, remote="local")
-    for kind in ("nnterp", "hooks"):            # where the model goes is `device`, a device map as it is
-        with pytest.raises(ValueError, match=f"the {kind} engine takes no 'device_map'; its options: device$"):
+    for kind, theirs in (("nnterp", "device, tp"), ("hooks", "device")):  # where the model goes is `device`
+        with pytest.raises(ValueError, match=f"the {kind} engine takes no 'device_map'; its options: {theirs}$"):
             load(kind, model, device_map="auto")
     with pytest.raises(ValueError, match="the ndif engine takes no 'device_map'; its options: device, remote$"):
         load("ndif", model, device_map="auto")
@@ -305,9 +305,9 @@ def test_the_cli_takes_the_run_options(tmp_path, capsys, engines):
     assert run is not None and (run.engine, run.device, run.options, run.dtype, run.devices) == \
         ("ndif", "cpu", {"remote": "local"}, ["float32"], ["cpu"])
     assert main(["run", document("patching"), "-o", "remote=local", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'remote'; its options: device" in capsys.readouterr().err
+    assert "clab: the nnterp engine takes no 'remote'; its options: device, tp" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device_map=auto", "--out", str(out)]) == 1
-    assert "clab: the nnterp engine takes no 'device_map'; its options: device" in capsys.readouterr().err
+    assert "clab: the nnterp engine takes no 'device_map'; its options: device, tp" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "device=cuda", "--out", str(out)]) == 1
     assert "clab: -o device: it is given as --device" in capsys.readouterr().err
     assert main(["run", document("patching"), "-o", "remote", "--out", str(out)]) == 1

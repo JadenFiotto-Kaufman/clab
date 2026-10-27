@@ -6,6 +6,7 @@ from typing import Callable
 import pytest
 from conftest import BATCH_SIZE, edited, plan_of, same
 
+from clab.engines import load
 from clab.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
@@ -326,7 +327,11 @@ def test_the_aligned_pattern_dataset_passes_the_check(engines):
 @pytest.mark.parametrize("key, why", [("device", r"where the model runs is a run option: --device"),
                                       ("device_map", r"where the model runs is a run option: --device"),
                                       ("dispatch", "the engine places its model itself"),
-                                      ("torch_dtype", "the dtype is spelled `dtype`")])
+                                      ("torch_dtype", "the dtype is spelled `dtype`"),
+                                      ("quantization_config",
+                                       r"a quantization is spelled in `dtype` \(`nf4`, `fp4`, `int8`, `fp8`\)"),
+                                      ("tp_plan", "tensor parallelism is a run option: -o tp=N"),
+                                      ("distributed_config", "tensor parallelism is a run option: -o tp=N")])
 def test_a_loader_refuses_a_model_key_it_cannot_honor(kind, key, why):
     from clab.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update({key: "cpu"}))
@@ -345,8 +350,10 @@ def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
 def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch():
     plan = plan_of("attention_knockout")
     assert plan.model.dtype == "float32" and plan.model.model_extra == {"attn_implementation": "eager"}
-    with pytest.raises(PlanError, match=r"model\.dtype: Input should be 'float32', 'float16' or 'bfloat16'"):
-        edited("patching", lambda d: d["model"].update(dtype="fp32"))
+    for wrong in ("fp32", "int4"):                  # one spelling per thing: nnsight's `int4` is `nf4` here
+        with pytest.raises(PlanError, match=r"model\.dtype: Input should be 'float32', 'float16', 'bfloat16', 'nf4', "
+                                            r"'fp4', 'int8' or 'fp8'$"):
+            edited("patching", lambda d: d["model"].update(dtype=wrong))
 
 
 def test_a_forwards_frame_is_any_selector_that_picks_its_one_call(engines):
@@ -379,3 +386,52 @@ def test_a_write_with_a_static_width_refuses_an_operand_without_one():
     with pytest.raises(PlanError, match=r"ablate\.ops\[0\]\.with: 'harvest\.acts' holds a different number of positions "
                                         r"on each row, which another forward's positions need not pair with"):
         edited("entity_mean_ablation", lambda d: change({"scope": {"column": "prompts.entity"}, "index": ":"}, d)).compile()
+
+
+def test_a_quantized_dtype_names_what_it_computes_in():
+    """A quantization's values are in its compute dtype, `bfloat16` (`int8`'s `float16`), which the compiled plan
+    does not replace: its `model.dtype` is the quantization's name."""
+    computes = {d: edited("patching", lambda doc: doc["model"].update(dtype=d)).compile().model
+                for d in ("float32", "bfloat16", "nf4", "fp4", "int8", "fp8")}
+    assert {d: m.computes for d, m in computes.items()} == {"float32": "float32", "bfloat16": "bfloat16",
+                                                             "nf4": "bfloat16", "fp4": "bfloat16", "int8": "float16",
+                                                             "fp8": "bfloat16"}
+    assert computes["nf4"].dtype == "nf4"
+
+
+@pytest.fixture
+def unloadable(monkeypatch):
+    """No engine can load a model: a refusal must come before anything loads (a meta shell included)."""
+    for where in ("nnterp", "hooks", "ndif"):
+        monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
+    return monkeypatch
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+@pytest.mark.parametrize("dtype", ["nf4", "fp4", "int8"])
+def test_a_bitsandbytes_dtype_without_bitsandbytes_is_refused_before_anything_loads(unloadable, kind, options, dtype):
+    """Named, not an ImportError from inside transformers."""
+    import importlib.util
+    found = importlib.util.find_spec
+    unloadable.setattr(importlib.util, "find_spec",
+                       lambda name, *a: None if name == "bitsandbytes" else found(name, *a))
+    plan = edited("patching", lambda d: d["model"].update(dtype=dtype))
+    with pytest.raises(ValueError, match=f"^model.dtype '{dtype}' holds the weights in bitsandbytes, which is not "
+                                         "installed: install bitsandbytes$"):
+        load(kind, plan.model, **options)
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_fp8_off_a_gpu_is_refused_before_anything_loads(unloadable, kind, options):
+    plan = edited("patching", lambda d: d["model"].update(dtype="fp8"))
+    with pytest.raises(ValueError, match=f"^model.dtype 'fp8' needs a GPU of compute capability 8.9 or later; the "
+                                         f"{kind} engine's device is 'cpu'"):
+        load(kind, plan.model, **options)
+
+
+def test_a_quantized_dtype_on_an_ndif_server_is_refused():
+    """A server holds a model's weights as its deployment does, so a document cannot ask it for a quantization."""
+    plan = edited("patching", lambda d: d["model"].update(dtype="nf4"))
+    with pytest.raises(ValueError, match="^model.dtype 'nf4': the ndif engine cannot honor it: the server decides how "
+                                         "a model's weights are held$"):
+        load("ndif", plan.model)

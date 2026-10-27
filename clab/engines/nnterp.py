@@ -1,14 +1,28 @@
 """The primary engine: nnterp's StandardizedTransformer, everything inside one nnsight session.
 
-`device` is one torch device, which nnsight's loader takes as its `device`, or a device map transformers
-computes (`auto`, `balanced`, ...), which it takes as its `device_map` and which may spread the model over
-several GPUs; the batch's inputs go where the model's first parameter is, and transformers moves them on
-from there.
+`device` is one torch device, which nnsight's loader takes as its `device` (and a quantized model's as its
+`device_map` too, where it is quantized), or a device map transformers computes (`auto`, `balanced`, ...), which it
+takes as its `device_map` and which may spread the model over several GPUs; the batch's inputs go where the model's
+first parameter is, and transformers moves them on from there.
+
+`tp` above 1 shards the model by transformers' tensor parallelism instead (`DistributedConfig(tp_size=tp)`, as
+nnsight's `distributed_config`), over the `tp` processes torchrun starts, each rank on its own GPU: `torchrun
+--nproc-per-node=N --no-python clab run DOC --device cuda -o tp=N` (`--device cpu` where no GPU is visible). Every
+rank runs the whole plan, which branches on nothing a rank computes, and samples from a seed rank 0 draws; only
+rank 0 writes the output directory and prints, and its run record lists every rank's device. A value the ranks hold
+in pieces is refused by name (`split`): the attention's interior but its output projection's input
+(`attention_premix`), the MLP's activation, and the output of an embedding the plan shards by vocabulary
+(`token_embeddings`, where the checkpoint's plan says `embedding_rowwise`); the residual stream, the attention's
+and the MLP's outputs, the head and the logits are whole on every rank. Results under tensor parallelism are not
+bit-equal to unsharded ones, since a sharded matmul sums its parts in another order: the ranks agree to the bit, and
+agree with `tp` 1 to that rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can
+flip a greedy generation's near-tie token too).
 
 The engine holds its model and nothing else: inside the session the engine and its model are the only
 client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
 """
 
+import os
 import time
 import warnings
 from typing import Any
@@ -21,9 +35,9 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, stops
 from clab.format.address import COMPONENTS
-from clab.plan import Model, Plan
+from clab.plan import QUANTIZED, Model, Plan
 from clab.steps import batches
 from clab.steps.batches import landed, now
 
@@ -32,36 +46,52 @@ from clab.steps.batches import landed, now
 class NnterpEngine:
     name: str
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
+    order: dict[tuple[str, int | None], tuple[int, int]] | None = None     # under tp, measured on a meta shell
 
-    def __init__(self, model: Model, *, device: str = "cpu") -> None:
-        """The checkpoint `model` pins, placed by `device`: the loader's `device_map` when transformers computes
-        it, else its `device`; the block's other keys go to the loader as they are.
+    def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
+        """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over
+        `tp` ranks (`sharded`); the block's other keys go to the loader as they are.
 
-        device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map
+        device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"
+        tp: how many ranks tensor parallelism shards the model over, one process each under `torchrun --nproc-per-node=<tp>`; 1 does not shard it
         """
-        self.spec, self.device, self.options = model, device, {}
-        placed = {"device_map": device} if device in COMPUTED else {"device": device}
+        placed, loaded = sharded(model, tp, device), loading(model, "nnterp", device)
+        self.spec, self.device, self.options = model, device, {"tp": tp}
+        if tp > 1:          # nnterp's probe of the sharded model would read every value, the embedding's among them
+            self.order = measured(build(model, "nnterp", lambda extra: StandardizedTransformer(
+                model.key, revision=model.revision, dispatch=False, device_map=None, **extra)))
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, dtype=getattr(torch, model.dtype), **placed, **extra))
+            model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
         model `ready` first; the results and the run record are the one thing that comes home, into the client's
-        own plan."""
+        own plan. Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled
+        generation picks the same tokens on every rank, and the run record lists every rank's device."""
         started = steps.begin(self, plan, batch_size)
+        ranks = self.options.get("tp", 1)
+        if ranks > 1:
+            seed = [int(torch.randint(2**62, ()))]
+            torch.distributed.broadcast_object_list(seed, src=0)
+            torch.manual_seed(seed[0])
         with self.model.session(remote=self.remote):
             self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run})
         plan.results, plan.run = home["results"], home["run"]
         assert plan.run is not None
+        if ranks > 1:
+            every: list[Any] = [None] * ranks
+            torch.distributed.all_gather_object(every, plan.run.devices)
+            plan.run.devices = list(dict.fromkeys(d for devices in every for d in devices))
         plan.run.seconds = round(time.time() - started, 3)
         return plan
 
     def ready(self) -> None:
         """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
         (ndif under `remote="local"`) loads its weights, which it would at its first trace, and nnterp measures its
-        forward order (`rank`), which it would at the first site a step ranks; each is a no-op once done."""
+        forward order (`rank`), which it would at the first site a step ranks (under `tp` the engine measured it at
+        load, on a meta shell); each is a no-op once done."""
         self.model.dispatch()
         self.rank("layer_output", 0)
 
@@ -74,12 +104,25 @@ class NnterpEngine:
         return stops(self.model.generation_config, self.model.tokenizer)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """Why nnterp does not serve a component on this checkpoint, from its `support()`; None where it does."""
-        support = self.model.support()
-        return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
+        """Why nnterp does not serve a component on this checkpoint, from its `support()`, and under `tp` why the
+        ranks hold it in pieces (`split`); None where it is served."""
+        support, tp = self.model.support(), self.options.get("tp", 1)
+        reasons = {c: support.get(nnterp_name(c)) for c in COMPONENTS}
+        for c, reason in reasons.items() if tp > 1 else []:
+            if isinstance(reason, str):                     # nnterp serves it at no layer
+                continue
+            layers = range(self.model.num_layers) if COMPONENTS[c]["per_layer"] else [None]
+            served = [layer for layer in layers if not (reason or {}).get(layer)]
+            pieces = {layer: f"under tp {tp} {why}" for layer in served if (why := split(self.model, c, layer))}
+            if pieces:
+                reasons[c] = pieces[None] if None in pieces else {**pieces, **(reason or {})}
+        return reasons
 
     def rank(self, component: str, layer: int | None) -> tuple[int, int]:
-        """Where the component falls in this checkpoint's forward: nnterp's measured order."""
+        """Where the component falls in this checkpoint's forward: nnterp's measured order (under `tp` measured on
+        a meta shell at load, since a probe of the sharded model reads values the ranks cannot reassemble)."""
+        if self.order is not None:
+            return self.order[component, None if layer is None else range(self.model.num_layers)[layer]]
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
@@ -158,3 +201,114 @@ class NnterpEngine:
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
         return self.model.project_on_vocab(hidden)
+
+
+def measured(shell: StandardizedTransformer) -> dict[tuple[str, int | None], tuple[int, int]]:
+    """nnterp's rank of every component `shell` serves, at each layer it serves it, by `(component, layer)`."""
+    support, order = shell.support(), {}
+    for c in COMPONENTS:
+        reason = support.get(nnterp_name(c))
+        if isinstance(reason, str):                 # served at no layer
+            continue
+        for layer in range(shell.num_layers) if COMPONENTS[c]["per_layer"] else [None]:
+            if not (reason or {}).get(layer):
+                order[c, layer] = shell.rank(nnterp_name(c), layer)
+    return order
+
+
+def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:
+    """Where the loader puts the model: at `tp` 1 where `device` says (`placing`), and above 1 sharded by
+    transformers' tensor parallelism, `DistributedConfig(tp_size=tp)` as nnsight's `distributed_config`, each rank's
+    shard on cuda:<LOCAL_RANK> where a GPU is visible (`device` "cuda"), else on the CPU (`device` "cpu"). Refused by
+    name before anything loads: a `tp` below 1, a `tp` above 1 in a process that is not one of `tp` torchrun started
+    (WORLD_SIZE), a WORLD_SIZE other than `tp` (each process would run the whole plan), and under `tp` a bitsandbytes
+    `dtype` (its packed weights do not shard), a checkpoint whose plan nnsight cannot split `tp` ways (`max_tp_size`),
+    any other `device`, and more ranks on a node than it has GPUs visible."""
+    from nnsight.modeling.tp import max_tp_size
+    from transformers import AutoConfig, DistributedConfig
+
+    world = os.environ.get("WORLD_SIZE")
+    if tp < 1:
+        raise ValueError(f"tp {tp}: tensor parallelism shards the model over at least one rank")
+    if tp > 1 and world is None:
+        raise ValueError(f"tp {tp} shards the model over {tp} processes, one per rank, that torchrun starts: "
+                         f"`torchrun --nproc-per-node={tp} --no-python clab run <document> -o tp={tp}`; this process "
+                         "is not one of them (WORLD_SIZE is unset)")
+    if world is not None and int(world) != tp:
+        raise ValueError(f"tp {tp}: torchrun started {world} processes (WORLD_SIZE), each of which runs the whole "
+                         f"plan, and tp shards the model over {tp}; give both the one number: `torchrun "
+                         f"--nproc-per-node={world} --no-python clab run <document> -o tp={world}`")
+    if tp == 1:
+        return placing(model, device)
+    if model.dtype in QUANTIZED and model.dtype != "fp8":
+        raise ValueError(f"model.dtype {model.dtype!r}: bitsandbytes' packed weights do not shard across ranks, so it "
+                         f"runs at tp 1 alone, not tp {tp}")
+    extra = model.model_extra or {}
+    most = max_tp_size(AutoConfig.from_pretrained(model.key, revision=model.revision,
+                                                  trust_remote_code=extra.get("trust_remote_code", False)))
+    if most is None or most % tp:
+        raise ValueError(f"tp {tp}: {model.key} cannot be sharded {tp} ways: "
+                         + ("its config gives no tensor-parallel plan nnsight can gather, or its sizes divide no "
+                            "degree above 1; run it at tp 1, on one GPU or spread over several with --device auto"
+                            if most is None else
+                            f"its sizes divide only {', '.join(str(d) for d in range(2, most + 1) if most % d == 0)}"))
+    kind = "cuda" if torch.cuda.is_available() else "cpu"
+    if device != kind:
+        raise ValueError(f"device {device!r}: under tp {tp} transformers puts each rank's shard "
+                         + ("on its own GPU, cuda:<LOCAL_RANK>, so the device is 'cuda'" if kind == "cuda" else
+                            "on the CPU, no GPU being visible, so the device is 'cpu'"))
+    here = int(os.environ.get("LOCAL_WORLD_SIZE", tp))
+    if kind == "cuda" and here > torch.cuda.device_count():
+        raise ValueError(f"tp {tp}: each rank holds its shard on its own GPU, and torchrun started {here} ranks on "
+                         f"this node, which shows {torch.cuda.device_count()} (CUDA_VISIBLE_DEVICES)")
+    return {"distributed_config": DistributedConfig(tp_size=tp)}
+
+
+# The tensor-parallel styles that leave a module's output split across ranks past the module, so that the forward
+# of the module holding it runs on pieces; every other style a `base_model_tp_plan` uses hands its output on whole.
+SPLITS = ("colwise", "packed_colwise")
+
+
+def split(model: StandardizedTransformer, component: str, layer: int | None) -> str | None:
+    """Why the ranks hold the component in pieces when the model is sharded by its tensor-parallel plan (a style
+    per module, transformers' `tp_plan`), or None where every rank holds it whole: the one place that decides it,
+    from the plan and the module nnterp reaches the component at. nnsight makes whole the input and the output of
+    a module the plan names (it gathers a shard and reduces a partial), all but a vocab-parallel embedding's
+    output, which it cannot reassemble. Any other value is whole unless a forward that runs on pieces computes it:
+    that of a module the plan names, of a module holding a child whose style leaves its output split (`SPLITS`:
+    the attention holds its `colwise` projections, the MLP its gate and up), or of any module inside one. A module
+    the plan names is taken as whole on both sides, so a `replicated_with_grad_allreduce` one inside a forward that
+    runs on pieces (Qwen3's `q_norm` and `k_norm`) would be handed over in pieces; no component sits on such a
+    boundary."""
+    from transformers.distributed.tensor_parallel import _get_parameter_plan
+
+    hf: Any = model._module
+    plan = getattr(hf, "tp_plan", None) or {}
+
+    def style(name: str) -> str | None:
+        return _get_parameter_plan(name, plan, is_weight=False) if name else None
+
+    host: Any = envoy(model, component, layer)
+    key = getattr(type(host), component).path(host)
+    while key.startswith("../"):
+        host, key = host.parent, key[3:]
+    parts = key.split(".")
+    inside = "source" in parts
+    children, side = (parts[:parts.index("source")], "inside") if inside else (parts[:-1], parts[-1])
+    for child in children:
+        host = getattr(host, child)
+    name = host.path.partition(".")[2]           # the module as transformers names it, "" for the root
+    if not inside and style(name):
+        return (None if (style(name), side) != ("embedding_rowwise", "output") else
+                f"{name} is a vocab-parallel embedding, whose output nnsight cannot reassemble")
+    forward = name if inside else name.rpartition(".")[0] if name else None
+    while forward is not None:
+        if style(forward):
+            return f"it is computed inside {forward}, which is sharded {style(forward)!r}"
+        for child, _ in hf.get_submodule(forward).named_children():
+            held = f"{forward}.{child}" if forward else child
+            if style(held) in SPLITS:
+                return (f"it is computed inside {forward or 'the model'}, whose forward runs on each rank's piece "
+                        f"({held} is {style(held)!r})")
+        forward = forward.rpartition(".")[0] if forward else None
+    return None

@@ -106,6 +106,33 @@ NDIF deployment that runs sdpa. A document in a directory under `documents/` rea
 the others do. `tests/test_real.py` pins their numbers on a GPU, on both engines (its docstring has the
 command); the CPU-only suite compiles them against their snapshots and runs none of them.
 
+## Quantized and sharded models
+
+A document's `model.dtype` may name a quantization, in nnsight's spelling: `nf4` or `fp4` (bitsandbytes' 4 bits)
+or `int8` (its LLM.int8()), which run on the CPU and on CUDA with `bitsandbytes` installed (without it they are
+refused by name), or `fp8` (transformers' 8-bit floats), which needs a GPU of compute capability 8.9 or later and is
+refused by name elsewhere. A quantized model computes in bfloat16 (`int8` in float16), the dtype its values have.
+Both engines load it with the one `quantization_config` and agree to the bit; the run records the packed weights'
+dtype beside the compute one (`uint8` under `nf4`), the plan the quantization's name. On an NDIF server the server
+holds the weights as its deployment does, so a quantized `dtype` is refused there (under `-o remote=local` it runs
+as on nnterp).
+
+`-o tp=N` shards the model over N ranks by transformers' tensor parallelism, on the nnterp engine, under
+`torchrun --nproc-per-node=N`, each rank on its own GPU (`--device cuda`; `--device cpu` where none is visible):
+
+```
+uv run torchrun --nproc-per-node=2 --no-python clab run documents/real/behavior.json --device cuda -o tp=2 --batch-size 16
+```
+
+Every rank runs the whole plan, and rank 0 alone writes the output and prints. A value the ranks hold in pieces is
+refused by name (the attention's interior but `attention_premix`, the MLP's activation, and the output of an
+embedding the checkpoint's plan shards by vocabulary); the residual stream, the attention's and the MLP's outputs,
+the head and the logits are whole on every rank. A bitsandbytes `dtype` under `tp`, a checkpoint nnsight cannot split
+that many ways, and torchrun around an engine without `tp` are refused by name too. Results under `tp` are the
+unsharded ones to rounding, not to the bit, and a fit's trained values further: Adam amplifies the rounding; the ranks
+agree to the bit. In bfloat16 the rounding can flip a greedy generation's near-tie token: on Llama-3.2-1B at `tp` 2,
+8 of the 42 weekday prompts generate differently from `tp` 1, and none does in float32.
+
 ## Look at a run
 
 ```
@@ -202,7 +229,8 @@ named in every error.
   plan's `model` block, on `device`, with the options its constructor's keyword parameters declare (`-o`, or
   `clab.run`'s keywords); `execute(plan, batch_size=)` is its one entry point. `clab describe engines` lists
   each option with what its docstring says it takes (on nnterp and hooks `device` is one torch device, `cpu`
-  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...).
+  or `cuda:0`, or a device map transformers computes, `auto`, `balanced`, ...; nnterp's `tp` shards the model
+  over that many ranks under torchrun).
 
 ## The output
 
@@ -246,15 +274,18 @@ uvx pyright
 ```
 
 `CLAB_UPDATE_SNAPSHOTS=1` rewrites the checked-in snapshots under `tests/snapshots/`. `tests/test_real.py` runs on a GPU only, with the
-command its docstring gives.
+command its docstring gives, and so does the Llama case of `tests/test_quantized.py`, whose tiny-Llama cases run in
+the CPU suite with the dev group's `bitsandbytes`; `tests/test_tp.py` starts two ranks with torchrun on the CPU, and on
+two GPUs where two are visible.
 
 Offline, the suite needs these checkpoints and one dataset in the local Hugging Face cache, at the revisions the
 documents and tests pin: `hf-internal-testing/tiny-random-LlamaForCausalLM` (`9fb19125`),
 `hf-internal-testing/tiny-random-gpt2` (`71034c5d`) and `trl-internal-testing/tiny-Qwen3ForCausalLM` (`25bb9b89`,
 the chat cases); `Qwen/Qwen3-8B`'s tokenizer (`b968826d`) where it is cached, which one test checks the tiny
 Qwen3's template against and skips without; the dataset `nyu-mll/glue` (`bcdcba79`, its `wnli` and `ax` configs),
-which `tests/test_hub.py` reads and says how to fetch; and, for `tests/test_real.py`, `meta-llama/Llama-3.2-1B`
-(`4e20de36`).
+which `tests/test_hub.py` reads and says how to fetch; `yujiepan/qwen3-next-moe-tiny-random` (`ec636a93`) where it
+is cached, a hybrid `tests/test_tp.py` shards and skips without; and, for `tests/test_real.py`,
+`meta-llama/Llama-3.2-1B` (`4e20de36`).
 
 Numbers reproduce to the bit at a fixed `--batch-size`. Every batch of an input is padded to that input's
 longest row, so a row's numbers do not depend on which rows share its batch; they do depend on the batch's
