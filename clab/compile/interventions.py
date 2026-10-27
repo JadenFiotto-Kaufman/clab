@@ -168,7 +168,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         for key, value in args.items():
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{here}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
-                     "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
+                     "step is served in a forward, not inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
         # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.

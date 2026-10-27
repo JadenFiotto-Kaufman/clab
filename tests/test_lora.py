@@ -243,7 +243,7 @@ def test_a_generations_writes_take_no_operand_from_its_own_reads(corpus):
         "again": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "lora", "with": "answer.h"}]}}
     with pytest.raises(PlanError, match=r"steps\.answer\.interventions\.again\.ops\[0\]\.with: 'answer\.h' is an entry "
                                         r"of this generation; an operand from an entry of its own step is served "
-                                        r"in a forward, not yet inside a generate"):
+                                        r"in a forward, not inside a generate$"):
         Plan(**doc, document=os.path.join(corpus, "documents", "lora_apply.json")).compile()
 
 

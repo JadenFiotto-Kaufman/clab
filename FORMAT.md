@@ -160,7 +160,7 @@ bundle at the root is a dict of entries pulled into a step by name, a template w
 step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
 entry of whichever step pulls it in, and `<a step>.<one of its entries>` is refused, since pulled into
 another step it would still mean that step's. An operand from an entry of its own step is served in a
-forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap).
+forward, not inside a generate: a cross-site adapter inside a generate is refused.
 
 ### An op in an entry
 
@@ -185,13 +185,14 @@ refusal's token counts.
 
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
-          | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
-frame    := selector                                                  # default 0
-scope    := {"column": column or a list, "occurrence"?: selector, "before"?: bool}
-          | {"text": one or a list, "occurrence"?: selector, "strip"?: bool, "lower"?: bool, "before"?: bool}
-          | {"turn": "<role>", "occurrence"?: selector, "before"?: bool}   # occurrence default 0
+          | {"frame"?: frame, "scope"?: scope, "index"?: swept}        # index default ":"
+frame    := swept                                                     # default 0
+scope    := {"column": column or a list, "occurrence"?: swept, "before"?: bool}
+          | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "before"?: bool}
+          | {"turn": "<role>", "occurrence"?: swept, "before"?: bool}      # occurrence default 0
 column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
+swept    := selector | {"sweep": [selector, ...]}                     # a point per selector
 ```
 
 Each stage is a selector over what the stage before it left (`selectors.select`): an int counts one

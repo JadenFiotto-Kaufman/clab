@@ -316,6 +316,19 @@ def test_a_refusal_counts_tokens_as_positions(engines):
         run(engines, plan(-1, 4))
 
 
+def test_a_scopes_occurrence_takes_a_sweep_as_the_grammar_says(engines):
+    """`occurrence` is typed as what it accepts, a selector or a sweep of one, as `frame` and `index` are: a sweep
+    makes a point per occurrence, each at that occurrence's positions."""
+    from clab.plan import Pos
+
+    plan = doc(TINY, [{"input": "one two one two"}], {"f": forward({"x": {
+        "site": LAYER0, "pos": {"scope": {"text": "one", "occurrence": {"sweep": [0, 1]}}}}})}, ["f.x"])
+    assert [p.at for p in plan.steps["f"]] == [{"occurrence": 0}, {"occurrence": 1}]
+    assert placed(run(engines, plan))["f.x"] == {"occurrence=0": [[1]], "occurrence=1": [[3]]}
+    assert 'swept    := selector | {"sweep": [selector, ...]}' in (Pos.__doc__ or "") and \
+        '"occurrence"?: swept' in (Pos.__doc__ or "")
+
+
 def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
     """`{"turn": "system"}` on a chat with no system message: where the template wrote a system header of its own
     before the first message (Llama 3's `Cutting Knowledge Date` block), the refusal says that header is positions
