@@ -139,7 +139,9 @@ class Model(Record):
     """The pinned checkpoint: `key`, `revision` and `dtype` (torch's spelling). Every other key goes to the
     engine's loader untouched (`attn_implementation`, ...), and a loader refuses what it cannot honor; where
     the model runs (`device`) is a run option, not the document's. The attention interior needs
-    `attn_implementation: "eager"`."""
+    `attn_implementation: "eager"`. A vision-language checkpoint loads with its processor under `"task":
+    "image-text-to-text"`, which a chat with image parts needs (`data.<name>`); without it the text model
+    loads alone."""
     model_config = ConfigDict(extra="allow")
     key: str
     revision: str
@@ -161,7 +163,11 @@ class Data(Record):
     fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
     "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes. A row is
-    JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
+    JSON. A chat message's `content` may be a list of parts, as the checkpoint's processor takes them:
+    `{"type": "text", "text": "..."}` and `{"type": "image", "image": "<file under data/>"}`, the image a file
+    beside the rows under the corpus root's `data/` (`"comics/strip_001.png"`), held by reference, which the
+    processor expands into that image's tokens where the part stands; it needs the model loaded with its
+    processor (`model`'s `task`). Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
     `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
@@ -205,34 +211,6 @@ class Data(Record):
         return self
 
 
-class Site(Record):
-    """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
-    layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
-    it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-    (`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
-    made at each layer they pick, in one forward."""
-    component: str
-    layers: Swept[Selector] | None = None
-    select: dict[str, Swept[Selector]] | None = None
-
-    @model_validator(mode="after")
-    def _narrowing(self) -> "Site":
-        if self.component not in address.COMPONENTS:
-            raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
-        if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
-            raise ValueError(f"{self.component} is a block's value and needs 'layers'"
-                             if address.COMPONENTS[self.component]["per_layer"]
-                             else f"{self.component} is the model's own value and takes no layers")
-        valid = address.selectable(self.component)
-        for axis, index in (self.select or {}).items():
-            if axis not in valid:
-                raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
-            if axis == "key" and not isinstance(index, Sweep) and not selectors.keyed(index):
-                raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
-                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\")")
-        return self
-
-
 class Column(Record):
     """A column read as text, where a scope searches for it or a metric scores it: `"<dataset>.<column>"`, or
     `{"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}` (an indexed input's variables are named
@@ -267,23 +245,47 @@ ColumnRef = Union[str, Column]
 
 class Scope(Record):
     """`{"column": <column>}`: the row's own text of that column (a `Column`: the string or the object), each
-    member of a set; `{"text": "<literal>"}`: that text; or `{"turn": "<role>"}`: that role's messages of a
-    chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
-    listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
-    scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
-    occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
-    side, and no letter or digit adjoining a word it cuts); and `before`,
-    whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
-    `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
-    them)."""
-    # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
+    member of a set; `{"text": "<literal>"}`: that text; `{"turn": "<role>"}`: that role's messages of a
+    chat, each an occurrence; or `{"image": <selector>}`: the tokens of the row's images, each image an
+    occurrence, which `image` picks among (default 0, the first; `":"` every one). `column` and `text` may each
+    be a list: the scope's texts are then every one listed (a string is the one-element list), their occurrences
+    together, ordered by where each ends. Every scope takes `occurrence`, which of its occurrences it is (a
+    selector; default 0, the first; an image scope's is its `image`): a text's occurrence lies on token and
+    word boundaries, as `pos` says (a token's own surrounding whitespace on either side, and no letter or digit
+    adjoining a word it cuts); and `before`, whether it is the positions that predict its tokens rather than the
+    tokens themselves. A `text` takes `strip` and `lower`, as a column's reference does (a turn's contents are
+    located as the template rendered them).
+
+    An image scope takes `region`: a box `[x0, y0, x1, y1]` in fractions of the image's width and height (0 to
+    1, the origin top left), a list of boxes (their union), or a column `"<dataset>.<column>"` whose value on
+    each row is one or the other. It keeps the tokens whose grid cell's centre lies in a box (`x0 <= x < x1`,
+    the right and bottom edges inclusive at 1), on the grid the image's tokens tile it in, which clab knows from
+    the processor (the Qwen ViTs' `image_grid_thw`, merged) or from a square count (a fixed-resolution tower);
+    `outside` flips it to the image's tokens outside the region. The region names a part of the image, so a
+    region that keeps no token of an image is refused by name."""
+    # One of column, text, turn and image; a text's flags are its own, a column's on its reference, a turn's
+    # none; region and outside are an image's.
     column: ColumnRef | list[ColumnRef] | None = None
     text: str | list[str] | None = None
     turn: str | None = None
+    image: Swept[Selector] | None = None
+    region: Swept[list[Any] | str] | None = None
+    outside: bool = False
     occurrence: Swept[Selector] = 0
     strip: bool = False
     lower: bool = False
     before: bool = False
+
+    @field_validator("region")
+    @classmethod
+    def _region(cls, given: Any) -> Any:
+        """A box is four numbers in [0, 1], `x0 < x1` and `y0 < y1`; a list of boxes holds at least one; a
+        string names a column."""
+        if given is None or isinstance(given, (str, Sweep)):
+            return given
+        boxes(given)
+        return given
+
 
     @field_validator("column")
     @classmethod
@@ -295,9 +297,9 @@ class Scope(Record):
 
     @model_validator(mode="after")
     def _one(self) -> "Scope":
-        if [self.column, self.text, self.turn].count(None) != 2:
+        if [self.column, self.text, self.turn, self.image].count(None) != 3:
             raise ValueError("a scope is one of {'column': '<dataset>.<column>'}, {'text': '<literal>'}, "
-                             "{'turn': '<role>'}")
+                             "{'turn': '<role>'}, {'image': <selector>}")
         if [] in (self.column, self.text):
             raise ValueError("a scope's list of columns or texts names at least one")
         for flag in ("strip", "lower"):
@@ -307,10 +309,39 @@ class Scope(Record):
             if self.column is not None and flag in self.model_fields_set:
                 raise ValueError(f"a column's {flag} goes on its reference: {{'column': {{'column': "
                                  f"'<dataset>.<column>', {flag!r}: true}}}}")
+            if self.image is not None and flag in self.model_fields_set:
+                raise ValueError(f"an image's tokens are no text; an image scope takes no {flag}")
         if self.turn is not None and not self.turn.isidentifier():
             raise ValueError(f"turn {self.turn!r} is a role; its messages are its occurrences, so "
                              "`{'turn': 'user', 'occurrence': 1}` is the second user message")
+        if self.image is not None and "occurrence" in self.model_fields_set:
+            raise ValueError("an image scope's occurrences are the row's images, which 'image' picks among "
+                             "({'image': 1} is the second image); it takes no 'occurrence'")
+        if self.image is None and (self.region is not None or "outside" in self.model_fields_set):
+            raise ValueError("'region' and 'outside' narrow an image scope ({'image': 0, 'region': [x0, y0, x1, "
+                             "y1]}); the scope names no image")
+        if self.image is not None and self.outside and self.region is None:
+            raise ValueError("'outside' flips a region to the image's tokens outside it, and the scope gives "
+                             "no region")
         return self
+
+
+def boxes(given: Any) -> list[list[float]]:
+    """A region as its boxes, each `[x0, y0, x1, y1]`: the one box given, or the list of them, which holds at
+    least one; anything else is refused by name."""
+    listed = [given] if isinstance(given, list) and given and not isinstance(given[0], list) else given
+    if not isinstance(listed, list) or not listed:
+        raise ValueError(f"{given!r}: a region is a box [x0, y0, x1, y1], a list of boxes, or a column")
+    for box in listed:
+        if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) and
+                                                                 not isinstance(v, bool) for v in box)):
+            raise ValueError(f"region {box!r}: a box is four numbers [x0, y0, x1, y1], fractions of the "
+                             "image's width and height")
+        x0, y0, x1, y1 = box
+        if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+            raise ValueError(f"region {box!r}: a box is [x0, y0, x1, y1] with 0 <= x0 < x1 <= 1 and "
+                             "0 <= y0 < y1 <= 1, fractions of the image's width and height")
+    return [[float(v) for v in box] for box in listed]
 
 
 class Pos(Record):
@@ -330,6 +361,8 @@ class Pos(Record):
     scope    := {"column": column or a list, "occurrence"?: selector, "before"?: bool}
               | {"text": one or a list, "occurrence"?: selector, "strip"?: bool, "lower"?: bool, "before"?: bool}
               | {"turn": "<role>", "occurrence"?: selector, "before"?: bool}   # occurrence default 0
+              | {"image": selector, "region"?: box or [box, ...] or "<dataset>.<column>", "outside"?: bool}
+    box      := [x0, y0, x1, y1]                                       # fractions of the image, top left 0, 0
     column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     ```
@@ -356,7 +389,10 @@ class Pos(Record):
     **scope** (default: every token the frame selected): `column` and `text` locate text in the selected
     calls' tokens, in the prompt by the tokenizer's offsets and in the generated tokens by decoding growing
     prefixes: the tokens covering its characters, a chat template's marker among them where the text spans one
-    (a BOS the tokenizer adds covers none; one a template writes covers its text, `<s>`). An occurrence lies on
+    (a BOS the tokenizer adds covers none; one a template writes covers its text, `<s>`; an image's tokens
+    cover its part's placeholder, so a `turn` holds its images). `image` names the tokens of the row's images,
+    in call 0 only: each image is an occurrence, `image` picks which (0 the first, `":"` every one), and
+    `region` keeps the tokens of a part of it (Scope). An occurrence lies on
     token and word boundaries: it starts where a token starts and ends where a token ends (a token's own leading
     or trailing whitespace on either side of the boundary; one that ends in the next token's leading whitespace
     ends where that token starts, so `Paris. ` does not cover the ` Paris` after it), and where its first or
@@ -408,12 +444,61 @@ class Pos(Record):
         frame, index = self.frame, self.index
         if self.scope is not None and self.scope.turn is not None and frame != 0 and not isinstance(frame, Sweep):
             raise ValueError(f"scope turn {self.scope.turn!r} is a chat turn of the prompt; it takes frame 0")
+        if self.scope is not None and self.scope.image is not None and frame != 0 and not isinstance(frame, Sweep):
+            raise ValueError(f"scope image {self.scope.image!r} names the prompt's image tokens; it takes frame 0")
         if self.scope is not None or isinstance(frame, Sweep) or isinstance(index, Sweep) or selectors.from_end(frame):
             return self
         calls = selectors.fixed(frame)
         if calls is not None and 0 not in selectors.select(frame, 1) and not selectors.select(index, calls):
             raise ValueError(f"index {index!r} picks none of the {calls} tokens of frame {frame!r}'s decode "
                              "calls, one each")
+        return self
+
+
+class Site(Record):
+    """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
+    layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
+    it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
+    (`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+    made at each layer they pick, in one forward.
+
+    On `key`, an attention pattern's or scores' key axis, `select` is a selector counted from the start, or a
+    `pos` object over the prompt (`{"scope": {"image": 0, "region": [0, 0, 0.5, 1]}}`, `{"scope": {"column":
+    "pairs.entity"}}`, `{"scope": {"turn": "user"}, "index": "-3:"}`): each row's own keys it names, in order,
+    as `pos` names positions in the prefill (its `frame` is 0), a different number of them per row where the
+    scope's size differs, the axis as wide as the widest row's and NaN past a row's own. A write to keys so
+    named takes a number as its operand, and may run at a generation's decode calls, since the prompt's keys
+    keep their places there."""
+    component: str
+    layers: Swept[Selector] | None = None
+    select: dict[str, Annotated[Union[Selector, Sweep, Pos], ByShape()]] | None = None
+
+    @model_validator(mode="after")
+    def _narrowing(self) -> "Site":
+        if self.component not in address.COMPONENTS:
+            raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
+        if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
+            raise ValueError(f"{self.component} is a block's value and needs 'layers'"
+                             if address.COMPONENTS[self.component]["per_layer"]
+                             else f"{self.component} is the model's own value and takes no layers")
+        valid = address.selectable(self.component)
+        for axis, index in (self.select or {}).items():
+            if axis not in valid:
+                raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
+            if isinstance(index, Pos):
+                if axis != "key":
+                    raise ValueError(f"select {axis}: a pos object names keys of the key axis, positions of the "
+                                     f"prompt; {axis} is a feature axis, which a selector narrows")
+                if index.frame != 0:
+                    raise ValueError(f"select key: frame {index.frame!r}; the keys a scope names are the prompt's, "
+                                     "at frame 0")
+                if index.scope is None and selectors.keyed(index.index):
+                    raise ValueError(f"select key: {{'index': {index.index!r}}} with no scope names the same keys "
+                                     f"a selector does; write select key {index.index!r}")
+            elif axis == "key" and not isinstance(index, Sweep) and not selectors.keyed(index):
+                raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
+                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\"), or a "
+                                 "pos object with a scope names each row's own keys ({'scope': {...}})")
         return self
 
 
@@ -537,7 +622,9 @@ class Forward(Record):
     `<step>.<name>`, in the order written.
 
     A chat input (a list of `{"role", "content"}` messages) is rendered through the checkpoint's own chat
-    template, given its dataset's `template` as arguments. Without one there is no generation prompt, so the
+    template, given its dataset's `template` as arguments; on a checkpoint loaded with its processor (`model`'s
+    `task`), through the processor, which expands each image part of a message's content into the image's
+    tokens, a position each, and makes the image tensors the batch carries. Without one there is no generation prompt, so the
     rendered prompt ends with the template's close of the last message (`[/INST]` on Llama-2-style templates,
     `<|im_end|>` and a newline on Qwen3's): `pos: -1` with no scope is that close's last token, a marker or not.
     With `{"add_generation_prompt": true}` it ends with the assistant's header, whose tokens are positions like
@@ -771,8 +858,9 @@ class Run(Record):
     `positions` describe values without holding any: how each dataset input tokenized and what each generate
     step's rows generated (token strings per row, under the input or the step's name), and the position every
     read and write resolved to, per row (a position, as `pos` counts them: an index into the row's prompt
-    tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach). A swept
-    step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
+    tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), and `keys` the
+    keys every read and write whose site names keys by a scope resolved to, per row, numbered the same way. A
+    swept step's are keyed by coordinate. `num_layers` is the model's, which a site's `layers` select among: a
     `layers` axis's labels are `selectors.select(site.layers, num_layers)`."""
     engine: str
     batch_size: int
@@ -785,6 +873,7 @@ class Run(Record):
     seconds: float = 0.0
     tokens: dict[str, Any] = {}
     positions: dict[str, Any] = {}
+    keys: dict[str, Any] = {}
     num_layers: int | None = None
 
 

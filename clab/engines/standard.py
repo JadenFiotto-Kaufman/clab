@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from torch import Tensor
     from transformers import GenerationConfig, PreTrainedTokenizerBase
 
+    from clab.format.data import Vision
     from clab.plan import Model
 
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
@@ -60,10 +61,36 @@ OWNED = {"device": "where the model runs is a run option: --device", "device_map
 COMPUTED = ("auto", "balanced", "balanced_low_0", "sequential")
 
 
-def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:
-    """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
-    computed device map puts the model's input."""
-    return {k: batch[k].to(device) for k in keys}
+def inputs(batch: dict[str, Tensor], device: str, mrope: bool = False) -> dict[str, Tensor]:
+    """The batch on `device`: where the model's first parameter is (`batches.home`), which is where a
+    computed device map puts the model's input. Every tensor the batch carries goes: the ids, the mask, the
+    position ids, a processor's per-token tensors and the image tensors; the position ids stay behind under
+    `mrope` (a generation's always, which lays its own out)."""
+    return {k: v.to(device) for k, v in batch.items() if not (mrope and k == "position_ids")}
+
+
+def mrope(module: Any) -> bool:
+    """Whether the model lays its own position ids out over a prompt with images (multimodal rotary positions:
+    the Qwen-VL family's `get_rope_index`, from the attention mask and the images' grids), so that the 1-d ones
+    clab counts would be wrong there and it is given none."""
+    return any(hasattr(m, "get_rope_index") for m in (module, getattr(module, "model", None)) if m is not None)
+
+
+def vision(processor: Any, config: Any) -> Vision | None:
+    """What a chat with image parts needs of the loaded checkpoint (`data.Vision`): its processor, and the id
+    of the token the processor puts where an image's tokens go (the config's `image_token_id`, or
+    `image_token_index`); None on a checkpoint loaded without a processor (the default `text-generation` task)."""
+    if processor is None:
+        return None
+    found = next((getattr(config, n) for n in ("image_token_id", "image_token_index")
+                  if isinstance(getattr(config, n, None), int)), None)
+    return {"processor": processor, "image_token_id": found}
+
+
+def loader_extra(model: Model) -> dict[str, Any]:
+    """The model block's keys for a plain transformers loader: every extra but `task`, which is the pipeline's
+    (nnsight's loader takes it; `from_pretrained` does not)."""
+    return {k: v for k, v in (model.model_extra or {}).items() if k != "task"}
 
 
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:

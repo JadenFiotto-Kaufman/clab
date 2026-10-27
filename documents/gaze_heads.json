@@ -1,0 +1,45 @@
+{
+  "description": "Gaze heads on a vision-language checkpoint (Gandikota and Bau, 2026), on the tiny Qwen3-VL: each row's image is two halves, red|blue or blue|red, and the question asks for the colour on one side; `left` is that side's box on the row and `right` the other's. `gaze` reads every head's attention from the last prompt token to the asked side's image tokens (`select key` names the keys by a region of the image) and `rest` to the other side's; `score` is each head's mean mass on the asked side, the gaze score, and `whole` checks that the two masses sum to the mass on the image. `steered` then biases heads 0 and 2 of block 1 toward the OTHER side by +10000 on its keys and -10000 on the asked side's, in the prefill and at every decode call, so those heads look only there; `null` biases them by 0, which equals `plain` to the bit. The model block's `task` loads the checkpoint with its processor, which an image part needs, and `attn_implementation: eager` serves the attention interior.",
+  "model": {
+    "key": "trl-internal-testing/tiny-Qwen3VLForConditionalGeneration",
+    "revision": "ba190cb38011bcda2f70f7781f2b8290627aef00",
+    "dtype": "float32",
+    "task": "image-text-to-text",
+    "attn_implementation": "eager"
+  },
+  "data": {"halves": {"path": "images/halves", "template": {"add_generation_prompt": true}}},
+  "sites": {
+    "asked": {"component": "attention_probabilities", "layers": ":",
+              "select": {"key": {"scope": {"image": 0, "region": "halves.left"}}}},
+    "other": {"component": "attention_probabilities", "layers": ":",
+              "select": {"key": {"scope": {"image": 0, "region": "halves.left", "outside": true}}}},
+    "image": {"component": "attention_probabilities", "layers": ":", "select": {"key": {"scope": {"image": 0}}}},
+    "toward_other": {"component": "attention_scores", "layers": 1,
+                     "select": {"num_heads": [0, 2], "key": {"scope": {"image": 0, "region": "halves.right"}}}},
+    "away_from_asked": {"component": "attention_scores", "layers": 1,
+                        "select": {"num_heads": [0, 2], "key": {"scope": {"image": 0, "region": "halves.left"}}}},
+    "pattern": {"component": "attention_probabilities", "layers": 1},
+    "head": {"component": "logits"}
+  },
+  "steps": {
+    "gaze": {"kind": "forward", "input": "halves.chat", "interventions": {
+      "asked": {"site": "asked", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]},
+      "other": {"site": "other", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]},
+      "image": {"site": "image", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]},
+      "logits": {"site": "head", "pos": -1}
+    }},
+    "score": {"kind": "op", "op": "mean", "of": "gaze.asked"},
+    "whole": {"kind": "op", "op": "mean", "of": "gaze.image"},
+    "p_answer": {"kind": "op", "op": "token_prob", "of": "gaze.logits", "token": "halves.answer"},
+    "plain": {"kind": "generate", "input": "halves.chat", "max_new_tokens": 2, "do_sample": false},
+    "steered": {"kind": "generate", "input": "halves.chat", "max_new_tokens": 2, "do_sample": false, "interventions": {
+      "toward": {"site": "toward_other", "pos": {"frame": ":"}, "ops": [{"op": "add", "with": 10000.0}]},
+      "away": {"site": "away_from_asked", "pos": {"frame": ":"}, "ops": [{"op": "add", "with": -10000.0}]},
+      "pattern": {"site": "pattern", "pos": -1}
+    }},
+    "null": {"kind": "generate", "input": "halves.chat", "max_new_tokens": 2, "do_sample": false, "interventions": {
+      "toward": {"site": "toward_other", "pos": {"frame": ":"}, "ops": [{"op": "add", "with": 0.0}]}
+    }}
+  },
+  "saves": ["score", "whole", "gaze.other", "p_answer", "plain", "steered", "steered.pattern", "null"]
+}

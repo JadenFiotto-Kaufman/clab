@@ -105,8 +105,9 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     for _, step in walk(points(plan.steps[fit])[0].steps):
         if step.kind in ("forward", "generate") and data.input_name(step.input, swap) in plan.run.tokens:
             tokens[data.input_name(step.input)] = plan.run.tokens[data.input_name(step.input, swap)]
-    run = plan.run.model_copy(update={"tokens": tokens, "positions": {
-        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
+    run = plan.run.model_copy(update={"tokens": tokens, **{
+        field: {k.removeprefix(f"{fit}.{label}."): v for k, v in getattr(plan.run, field).items()
+                if k.startswith(f"{fit}.{label}.")} for field in ("positions", "keys")}})
     return body_view(plan, fit, swap=swap).model_copy(update={
         "run": run, "results": {member: plan.results[name]}, "saves": [member]})
 
@@ -151,11 +152,16 @@ def layer(place: dict[str, Any] | None, k: int) -> int:
 
 def token(place: dict[str, Any], row: int, axis: str, k: int) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
-    through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
-    None past the row's own positions or keys."""
+    through its `select` (a selector's keys, or per row the keys a scope named) or, unselected, the row's own
+    key `k`, each a position of the row as `pos` counts them; None past the row's own positions or keys."""
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) else {axis: None}
-    index = place["keys"][k] if place["keys"] is not None else k
+    if place["keys"] is None:
+        index = k
+    elif k < len(place["keys"][row]):
+        index = place["keys"][row][k]
+    else:
+        return {axis: None}
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 
 
@@ -210,7 +216,12 @@ def located(plan: Plan, source: str, at: dict[str, int]) -> dict[str, Any]:
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
     resolved, site = plan.run.positions[source], read.site
-    keys = selectors.keys(site.select["key"]) if "key" in (site.select or {}) else None
+    keys: list[list[int]] | None = None
+    if source in plan.run.keys:                         # named by a scope: each row's own, as the run resolved them
+        named = plan.run.keys[source]
+        keys = named[labelled(plan, producer.at)] if producer.at else named
+    elif "key" in (site.select or {}):
+        keys = [selectors.keys(site.select["key"])] * len(prompt)
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "keys": keys,

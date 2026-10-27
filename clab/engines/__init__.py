@@ -34,6 +34,7 @@ from typing import Any, Callable, Iterator, Protocol
 from torch import Tensor
 
 from clab.format import registry
+from clab.format.data import Vision
 from clab.plan import Model, Plan
 
 # What every engine's constructor takes beside its own options.
@@ -51,6 +52,8 @@ class Engine(Protocol):
     spec: Model
     model: Parameterized
     options: dict[str, Any]
+    vision: Vision | None         # the processor and the image token's id, on a checkpoint loaded with its processor
+    mrope: bool                   # whether the model lays its own position ids out (`standard.mrope`)
 
     @property
     def device(self) -> str | None: ...

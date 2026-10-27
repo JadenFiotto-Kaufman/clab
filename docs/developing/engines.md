@@ -39,13 +39,14 @@ An engine that ignores `clab.steps` has everything `steps.run` does to do itself
 
 | member | what it returns |
 |---|---|
-| `forward(batch, records)` | one forward of the batch (`input_ids`, `attention_mask`, `position_ids`, already padded) with the records done; each read's value by its name |
+| `forward(batch, records)` | one forward of the batch (`input_ids`, `attention_mask`, `position_ids`, already padded; on a vision-language checkpoint the processor's per-token tensors, padded the same way, and the image tensors) with the records done; each read's value by its name. A model that lays its own position ids out over an image (the engine's `mrope`, from `standard.mrope`) is given none |
 | `generate(batch, records, options)` | the model's `generate` over the batch with the step's own keys as keyword arguments, the records done at every forward call; a pair: the new ids (the prompt cut off), then each read by name |
 | `readout(hidden)` | the model's own unembedding: final norm, head, and whatever the model does after the head |
 | `unserved()` | each component in `COMPONENTS` mapped to None (served), the reason it is not, or `{layer: reason}` |
 | `rank(component, layer)` | any sortable value placing the component in the forward |
 | `sizes()` | the model's sizes, the keys in `clab/engines/standard.py` `SIZES` |
 | `tokenizer`, `eos` | a Hugging Face tokenizer (`PreTrainedTokenizerBase`), with which the steps tokenize inputs and answers, render chats with `apply_chat_template`, pad batches and name tokens with `convert_ids_to_tokens`; the ids generation stops on (`clab/engines/standard.py` `stops`) |
+| `vision`, `mrope` | on a checkpoint loaded with its processor, the processor and the image token's id (`clab/engines/standard.py` `vision`), with which the steps render a chat with image parts, tokenize it as the checkpoint does and make each batch's image tensors (`clab/format/data.py` `encode`, `pixels`); None on a text-only load. `mrope` says whether the model lays its own position ids out (`standard.mrope`) |
 
 Preflight uses `unserved`, `sizes`, `rank` and the tokenizer before any forward; the steps use the rest. The batch's tensors go where the model's first parameter is, or to the engine's `device` while that parameter is on `meta`, as in a shell that loads its weights at its first forward (`clab/steps/batches.py` `home`).
 

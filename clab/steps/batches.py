@@ -27,40 +27,52 @@ if TYPE_CHECKING:
 
 
 def site(record: Intervention, picks: dict, rows: list[list[int]], pads: list[int], width: int,
-         last_only: bool) -> dict:
+         last_only: bool, keyed: list[list[int]] | None = None) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
     its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
     batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
     own), the part of the feature axes it keeps
     (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys
-    (`keys`). Where the value holds the last position alone (`last_only`: a generation's head in the prefill)
-    every index is -1."""
+    (`keys`), or the keys a scope named on each row (`keyed`). Where the value holds the last position alone
+    (`last_only`: a generation's head in the prefill) every index is -1."""
     n = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(rows, pads)]
     tok = [row + [-1] * (n - len(row)) for row in rows]
     index = [[-1] * n for _ in rows] if last_only else index
     return {"component": cast(Site, record.site).component, "positions": torch.tensor(index),
-            "select": selection(record, picks), **keys(record, pads, width),
+            "select": selection(record, picks), **keys(record, pads, width, keyed),
             "keep": torch.tensor([[j < len(row) for j in range(n)] for row in rows]), "tok": torch.tensor(tok)}
 
 
-def decoding(record: Intervention, picks: dict, prompts: list[int]) -> dict:
-    """What the engine needs to reach a record at a decode call: the call's one position, the last; and, in
+def decoding(record: Intervention, picks: dict, prompts: list[int], pads: list[int] | None = None,
+             keyed: list[list[int]] | None = None) -> dict:
+    """What the engine needs to reach a record at a decode call: the call's one position, the last; in
     `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
-    number is the input's."""
+    number is the input's; and the prompt's keys a scope named on each row (`keyed`), which keep their places
+    in the padded batch at every call."""
     return {"component": cast(Site, record.site).component, "positions": torch.full((len(prompts), 1), -1),
-            "select": selection(record, picks), "tok": torch.tensor([[p - 1] for p in prompts])}
+            "select": selection(record, picks), "tok": torch.tensor([[p - 1] for p in prompts]),
+            **(keys(record, cast(list, pads), 0, keyed) if keyed is not None else {})}
 
 
-def keys(record: Intervention, pads: list[int], width: int) -> dict:
+def keys(record: Intervention, pads: list[int], width: int, keyed: list[list[int]] | None = None) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompted`), which a key selector counts:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, width]`) each row's keys in the
-    padded batch, in order, then its padding's, and `own` which of those are the row's (`owned`). Nothing
-    on a component with no key axis."""
+    padded batch, in order, then its padding's, and `own` which of those are the row's (`owned`). Where a scope
+    named each row's keys (`keyed`, per row the positions it named), `index` is those, in order, a row with
+    fewer than the batch's most repeating its last (`own` false there, so a read is NaN past a row's own and a
+    write writes each key once: `unowned`). Nothing on a component with no key axis."""
     layout = address.dims(cast(Site, record.site).component)
     if "key" not in layout:
         return {}
+    if keyed is not None:
+        n = max(1, *map(len, keyed))
+        index = [[p + pad for p in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
+                 for row, pad in zip(keyed, pads)]
+        own = [[j < len(row) for j in range(n)] for row in keyed]
+        return {"keys": {"dim": layout.index("key"), "index": torch.tensor(index), "own": torch.tensor(own),
+                         "scoped": True}}
     index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) for pad in pads]
     own = [[j < width - pad for j in range(width)] for pad in pads]
     return {"keys": {"dim": layout.index("key"), "index": torch.tensor(index), "own": torch.tensor(own)}}
@@ -100,13 +112,18 @@ def edit(plan: Plan, record: Intervention, state: dict, at: dict, rows: slice, a
 
 def chunked(engine: Engine, step: Forward, found: Found, batch_size: int) -> Iterator[tuple[slice, dict, list[int]]]:
     """The step's input in consecutive batches: each one's rows (a slice), its ids padded on the left to the
-    input's longest row, and each row's padding."""
+    input's longest row (with the processor's per-token tensors, and the batch's image tensors where its rows
+    have images: `data.pixels`), and each row's padding."""
     encoded = found.inputs[data.input_name(step.input)]
     n = len(encoded["rows"])
     for lo in range(0, n, batch_size):
         chunk = slice(lo, min(lo + batch_size, n))
-        ids = [e["ids"] for e in encoded["rows"][chunk]]
-        yield chunk, data.pad(engine.tokenizer, ids, encoded["width"]), [encoded["width"] - len(x) for x in ids]
+        rows = encoded["rows"][chunk]
+        ids = [e["ids"] for e in rows]
+        batch = data.pad(engine.tokenizer, ids, encoded["width"], [e.get("per_token", {}) for e in rows])
+        if any(e.get("images") or e.get("image_note") for e in rows):
+            batch.update(data.pixels(cast(dict, engine.vision), encoded["root"], rows, encoded["template"]))
+        yield chunk, batch, [encoded["width"] - len(x) for x in ids]
 
 
 def read_name(key: str, layer: int | None, prefill: bool = False) -> str:
@@ -123,7 +140,8 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, foun
     chosen = {k: r for k, r in entries(step).items() if (writes(r) or r.gathered) and (among is None or k in among)}
     width = found.inputs[data.input_name(step.input)]["width"]
     sites = {key: site(record, lookup(found.selects, f"{name}.{key}", step.at),
-                       lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record))
+                       lookup(found.positions, f"{name}.{key}", step.at)[rows], pads, width, head(step, record),
+                       keyed(found, f"{name}.{key}", step.at, rows))
              for key, record in chosen.items()}
     live = {f"{name}.{key}": {layer: read_name(key, layer) for layer in layers(engine, record)}
             for key, record in chosen.items() if record.gathered}
@@ -136,6 +154,12 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: dict, foun
         if record.gathered:
             records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
     return sites, records
+
+
+def keyed(found: Found, where: str, at: dict, rows: slice) -> list[list[int]] | None:
+    """The keys a scope named on each row of this batch for the record `where` (`found.keys`), or None where
+    its site names keys by a selector, or none."""
+    return lookup(found.keys, where, at)[rows] if where in found.keys else None
 
 
 def layers(engine: Engine, record: Intervention) -> list[int] | list[None]:
@@ -159,8 +183,8 @@ def stacked(record: Intervention, values: list) -> Any:
 def joined(state: dict, name: str, step: Forward, parts: list[dict]) -> None:
     """Each gathered entry's per-batch values joined along rows, on the first batch's device, as `stacked`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
-    under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`padded`)."""
+    under a device map batches can come back apart); a batch narrower than the widest along `pos`, or along
+    `key` where a scope names each row's keys, is padded to it first (`padded`)."""
     for key, record in entries(step).items():
         if not record.gathered:
             continue
@@ -168,8 +192,9 @@ def joined(state: dict, name: str, step: Forward, parts: list[dict]) -> None:
         values = [p[key] for p in parts]
 
         def cat(parts: list[Tensor]) -> Tensor:
-            if "pos" in dims:
-                parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
+            for axis in ("pos", "key"):
+                if axis in dims:
+                    parts = [padded(v, dims.index(axis), max(v.shape[dims.index(axis)] for v in parts)) for v in parts]
             return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
         put(state, f"{name}.{key}", step.at, cat(values) if isinstance(values[0], Tensor) else
             {k: cat([v[k] for v in values]) for k in values[0]})
@@ -279,10 +304,16 @@ def owned(x: Tensor, record: dict) -> Tensor:
 
 def unowned(current: Tensor, new: Tensor, record: dict) -> Tensor:
     """`new`, a selection in each row's own key order (`owned`), back in the batch's order over `current`: the
-    row's own keys from `new`, its padding's as `current` has them."""
+    row's own keys from `new`, its padding's as `current` has them. Where a scope named the keys (`scoped`), a
+    row's slots past its own repeat its last key, and are given that key's new value, so every key is written
+    one value whichever slot lands last."""
     dim, keys = record["keys"]["dim"], record["keys"]
     index, own = (per_row(current, dim, keys[k].to(current.device)) for k in ("index", "own"))
-    return current.scatter(dim, index, torch.where(own, new, current.gather(dim, index)))
+    src = torch.where(own, new, current.gather(dim, index))
+    if keys.get("scoped"):
+        last = (keys["own"].sum(1) - 1).clamp(min=0)[:, None].expand_as(keys["own"]).to(current.device)
+        src = torch.where(own, src, src.gather(dim, per_row(src, dim, last)))
+    return current.scatter(dim, index, src)
 
 
 def take(x: Tensor, dim: int, index: Tensor) -> Tensor:

@@ -14,12 +14,12 @@ Find the part of the document you are writing or the stage of the run you are at
 ## Declaring
 
 - [writing-a-document](writing-a-document.md) — The anatomy of a clab document: the root keys, a four-step patching experiment read top to bottom, how steps name each other's values, saves, and what is checked before the model loads.
-- [data](data.md) — Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets.
+- [data](data.md) — Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs, and image parts in a chat on a vision-language checkpoint; list inputs for teacher forcing; answer columns with strip, lower and sets.
 
 ## Locating
 
-- [sites](sites.md) — Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys, the layout a site's value has, and when attention needs eager.
-- [positions](positions.md) — Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, every token, the generated tokens, and reading back where each read and write landed.
+- [sites](sites.md) — Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys (counted, or named by a scope), the layout a site's value has, and when attention needs eager.
+- [positions](positions.md) — Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, an image's tokens or a region of them, every token, the generated tokens, and reading back where each read and write landed.
 
 ## Reading and writing
 

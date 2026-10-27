@@ -1,7 +1,7 @@
 ---
 title: Sites
-one_liner: "Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys, the layout a site's value has, and when attention needs eager."
-tags: [usage, sites, components, layers, select, heads, attention]
+one_liner: "Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys (counted, or named by a scope), the layout a site's value has, and when attention needs eager."
+tags: [usage, sites, components, layers, select, heads, attention, keys, image]
 related: [docs/usage/positions.md, docs/concepts/values-and-layout.md, docs/usage/interventions.md, docs/usage/engines.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/attention.md, docs/patterns/logit-lens.md]
 sources: [clab/format/address.py, clab/format/selectors.py, clab/plan.py, clab/compile/interventions.py]
 ---
@@ -55,8 +55,8 @@ A block's component needs `layers`; the model's own values (`token_embeddings`, 
 
 - **The axis stays.** `{"num_heads": 2}` is a `num_heads` axis of size 1, the same value as `[2]`, so a site has one layout whatever it selects. On `attention_premix` at `pos: -1` that is `[rows, 1, 1, head_dim]`.
 - **A list keeps its order, and the order is positional.** `{"num_heads": [3, 1]}` puts head 3 at index 0. An operand must carry the same picks in the same order as the write it meets, or it is refused; an `argmax` or `top_k` over the selected axis returns indices into the selection, not head numbers. Build every site of a head set from one sorted list. See [values-and-layout.md](../concepts/values-and-layout.md#select-keeps-the-axis).
-- **A write selects on one axis.** A read may select heads and dimensions together; a write is refused with `an entry that writes selects on one axis; this one selects num_heads, head_dim`.
-- **`key` counts from the start.** A key selector picks the same keys of every row (`0` for BOS, `[0, 2]`, `"0:3"`); `-1` is refused, since rows differ in length. The `key` axis is each row's own tokens, as positions count them.
+- **A write selects on one axis**, beside keys a scope names. A read may select heads and dimensions together; a write is refused with `an entry that writes selects on one axis (beside keys a scope names); this one selects num_heads, head_dim`.
+- **`key` counts from the start, or names keys by a scope.** A key selector picks the same keys of every row (`0` for BOS, `[0, 2]`, `"0:3"`); `-1` is refused, since rows differ in length. The `key` axis is each row's own tokens, as positions count them. A `pos` object instead names each row's own keys as `pos` names positions in the prompt: `{"key": {"scope": {"image": 0, "region": "q.panel"}}}` is the keys of a part of the row's image ([positions.md](positions.md#image-tokens)), `{"key": {"scope": {"column": "pairs.entity"}}}` the entity's tokens, `{"key": {"scope": {"turn": "user"}, "index": "-3:"}}` the user message's last three. Rows may hold different numbers of such keys; the axis is as wide as the widest row's and NaN past a row's own, so `sum` over `key` is the mass on the named keys, row by row. A write to keys so named takes a number as its operand, may select heads beside them, and may run at a generation's decode calls (`"pos": {"frame": ":"}`), since the prompt's keys keep their places there; `run.keys` records the keys each row resolved to, and `clab table` labels them with their tokens.
 - **`readout` needs the whole stream.** Selecting `hidden_size` and then `readout` is refused, since the final norm needs every dimension; read the site whole, `readout`, then narrow the logits. Which components `readout` takes is in [ops.md](ops.md#transforms).
 - **A metric needs the whole vocabulary.** `match`, `logit_diff` and `token_prob` look an answer up by token id, so a head narrowed on `vocab_size` gives them the wrong axis; score the full head ([ops.md](ops.md#metrics)).
 

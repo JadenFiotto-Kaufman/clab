@@ -70,14 +70,16 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
         entry = plan.steps[name.partition(".")[0]]
         plan.results[name] = ({coordinate(plan, p.at): finished(saved(plan, state, name, p.at)) for p in entry}
                               if isinstance(entry, list) else finished(saved(plan, state, name, {})))
-    positions = dict(found.positions)
+    positions, keys = dict(found.positions), dict(found.keys)
     for fit, by_point in found.bodies.items():        # a body's records, as each eval run resolved them
         for sources in by_point.values():
             for label, (_, body) in sources["evals"].items():
-                for where, resolved in body.positions.items():
-                    key = f"{fit}.{label}.{where}"
-                    positions[key] = {**positions.get(key, {}), **resolved}
+                for whole, theirs in ((positions, body.positions), (keys, body.keys)):
+                    for where, resolved in theirs.items():
+                        key = f"{fit}.{label}.{where}"
+                        whole[key] = {**whole.get(key, {}), **resolved}
     plan.run.positions = {where: by_coordinate(plan, by_point) for where, by_point in positions.items()}
+    plan.run.keys = {where: by_coordinate(plan, by_point) for where, by_point in keys.items()}
     plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
     plan.run.dtype, plan.run.devices = placed(engine.model)
 

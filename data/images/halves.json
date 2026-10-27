@@ -1,0 +1,134 @@
+[
+ {
+  "example_id": "rb",
+  "chat": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "image",
+      "image": "images/rb.png"
+     },
+     {
+      "type": "text",
+      "text": "Which colour is on the left? Answer with the colour only."
+     }
+    ]
+   }
+  ],
+  "left": [
+   0,
+   0,
+   0.5,
+   1
+  ],
+  "right": [
+   0.5,
+   0,
+   1,
+   1
+  ],
+  "answer": "red",
+  "other": "blue",
+  "split": "all"
+ },
+ {
+  "example_id": "br",
+  "chat": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "image",
+      "image": "images/br.png"
+     },
+     {
+      "type": "text",
+      "text": "Which colour is on the left? Answer with the colour only."
+     }
+    ]
+   }
+  ],
+  "left": [
+   0,
+   0,
+   0.5,
+   1
+  ],
+  "right": [
+   0.5,
+   0,
+   1,
+   1
+  ],
+  "answer": "blue",
+  "other": "red",
+  "split": "all"
+ },
+ {
+  "example_id": "rb_right",
+  "chat": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "image",
+      "image": "images/rb.png"
+     },
+     {
+      "type": "text",
+      "text": "Which colour is on the right? Answer with the colour only."
+     }
+    ]
+   }
+  ],
+  "left": [
+   0.5,
+   0,
+   1,
+   1
+  ],
+  "right": [
+   0,
+   0,
+   0.5,
+   1
+  ],
+  "answer": "blue",
+  "other": "red",
+  "split": "all"
+ },
+ {
+  "example_id": "br_right",
+  "chat": [
+   {
+    "role": "user",
+    "content": [
+     {
+      "type": "image",
+      "image": "images/br.png"
+     },
+     {
+      "type": "text",
+      "text": "Which colour is on the right? Answer with the colour only."
+     }
+    ]
+   }
+  ],
+  "left": [
+   0.5,
+   0,
+   1,
+   1
+  ],
+  "right": [
+   0,
+   0,
+   0.5,
+   1
+  ],
+  "answer": "red",
+  "other": "blue",
+  "split": "all"
+ }
+]

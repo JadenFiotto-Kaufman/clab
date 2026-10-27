@@ -1,0 +1,3263 @@
+{
+ "description": "Gaze-head redirection on Qwen3-VL-8B-Instruct, scored without a judge: each panel of a lettered strip carries a random letter, the prompt asks for the letter on this panel (`ambiguous`) or on the k-th panel (`chat`), and the top-100 gaze heads (from gaze_discovery) have their attention scores biased by +10000 on the target panel's image tokens and -10000 on the other panels', in the prefill, which is where a one-letter answer is chosen. `hit` is 1 where the most likely next token is the target panel's letter; `clean_hit` where it is the queried panel's. `control` biases 100 random heads from layers 20-35 outside the gaze set, `null` biases the gaze heads by 0.",
+ "model": {
+  "key": "Qwen/Qwen3-VL-8B-Instruct",
+  "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
+  "dtype": "bfloat16",
+  "task": "image-text-to-text",
+  "attn_implementation": "eager"
+ },
+ "data": {
+  "lq": {
+   "path": "comics/letter_queries",
+   "template": {
+    "add_generation_prompt": true
+   }
+  }
+ },
+ "sites": {
+  "head": {
+   "component": "logits"
+  }
+ },
+ "interventions": {
+  "gaze": {
+   "g_in_2": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 2,
+     "select": {
+      "num_heads": [
+       17
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_2": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 2,
+     "select": {
+      "num_heads": [
+       17
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_18": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 18,
+     "select": {
+      "num_heads": [
+       15,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_18": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 18,
+     "select": {
+      "num_heads": [
+       15,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       4,
+       15,
+       21,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       4,
+       15,
+       21,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       19,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       19,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       4,
+       5,
+       11
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       4,
+       5,
+       11
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       4,
+       5,
+       10,
+       11,
+       12,
+       13,
+       14,
+       28,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       4,
+       5,
+       10,
+       11,
+       12,
+       13,
+       14,
+       28,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       8,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       19,
+       23,
+       26,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       8,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       19,
+       23,
+       26,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       9,
+       10,
+       11,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       9,
+       10,
+       11,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       15,
+       17,
+       18,
+       24,
+       25,
+       26,
+       27,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       15,
+       17,
+       18,
+       24,
+       25,
+       26,
+       27,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       16,
+       17,
+       18,
+       29
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       16,
+       17,
+       18,
+       29
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       3,
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       3,
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       25,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       25,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       0,
+       3
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       0,
+       3
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       12,
+       13,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       12,
+       13,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "g_in_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       0,
+       19,
+       21,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "g_out_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       0,
+       19,
+       21,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   }
+  },
+  "control": {
+   "c_in_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       0,
+       8,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       0,
+       8,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       5,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       5,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       1,
+       9,
+       10,
+       12,
+       14,
+       15,
+       19,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       1,
+       9,
+       10,
+       12,
+       14,
+       15,
+       19,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       3,
+       6,
+       9
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       3,
+       6,
+       9
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       9,
+       10,
+       25
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       9,
+       10,
+       25
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       19,
+       20,
+       21,
+       25,
+       29,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       19,
+       20,
+       21,
+       25,
+       29,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       10,
+       13,
+       14,
+       16,
+       23,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       10,
+       13,
+       14,
+       16,
+       23,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       2,
+       5,
+       6,
+       7,
+       10,
+       13,
+       14,
+       28,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       2,
+       5,
+       6,
+       7,
+       10,
+       13,
+       14,
+       28,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       22,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       22,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       1,
+       9,
+       16,
+       20,
+       21,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       1,
+       9,
+       16,
+       20,
+       21,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       4,
+       7,
+       11,
+       13,
+       15,
+       21,
+       23,
+       24,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       4,
+       7,
+       11,
+       13,
+       15,
+       21,
+       23,
+       24,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       7,
+       11,
+       13,
+       16,
+       18,
+       22,
+       26,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       7,
+       11,
+       13,
+       16,
+       18,
+       22,
+       26,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       11,
+       14,
+       18,
+       19,
+       22,
+       26
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       11,
+       14,
+       18,
+       19,
+       22,
+       26
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       1,
+       10,
+       18,
+       22,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       1,
+       10,
+       18,
+       22,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       3,
+       5,
+       7,
+       9,
+       13,
+       15,
+       20,
+       22
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       3,
+       5,
+       7,
+       9,
+       13,
+       15,
+       20,
+       22
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   },
+   "c_in_35": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 35,
+     "select": {
+      "num_heads": [
+       3,
+       5,
+       7,
+       13,
+       16,
+       18,
+       21,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 10000.0
+     }
+    ]
+   },
+   "c_out_35": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 35,
+     "select": {
+      "num_heads": [
+       3,
+       5,
+       7,
+       13,
+       16,
+       18,
+       21,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -10000.0
+     }
+    ]
+   }
+  },
+  "null": {
+   "n_in_2": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 2,
+     "select": {
+      "num_heads": [
+       17
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_2": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 2,
+     "select": {
+      "num_heads": [
+       17
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_18": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 18,
+     "select": {
+      "num_heads": [
+       15,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_18": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 18,
+     "select": {
+      "num_heads": [
+       15,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       4,
+       15,
+       21,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_20": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 20,
+     "select": {
+      "num_heads": [
+       4,
+       15,
+       21,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       19,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_21": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 21,
+     "select": {
+      "num_heads": [
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       19,
+       22,
+       23,
+       24,
+       25,
+       26,
+       27,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       4,
+       5,
+       11
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_22": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 22,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       4,
+       5,
+       11
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       4,
+       5,
+       10,
+       11,
+       12,
+       13,
+       14,
+       28,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_23": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 23,
+     "select": {
+      "num_heads": [
+       4,
+       5,
+       10,
+       11,
+       12,
+       13,
+       14,
+       28,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       8,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       19,
+       23,
+       26,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_24": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 24,
+     "select": {
+      "num_heads": [
+       5,
+       7,
+       8,
+       11,
+       12,
+       13,
+       14,
+       15,
+       16,
+       19,
+       23,
+       26,
+       28,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       9,
+       10,
+       11,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_25": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 25,
+     "select": {
+      "num_heads": [
+       9,
+       10,
+       11,
+       30
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       15,
+       17,
+       18,
+       24,
+       25,
+       26,
+       27,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_26": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 26,
+     "select": {
+      "num_heads": [
+       15,
+       17,
+       18,
+       24,
+       25,
+       26,
+       27,
+       29,
+       30,
+       31
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       16,
+       17,
+       18,
+       29
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_27": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 27,
+     "select": {
+      "num_heads": [
+       16,
+       17,
+       18,
+       29
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       3,
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_28": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 28,
+     "select": {
+      "num_heads": [
+       0,
+       2,
+       3,
+       8,
+       9,
+       10,
+       11,
+       16,
+       18,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_29": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 29,
+     "select": {
+      "num_heads": [
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       25,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_30": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 30,
+     "select": {
+      "num_heads": [
+       25,
+       27
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_31": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 31,
+     "select": {
+      "num_heads": [
+       4,
+       6,
+       15
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       0,
+       3
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_32": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 32,
+     "select": {
+      "num_heads": [
+       0,
+       3
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       12,
+       13,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_33": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 33,
+     "select": {
+      "num_heads": [
+       12,
+       13,
+       23
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   },
+   "n_in_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       0,
+       19,
+       21,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target"
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": 0.0
+     }
+    ]
+   },
+   "n_out_34": {
+    "site": {
+     "component": "attention_scores",
+     "layers": 34,
+     "select": {
+      "num_heads": [
+       0,
+       19,
+       21,
+       28
+      ],
+      "key": {
+       "scope": {
+        "image": 0,
+        "region": "lq.target",
+        "outside": true
+       }
+      }
+     }
+    },
+    "ops": [
+     {
+      "op": "add",
+      "with": -0.0
+     }
+    ]
+   }
+  }
+ },
+ "steps": {
+  "clean_amb": {
+   "kind": "forward",
+   "input": "lq.ambiguous",
+   "interventions": {
+    "logits": {
+     "site": "head",
+     "pos": -1
+    }
+   }
+  },
+  "gaze_amb": {
+   "kind": "forward",
+   "input": "lq.ambiguous",
+   "interventions": [
+    "gaze",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "control_amb": {
+   "kind": "forward",
+   "input": "lq.ambiguous",
+   "interventions": [
+    "control",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "null_amb": {
+   "kind": "forward",
+   "input": "lq.ambiguous",
+   "interventions": [
+    "null",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "clean_amb_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "clean_amb.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "clean_amb_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "clean_amb.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "clean_amb_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "clean_amb_hit"
+  },
+  "clean_amb_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "clean_amb_own"
+  },
+  "gaze_amb_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "gaze_amb.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "gaze_amb_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "gaze_amb.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "gaze_amb_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze_amb_hit"
+  },
+  "gaze_amb_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze_amb_own"
+  },
+  "control_amb_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "control_amb.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "control_amb_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "control_amb.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "control_amb_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "control_amb_hit"
+  },
+  "control_amb_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "control_amb_own"
+  },
+  "null_amb_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "null_amb.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "null_amb_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "null_amb.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "null_amb_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_amb_hit"
+  },
+  "null_amb_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_amb_own"
+  },
+  "null_amb_kl": {
+   "kind": "op",
+   "op": "kl",
+   "of": "null_amb.logits",
+   "against": "clean_amb.logits"
+  },
+  "null_amb_kl_max": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_amb_kl"
+  },
+  "clean_kth": {
+   "kind": "forward",
+   "input": "lq.chat",
+   "interventions": {
+    "logits": {
+     "site": "head",
+     "pos": -1
+    }
+   }
+  },
+  "gaze_kth": {
+   "kind": "forward",
+   "input": "lq.chat",
+   "interventions": [
+    "gaze",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "control_kth": {
+   "kind": "forward",
+   "input": "lq.chat",
+   "interventions": [
+    "control",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "null_kth": {
+   "kind": "forward",
+   "input": "lq.chat",
+   "interventions": [
+    "null",
+    {
+     "logits": {
+      "site": "head",
+      "pos": -1
+     }
+    }
+   ]
+  },
+  "clean_kth_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "clean_kth.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "clean_kth_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "clean_kth.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "clean_kth_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "clean_kth_hit"
+  },
+  "clean_kth_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "clean_kth_own"
+  },
+  "gaze_kth_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "gaze_kth.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "gaze_kth_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "gaze_kth.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "gaze_kth_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze_kth_hit"
+  },
+  "gaze_kth_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze_kth_own"
+  },
+  "control_kth_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "control_kth.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "control_kth_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "control_kth.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "control_kth_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "control_kth_hit"
+  },
+  "control_kth_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "control_kth_own"
+  },
+  "null_kth_hit": {
+   "kind": "op",
+   "op": "match",
+   "of": "null_kth.logits",
+   "expected": {
+    "column": "lq.target_answer",
+    "strip": true
+   }
+  },
+  "null_kth_own": {
+   "kind": "op",
+   "op": "match",
+   "of": "null_kth.logits",
+   "expected": {
+    "column": "lq.answer",
+    "strip": true
+   }
+  },
+  "null_kth_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_kth_hit"
+  },
+  "null_kth_own_acc": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_kth_own"
+  },
+  "null_kth_kl": {
+   "kind": "op",
+   "op": "kl",
+   "of": "null_kth.logits",
+   "against": "clean_kth.logits"
+  },
+  "null_kth_kl_max": {
+   "kind": "op",
+   "op": "mean",
+   "of": "null_kth_kl"
+  }
+ },
+ "saves": [
+  "clean_amb_hit",
+  "clean_amb_own",
+  "clean_amb_acc",
+  "clean_amb_own_acc",
+  "gaze_amb_hit",
+  "gaze_amb_own",
+  "gaze_amb_acc",
+  "gaze_amb_own_acc",
+  "control_amb_hit",
+  "control_amb_own",
+  "control_amb_acc",
+  "control_amb_own_acc",
+  "null_amb_hit",
+  "null_amb_own",
+  "null_amb_acc",
+  "null_amb_own_acc",
+  "null_amb_kl_max",
+  "clean_kth_hit",
+  "clean_kth_own",
+  "clean_kth_acc",
+  "clean_kth_own_acc",
+  "gaze_kth_hit",
+  "gaze_kth_own",
+  "gaze_kth_acc",
+  "gaze_kth_own_acc",
+  "control_kth_hit",
+  "control_kth_own",
+  "control_kth_acc",
+  "control_kth_own_acc",
+  "null_kth_hit",
+  "null_kth_own",
+  "null_kth_acc",
+  "null_kth_own_acc",
+  "null_kth_kl_max"
+ ]
+}

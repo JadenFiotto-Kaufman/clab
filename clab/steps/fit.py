@@ -127,6 +127,7 @@ def narrowed(plan: Plan, found: Found, index: list[int], names: list[str]) -> tu
     return plan.model_copy(update={"data": data}), Found(
         inputs={k: {**v, "rows": [v["rows"][i] for i in index]} for k, v in found.inputs.items()},
         positions={w: {c: [p[i] for i in index] for c, p in by.items()} for w, by in found.positions.items()},
+        keys={w: {c: [k[i] for i in index] for c, k in by.items()} for w, by in found.keys.items()},
         selects=found.selects,
         answers={k: replace(a, values=[a.values[i] for i in index], sets=[a.sets[i] for i in index])
                  if a.column.partition(".")[0] in names else a for k, a in found.answers.items()})

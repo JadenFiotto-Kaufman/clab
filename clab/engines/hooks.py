@@ -21,11 +21,11 @@ import torch
 from nnterp import StandardizedTransformer
 from torch import Tensor
 from torch.utils.hooks import RemovableHandle
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoModelForImageTextToText
 
 from clab import steps
 from clab.engines import engine
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, nnterp_name, stops
+from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, mrope, nnterp_name, stops, vision
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -49,12 +49,16 @@ class HooksEngine:
         sites = {c: reach(shell, c, support) for c in COMPONENTS}
         self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
+        self.vision = vision(getattr(shell, "processor", None), shell.config)
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
-        self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
+        # The wrapper of a vision-language checkpoint under its task (the shell's), the text model otherwise.
+        auto = AutoModelForImageTextToText if shell.task == "image-text-to-text" else AutoModelForCausalLM
+        self.model: Any = build(model, "hooks", lambda extra: auto.from_pretrained(
             model.key, revision=model.revision, dtype=getattr(torch, model.dtype),
-            device_map=device if device in COMPUTED else None, **extra).eval())
+            device_map=device if device in COMPUTED else None, **{k: v for k, v in extra.items() if k != "task"}).eval())
         if device not in COMPUTED:
             self.model.to(device)
+        self.mrope = mrope(self.model)
         self.config["order"] = order(self.model, sites, batches.home(self))
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
@@ -85,7 +89,7 @@ class HooksEngine:
         """One call of the model, under the records' hooks (`hooked`)."""
         got: dict[str, Tensor] = {}
         with self.hooked(records, got):
-            self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+            self.model(**inputs(batch, batches.home(self), self.mrope))
         return got
 
     def generate(self, batch: dict[str, Tensor], records: list[dict],
@@ -94,7 +98,7 @@ class HooksEngine:
         (`hooked`): the new ids, and each read."""
         got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
         with self.hooked(records, got):
-            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.home(self)), **options)
+            ids = self.model.generate(**inputs(batch, batches.home(self), True), **options)
         return ids[:, batch["input_ids"].shape[1]:], got
 
     @contextmanager

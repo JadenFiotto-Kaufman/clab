@@ -1,0 +1,311 @@
+{
+ "description": "Gaze heads on a vision-language checkpoint (Gandikota and Bau, 2026), on the tiny Qwen3-VL: each row's image is two halves, red|blue or blue|red, and the question asks for the colour on one side; `left` is that side's box on the row and `right` the other's. `gaze` reads every head's attention from the last prompt token to the asked side's image tokens (`select key` names the keys by a region of the image) and `rest` to the other side's; `score` is each head's mean mass on the asked side, the gaze score, and `whole` checks that the two masses sum to the mass on the image. `steered` then biases heads 0 and 2 of block 1 toward the OTHER side by +10000 on its keys and -10000 on the asked side's, in the prefill and at every decode call, so those heads look only there; `null` biases them by 0, which equals `plain` to the bit. The model block's `task` loads the checkpoint with its processor, which an image part needs, and `attn_implementation: eager` serves the attention interior.",
+ "model": {
+  "key": "trl-internal-testing/tiny-Qwen3VLForConditionalGeneration",
+  "revision": "ba190cb38011bcda2f70f7781f2b8290627aef00",
+  "task": "image-text-to-text",
+  "attn_implementation": "eager"
+ },
+ "data": {
+  "halves": {
+   "path": "images/halves",
+   "template": {
+    "add_generation_prompt": true
+   },
+   "sha256": "8c83960333b9b909fb3d6657d3bcdda9d7507f064e1868b416ff572b958e5197",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "gaze": {
+   "kind": "forward",
+   "input": "halves.chat",
+   "interventions": {
+    "asked": {
+     "site": {
+      "component": "attention_probabilities",
+      "layers": ":",
+      "select": {
+       "key": {
+        "scope": {
+         "image": 0,
+         "region": "halves.left"
+        }
+       }
+      }
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "sum",
+       "over": [
+        "key"
+       ]
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "num_heads"
+     ],
+     "gathered": true
+    },
+    "other": {
+     "site": {
+      "component": "attention_probabilities",
+      "layers": ":",
+      "select": {
+       "key": {
+        "scope": {
+         "image": 0,
+         "region": "halves.left",
+         "outside": true
+        }
+       }
+      }
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "sum",
+       "over": [
+        "key"
+       ]
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "num_heads"
+     ],
+     "gathered": true
+    },
+    "image": {
+     "site": {
+      "component": "attention_probabilities",
+      "layers": ":",
+      "select": {
+       "key": {
+        "scope": {
+         "image": 0
+        }
+       }
+      }
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "sum",
+       "over": [
+        "key"
+       ]
+      }
+     ],
+     "dims": [
+      "layers",
+      "rows",
+      "pos",
+      "num_heads"
+     ],
+     "gathered": true
+    },
+    "logits": {
+     "site": {
+      "component": "logits"
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "vocab_size"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "halves"
+  },
+  "score": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze.asked",
+   "dataset": "halves",
+   "dims": [
+    "layers",
+    "num_heads"
+   ]
+  },
+  "whole": {
+   "kind": "op",
+   "op": "mean",
+   "of": "gaze.image",
+   "dataset": "halves",
+   "dims": [
+    "layers",
+    "num_heads"
+   ]
+  },
+  "p_answer": {
+   "kind": "op",
+   "op": "token_prob",
+   "of": "gaze.logits",
+   "dataset": "halves",
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "token": "halves.answer"
+  },
+  "plain": {
+   "kind": "generate",
+   "input": "halves.chat",
+   "dataset": "halves",
+   "max_new_tokens": 2,
+   "do_sample": false
+  },
+  "steered": {
+   "kind": "generate",
+   "input": "halves.chat",
+   "interventions": {
+    "toward": {
+     "site": {
+      "component": "attention_scores",
+      "layers": 1,
+      "select": {
+       "num_heads": [
+        0,
+        2
+       ],
+       "key": {
+        "scope": {
+         "image": 0,
+         "region": "halves.right"
+        }
+       }
+      }
+     },
+     "pos": {
+      "frame": ":"
+     },
+     "ops": [
+      {
+       "op": "add",
+       "with": 10000.0
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "num_heads",
+      "key"
+     ]
+    },
+    "away": {
+     "site": {
+      "component": "attention_scores",
+      "layers": 1,
+      "select": {
+       "num_heads": [
+        0,
+        2
+       ],
+       "key": {
+        "scope": {
+         "image": 0,
+         "region": "halves.left"
+        }
+       }
+      }
+     },
+     "pos": {
+      "frame": ":"
+     },
+     "ops": [
+      {
+       "op": "add",
+       "with": -10000.0
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "num_heads",
+      "key"
+     ]
+    },
+    "pattern": {
+     "site": {
+      "component": "attention_probabilities",
+      "layers": 1
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "num_heads",
+      "key"
+     ],
+     "gathered": true
+    }
+   },
+   "dataset": "halves",
+   "max_new_tokens": 2,
+   "do_sample": false
+  },
+  "null": {
+   "kind": "generate",
+   "input": "halves.chat",
+   "interventions": {
+    "toward": {
+     "site": {
+      "component": "attention_scores",
+      "layers": 1,
+      "select": {
+       "num_heads": [
+        0,
+        2
+       ],
+       "key": {
+        "scope": {
+         "image": 0,
+         "region": "halves.right"
+        }
+       }
+      }
+     },
+     "pos": {
+      "frame": ":"
+     },
+     "ops": [
+      {
+       "op": "add",
+       "with": 0.0
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos",
+      "num_heads",
+      "key"
+     ]
+    }
+   },
+   "dataset": "halves",
+   "max_new_tokens": 2,
+   "do_sample": false
+  }
+ },
+ "saves": [
+  "score",
+  "whole",
+  "gaze.other",
+  "p_answer",
+  "plain",
+  "steered",
+  "steered.pattern",
+  "null"
+ ],
+ "document": "documents/gaze_heads.json",
+ "compiled": true
+}

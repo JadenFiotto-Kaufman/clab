@@ -109,6 +109,7 @@ Each technique has a page with documents that run:
 - [Sparse autoencoders](docs/patterns/sae.md): splice in a published dictionary, ablate its features, or train one.
 - [Probing](docs/patterns/probing.md): train a linear probe per layer on a label column.
 - [LoRA](docs/patterns/lora.md): train a low-rank adapter through the frozen model and turn it on in chosen steps.
+- [Vision-language models](docs/patterns/vision.md): an image in a chat, its tokens as positions, a region of it as keys, and gaze heads found and redirected.
 
 Across techniques:
 

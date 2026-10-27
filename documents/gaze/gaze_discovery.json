@@ -1,0 +1,30 @@
+{
+  "description": "Gaze-head discovery (Gandikota and Bau, 2026) on Qwen3-VL-8B-Instruct: for each six-panel comic strip and each panel k, the prompt asks what happens in the k-th panel; `own` reads every head's attention from the last prompt token to the queried panel's image tokens (the row's `panel` box), `others` to the other panels' and `image` to the whole image. `score` is the gaze score: each head's mean mass on the queried panel over 500 strips and 6 panels, the diagonal mean of the paper's 6x6 queried-by-attended matrix. The top 100 heads by `score` are the gaze heads.",
+  "model": {
+    "key": "Qwen/Qwen3-VL-8B-Instruct",
+    "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b",
+    "dtype": "bfloat16",
+    "task": "image-text-to-text",
+    "attn_implementation": "eager"
+  },
+  "data": {"q": {"path": "comics/queries", "template": {"add_generation_prompt": true}}},
+  "sites": {
+    "own": {"component": "attention_probabilities", "layers": ":",
+            "select": {"key": {"scope": {"image": 0, "region": "q.panel"}}}},
+    "others": {"component": "attention_probabilities", "layers": ":",
+               "select": {"key": {"scope": {"image": 0, "region": "q.panel", "outside": true}}}},
+    "image": {"component": "attention_probabilities", "layers": ":",
+              "select": {"key": {"scope": {"image": 0}}}}
+  },
+  "steps": {
+    "gaze": {"kind": "forward", "input": "q.chat", "interventions": {
+      "own": {"site": "own", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]},
+      "others": {"site": "others", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]},
+      "image": {"site": "image", "pos": -1, "ops": [{"op": "sum", "over": ["key"]}]}
+    }},
+    "score": {"kind": "op", "op": "mean", "of": "gaze.own"},
+    "others_mean": {"kind": "op", "op": "mean", "of": "gaze.others"},
+    "image_mean": {"kind": "op", "op": "mean", "of": "gaze.image"}
+  },
+  "saves": ["gaze.own", "score", "others_mean", "image_mean"]
+}

@@ -30,3 +30,7 @@ One technique per page, each built on a document under `documents/`; the usage p
 - [sae](sae.md) — Sparse autoencoders: splice a published JumpReLU or TopK dictionary in, ablate features through encode and decode, check its L0, and train a dictionary inside a run.
 - [probing](probing.md) — Linear probes: train a linear featurizer on a label column, score its classes with the same metrics as logits, sweep layers to see where a variable is decodable against the floor of an untrained probe, and train many probes in one fit.
 - [lora](lora.md) — Low-rank adapters: train a LoRA through the frozen model to change an answer, apply it as a named intervention in some steps and not others, and adapt across sites with with.
+
+## Vision-language models
+
+- [vision](vision.md) — Experiments on a vision-language checkpoint: an image in a chat, its tokens as positions, a region of it as keys, a head's attention onto a part of the image, gaze heads found by a score and redirected by a bias on their scores toward a chosen region, scored without a judge.

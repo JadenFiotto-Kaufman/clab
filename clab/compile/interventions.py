@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 from clab import ops
 from clab.compile import positions
-from clab.compile.answers import text_ref
+from clab.compile.answers import column_ref, text_ref
 from clab.compile.arguments import aligned, called, layout, narrowed_readout, paired, references, said, space_of
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found, Known
@@ -29,6 +29,7 @@ from clab.plan import (
     agreeing,
     arguments,
     body_view,
+    boxes,
     bracketed,
     dims_of,
     edits,
@@ -107,29 +108,29 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     else:
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
     write = writes(spec)
-    if write and len(site.select or {}) > 1:
-        fail(f"{path}.site.select", f"an entry that writes selects on one axis; this one selects "
-             f"{', '.join(site.select or {})}")
+    narrowed = [a for a, s in (site.select or {}).items() if not selectors.scoped(s)]
+    if write and len(narrowed) > 1:
+        fail(f"{path}.site.select", f"an entry that writes selects on one axis (beside keys a scope names); this one "
+             f"selects {', '.join(narrowed)}")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
     if step.kind != "generate" and selectors.select(frame, 1) != [0]:
         fail(f"{path}.pos.frame", f"frame {frame!r}: a forward makes one call, the prefill; its frame picks that "
              "call (0, or ':', the whole timeline, which in a forward is that call)")
-    if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
-        fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
+    keyed = selectors.scoped((site.select or {}).get("key"))
+    if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"] and not (write and keyed):
+        fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; " + (
+            "a write beyond the prefill names the prompt's keys by a scope (select key {'scope': ...}), which keep "
+            "their places there" if write else "read it in the prefill"))
     if write and scope.get("before") and not positions.prefill(pos):
         fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
     if write and frame != 0 and step.kind == "generate":
         decided(f"{path}.pos", pos, horizon(step))
-    if "turn" in scope and not all(isinstance(data.field(r, step.input), list) for r in cx.rows[dataset]):
-        fail(f"{path}.pos.scope.turn", f"the input {data.input_name(step.input)} is text, not a chat: a turn scope "
-             "names a chat's messages (a column of {'role', 'content'} lists, rendered through the template), and "
-             "text has none; locate the message's words with a {'text': ...} or {'column': ...} scope")
-    if "column" in scope:
-        for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
-            text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
-                     dataset)
+    scope_checks(cx, f"{path}.pos.scope", scope, step, dataset)
+    if keyed:
+        scope_checks(cx, f"{path}.site.select.key.scope",
+                     positions.parse(cast(Site, site).select["key"])["scope"] or {}, step, dataset)  # type: ignore[index]
     width = positions.width(pos)                            # None when rows differ
     dims = address.dims(site.component)                     # every op acts at each layer the entry is made at
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
@@ -168,6 +169,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                      "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
+            if keyed and i <= last and isinstance(value, str) and key in ops.parameters(o.op) and \
+                    ops.parameters(o.op)[key].annotation == ops.Value:
+                fail(f"{at}.{key}", f"{value!r} names a value, and this write's keys are named by a scope, a "
+                     "different number of them on each row; such a write takes a number as its operand")
         found = references(cx, at, o.op, args, "classes" in dims)
         aligned(at, (dataset, repr(step.input)), found)
         for key, info in found.items():
@@ -199,6 +204,37 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
               **({"space": space} if space else {})}
     return record, Known(dims, dataset, space=space, select={a: v for a, v in (site.select or {}).items() if a in dims},
                          width=width if "pos" in dims else None)
+
+
+def scope_checks(cx: Compiling, path: str, scope: dict, step: Forward | Generate, dataset: str) -> None:
+    """What compile checks of a scope (an entry's `pos`'s, or a site's `select` on `key`) against the rows: a
+    `turn` or an `image` needs a chat input, an `image` a chat with an image part on some row, and a column
+    (`column`, or `region` naming one) is on every row, text or boxes."""
+    chat = all(isinstance(data.field(r, step.input), list) for r in cx.rows[dataset])
+    if "turn" in scope and not chat:
+        fail(f"{path}.turn", f"the input {data.input_name(step.input)} is text, not a chat: a turn scope "
+             "names a chat's messages (a column of {'role', 'content'} lists, rendered through the template), and "
+             "text has none; locate the message's words with a {'text': ...} or {'column': ...} scope")
+    if "image" in scope:
+        if not chat:
+            fail(f"{path}.image", f"the input {data.input_name(step.input)} is text, not a chat: an image comes "
+                 "as a part of a chat message's content ({'type': 'image', 'image': '<file under data/>'}), and "
+                 "text has none")
+        if not any(data.image_parts(data.field(r, step.input)) for r in cx.rows[dataset]):
+            fail(f"{path}.image", f"no message of {data.input_name(step.input)} has an image part on any row "
+                 "({'type': 'image', 'image': '<file under data/>'} among a message's content parts)")
+        region = scope.get("region")
+        if isinstance(region, str):
+            column_ref(cx, region, f"{path}.region", dataset)
+            name, _, column = region.partition(".")
+            for i, row in enumerate(cx.rows[name]):
+                try:
+                    boxes(data.lookup(row, column))
+                except (KeyError, IndexError, TypeError, ValueError) as e:
+                    fail(f"{path}.region", f"{region!r} on row {i} of {name!r}: {e}")
+    if "column" in scope:
+        for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
+            text_ref(cx, column, f"{path}.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""), dataset)
 
 
 def operands(path: str, found: dict[str, Known], own: list[str], space: list[dict], ragged: bool,
