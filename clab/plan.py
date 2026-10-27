@@ -896,6 +896,9 @@ class Plan(Record):
     run: Run | None = derived(None, "how the plan ran, set by `execute`")
 
     def __init__(self, path: str | None = None, /, **fields: Any) -> None:
+        if isinstance(path, dict):
+            raise TypeError("Plan(dict): a document's fields are keywords, Plan(**fields); Plan(path) reads a "
+                            "document file, and Plan.load(out) a run's directory")
         if path is not None:
             with open(path) as f:
                 fields = {**json.load(f), "document": os.path.abspath(path)}

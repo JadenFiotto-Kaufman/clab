@@ -74,6 +74,14 @@ def test_a_plan_pickles_and_rebuilds_from_its_dump():
     assert Plan(**plan.model_dump()) == plan
 
 
+def test_a_dict_is_refused_pointing_to_the_keyword_form():
+    with open(document("patching")) as f:
+        fields = json.load(f)
+    with pytest.raises(TypeError, match=r"^Plan\(dict\): a document's fields are keywords, Plan\(\*\*fields\); "
+                                        r"Plan\(path\) reads a document file, and Plan.load\(out\) a run's directory$"):
+        Plan(fields)  # type: ignore[arg-type]
+
+
 def test_a_root_featurizer_is_not_a_save():
     with pytest.raises(PlanError, match=r"saves\[0\]: 'rot' names no step's value"):
         edited("random_subspace", lambda d: d.update(saves=["rot"])).compile()
