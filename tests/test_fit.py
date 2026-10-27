@@ -515,6 +515,27 @@ def test_a_fit_that_cannot_mean_anything_is_refused_at_compile(change, message):
         edited("das", change).compile()
 
 
+def test_a_scalar_over_the_bodys_encodes_needs_an_open_encode_in_the_body():
+    """An sae's `reconstruction` and `l1` are over what the body's encodes of it saw: a body that closes every
+    bracket, or only applies it, reads no coordinates, so the objective is refused when the plan compiles rather
+    than when the fit runs ("this body has none"); an entry ending in its encode, as an encode step, serves it."""
+    def body(ops_):
+        def change(d):
+            d["steps"]["fit"]["steps"] = {"read": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "z": {"site": "target", "pos": {"index": "1:"}, "ops": ops_}}}}
+        return change
+    closed = [{"op": "encode", "featurizer": "fit.dictionary"}, {"op": "decode", "featurizer": "fit.dictionary"}]
+    for ops_ in (closed, [{"op": "apply", "featurizer": "fit.dictionary"}]):
+        with pytest.raises(PlanError, match=r"^steps\.fit\.objective\.dictionary\.reconstruction: 'reconstruction' is "
+                                            r"over the coordinates the body reads of 'dictionary', an encode no decode "
+                                            r"closes \(an entry whose ops end in \{'op': 'encode', 'featurizer': "
+                                            r"'dictionary'\}, or an encode step\), and this body has none: read its "
+                                            r"coordinates in the body, or make the term an op over what it decodes$"):
+            edited("sae_train", body(ops_)).compile()
+    compiled = edited("sae_train", body([{"op": "encode", "featurizer": "fit.dictionary"}])).compile()
+    assert compiled.steps["fit"].steps["read"].interventions["z"].gathered
+
+
 def test_a_write_through_a_probe_is_refused():
     def change(d):
         d["steps"]["fit"]["steps"]["read"]["interventions"] = {"w": {

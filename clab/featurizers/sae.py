@@ -42,7 +42,7 @@ class Sae(Kind):
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
     unstated = {"activation": "relu", "centered": True}
-    scalars = ("reconstruction", "l1")
+    scalars = over_encodes = ("reconstruction", "l1")
     threshold: Tensor       # a published JumpReLU's, set with the bundle's other tensors
 
     def __init__(self, width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,

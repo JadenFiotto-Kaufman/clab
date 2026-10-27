@@ -467,11 +467,20 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
+            reads = []                      # the body's open encodes of the featurizer: entries, which the run gathers, and steps
             for n, s in body.items():
+                if isinstance(s, OpStep) and s.op == "encode" and arguments(s)["featurizer"] in (thing, f"{name}.{thing}"):
+                    reads.append(n)
                 for k, e in entries(s).items():
                     if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
                            for o in gathers(e)):
                         cx.used.add(f"{n}.{k}")
+                        reads.append(f"{n}.{k}")
+            if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not reads:
+                fail(f"{path}.objective.{term}", f"{scalar!r} is over the coordinates the body reads of {thing!r}, an "
+                     f"encode no decode closes (an entry whose ops end in {{'op': 'encode', 'featurizer': {thing!r}}}, "
+                     "or an encode step), and this body has none: read its coordinates in the body, or make the term "
+                     "an op over what it decodes")
     if not any(t.partition(".")[0] in trained for t in spec.objective):
         fail(f"{path}.objective", f"none of its terms ({', '.join(spec.objective)}) depends on what the fit trains "
              f"({', '.join(spec.train)}): each is a body op over values no trained featurizer reaches, so there is "
