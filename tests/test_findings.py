@@ -924,6 +924,19 @@ def test_d6_an_eval_reads_a_dataset_as_another_only_where_their_templates_agree(
                                         r"dataset's template, so give the two the same one$"):
         fit({}).compile()
     assert fit({"template": template}).compile().data["other"].template == template
+    # Where the body reads no chat column of the substituted dataset, the templates are not compared: a template on
+    # a dataset no step reads a chat of is what is refused.
+    text = [{"text": f"Is {d} a weekday?", "label": d[0]} for d in ("Monday", "Sunday")]
+    with pytest.raises(PlanError, match=r"^data\.other\.template: no step reads a chat column of 'other', and a template "
+                                        r"renders a chat"):
+        plan(model=QWEN, data={"days": {"rows": text}, "other": {"rows": text, "template": template}},
+             featurizers={"probe": {"kind": "linear", "classes": "days.label"}}, steps={"fit": {
+                 "kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 2,
+                 "seed": 0, "optimizer": {"name": "adam", "lr": 0.5}, "eval": {"plain": {"days": "other"}},
+                 "steps": {"read": forward({"scores": {"site": LAYER0, "pos": -1, "ops": [
+                     {"op": "encode", "featurizer": "fit.probe"}]}}, input="days.text"),
+                     "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores",
+                            "target": "days.label"}}}}, saves=["fit.plain.ce"]).compile()
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

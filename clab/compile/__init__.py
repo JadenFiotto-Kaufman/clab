@@ -117,7 +117,7 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
                  f"{', '.join(rows[lacking])}")
         if new not in (d.columns or {}).values() and any(new in r for r in rows):
             fail(f"data.{name}.columns.{new}", f"{new!r} is a column the rows keep, which this rename would "
-                 "overwrite; rename it too, or name the new column otherwise")
+                 "overwrite; name the new column otherwise")
     return data.renamed(rows, d.columns) if d.columns else rows
 
 
@@ -489,7 +489,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                          f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
                          "steps after the fit, which reach what it trained as "
                          f"{', '.join(repr(f'{name}.{f}') for f in spec.train)}")
-            if plan.data[a].template != plan.data[b].template:
+            if a in cx.chats and plan.data[a].template != plan.data[b].template:
                 fail(where, f"dataset {a!r} is read as {b!r}, and their templates differ ({a!r}: "
                      f"{plan.data[a].template}, {b!r}: {plan.data[b].template}); a chat renders with its own "
                      "dataset's template, so give the two the same one")

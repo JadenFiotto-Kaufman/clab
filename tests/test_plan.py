@@ -481,7 +481,7 @@ def test_columns_renames_and_keeps_every_other_column():
      r"^data\.pairs\.columns\.input: 'prompt' is not a column of row 0; its columns: answer, base_answer, "),
     ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},
      r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this rename would overwrite; "
-     r"rename it too, or name the new column otherwise$"),
+     r"name the new column otherwise$"),
     ({"path": "weekdays/data", "template": {"add_generation_prompt": True}},
      r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
      r"of \{'role', 'content'\} messages\) only$"),
