@@ -152,8 +152,8 @@ edit), in the coordinates the operand meets (`space`). An operand read on anothe
 positions, with no scope, pairs its i-th position with the write's i-th, which on rows whose prompts differ
 in length is checked conservatively before any forward: each pair sits at one distance from the start within
 the tokens both prompts begin with alike, or from the end within those they end with alike (the first token
-past either counted in); any other is refused, and a scope names the token in each row. An operand holds the
-indices of every axis a site narrows (`num_heads`, ...) that the value it meets holds, in the same order. A
+past either counted in); any other is refused, and a scope names the token in each row. What an operand's
+layout and labels must be is Ops' one rule. A
 bundle at the root is a dict of entries pulled into a step by name, a template whose names resolve in the
 step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
 entry of whichever step pulls it in, and `<a step>.<one of its entries>` is refused, since pulled into
@@ -177,8 +177,8 @@ An op inside an entry: `{"op": <name>, ...its arguments}` (see Ops).
 
 **A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one,
 a chat template's markers, everything but padding, an appended EOS included** (`pos: 0` is BOS where there
-is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: the
-run record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
+is one, `-1` the last token, `{"index": ":"}` every token). Every count of a row's tokens is this one: a
+record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and a
 refusal's token counts.
 
 ```
@@ -396,14 +396,16 @@ scored on the training rows after each epoch.
 
 ## Derived fields
 
-Fields a document leaves out, which compile (or, for `run`, the engine) fills:
+Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order: the paths its sweeps stand at, and their values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
+- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout)
+- `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
-- `Intervention`: `dims` (the layout of the value the entry binds), `space` (the coordinates that value is in: the encodes its ops leave open, outermost first, each its `featurizer` and `select`; none for the site's own layout), `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it)
+- `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
+- `Op`: `dims` (the layout of the op's value, at each layer the entry is made at (the op after it meets it; the first meets the site's selection))
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
-- `Generate`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
-- `OpStep`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `dims` (the layout of the step's value)
+- `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over)
+- `OpStep`: `at` (the point's index on each sweep axis it varies over)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against)
 
 ## Ops
@@ -463,22 +465,32 @@ adapted value): an edit, which writes back. An entry that stops after `encode` r
 `encode` and `apply` take a read (an entry's value, at its one site; an op's value is refused by name), and
 `decode`, the close of an entry's `encode`, is no step.
 
-An op acts at the layers of the value it meets: inside an entry, at each layer the entry is made at in turn; as
-a step, at the layers `of`'s `layers` axis is labelled with, or at the one layer a value without that axis was
-read at. An operand with a `layers` axis is aligned to them by label: at layer L the op takes the operand's slice
-labelled L, whatever order either lists its layers in, so a `kl` step between lenses at `[0, 1, 2]` and
-`[2, 1, 0]` pairs layer with layer, and an entry at layer 3 takes slice 3; a layer the op acts at that the
-operand does not hold is refused by name before any forward, and so is such an operand where the op acts at no
-layer (a model's own value, one reduced over its layers). An operand without a `layers` axis is the same at
-every layer, as a direction is.
+An operand (a `Value` argument that names a value) meets the value the op acts on at one point: inside an
+entry, the entry's selection at each layer the entry is made at in turn (in the coordinates of the encodes open
+around the op); as a step, `of`, at the layers its `layers` axis is labelled with, or at the one layer a value
+without that axis was read at. One rule says what it may be, and compile refuses the rest by name (preflight,
+where a label waits on the model's sizes or the rows' positions): every axis the operand has is an axis of the
+value it meets, in the value's order, with the same label: `layers` by model layer (the operand holds every
+layer the op acts at, and at layer L the op takes its slice labelled L, whatever order either lists its layers
+in, so a `kl` step between lenses at `[0, 1, 2]` and `[2, 1, 0]` pairs layer with layer, and an entry at layer 3
+takes slice 3; an op at no layer, on a model's own value or one reduced over its layers, takes no layered
+operand); `rows` by dataset (an op takes one dataset's rows, its columns' too); `pos` by the read whose
+positions both hold, else by width, as many positions on every row (a read whose rows hold different numbers
+of positions pairs with no other read's, but an earlier entry of its own forward at the same positions, row by
+row); an axis a site selects (`num_heads`, ...) by the indices kept, in order (one head does not broadcast over
+several, and `[1, 4]` would trade places with `[4, 1]`); `features` by the encodes it is in (the same featurizers
+and `select`s: an operand inside a bracket is encoded as the bracket is). The operand may leave out `rows`, `pos`
+and `layers`, which it then broadcasts over, as a direction or a per-row dose does (a singleton axis stands for
+each where the value has one); a number, or a named value of one number (a `mean` over every axis), broadcasts
+in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
+are the adapter's width.
 
-An argument is filled by a document as its type says: `Value` is a named value or a number (in an edit a named
-value of one number, a `mean` over every axis, broadcasts as a number does); `Tokens` a column (a `Column`
-reference: the string, or the object with `strip` and `lower`) resolved through the value's own vocabulary, the
-tokenizer's against logits or a probe's classes against its scores (a metric scores a `vocab_size` or a `classes`
-axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else is a literal.
-`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
-coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
+`Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
+vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
+`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else
+is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
+its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
 
@@ -852,16 +864,18 @@ nothing else, except that a bundle a featurizer loads (the value of an op that d
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
 
-`manifest.json` is the compiled plan without the rows it read from files (a hub dataset's never were there; `table`
-loads either again, from its file or the hub, and checks it against its `sha256`, as `dump` does a probe's classes
-dataset for the header of the bundle it saves) and without bundle tensors, its `results` each replaced by
-`{file, step, dims, axes, shape, dtype}`: that is how a result links back to the step that made it. It records the
-document's path relative to the corpus root, and each dataset's `n_rows`.
-`shape` and `dtype` follow the value's structure (per key, per point). The plan's `run` holds how each input
-tokenized, what each generate step's rows generated, which position (as `pos` counts them: an index into the
-row's prompt tokens, BOS first, then its generated ones) every read and write resolved to per row, which
-`table` uses to label positions, and what each step cost (`costs`: its seconds, its peak memory on each CUDA
-device, its model calls and the tokens they fed). Values are never in the manifest.
+`manifest.json` is the compiled plan as the run completed it, without the rows it read from files (a hub dataset's
+never were there; `table` loads either again, from its file or the hub, and checks it against its `sha256`, as
+`dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
+`results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
+its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `kept`, `space`), once, or per
+point by coordinate where its step is swept, as `shape` and `dtype` are, so that a result links back to the step
+that made it and says what each point of it is. It records the document's path relative to the corpus root, and
+each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and write, the
+positions it resolved to per row, which `table` uses to label positions; its `run` holds how each input
+tokenized, what each generate step's rows generated, the model's sizes and each featurizer's width, and what each
+step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens they fed).
+Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on their shared axes, one column per name.
 

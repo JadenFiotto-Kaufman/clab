@@ -22,31 +22,31 @@
   "rot": [
    {
     "kind": "subspace",
+    "k": 1,
     "at": {
      "k": 0
-    },
-    "k": 1
+    }
    },
    {
     "kind": "subspace",
+    "k": 4,
     "at": {
      "k": 1
-    },
-    "k": 4
+    }
    },
    {
     "kind": "subspace",
+    "k": 16,
     "at": {
      "k": 2
-    },
-    "k": 16
+    }
    },
    {
     "kind": "subspace",
+    "k": 64,
     "at": {
      "k": 3
-    },
-    "k": 64
+    }
    }
   ]
  },
@@ -66,6 +66,11 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "train",
+     "layers": [
+      8
+     ],
+     "read": "counterfactual.h",
      "gathered": true
     }
    },
@@ -92,16 +97,25 @@
       "kind": "op",
       "op": "encode",
       "of": "counterfactual.h",
-      "at": {
-       "k": 0
-      },
-      "dataset": "train",
+      "featurizer": "fit.rot",
       "dims": [
        "rows",
        "pos",
        "features"
       ],
-      "featurizer": "fit.rot"
+      "dataset": "train",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.h",
+      "space": [
+       {
+        "featurizer": "fit.rot"
+       }
+      ],
+      "at": {
+       "k": 0
+      }
      },
      "patched": {
       "kind": "forward",
@@ -116,22 +130,42 @@
         "ops": [
          {
           "op": "encode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "swap",
-          "with": "v_cf"
+          "with": "v_cf",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "decode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
          }
         ],
         "dims": [
          "rows",
          "pos",
          "hidden_size"
-        ]
+        ],
+        "dataset": "train",
+        "layers": [
+         8
+        ],
+        "read": "patched.patch"
        },
        "logits": {
         "site": {
@@ -143,6 +177,8 @@
          "pos",
          "vocab_size"
         ],
+        "dataset": "train",
+        "read": "patched.logits",
         "gathered": true
        }
       },
@@ -155,29 +191,31 @@
       "kind": "op",
       "op": "match",
       "of": "patched.logits",
-      "at": {
-       "k": 0
-      },
-      "dataset": "train",
+      "expected": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "expected": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 0
+      }
      },
      "ce": {
       "kind": "op",
       "op": "cross_entropy",
       "of": "patched.logits",
-      "at": {
-       "k": 0
-      },
-      "dataset": "train",
+      "target": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "target": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 0
+      }
      }
     },
     "early_stop": {
@@ -209,16 +247,25 @@
       "kind": "op",
       "op": "encode",
       "of": "counterfactual.h",
-      "at": {
-       "k": 1
-      },
-      "dataset": "train",
+      "featurizer": "fit.rot",
       "dims": [
        "rows",
        "pos",
        "features"
       ],
-      "featurizer": "fit.rot"
+      "dataset": "train",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.h",
+      "space": [
+       {
+        "featurizer": "fit.rot"
+       }
+      ],
+      "at": {
+       "k": 1
+      }
      },
      "patched": {
       "kind": "forward",
@@ -233,22 +280,42 @@
         "ops": [
          {
           "op": "encode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "swap",
-          "with": "v_cf"
+          "with": "v_cf",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "decode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
          }
         ],
         "dims": [
          "rows",
          "pos",
          "hidden_size"
-        ]
+        ],
+        "dataset": "train",
+        "layers": [
+         8
+        ],
+        "read": "patched.patch"
        },
        "logits": {
         "site": {
@@ -260,6 +327,8 @@
          "pos",
          "vocab_size"
         ],
+        "dataset": "train",
+        "read": "patched.logits",
         "gathered": true
        }
       },
@@ -272,29 +341,31 @@
       "kind": "op",
       "op": "match",
       "of": "patched.logits",
-      "at": {
-       "k": 1
-      },
-      "dataset": "train",
+      "expected": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "expected": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 1
+      }
      },
      "ce": {
       "kind": "op",
       "op": "cross_entropy",
       "of": "patched.logits",
-      "at": {
-       "k": 1
-      },
-      "dataset": "train",
+      "target": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "target": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 1
+      }
      }
     },
     "early_stop": {
@@ -326,16 +397,25 @@
       "kind": "op",
       "op": "encode",
       "of": "counterfactual.h",
-      "at": {
-       "k": 2
-      },
-      "dataset": "train",
+      "featurizer": "fit.rot",
       "dims": [
        "rows",
        "pos",
        "features"
       ],
-      "featurizer": "fit.rot"
+      "dataset": "train",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.h",
+      "space": [
+       {
+        "featurizer": "fit.rot"
+       }
+      ],
+      "at": {
+       "k": 2
+      }
      },
      "patched": {
       "kind": "forward",
@@ -350,22 +430,42 @@
         "ops": [
          {
           "op": "encode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "swap",
-          "with": "v_cf"
+          "with": "v_cf",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "decode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
          }
         ],
         "dims": [
          "rows",
          "pos",
          "hidden_size"
-        ]
+        ],
+        "dataset": "train",
+        "layers": [
+         8
+        ],
+        "read": "patched.patch"
        },
        "logits": {
         "site": {
@@ -377,6 +477,8 @@
          "pos",
          "vocab_size"
         ],
+        "dataset": "train",
+        "read": "patched.logits",
         "gathered": true
        }
       },
@@ -389,29 +491,31 @@
       "kind": "op",
       "op": "match",
       "of": "patched.logits",
-      "at": {
-       "k": 2
-      },
-      "dataset": "train",
+      "expected": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "expected": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 2
+      }
      },
      "ce": {
       "kind": "op",
       "op": "cross_entropy",
       "of": "patched.logits",
-      "at": {
-       "k": 2
-      },
-      "dataset": "train",
+      "target": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "target": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 2
+      }
      }
     },
     "early_stop": {
@@ -443,16 +547,25 @@
       "kind": "op",
       "op": "encode",
       "of": "counterfactual.h",
-      "at": {
-       "k": 3
-      },
-      "dataset": "train",
+      "featurizer": "fit.rot",
       "dims": [
        "rows",
        "pos",
        "features"
       ],
-      "featurizer": "fit.rot"
+      "dataset": "train",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.h",
+      "space": [
+       {
+        "featurizer": "fit.rot"
+       }
+      ],
+      "at": {
+       "k": 3
+      }
      },
      "patched": {
       "kind": "forward",
@@ -467,22 +580,42 @@
         "ops": [
          {
           "op": "encode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "swap",
-          "with": "v_cf"
+          "with": "v_cf",
+          "dims": [
+           "rows",
+           "pos",
+           "features"
+          ]
          },
          {
           "op": "decode",
-          "featurizer": "fit.rot"
+          "featurizer": "fit.rot",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
          }
         ],
         "dims": [
          "rows",
          "pos",
          "hidden_size"
-        ]
+        ],
+        "dataset": "train",
+        "layers": [
+         8
+        ],
+        "read": "patched.patch"
        },
        "logits": {
         "site": {
@@ -494,6 +627,8 @@
          "pos",
          "vocab_size"
         ],
+        "dataset": "train",
+        "read": "patched.logits",
         "gathered": true
        }
       },
@@ -506,29 +641,31 @@
       "kind": "op",
       "op": "match",
       "of": "patched.logits",
-      "at": {
-       "k": 3
-      },
-      "dataset": "train",
+      "expected": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "expected": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 3
+      }
      },
      "ce": {
       "kind": "op",
       "op": "cross_entropy",
       "of": "patched.logits",
-      "at": {
-       "k": 3
-      },
-      "dataset": "train",
+      "target": "train.cf_answer",
       "dims": [
        "rows",
        "pos"
       ],
-      "target": "train.cf_answer"
+      "dataset": "train",
+      "read": "patched.logits",
+      "at": {
+       "k": 3
+      }
      }
     },
     "early_stop": {
@@ -555,7 +692,12 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        }
       ],
       "dims": [
@@ -563,6 +705,11 @@
        "pos",
        "features"
       ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_counterfactual.v_cf",
       "space": [
        {
         "featurizer": "fit.rot"
@@ -589,7 +736,12 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        }
       ],
       "dims": [
@@ -597,6 +749,11 @@
        "pos",
        "features"
       ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_counterfactual.v_cf",
       "space": [
        {
         "featurizer": "fit.rot"
@@ -623,7 +780,12 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        }
       ],
       "dims": [
@@ -631,6 +793,11 @@
        "pos",
        "features"
       ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_counterfactual.v_cf",
       "space": [
        {
         "featurizer": "fit.rot"
@@ -657,7 +824,12 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        }
       ],
       "dims": [
@@ -665,6 +837,11 @@
        "pos",
        "features"
       ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_counterfactual.v_cf",
       "space": [
        {
         "featurizer": "fit.rot"
@@ -693,22 +870,42 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": "held_counterfactual.v_cf"
+        "with": "held_counterfactual.v_cf",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_patched.patch"
      },
      "logits": {
       "site": {
@@ -720,6 +917,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "test",
+      "read": "held_patched.logits",
       "gathered": true
      }
     },
@@ -741,22 +940,42 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": "held_counterfactual.v_cf"
+        "with": "held_counterfactual.v_cf",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_patched.patch"
      },
      "logits": {
       "site": {
@@ -768,6 +987,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "test",
+      "read": "held_patched.logits",
       "gathered": true
      }
     },
@@ -789,22 +1010,42 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": "held_counterfactual.v_cf"
+        "with": "held_counterfactual.v_cf",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_patched.patch"
      },
      "logits": {
       "site": {
@@ -816,6 +1057,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "test",
+      "read": "held_patched.logits",
       "gathered": true
      }
     },
@@ -837,22 +1080,42 @@
       "ops": [
        {
         "op": "encode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": "held_counterfactual.v_cf"
+        "with": "held_counterfactual.v_cf",
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "fit.rot"
+        "featurizer": "fit.rot",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "test",
+      "layers": [
+       8
+      ],
+      "read": "held_patched.patch"
      },
      "logits": {
       "site": {
@@ -864,6 +1127,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "test",
+      "read": "held_patched.logits",
       "gathered": true
      }
     },
@@ -878,57 +1143,61 @@
     "kind": "op",
     "op": "match",
     "of": "held_patched.logits",
+    "expected": "test.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "test",
+    "read": "held_patched.logits",
     "at": {
      "k": 0
-    },
-    "dataset": "test",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "test.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "held_patched.logits",
+    "expected": "test.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "test",
+    "read": "held_patched.logits",
     "at": {
      "k": 1
-    },
-    "dataset": "test",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "test.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "held_patched.logits",
+    "expected": "test.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "test",
+    "read": "held_patched.logits",
     "at": {
      "k": 2
-    },
-    "dataset": "test",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "expected": "test.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "held_patched.logits",
-    "at": {
-     "k": 3
-    },
-    "dataset": "test",
+    "expected": "test.cf_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "expected": "test.cf_answer"
+    "dataset": "test",
+    "read": "held_patched.logits",
+    "at": {
+     "k": 3
+    }
    }
   ]
  },
@@ -940,9 +1209,6 @@
  "compiled": true,
  "sweeps": {
   "k": {
-   "paths": [
-    "featurizers.rot.k"
-   ],
    "values": [
     1,
     4,

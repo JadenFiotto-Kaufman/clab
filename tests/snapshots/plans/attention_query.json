@@ -29,6 +29,11 @@
       "num_heads",
       "qk_head_dim"
      ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "counterfactual.v_cf",
      "gathered": true
     }
    },
@@ -47,7 +52,13 @@
      "ops": [
       {
        "op": "swap",
-       "with": "counterfactual.v_cf"
+       "with": "counterfactual.v_cf",
+       "dims": [
+        "rows",
+        "pos",
+        "num_heads",
+        "qk_head_dim"
+       ]
       }
      ],
      "dims": [
@@ -55,7 +66,12 @@
       "pos",
       "num_heads",
       "qk_head_dim"
-     ]
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "patched.patch"
     },
     "logits": {
      "site": {
@@ -67,6 +83,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "pairs",
+     "read": "patched.logits",
      "gathered": true
     }
    },
@@ -76,13 +94,14 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "patched.logits",
-   "dataset": "pairs",
+   "a": "pairs.cf_answer",
+   "b": "pairs.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "pairs.cf_answer",
-   "b": "pairs.base_answer"
+   "dataset": "pairs",
+   "read": "patched.logits"
   }
  },
  "saves": [

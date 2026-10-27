@@ -26,6 +26,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clean.logits",
      "gathered": true
     },
     "resid": {
@@ -39,6 +41,11 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      1
+     ],
+     "read": "clean.resid",
      "gathered": true
     }
    },
@@ -48,13 +55,14 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clean.logits"
   },
   "clamped": {
    "kind": "forward",
@@ -69,14 +77,24 @@
       {
        "op": "clamp",
        "min": -0.01,
-       "max": 0.01
+       "max": 0.01,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      1
+     ],
+     "read": "clamped.clamp"
     },
     "logits": {
      "site": {
@@ -88,6 +106,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clamped.logits",
      "gathered": true
     },
     "resid": {
@@ -101,6 +121,11 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      1
+     ],
+     "read": "clamped.resid",
      "gathered": true
     }
    },
@@ -110,13 +135,14 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clamped.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clamped.logits"
   }
  },
  "saves": [

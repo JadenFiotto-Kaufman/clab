@@ -26,6 +26,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clean.logits",
      "gathered": true
     }
    },
@@ -35,24 +37,26 @@
    "kind": "op",
    "op": "top_k",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "k": 3,
    "dims": [
     "rows",
     "pos",
     "k"
    ],
-   "k": 3
+   "dataset": "prompts",
+   "read": "clean.logits"
   },
   "p_answer": {
    "kind": "op",
    "op": "token_prob",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "token": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clean.logits"
   }
  },
  "saves": [

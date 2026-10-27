@@ -14,6 +14,7 @@
  "featurizers": {
   "dictionary": {
    "kind": "sae",
+   "file_path": "documents/artifacts/fit.dictionary.safetensors",
    "header": {
     "activation": "relu",
     "centered": "true",
@@ -26,8 +27,7 @@
     "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
     "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "width": "16"
-   },
-   "file_path": "documents/artifacts/fit.dictionary.safetensors"
+   }
   }
  },
  "steps": {
@@ -44,7 +44,12 @@
      "ops": [
       {
        "op": "encode",
-       "featurizer": "dictionary"
+       "featurizer": "dictionary",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
       }
      ],
      "dims": [
@@ -52,6 +57,11 @@
       "pos",
       "features"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "base.latents",
      "space": [
       {
        "featurizer": "dictionary"
@@ -79,22 +89,42 @@
         "featurizer": "dictionary",
         "select": {
          "features": 0
-        }
+        },
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": 0.0
+        "with": 0.0,
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "dictionary"
+        "featurizer": "dictionary",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "zeroed.ablate"
      },
      "logits": {
       "site": {
@@ -106,6 +136,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "read": "zeroed.logits",
       "gathered": true
      }
     },
@@ -130,22 +162,42 @@
         "featurizer": "dictionary",
         "select": {
          "features": 1
-        }
+        },
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": 0.0
+        "with": 0.0,
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "dictionary"
+        "featurizer": "dictionary",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "zeroed.ablate"
      },
      "logits": {
       "site": {
@@ -157,6 +209,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "read": "zeroed.logits",
       "gathered": true
      }
     },
@@ -181,22 +235,42 @@
         "featurizer": "dictionary",
         "select": {
          "features": 2
-        }
+        },
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": 0.0
+        "with": 0.0,
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "dictionary"
+        "featurizer": "dictionary",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "zeroed.ablate"
      },
      "logits": {
       "site": {
@@ -208,6 +282,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "read": "zeroed.logits",
       "gathered": true
      }
     },
@@ -232,22 +308,42 @@
         "featurizer": "dictionary",
         "select": {
          "features": 3
-        }
+        },
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "swap",
-        "with": 0.0
+        "with": 0.0,
+        "dims": [
+         "rows",
+         "pos",
+         "features"
+        ]
        },
        {
         "op": "decode",
-        "featurizer": "dictionary"
+        "featurizer": "dictionary",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "zeroed.ablate"
      },
      "logits": {
       "site": {
@@ -259,6 +355,8 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "read": "zeroed.logits",
       "gathered": true
      }
     },
@@ -273,61 +371,65 @@
     "kind": "op",
     "op": "logit_diff",
     "of": "zeroed.logits",
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 0
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "zeroed.logits",
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 1
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "zeroed.logits",
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 2
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer"
+    }
    },
    {
     "kind": "op",
     "op": "logit_diff",
     "of": "zeroed.logits",
-    "at": {
-     "features": 3
-    },
-    "dataset": "prompts",
+    "a": "prompts.cf_answer",
+    "b": "prompts.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "a": "prompts.cf_answer",
-    "b": "prompts.base_answer"
+    "dataset": "prompts",
+    "read": "zeroed.logits",
+    "at": {
+     "features": 3
+    }
    }
   ],
   "p_answer": [
@@ -335,57 +437,61 @@
     "kind": "op",
     "op": "token_prob",
     "of": "zeroed.logits",
+    "token": "prompts.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 0
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "token": "prompts.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "token_prob",
     "of": "zeroed.logits",
+    "token": "prompts.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 1
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "token": "prompts.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "token_prob",
     "of": "zeroed.logits",
+    "token": "prompts.cf_answer",
+    "dims": [
+     "rows",
+     "pos"
+    ],
+    "dataset": "prompts",
+    "read": "zeroed.logits",
     "at": {
      "features": 2
-    },
-    "dataset": "prompts",
-    "dims": [
-     "rows",
-     "pos"
-    ],
-    "token": "prompts.cf_answer"
+    }
    },
    {
     "kind": "op",
     "op": "token_prob",
     "of": "zeroed.logits",
-    "at": {
-     "features": 3
-    },
-    "dataset": "prompts",
+    "token": "prompts.cf_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "token": "prompts.cf_answer"
+    "dataset": "prompts",
+    "read": "zeroed.logits",
+    "at": {
+     "features": 3
+    }
    }
   ]
  },
@@ -398,9 +504,6 @@
  "compiled": true,
  "sweeps": {
   "features": {
-   "paths": [
-    "steps.zeroed.interventions.ablate.ops.0.select.features"
-   ],
    "values": [
     0,
     1,

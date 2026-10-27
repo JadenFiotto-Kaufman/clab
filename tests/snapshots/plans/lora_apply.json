@@ -15,6 +15,7 @@
  "featurizers": {
   "lora": {
    "kind": "lora",
+   "file_path": "documents/artifacts/fit.lora.safetensors",
    "header": {
     "alpha": "8",
     "component": "layer_output",
@@ -27,8 +28,7 @@
     "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "rank": "4",
     "width": "16"
-   },
-   "file_path": "documents/artifacts/fit.lora.safetensors"
+   }
   }
  },
  "steps": {
@@ -46,6 +46,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "test",
+     "read": "clean.logits",
      "gathered": true
     }
    },
@@ -66,14 +68,24 @@
      "ops": [
       {
        "op": "apply",
-       "featurizer": "lora"
+       "featurizer": "lora",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "test",
+     "layers": [
+      0
+     ],
+     "read": "adapted.adapt"
     },
     "logits": {
      "site": {
@@ -85,6 +97,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "test",
+     "read": "adapted.logits",
      "gathered": true
     }
    },
@@ -94,25 +108,27 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clean.logits",
-   "dataset": "test",
+   "a": "test.cf_answer",
+   "b": "test.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "test.cf_answer",
-   "b": "test.base_answer"
+   "dataset": "test",
+   "read": "clean.logits"
   },
   "adapted_ld": {
    "kind": "op",
    "op": "logit_diff",
    "of": "adapted.logits",
-   "dataset": "test",
+   "a": "test.cf_answer",
+   "b": "test.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "test.cf_answer",
-   "b": "test.base_answer"
+   "dataset": "test",
+   "read": "adapted.logits"
   },
   "answer": {
    "kind": "generate",
@@ -129,28 +145,38 @@
      "ops": [
       {
        "op": "apply",
-       "featurizer": "lora"
+       "featurizer": "lora",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "test",
+     "layers": [
+      0
+     ],
+     "read": "answer.adapt"
     }
    },
-   "dataset": "test",
    "max_new_tokens": 4,
-   "do_sample": false
+   "do_sample": false,
+   "dataset": "test"
   },
   "said": {
    "kind": "op",
    "op": "detokenize",
    "of": "answer",
-   "dataset": "test",
    "dims": [
     "rows"
-   ]
+   ],
+   "dataset": "test"
   }
  },
  "saves": [

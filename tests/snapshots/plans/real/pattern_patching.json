@@ -33,6 +33,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        0
+       ]
+      },
       "gathered": true
      }
     },
@@ -60,6 +70,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        1
+       ]
+      },
       "gathered": true
      }
     },
@@ -87,6 +107,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        2
+       ]
+      },
       "gathered": true
      }
     },
@@ -114,6 +144,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        3
+       ]
+      },
       "gathered": true
      }
     },
@@ -141,6 +181,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        4
+       ]
+      },
       "gathered": true
      }
     },
@@ -168,6 +218,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        5
+       ]
+      },
       "gathered": true
      }
     },
@@ -195,6 +255,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        6
+       ]
+      },
       "gathered": true
      }
     },
@@ -222,6 +292,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        7
+       ]
+      },
       "gathered": true
      }
     },
@@ -249,6 +329,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        8
+       ]
+      },
       "gathered": true
      }
     },
@@ -276,6 +366,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        9
+       ]
+      },
       "gathered": true
      }
     },
@@ -303,6 +403,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        10
+       ]
+      },
       "gathered": true
      }
     },
@@ -330,6 +440,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        11
+       ]
+      },
       "gathered": true
      }
     },
@@ -357,6 +477,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        12
+       ]
+      },
       "gathered": true
      }
     },
@@ -384,6 +514,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        13
+       ]
+      },
       "gathered": true
      }
     },
@@ -411,6 +551,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        14
+       ]
+      },
       "gathered": true
      }
     },
@@ -438,6 +588,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        15
+       ]
+      },
       "gathered": true
      }
     },
@@ -465,6 +625,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        16
+       ]
+      },
       "gathered": true
      }
     },
@@ -492,6 +662,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        17
+       ]
+      },
       "gathered": true
      }
     },
@@ -519,6 +699,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        18
+       ]
+      },
       "gathered": true
      }
     },
@@ -546,6 +736,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        19
+       ]
+      },
       "gathered": true
      }
     },
@@ -573,6 +773,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        20
+       ]
+      },
       "gathered": true
      }
     },
@@ -600,6 +810,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        21
+       ]
+      },
       "gathered": true
      }
     },
@@ -627,6 +847,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        22
+       ]
+      },
       "gathered": true
      }
     },
@@ -654,6 +884,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        23
+       ]
+      },
       "gathered": true
      }
     },
@@ -681,6 +921,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        24
+       ]
+      },
       "gathered": true
      }
     },
@@ -708,6 +958,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        25
+       ]
+      },
       "gathered": true
      }
     },
@@ -735,6 +995,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        26
+       ]
+      },
       "gathered": true
      }
     },
@@ -762,6 +1032,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        27
+       ]
+      },
       "gathered": true
      }
     },
@@ -789,6 +1069,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        28
+       ]
+      },
       "gathered": true
      }
     },
@@ -816,6 +1106,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        29
+       ]
+      },
       "gathered": true
      }
     },
@@ -843,6 +1143,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        30
+       ]
+      },
       "gathered": true
      }
     },
@@ -870,6 +1180,16 @@
        "num_heads",
        "key"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.their_pattern",
+      "kept": {
+       "num_heads": [
+        31
+       ]
+      },
       "gathered": true
      }
     },
@@ -896,7 +1216,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -904,7 +1230,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        0
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -914,13 +1250,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -932,13 +1274,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -963,7 +1311,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -971,7 +1325,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        1
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -981,13 +1345,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -999,13 +1369,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1030,7 +1406,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1038,7 +1420,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        2
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1048,13 +1440,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1066,13 +1464,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1097,7 +1501,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1105,7 +1515,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        3
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1115,13 +1535,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1133,13 +1559,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1164,7 +1596,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1172,7 +1610,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        4
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1182,13 +1630,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1200,13 +1654,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1231,7 +1691,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1239,7 +1705,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        5
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1249,13 +1725,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1267,13 +1749,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1298,7 +1786,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1306,7 +1800,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        6
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1316,13 +1820,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1334,13 +1844,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1365,7 +1881,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1373,7 +1895,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        7
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1383,13 +1915,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1401,13 +1939,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1432,7 +1976,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1440,7 +1990,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        8
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1450,13 +2010,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1468,13 +2034,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1499,7 +2071,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1507,7 +2085,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        9
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1517,13 +2105,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1535,13 +2129,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1566,7 +2166,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1574,7 +2180,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        10
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1584,13 +2200,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1602,13 +2224,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1633,7 +2261,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1641,7 +2275,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        11
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1651,13 +2295,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1669,13 +2319,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1700,7 +2356,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1708,7 +2370,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        12
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1718,13 +2390,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1736,13 +2414,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1767,7 +2451,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1775,7 +2465,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        13
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1785,13 +2485,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1803,13 +2509,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1834,7 +2546,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1842,7 +2560,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        14
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1852,13 +2580,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1870,13 +2604,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1901,7 +2641,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1909,7 +2655,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        15
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1919,13 +2675,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -1937,13 +2699,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -1968,7 +2736,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -1976,7 +2750,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        16
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -1986,13 +2770,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2004,13 +2794,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2035,7 +2831,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2043,7 +2845,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        17
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2053,13 +2865,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2071,13 +2889,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2102,7 +2926,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2110,7 +2940,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        18
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2120,13 +2960,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2138,13 +2984,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2169,7 +3021,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2177,7 +3035,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        19
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2187,13 +3055,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2205,13 +3079,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2236,7 +3116,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2244,7 +3130,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        20
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2254,13 +3150,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2272,13 +3174,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2303,7 +3211,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2311,7 +3225,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        21
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2321,13 +3245,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2339,13 +3269,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2370,7 +3306,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2378,7 +3320,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        22
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2388,13 +3340,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2406,13 +3364,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2437,7 +3401,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2445,7 +3415,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        23
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2455,13 +3435,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2473,13 +3459,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2504,7 +3496,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2512,7 +3510,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        24
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2522,13 +3530,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2540,13 +3554,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2571,7 +3591,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2579,7 +3605,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        25
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2589,13 +3625,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2607,13 +3649,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2638,7 +3686,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2646,7 +3700,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        26
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2656,13 +3720,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2674,13 +3744,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2705,7 +3781,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2713,7 +3795,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        27
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2723,13 +3815,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2741,13 +3839,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2772,7 +3876,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2780,7 +3890,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        28
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2790,13 +3910,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2808,13 +3934,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2839,7 +3971,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2847,7 +3985,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        29
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2857,13 +4005,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2875,13 +4029,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2906,7 +4066,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2914,7 +4080,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        30
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2924,13 +4100,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -2942,13 +4124,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -2973,7 +4161,13 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.their_pattern"
+        "with": "counterfactual.their_pattern",
+        "dims": [
+         "rows",
+         "pos",
+         "num_heads",
+         "key"
+        ]
        }
       ],
       "dims": [
@@ -2981,7 +4175,17 @@
        "pos",
        "num_heads",
        "key"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "patched.look_there",
+      "kept": {
+       "num_heads": [
+        31
+       ]
+      }
      },
      "hit": {
       "site": {
@@ -2991,13 +4195,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.hit",
       "gathered": true
      },
      "diff": {
@@ -3009,13 +4219,19 @@
        {
         "op": "logit_diff",
         "a": "days.cf_answer",
-        "b": "days.base_answer"
+        "b": "days.base_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "patched.diff",
       "gathered": true
      }
     },
@@ -3030,321 +4246,353 @@
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 0
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 1
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 2
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 3
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 4
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 5
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 6
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 7
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 8
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 9
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 10
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 11
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 12
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 13
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 14
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 15
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 16
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 17
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 18
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 19
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 20
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 21
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 22
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 23
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 24
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 25
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 26
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 27
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 28
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 29
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 30
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.hit",
     "at": {
      "num_heads": 31
-    },
-    "dataset": "days",
-    "dims": []
+    }
    }
   ],
   "logit_diff": [
@@ -3352,321 +4600,353 @@
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 0
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 1
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 2
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 3
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 4
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 5
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 6
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 7
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 8
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 9
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 10
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 11
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 12
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 13
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 14
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 15
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 16
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 17
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 18
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 19
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 20
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 21
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 22
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 23
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 24
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 25
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 26
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 27
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 28
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 29
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 30
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "patched.diff",
+    "dims": [],
+    "dataset": "days",
+    "read": "patched.diff",
     "at": {
      "num_heads": 31
-    },
-    "dataset": "days",
-    "dims": []
+    }
    }
   ]
  },
@@ -3678,9 +4958,6 @@
  "compiled": true,
  "sweeps": {
   "num_heads": {
-   "paths": [
-    "sites.one_head.select.num_heads"
-   ],
    "values": [
     0,
     1,

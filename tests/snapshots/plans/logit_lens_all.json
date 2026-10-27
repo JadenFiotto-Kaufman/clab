@@ -24,7 +24,12 @@
      "pos": -1,
      "ops": [
       {
-       "op": "readout"
+       "op": "readout",
+       "dims": [
+        "rows",
+        "pos",
+        "vocab_size"
+       ]
       }
      ],
      "dims": [
@@ -33,6 +38,9 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "layers": [],
+     "read": "lens.logits",
      "gathered": true
     }
    },
@@ -42,25 +50,29 @@
    "kind": "op",
    "op": "token_prob",
    "of": "lens.logits",
-   "dataset": "prompts",
+   "token": "prompts.base_answer",
    "dims": [
     "layers",
     "rows",
     "pos"
    ],
-   "token": "prompts.base_answer"
+   "dataset": "prompts",
+   "layers": [],
+   "read": "lens.logits"
   },
   "top1": {
    "kind": "op",
    "op": "match",
    "of": "lens.logits",
-   "dataset": "prompts",
+   "expected": "prompts.base_answer",
    "dims": [
     "layers",
     "rows",
     "pos"
    ],
-   "expected": "prompts.base_answer"
+   "dataset": "prompts",
+   "layers": [],
+   "read": "lens.logits"
   }
  },
  "saves": [

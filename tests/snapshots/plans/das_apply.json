@@ -15,6 +15,9 @@
  "featurizers": {
   "rot": {
    "kind": "subspace",
+   "k": 8,
+   "parametrization": "cayley",
+   "file_path": "documents/artifacts/fit.rot.safetensors",
    "header": {
     "component": "layer_output",
     "document": "das",
@@ -27,10 +30,7 @@
     "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
     "parametrization": "cayley",
     "width": "16"
-   },
-   "k": 8,
-   "parametrization": "cayley",
-   "file_path": "documents/artifacts/fit.rot.safetensors"
+   }
   }
  },
  "steps": {
@@ -47,7 +47,12 @@
      "ops": [
       {
        "op": "encode",
-       "featurizer": "rot"
+       "featurizer": "rot",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
       }
      ],
      "dims": [
@@ -55,6 +60,11 @@
       "pos",
       "features"
      ],
+     "dataset": "test",
+     "layers": [
+      0
+     ],
+     "read": "counterfactual.v_cf",
      "space": [
       {
        "featurizer": "rot"
@@ -78,22 +88,42 @@
      "ops": [
       {
        "op": "encode",
-       "featurizer": "rot"
+       "featurizer": "rot",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
       },
       {
        "op": "swap",
-       "with": "counterfactual.v_cf"
+       "with": "counterfactual.v_cf",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
       },
       {
        "op": "decode",
-       "featurizer": "rot"
+       "featurizer": "rot",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "test",
+     "layers": [
+      0
+     ],
+     "read": "patched.patch"
     },
     "logits": {
      "site": {
@@ -105,6 +135,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "test",
+     "read": "patched.logits",
      "gathered": true
     }
    },
@@ -114,24 +146,26 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "patched.logits",
-   "dataset": "test",
+   "a": "test.cf_answer",
+   "b": "test.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "test.cf_answer",
-   "b": "test.base_answer"
+   "dataset": "test",
+   "read": "patched.logits"
   },
   "ce": {
    "kind": "op",
    "op": "cross_entropy",
    "of": "patched.logits",
-   "dataset": "test",
+   "target": "test.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "target": "test.cf_answer"
+   "dataset": "test",
+   "read": "patched.logits"
   }
  },
  "saves": [

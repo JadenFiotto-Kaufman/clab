@@ -25,7 +25,12 @@
       "pos": -1,
       "ops": [
        {
-        "op": "readout"
+        "op": "readout",
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
        }
       ],
       "dims": [
@@ -33,6 +38,11 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "lens.logits",
       "gathered": true
      }
     },
@@ -53,7 +63,12 @@
       "pos": -1,
       "ops": [
        {
-        "op": "readout"
+        "op": "readout",
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ]
        }
       ],
       "dims": [
@@ -61,6 +76,11 @@
        "pos",
        "vocab_size"
       ],
+      "dataset": "prompts",
+      "layers": [
+       1
+      ],
+      "read": "lens.logits",
       "gathered": true
      }
     },
@@ -75,29 +95,37 @@
     "kind": "op",
     "op": "token_prob",
     "of": "lens.logits",
-    "at": {
-     "layers": 0
-    },
-    "dataset": "prompts",
+    "token": "prompts.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "token": "prompts.base_answer"
+    "dataset": "prompts",
+    "layers": [
+     0
+    ],
+    "read": "lens.logits",
+    "at": {
+     "layers": 0
+    }
    },
    {
     "kind": "op",
     "op": "token_prob",
     "of": "lens.logits",
-    "at": {
-     "layers": 1
-    },
-    "dataset": "prompts",
+    "token": "prompts.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "token": "prompts.base_answer"
+    "dataset": "prompts",
+    "layers": [
+     1
+    ],
+    "read": "lens.logits",
+    "at": {
+     "layers": 1
+    }
    }
   ],
   "top1": [
@@ -105,29 +133,37 @@
     "kind": "op",
     "op": "match",
     "of": "lens.logits",
-    "at": {
-     "layers": 0
-    },
-    "dataset": "prompts",
+    "expected": "prompts.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "expected": "prompts.base_answer"
+    "dataset": "prompts",
+    "layers": [
+     0
+    ],
+    "read": "lens.logits",
+    "at": {
+     "layers": 0
+    }
    },
    {
     "kind": "op",
     "op": "match",
     "of": "lens.logits",
-    "at": {
-     "layers": 1
-    },
-    "dataset": "prompts",
+    "expected": "prompts.base_answer",
     "dims": [
      "rows",
      "pos"
     ],
-    "expected": "prompts.base_answer"
+    "dataset": "prompts",
+    "layers": [
+     1
+    ],
+    "read": "lens.logits",
+    "at": {
+     "layers": 1
+    }
    }
   ]
  },
@@ -139,9 +175,6 @@
  "compiled": true,
  "sweeps": {
   "layers": {
-   "paths": [
-    "sites.resid.layers"
-   ],
    "values": [
     0,
     1

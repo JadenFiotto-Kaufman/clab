@@ -15,36 +15,36 @@
   "answer": {
    "kind": "generate",
    "input": "prompts.input",
-   "dataset": "prompts",
    "max_new_tokens": 6,
    "min_new_tokens": 6,
-   "do_sample": false
+   "do_sample": false,
+   "dataset": "prompts"
   },
   "text": {
    "kind": "op",
    "op": "detokenize",
    "of": "answer",
-   "dataset": "prompts",
    "dims": [
     "rows"
-   ]
+   ],
+   "dataset": "prompts"
   },
   "said": {
    "kind": "op",
    "op": "contains",
    "of": "text",
-   "dataset": "prompts",
+   "text": "prompts.said",
    "dims": [
     "rows"
    ],
-   "text": "prompts.said"
+   "dataset": "prompts"
   },
   "acc": {
    "kind": "op",
    "op": "mean",
    "of": "said",
-   "dataset": "prompts",
-   "dims": []
+   "dims": [],
+   "dataset": "prompts"
   }
  },
  "saves": [

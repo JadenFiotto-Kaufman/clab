@@ -2,14 +2,14 @@
 
 import itertools
 import json
-from typing import Any
+from typing import Any, cast
 
 from torch import Tensor
 
 from clab.compile import materialized, positions
-from clab.format import address, data, selectors
-from clab.format.sweeps import by_point, labelled
-from clab.plan import Plan, arguments, body_view, dims_of, entries, entry_of, points, walk
+from clab.format import data
+from clab.format.sweeps import agreeing, by_point, labelled
+from clab.plan import Intervention, Labelled, Plan, arguments, body_view, entries, entry_of, points, record_of, walk
 
 JOIN = ("at", "row", "layer", "pos", "key")
 
@@ -59,17 +59,20 @@ def join(left: list[dict[str, Any]], right: list[dict[str, Any]]) -> list[dict[s
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
-    step, dims = points(plan.steps[thing])[0], dims_of(plan, name)
+    step = points(plan.steps[thing])[0]
     if step.kind == "fit":
         if member.partition(".")[0] in ("history", *step.train):
+            dims = record_of(plan.steps, name, {}).dims or []
             return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
                     for row in elements(value, dims, None)]
         return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
-    source, used = provenance(plan, name)
-    examples = materialized(plan, step.dataset) if step.dataset else []
     out = []
     for p, (at, value) in zip(points(plan.steps[thing]), by_point(plan, name)):
-        place = located(plan, source, p.at) if source else None
+        record = record_of(plan.steps, name, p.at)
+        dims = record.dims or []
+        examples = materialized(plan, record.dataset) if record.dataset else []
+        place = located(plan, record, p.at) if record.read else None
+        used = columns_used(plan, name, p.at)
         for row in elements(value, dims, place):
             if "row" in row and examples:
                 example = examples[row["row"]]
@@ -81,23 +84,17 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
 
 
 def dataset_of(plan: Plan, name: str) -> str | None:
-    """The dataset a saved value has a row per example of, if any: its step's, or for a member of a fit's named
-    eval the one its body's step read under that eval."""
-    if "rows" not in dims_of(plan, name):
-        return None
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    if step.kind != "fit":
-        return step.dataset
-    label, _, rest = member.partition(".")
-    inner = step.steps[rest.partition(".")[0]].dataset
-    return step.eval[label].get(inner, inner) if inner is not None else None
+    """The dataset a saved value has a row per example of, if any, as its record says (a member of a fit's named
+    eval: the one its body's step read under that eval)."""
+    record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
+    return record.dataset if "rows" in (record.dims or []) else None
 
 
 def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     """The plan as the fit's named eval saw it, for tabling its member `name` (`<fit>.<eval>.<member>`): its
-    body's view under that eval's substitution, and the run record of the body's records and inputs under the
-    names the body gives them."""
+    body's view under that eval's substitution, the run record of the body's inputs under the names the body
+    gives them, and the body's records with their positions under those names too (the eval's dataset read as
+    the body's)."""
     label, _, member = name.partition(".")[2].partition(".")
     swap = points(plan.steps[fit])[0].eval[label]
     assert plan.run is not None
@@ -105,10 +102,19 @@ def evaluated(plan: Plan, fit: str, name: str) -> Plan:
     for _, step in walk(points(plan.steps[fit])[0].steps):
         if step.kind in ("forward", "generate") and data.input_name(step.input, swap) in plan.run.tokens:
             tokens[data.input_name(step.input)] = plan.run.tokens[data.input_name(step.input, swap)]
-    run = plan.run.model_copy(update={"tokens": tokens, "positions": {
-        k.removeprefix(f"{fit}.{label}."): v for k, v in plan.run.positions.items() if k.startswith(f"{fit}.{label}.")}})
-    return body_view(plan, fit, swap=swap).model_copy(update={
-        "run": run, "results": {member: plan.results[name]}, "saves": [member]})
+    view = body_view(plan, fit, swap=swap)
+
+    def under(step: Any) -> Any:
+        if step.kind not in ("forward", "generate"):
+            return step
+        read = swap.get(step.dataset, step.dataset)
+        return step.model_copy(update={"interventions": {
+            k: e.model_copy(update={"positions": {step.dataset: e.positions[read]} if read in e.positions else {}})
+            for k, e in entries(step).items()}})
+    body = {n: [under(p) for p in s] if isinstance(s, list) else under(s)
+            for n, s in view.steps.items() if n in points(plan.steps[fit])[0].steps}
+    return view.model_copy(update={"steps": {**view.steps, **body}, "run": plan.run.model_copy(update={"tokens": tokens}),
+                                   "results": {member: plan.results[name]}, "saves": [member]})
 
 
 def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
@@ -145,7 +151,7 @@ def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place:
 
 
 def layer(place: dict[str, Any] | None, k: int) -> int:
-    """Index `k` on a `layers` axis as the model's layer it is, by its read's `layers` among the model's."""
+    """Index `k` on a `layers` axis as the model's layer it is, by the value's own `layers` label."""
     return place["layers"][k] if place and place["layers"] is not None else k
 
 
@@ -182,38 +188,42 @@ def columns(plan: Plan, args: dict[str, Any]) -> list[str]:
     return [r[0].partition(".")[2] for r in refs if r is not None and r[0].partition(".")[0] in plan.data]
 
 
-def provenance(plan: Plan, name: str) -> tuple[str | None, list[str]]:
-    """The read a value's positions come from (following `of`), and the dataset columns its chain uses."""
-    used = []
+def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
+    """The dataset columns a value's chain of steps used, at the point agreeing with `at`: those its op steps'
+    arguments name, back to the read, then the read's input columns first and the columns its entry's ops name."""
+    used: list[str] = []
+    steps = plan.steps
     while True:
         thing, _, member = name.partition(".")
-        step = points(plan.steps[thing])[0]
-        args = arguments(step) if step.kind == "op" else {}
-        used += columns(plan, args)
-        if step.kind != "op":
-            used[:0] = [data.parse_input(c)[1] for c in data.input_columns(step.input)]
-            for o in entries(step)[member].ops if member else []:
-                used += columns(plan, arguments(o))
-            return (name if member else None), list(dict.fromkeys(used))
-        name = step.of
+        step = agreeing(steps[thing], at)
+        if step.kind == "fit":
+            steps, name, at = step.steps, member.partition(".")[2], step.at
+            continue
+        if step.kind == "op":
+            used += columns(plan, arguments(step))
+            name = step.of
+            continue
+        used[:0] = [data.parse_input(c)[1] for c in data.input_columns(step.input)]
+        for o in entries(step)[member].ops if member else []:
+            used += columns(plan, arguments(o))
+        return list(dict.fromkeys(used))
 
 
-def located(plan: Plan, source: str, at: dict[str, int]) -> dict[str, Any]:
-    """For the read `source` at the point agreeing with `at`: the rows' prompt tokens and their positions'
-    tokens (the prompt's, then in a generation what each row generated), whether it was read in a
-    generation (whose positions are labelled with their call), the positions each row resolved to, the keys
-    it selects, and the layers it was made at when it has a `layers` axis."""
-    assert plan.run is not None
-    producer, read = entry_of(plan.steps, source, at)
+def located(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, Any]:
+    """For a value's read (`record.read`) at the point agreeing with `at`: the rows' prompt tokens and their
+    positions' tokens (the prompt's, then in a generation what each row generated), whether it was read in a
+    generation (whose positions are labelled with their call), the positions each row resolved to (the read's
+    record's, under the value's dataset), the keys it selects, and the model layers the value's `layers` axis is
+    labelled with, where it has one."""
+    assert plan.run is not None and record.read is not None
+    producer, _ = entry_of(plan.steps, record.read, at)
+    read = cast(Intervention, record_of(plan.steps, record.read, at))
     prompt = plan.run.tokens[data.input_name(producer.input)]
-    said = plan.run.tokens.get(source.partition(".")[0]) if producer.kind == "generate" else None
+    said = plan.run.tokens.get(record.read.partition(".")[0]) if producer.kind == "generate" else None
     if said is not None and producer.at:
         said = said[labelled(plan, producer.at)]
-    resolved, site = plan.run.positions[source], read.site
-    keys = selectors.keys(site.select["key"]) if "key" in (site.select or {}) else None
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
-            "keys": keys,
-            "positions": resolved[labelled(plan, producer.at)] if producer.at else resolved,
-            "layers": selectors.select(site.layers, plan.run.num_layers or 0) if address.stacks(site.layers)
-            else None}
+            "keys": read.kept.get("key"),
+            "positions": read.positions[cast(str, read.dataset)],
+            "layers": record.layers if "layers" in (record.dims or []) else None}

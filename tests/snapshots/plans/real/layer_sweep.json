@@ -28,6 +28,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -41,6 +46,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       0
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -64,6 +74,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       1
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -77,6 +92,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       1
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -100,6 +120,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       2
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -113,6 +138,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       2
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -136,6 +166,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       3
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -149,6 +184,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       3
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -172,6 +212,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       4
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -185,6 +230,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       4
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -208,6 +258,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       5
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -221,6 +276,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       5
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -244,6 +304,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       6
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -257,6 +322,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       6
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -280,6 +350,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       7
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -293,6 +368,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       7
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -316,6 +396,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -329,6 +414,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       8
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -352,6 +442,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       9
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -365,6 +460,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       9
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -388,6 +488,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       10
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -401,6 +506,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       10
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -424,6 +534,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       11
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -437,6 +552,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       11
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -460,6 +580,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -473,6 +598,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -496,6 +626,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       13
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -509,6 +644,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       13
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -532,6 +672,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       14
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -545,6 +690,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       14
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -568,6 +718,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       15
+      ],
+      "read": "counterfactual.day",
       "gathered": true
      },
      "last": {
@@ -581,6 +736,11 @@
        "pos",
        "hidden_size"
       ],
+      "dataset": "days",
+      "layers": [
+       15
+      ],
+      "read": "counterfactual.last",
       "gathered": true
      }
     },
@@ -604,14 +764,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       0
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -621,13 +791,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -649,14 +825,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       1
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -666,13 +852,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -694,14 +886,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       2
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -711,13 +913,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -739,14 +947,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       3
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -756,13 +974,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -784,14 +1008,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       4
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -801,13 +1035,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -829,14 +1069,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       5
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -846,13 +1096,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -874,14 +1130,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       6
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -891,13 +1157,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -919,14 +1191,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       7
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -936,13 +1218,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -964,14 +1252,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       8
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -981,13 +1279,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1009,14 +1313,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       9
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1026,13 +1340,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1054,14 +1374,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       10
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1071,13 +1401,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1099,14 +1435,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       11
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1116,13 +1462,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1144,14 +1496,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1161,13 +1523,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1189,14 +1557,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       13
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1206,13 +1584,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1234,14 +1618,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       14
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1251,13 +1645,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1279,14 +1679,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.day"
+        "with": "counterfactual.day",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       15
+      ],
+      "read": "at_day.patch"
      },
      "hit": {
       "site": {
@@ -1296,13 +1706,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_day.hit",
       "gathered": true
      }
     },
@@ -1326,14 +1742,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       0
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1343,13 +1769,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1371,14 +1803,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       1
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1388,13 +1830,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1416,14 +1864,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       2
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1433,13 +1891,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1461,14 +1925,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       3
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1478,13 +1952,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1506,14 +1986,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       4
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1523,13 +2013,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1551,14 +2047,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       5
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1568,13 +2074,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1596,14 +2108,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       6
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1613,13 +2135,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1641,14 +2169,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       7
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1658,13 +2196,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1686,14 +2230,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       8
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1703,13 +2257,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1731,14 +2291,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       9
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1748,13 +2318,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1776,14 +2352,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       10
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1793,13 +2379,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1821,14 +2413,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       11
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1838,13 +2440,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1866,14 +2474,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       12
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1883,13 +2501,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1911,14 +2535,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       13
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1928,13 +2562,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -1956,14 +2596,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       14
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -1973,13 +2623,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -2001,14 +2657,24 @@
       "ops": [
        {
         "op": "swap",
-        "with": "counterfactual.last"
+        "with": "counterfactual.last",
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos",
        "hidden_size"
-      ]
+      ],
+      "dataset": "days",
+      "layers": [
+       15
+      ],
+      "read": "at_last.patch"
      },
      "hit": {
       "site": {
@@ -2018,13 +2684,19 @@
       "ops": [
        {
         "op": "match",
-        "expected": "days.cf_answer"
+        "expected": "days.cf_answer",
+        "dims": [
+         "rows",
+         "pos"
+        ]
        }
       ],
       "dims": [
        "rows",
        "pos"
       ],
+      "dataset": "days",
+      "read": "at_last.hit",
       "gathered": true
      }
     },
@@ -2039,161 +2711,177 @@
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 0
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 1
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 2
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 3
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 4
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 5
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 6
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 7
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 8
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 9
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 10
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 11
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 12
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 13
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 14
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_day.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_day.hit",
     "at": {
      "layers": 15
-    },
-    "dataset": "days",
-    "dims": []
+    }
    }
   ],
   "iia_last": [
@@ -2201,161 +2889,177 @@
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 0
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 1
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 2
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 3
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 4
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 5
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 6
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 7
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 8
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 9
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 10
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 11
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 12
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 13
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 14
-    },
-    "dataset": "days",
-    "dims": []
+    }
    },
    {
     "kind": "op",
     "op": "mean",
     "of": "at_last.hit",
+    "dims": [],
+    "dataset": "days",
+    "read": "at_last.hit",
     "at": {
      "layers": 15
-    },
-    "dataset": "days",
-    "dims": []
+    }
    }
   ]
  },
@@ -2367,9 +3071,6 @@
  "compiled": true,
  "sweeps": {
   "layers": {
-   "paths": [
-    "sites.target.layers"
-   ],
    "values": [
     0,
     1,

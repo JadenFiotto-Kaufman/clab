@@ -37,7 +37,12 @@
      "ops": [
       {
        "op": "encode",
-       "featurizer": "dictionary"
+       "featurizer": "dictionary",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ]
       }
      ],
      "dims": [
@@ -45,6 +50,11 @@
       "pos",
       "features"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "base.latents",
      "space": [
       {
        "featurizer": "dictionary"
@@ -62,6 +72,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "base.logits",
      "gathered": true
     }
    },
@@ -80,14 +92,24 @@
      "ops": [
       {
        "op": "apply",
-       "featurizer": "dictionary"
+       "featurizer": "dictionary",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "spliced.reconstruct"
     },
     "logits": {
      "site": {
@@ -99,6 +121,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "spliced.logits",
      "gathered": true
     }
    },
@@ -108,12 +132,13 @@
    "kind": "op",
    "op": "kl",
    "of": "spliced.logits",
-   "dataset": "prompts",
+   "against": "base.logits",
    "dims": [
     "rows",
     "pos"
    ],
-   "against": "base.logits"
+   "dataset": "prompts",
+   "read": "spliced.logits"
   }
  },
  "saves": [

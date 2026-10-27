@@ -59,6 +59,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "qa",
+     "read": "clean.logits",
      "gathered": true
     }
    },
@@ -68,75 +70,81 @@
    "kind": "op",
    "op": "token_prob",
    "of": "clean.logits",
-   "dataset": "qa",
-   "dims": [
-    "rows",
-    "pos"
-   ],
    "token": {
     "column": "qa.answer",
     "strip": true,
     "lower": true
-   }
+   },
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "dataset": "qa",
+   "read": "clean.logits"
   },
   "hit_spelled": {
    "kind": "op",
    "op": "match",
    "of": "clean.logits",
-   "dataset": "qa",
-   "dims": [
-    "rows",
-    "pos"
-   ],
    "expected": {
     "column": "qa.answer",
     "strip": true,
     "lower": true
-   }
+   },
+   "dims": [
+    "rows",
+    "pos"
+   ],
+   "dataset": "qa",
+   "read": "clean.logits"
   },
   "p_exact": {
    "kind": "op",
    "op": "token_prob",
    "of": "clean.logits",
-   "dataset": "qa",
+   "token": "qa.answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "qa.answer"
+   "dataset": "qa",
+   "read": "clean.logits"
   },
   "p_any": {
    "kind": "op",
    "op": "token_prob",
    "of": "clean.logits",
-   "dataset": "qa",
+   "token": "qa.accepted",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "qa.accepted"
+   "dataset": "qa",
+   "read": "clean.logits"
   },
   "hit_any": {
    "kind": "op",
    "op": "match",
    "of": "clean.logits",
-   "dataset": "qa",
+   "expected": "qa.accepted",
    "dims": [
     "rows",
     "pos"
    ],
-   "expected": "qa.accepted"
+   "dataset": "qa",
+   "read": "clean.logits"
   },
   "nll_any": {
    "kind": "op",
    "op": "cross_entropy",
    "of": "clean.logits",
-   "dataset": "qa",
+   "target": "qa.accepted",
    "dims": [
     "rows",
     "pos"
    ],
-   "target": "qa.accepted"
+   "dataset": "qa",
+   "read": "clean.logits"
   }
  },
  "saves": [

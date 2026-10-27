@@ -29,6 +29,11 @@
       "pos",
       "hidden_size"
      ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "harvest.acts",
      "gathered": true
     }
    },
@@ -38,12 +43,16 @@
    "kind": "op",
    "op": "pca",
    "of": "harvest.acts",
-   "dataset": "prompts",
+   "k": 4,
    "dims": [
     "hidden_size",
     "k"
    ],
-   "k": 4
+   "dataset": "prompts",
+   "layers": [
+    0
+   ],
+   "read": "harvest.acts"
   }
  },
  "saves": [

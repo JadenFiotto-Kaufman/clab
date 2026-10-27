@@ -24,13 +24,19 @@
      "ops": [
       {
        "op": "match",
-       "expected": "days.base_answer"
+       "expected": "days.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos"
      ],
+     "dataset": "days",
+     "read": "answer.correct",
      "gathered": true
     },
     "p": {
@@ -41,13 +47,19 @@
      "ops": [
       {
        "op": "token_prob",
-       "token": "days.base_answer"
+       "token": "days.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos"
      ],
+     "dataset": "days",
+     "read": "answer.p",
      "gathered": true
     }
    },
@@ -57,15 +69,17 @@
    "kind": "op",
    "op": "mean",
    "of": "answer.correct",
+   "dims": [],
    "dataset": "days",
-   "dims": []
+   "read": "answer.correct"
   },
   "p_answer": {
    "kind": "op",
    "op": "mean",
    "of": "answer.p",
+   "dims": [],
    "dataset": "days",
-   "dims": []
+   "read": "answer.p"
   }
  },
  "saves": [

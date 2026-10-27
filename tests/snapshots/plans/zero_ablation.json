@@ -26,6 +26,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "clean.logits",
      "gathered": true
     }
    },
@@ -35,13 +37,14 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "clean.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "clean.logits"
   },
   "zeroed": {
    "kind": "forward",
@@ -56,14 +59,24 @@
      "ops": [
       {
        "op": "swap",
-       "with": 0.0
+       "with": 0.0,
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
       }
      ],
      "dims": [
       "rows",
       "pos",
       "hidden_size"
-     ]
+     ],
+     "dataset": "prompts",
+     "layers": [
+      0
+     ],
+     "read": "zeroed.zero"
     },
     "logits": {
      "site": {
@@ -75,6 +88,8 @@
       "pos",
       "vocab_size"
      ],
+     "dataset": "prompts",
+     "read": "zeroed.logits",
      "gathered": true
     }
    },
@@ -84,24 +99,26 @@
    "kind": "op",
    "op": "logit_diff",
    "of": "zeroed.logits",
-   "dataset": "prompts",
+   "a": "prompts.cf_answer",
+   "b": "prompts.base_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "a": "prompts.cf_answer",
-   "b": "prompts.base_answer"
+   "dataset": "prompts",
+   "read": "zeroed.logits"
   },
   "p_answer": {
    "kind": "op",
    "op": "token_prob",
    "of": "zeroed.logits",
-   "dataset": "prompts",
+   "token": "prompts.cf_answer",
    "dims": [
     "rows",
     "pos"
    ],
-   "token": "prompts.cf_answer"
+   "dataset": "prompts",
+   "read": "zeroed.logits"
   }
  },
  "saves": [
