@@ -18,7 +18,7 @@ def out(engines, tmp_path_factory) -> str:
     return str(where)
 
 
-def test_show_prints_how_it_ran_what_each_step_cost_and_each_result(out, capsys):
+def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_and_each_result(out, capsys):
     assert main(["show", out]) == 0
     shown = capsys.readouterr().out.splitlines()
     assert shown[0].startswith("generate_probe: run on nnterp, device cpu, tp 1, batch size 2, started ")
@@ -27,10 +27,18 @@ def test_show_prints_how_it_ran_what_each_step_cost_and_each_result(out, capsys)
     assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
     assert [line.split()[:2] for line in shown[4:11]] == [["counterfactual", "—"]] + \
         [[step, f"frame={k}"] for step in ("patched", "p_answer") for k in range(3)]
-    assert shown[11].split() == ["result", "step", "dims", "axes", "shape"]
-    assert shown[12].split() == ["p_answer", "p_answer", "rows,", "pos", "frame",
-                                 '{"frame=0":[4,1],"frame=1":[4,1],"frame=2":[4,1]}']
-    assert shown[13].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
+    assert shown[11].split() == ["entry", "at", "positions"]
+    assert shown[12].split() == ["counterfactual.v_cf", "—", "[8],", "[8],", "[10],", "[8]"]
+    assert [line.split() for line in shown[13:19]] == [
+        ["patched.patch", "frame=0", "[10],", "[8],", "[8],", "[8]"],
+        ["patched.logits", "frame=0", "[10],", "[8],", "[8],", "[8]"],
+        ["patched.patch", "frame=1", "[10],", "[8],", "[8],", "[8]"],
+        ["patched.logits", "frame=1", "[11],", "[9],", "[9],", "[9]"],          # call 1 holds generated token 0
+        ["patched.patch", "frame=2", "[10],", "[8],", "[8],", "[8]"],
+        ["patched.logits", "frame=2", "[12],", "[10],", "[10],", "[10]"]]
+    assert shown[19].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[20].split() == ["p_answer", "p_answer", "rows,", "pos", "frame", "3", "points,", "each", "[4,1]"]
+    assert shown[21].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
 
 
 @pytest.mark.parametrize("name", ["generated_contains", "das"])
@@ -89,6 +97,7 @@ def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
     os.close(reading)
     monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w"))
     assert main(["show", out]) == 0
+
 def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     """A missing document, a device that is no torch device, a CUDA device where none is visible (the suite runs
     with none) and a batch size below 1 are each one `clab:` line and exit status 1."""
@@ -105,3 +114,18 @@ def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     assert main(["run", document("patching"), "--batch-size", "0", "--out", out]) == 1
     assert capsys.readouterr().err == "clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)\n"
     assert not os.path.exists(out)                       # and nothing loaded: each refusal came before the model
+
+def test_show_compacts_positions_every_row_shares(engines, tmp_path, capsys):
+    """An entry every row resolved alike (patching's read and write moved to `pos: 0`, BOS on every row) is one
+    list and the row count; one whose rows differ (its logits at the last token) is each row's."""
+    def change(d):
+        d["steps"]["counterfactual"]["interventions"]["v_cf"]["pos"] = 0
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = 0
+    plan = edited("patching", change).compile()
+    engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    assert main(["show", str(tmp_path)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    assert shown[8].split() == ["entry", "at", "positions"]                 # after the four steps' costs
+    assert [line.split(maxsplit=2) for line in shown[9:12]] == [
+        ["counterfactual.v_cf", "—", "[0] on all 4 rows"], ["patched.patch", "—", "[0] on all 4 rows"],
+        ["patched.logits", "—", "[10], [8], [8], [8]"]]

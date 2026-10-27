@@ -52,6 +52,25 @@ def reading(model: dict, entries: dict, **rows) -> Plan:
                 saves=[f"f.{name}" for name in entries], document=document("patching")).compile()
 
 
+def test_the_pad_token_id_warning_is_filtered_off_the_logger_that_emits_it_and_nothing_else_is(engines):
+    """Every load runs `standard.quiet` once: the transformers logger that validates a config drops the one
+    warning a `pad_token_id: -1` config emits, and passes every other message."""
+    import logging
+
+    from clab.engines import standard
+
+    engines("nnterp", plan_of("patching").model)
+    logger = logging.getLogger("transformers.configuration_utils")
+    assert logger.filters.count(standard.unpadded) == 1
+
+    def record(message: str) -> logging.LogRecord:
+        return logging.LogRecord(logger.name, logging.WARNING, __file__, 0, message, None, None)
+    assert not logger.filter(record("Model config: pad_token_id must be `None` or an integer within the vocabulary "
+                                    "(between 0 and 31999), got -1. This may result in unexpected behavior."))
+    assert logger.filter(record("Model config: bos_token_id must be `None` or an integer within the vocabulary"))
+    assert logger.filter(record("The following generation flags are not valid and may be ignored: ['pad_token_id']."))
+
+
 def ran(plan: Plan, engines) -> tuple[dict, dict]:
     """`plan`'s results on the nnterp engine and on the hooks engine, each its own: a run fills the plan's one dict."""
     def run(kind: str) -> dict:

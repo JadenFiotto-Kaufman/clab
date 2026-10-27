@@ -176,13 +176,14 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
         ("p_answer", "layers=0", "—", "0", "0"), ("p_answer", "layers=1", "—", "0", "0"),
         ("top1", "layers=0", "—", "0", "0"), ("top1", "layers=1", "—", "0", "0")]
     assert all(float(r[2]) >= 0 for r in rows)
-    assert shown[10].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[10].split() == ["entry", "at", "positions"]                # then where each entry resolved
+    assert shown[13].split() == ["result", "step", "dims", "axes", "shape"]
     manifest = tmp_path / "manifest.json"                    # as a run that recorded no costs wrote it
     written = json.loads(manifest.read_text())
     del written["run"]["costs"]
     manifest.write_text(json.dumps(written))
     assert main(["show", str(tmp_path)]) == 0
-    assert capsys.readouterr().out.splitlines()[3].split() == ["result", "step", "dims", "axes", "shape"]
+    assert capsys.readouterr().out.splitlines()[3].split() == ["entry", "at", "positions"]
 
 
 def watched(engine) -> dict[Any, torch.nn.Module]:

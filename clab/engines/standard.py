@@ -6,6 +6,7 @@ records grouped by site."""
 from __future__ import annotations
 
 import importlib.util
+import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 from clab.format.address import COMPONENTS
@@ -172,6 +173,7 @@ def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> A
     for key in extra:
         if key in OWNED:
             raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
+    quiet()
     try:
         return call(extra)
     except OSError as e:                   # before ValueError: the hub's not-found error is both
@@ -185,6 +187,23 @@ def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> A
         if key is None:
             raise
         raise ValueError(f"model.{key}: the {engine} engine's loader rejects it: {e}") from None
+
+
+# The one transformers warning every load of a checkpoint whose config carries `pad_token_id: -1` prints (the tiny
+# test models do), which says nothing about the run: clab pads with the tokenizer's own id (`data.pad`).
+PADDED = "Model config: pad_token_id must be `None` or an integer within the vocabulary"
+
+
+def unpadded(record: logging.LogRecord) -> bool:
+    return not record.getMessage().startswith(PADDED)
+
+
+def quiet() -> None:
+    """The `pad_token_id` warning (`PADDED`) filtered off the transformers logger that emits it, once, before a
+    model loads; every other message of that logger passes."""
+    logger = logging.getLogger("transformers.configuration_utils")
+    if unpadded not in logger.filters:
+        logger.addFilter(unpadded)
 
 
 def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[int]:

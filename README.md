@@ -149,9 +149,11 @@ uv run clab table out/generate_probe p_answer --csv      # the same as CSV on st
 ```
 
 `show` prints the run's engine, device and options, batch size, start time and seconds, the served dtype and
-devices, the versions, then one line per step and point with what it cost (its seconds, its peak memory on each
-CUDA device, the model calls it made and the tokens they fed), then one line per saved value: the step that made
-it, its `dims`, its sweep axes and its shape (per coordinate when swept).
+devices, the versions (and where the run stopped, if a step ran out of CUDA memory), then one line per step and
+point with what it cost (its seconds, its peak memory on each CUDA device, the model calls it made and the tokens
+they fed), one line per entry and point with the positions it resolved to on each row (one list where every row
+agrees), then one line per saved value: the step that made it, its `dims`, its sweep axes and its shape (counted
+over its points when swept: `3 points, each [4, 1]`; the manifest holds each point's).
 `table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
 generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
 dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says

@@ -1,13 +1,16 @@
 """`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
-`show` prints what a run's directory holds (how the run ran and what each step cost, then each result with
-its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values, aligned or as CSV.
-Both are `Plan.load` and one call.
+`show` prints what a run's directory holds (how the run ran and what each step cost, where each entry resolved,
+then each result with its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values,
+aligned or as CSV. Both are `Plan.load` and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
 models), the ops and their signatures, the components, the featurizer kinds and the position grammar.
-`describe --markdown` renders all of it as `FORMAT.md`.
+`describe --markdown` writes all of it as `FORMAT.md` beside the package, at the repo root.
+
+A refusal is one `clab: <reason>` line on stderr and exit status 1. A reader that goes away (`clab show OUT |
+head -1`) ends the command quietly.
 """
 
 import argparse
@@ -19,9 +22,10 @@ import sys
 from typing import Any
 
 from clab import output
+from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, name, points
+from clab.plan import Plan, Run, entries, name, points
 
 
 def how(run: Run) -> str:
@@ -32,9 +36,10 @@ def how(run: Run) -> str:
 
 
 def show(filled: Plan) -> str:
-    """A filled plan as text: how it ran (of what was installed, clab's and python's versions), what each step
-    cost (`costs`), then each result with the step that made it, its dims (per coordinate when swept and its
-    points differ), its sweep axes and its shape (per coordinate when swept)."""
+    """A filled plan as text: how it ran (of what was installed, clab's and python's versions; where it stopped,
+    if it did), what each step cost (`costs`), where each entry resolved (`resolved`), then each result with the
+    step that made it, its dims (per coordinate when swept and its points differ), its sweep axes and its shape
+    (`shaped`: counted over its points when swept)."""
     run = filled.run
     assert run is not None
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
@@ -43,6 +48,7 @@ def show(filled: Plan) -> str:
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
     lines += [f"  stopped: {run.stopped}"] if run.stopped else []
     lines += ["  " + line for line in aligned(costs(filled))] if run.costs else []        # a run before costs
+    lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
         entry = filled.steps[saved.partition(".")[0]]
@@ -69,6 +75,34 @@ def costs(filled: Plan) -> list[list[str]]:
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
+
+
+def resolved(filled: Plan) -> list[list[str]]:
+    """Where each read and write resolved, as table rows: one per entry and point, with its `positions` per row
+    (`compact`) under its step's dataset; a fit body's entries under each eval, as `<fit>.<eval>.<step>.<entry>`."""
+    rows = [["entry", "at", "positions"]]
+    for step, entry in filled.steps.items():
+        for p in points(entry):
+            at = labelled(filled, p.at) or "—"
+            if p.kind != "fit":
+                rows += [[f"{step}.{k}", at, compact(e.positions.get(p.dataset))] for k, e in entries(p).items()]
+                continue
+            for label, swap in p.eval.items():
+                for n, s in p.steps.items():
+                    rows += [[f"{step}.{label}.{n}.{k}", at, compact(e.positions.get(swap.get(s.dataset, s.dataset)))]
+                             for k, e in entries(s).items()]
+    return rows
+
+
+def compact(per_row: list | None) -> str:
+    """An entry's positions per row as one cell: the one list when every row resolved to the same (`[10] on all
+    4 rows`), else each row's in row order, `—` for a row the entry did not reach (`alignment_missing`)."""
+    if not per_row:
+        return "—"
+    cells = ["—" if r == positions.MISSING else cell(r) for r in per_row]
+    if len(cells) > 1 and len(set(cells)) == 1:
+        return f"{cells[0]} on all {len(cells)} rows"
+    return ", ".join(cells)
 
 
 def shaped(shape: Any, swept: bool) -> str:
