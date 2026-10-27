@@ -263,7 +263,7 @@ def test_an_saes_signature_prints_no_default_a_published_file_lacks():
     assert {k: header[k] for k in ("latents", "activation", "centered")} == \
         {"latents": "32", "activation": "relu", "centered": "true"} and "k" not in header
     unstated = featurizers.make("sae", {"file_path": "x"}, 16, TENSORS, None, None)
-    assert (unstated.activation, unstated.centered, unstated.k) == ("relu", True, None)
+    assert isinstance(unstated, Sae) and (unstated.activation, unstated.centered, unstated.k) == ("relu", True, None)
     stated = Sae(16, file_path="x", activation="relu", centered=True, bundle=TENSORS)
     assert torch.equal(unstated.call("encode", H, {}), stated.call("encode", H, {}))
 

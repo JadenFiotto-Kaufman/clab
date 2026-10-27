@@ -31,9 +31,10 @@ def test_the_edits_group_in_the_prose_is_generated_from_the_declared_ops():
     edits = [n for n in ops.OPS if ops.DECLARED[n]["group"] == "edits"]
     listed = ops.listed("edits")
     assert listed == ", ".join(f"`{n}`" for n in edits) and "`clamp`" in listed and "`swap`" in listed
+    entry = inspect.getdoc(plan.Intervention) or ""
     assert f"**edits** ({listed}) keep the value's layout" in ops.ABOUT
-    assert f"(the edits group: {listed}) writes back" in inspect.getdoc(plan.Intervention)
-    assert "<the edits group>" not in ops.ABOUT + inspect.getdoc(plan.Intervention) + markdown()
+    assert f"(the edits group: {listed}) writes back" in entry
+    assert "<the edits group>" not in ops.ABOUT + entry + markdown()
 
 
 def test_the_components_table_shows_a_selections_layout_and_which_values_readout_projects():
