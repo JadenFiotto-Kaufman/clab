@@ -183,14 +183,17 @@ class Data(Record):
     it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
     fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
-    "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes. A row is
+    "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
+    checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
+    header it adds) renders a chat only with its date pinned, `{"date_string": "26 Jul 2024"}`, since the rows'
+    digest cannot say that the tokens moved with the day. A row is
     JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
     `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
     rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), and a `template` on a dataset no step reads a chat column of. `sha256` and `n_rows` describe
-    the rows these leave."""
+    keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
+    a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None

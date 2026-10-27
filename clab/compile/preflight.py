@@ -135,6 +135,13 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             rows = held_rows(plan, step.dataset)
             source = data.input_name(step.input)
             if source not in found.inputs:
+                read = swap.get(step.dataset, step.dataset)
+                if any(isinstance(data.field(r, step.input), list) for r in rows) and \
+                        data.clocked(tokenizer, plan.data[step.dataset].template):
+                    raise ValueError(f"{name}: {source}: the checkpoint's chat template calls strftime_now, which "
+                                     "writes today's date into the prompt, so these rows render to other tokens on "
+                                     f"another day and nothing in the run record says so; pin it in data.{read}."
+                                     "template, {\"date_string\": \"26 Jul 2024\"}")
                 encoded = []
                 for i, r in enumerate(rows):
                     try:
