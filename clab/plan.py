@@ -503,8 +503,7 @@ class Intervention(Labelled):
     root.interventions := {<bundle>: {<name>: entry, ...}}
     ```
 
-    An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
-    `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
+    An entry whose ops include an edit (the edits group: <the edits group>) writes back: its value after its
     last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
     one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
     write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -549,6 +548,9 @@ class Intervention(Labelled):
                                              "reads it over); the prefill's set by preflight, a generation's decode "
                                              "calls' by the run")
 
+
+# The edits group as `ops` declares it, written into the docstring where `<the edits group>` stands, so a new edit is listed.
+Intervention.__doc__ = (Intervention.__doc__ or "").replace("<the edits group>", ops.listed("edits"))
 
 Entries = dict[str, Intervention]
 Interventions = Annotated[Union[str, Entries, list[Annotated[Union[str, Entries], ByShape()]]], ByShape()]

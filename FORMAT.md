@@ -125,8 +125,7 @@ entry              := {"site": site, "pos"?: pos, "ops"?: [op, ...]}
 root.interventions := {<bundle>: {<name>: entry, ...}}
 ```
 
-An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`,
-`normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
+An entry whose ops include an edit (the edits group: `swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) writes back: its value after its
 last edit replaces the live value at its selection, so later entries and the rest of the forward see it;
 one with none leaves the model alone. Every entry binds `<step>.<name>` to its value after all its ops, a
 write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
@@ -435,8 +434,7 @@ there, so a row's own keys are edited as the row has them, and its tail stays Na
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
 1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
 **reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
-over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`,
-`project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
+over `pos`, one value per row); **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
 a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
