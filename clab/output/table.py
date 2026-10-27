@@ -30,17 +30,14 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     its tokens) gives one row, `alignment_missing` true, with no value; a row's positions past its own are left
     out. A value with no rows axis gives a row per element with its axis indices.
 
-    Several values are joined on the keys both carry (`keyed`): the sweep axes they share, each by its coordinate,
-    and the columns they share (`row`, `layer`, `pos`, `key`; a value with no rows axis its own axes, so two
-    histories over `epochs` join epoch by epoch), each row of the one with more keys, in its order, beside every row
-    of the other that agrees with it on them, so a row of a value with fewer keys (an unswept value beside a swept
-    one, one over `src` beside one over `src` and `dst`, one with no `layers` axis beside one with) repeats beside
-    every row it agrees with, the first value's columns first and the joined `at` holding both points'
-    coordinates. A value with no keys, one number, sits beside
-    every row. Two values that share no key are refused by name: a value with no rows axis (a fit's history, over
-    `epochs`) tables alone beside one with, and so do two over different axes; and two that share keys but agree
-    on no row (two reads at different positions share `pos`) are refused rather than joined to nothing, as are two
-    with a token axis read on different inputs, whose `pos` or `key` count different prompts."""
+    Several values join on the keys they share, the sweep axes by coordinate and the axis columns (`row`, `layer`,
+    `pos`, `key`; a value with no rows axis its own axes, under the same names), each row of the one with more keys
+    beside every row of the other that agrees with it on them, an axis one value lacks broadcast over as an operand
+    broadcasts over an axis it leaves out (an unswept number sits beside every row, a swept one beside every row at
+    each of its points, a history over `epochs` beside every row at each epoch), the first value's columns first
+    and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
+    counting the positions of different inputs or a plain index beside a token position, is refused by name.
+    """
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
@@ -67,34 +64,31 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 
 def keyed(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
     """What a saved value's rows are keyed by, as its record says: the labels of its step's sweep axes (its `at`),
-    and its axis columns: for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has those axes
-    (`COLUMNS`); for one without, each of its axes. With a token axis, also the input its read was made on, whose
-    prompts its `pos` and `key` count."""
+    and its axis columns (`COLUMNS`): for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has
+    those axes; for one without, each of its axes under the same names. With a token axis, also what its `pos` and
+    `key` count: the positions of the input its read was made on, or, with no rows axis, a plain index along it."""
     first = points(plan.steps[name.partition(".")[0]])[0]
     record = record_of(plan.steps, name, first.at)
     dims = record.dims or []
-    axes = [COLUMNS[a] for a in dims if a in COLUMNS] if "rows" in dims else list(dims)
-    source = data.input_name(entry_of(plan.steps, record.read, first.at)[0].input) \
-        if record.read is not None and ("pos" in dims or "key" in dims) else None
-    return list(first.at), axes, source
+    axes = [COLUMNS.get(a, a) for a in dims if "rows" not in dims or a in COLUMNS]
+    counts = None
+    if "pos" in dims or "key" in dims:
+        counts = "a plain index along it (a value with no rows axis)" if "rows" not in dims else \
+            f"positions of {data.input_name(entry_of(plan.steps, cast(str, record.read), first.at)[0].input)}"
+    return list(first.at), axes, counts
 
 
 def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | None], right: list[dict[str, Any]],
          theirs: tuple[list[str], list[str], str | None], x: str, y: str) -> list[dict[str, Any]]:
-    """`left` (the rows of the values `x`, keyed by `mine`: sweep labels, axis columns and the input a token axis
-    counts, `keyed`) beside `right` (the rows of `y`, keyed by `theirs`), joined on the keys both carry, as `table`
-    says; `x` and `y` name them in a refusal."""
+    """`left` (the rows of the values `x`, keyed by `mine`: sweep labels, axis columns and what a token axis counts,
+    `keyed`) beside `right` (the rows of `y`, keyed by `theirs`), joined on the keys both carry, as `table` says;
+    `x` and `y` name them in the refusal."""
     labels, axes = [k for k in mine[0] if k in theirs[0]], [k for k in mine[1] if k in theirs[1]]
-    if not (labels or axes) and any(mine[:2]) and any(theirs[:2]):
-        alone = ("a value with no rows axis tables alone" if ("row" in mine[1]) != ("row" in theirs[1])
-                 else "table them one at a time")
-        raise ValueError(f"{x} is keyed by {spelled(mine)} and {y!r} by {spelled(theirs)}, which share no axis "
-                         f"to join on; {alone}")
     tokens = [a for a in axes if a in ("pos", "key")]
-    if tokens and None not in (mine[2], theirs[2]) and mine[2] != theirs[2]:
-        raise ValueError(f"{x} is read on {mine[2]} and {y!r} on {theirs[2]}, whose rows tokenize to positions of their "
-                         f"own, so the two {' and '.join(tokens)} columns count different prompts; table them one at a "
-                         "time")
+    if tokens and mine[2] != theirs[2]:
+        raise ValueError(f"{x} has a {' and '.join(tokens)} column counting {mine[2]}, and {y!r} one counting "
+                         f"{theirs[2]}: the column does not mean one thing for both, so they do not join; table them "
+                         "one at a time")
 
     def key(row: dict[str, Any]) -> str:
         return json.dumps([row.get("at", {}).get(k) for k in labels] + [row.get(k) for k in axes])
@@ -113,17 +107,7 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
                 merged = {"at": {**a.get("at", {}), **b.get("at", {})},
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
-    if not out and left and right:
-        raise ValueError(f"{x} and {y!r} share {', '.join(labels + axes)} and agree on no row of it (two reads at "
-                         "different positions share pos but never the same one); table them one at a time")
     return out
-
-
-def spelled(keys: tuple[list[str], list[str], str | None]) -> str:
-    """A value's keys as a message names them: `sweep axes src, dst and columns row, pos`."""
-    labels, axes, _ = keys
-    parts = [f"sweep axes {', '.join(labels)}"] if labels else []
-    return " and ".join(parts + ([f"columns {', '.join(axes)}"] if axes else []))
 
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:

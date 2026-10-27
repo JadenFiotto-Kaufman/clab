@@ -457,11 +457,11 @@ def test_both_named_evals_run_and_each_member_tables_over_its_own_rows(ran):
         assert [r["value"] for r in table] == lora.results[f"fit.{label}.ce"].flatten().tolist()
 
 
-def test_two_histories_join_epoch_by_epoch_and_a_rowless_value_tables_alone_beside_rows(engines):
+def test_two_histories_join_epoch_by_epoch_and_one_beside_a_member_with_rows_broadcasts(engines):
     """`fit.history.iia` and `fit.history.ce` are over `epochs`, a value with no rows axis each: joined, they give one
     row per epoch, each term's entry of that epoch beside the other's, not every pair of epochs; beside a value with
-    a row per example (`fit.train.iia`) a history shares no axis and is refused by name; and a trained featurizer
-    (`fit.rot`) is a bundle with no rows."""
+    a row per example (`fit.train.iia`) a history shares no key, so each epoch's entry sits beside every row, as an
+    operand broadcasts over an axis it leaves out; and a trained featurizer (`fit.rot`) is a bundle with no rows."""
     def change(d):
         d["steps"]["fit"]["epochs"] = 3
         d["saves"] = ["fit.history.iia", "fit.history.ce", "fit.train.iia", "fit.rot"]
@@ -470,10 +470,10 @@ def test_two_histories_join_epoch_by_epoch_and_a_rowless_value_tables_alone_besi
     assert [t["epochs"] for t in joined] == [0, 1, 2]
     for term in ("iia", "ce"):
         assert [t[f"fit.history.{term}"] for t in joined] == filled.results[f"fit.history.{term}"].tolist()
-    with pytest.raises(ValueError, match=r"^'fit\.history\.ce' is keyed by columns epochs and 'fit\.train\.iia' by "
-                                         r"columns row, pos, which share no axis to join on; a value with no rows axis "
-                                         r"tables alone$"):
-        filled.table("fit.history.ce", "fit.train.iia")
+    beside = filled.table("fit.history.ce", "fit.train.iia")
+    assert [(t["epochs"], t["row"]) for t in beside] == [(epoch, row) for row in range(2) for epoch in range(3)]
+    assert all(t["fit.history.ce"] == filled.results["fit.history.ce"][t["epochs"]].item() and
+               t["fit.train.iia"] == filled.results["fit.train.iia"][t["row"], 0].item() for t in beside)
     with pytest.raises(ValueError, match=r"^'fit\.rot' is a trained featurizer's bundle, which has no rows to table; "
                                          r"read it from plan\.results$"):
         filled.table("fit.rot")

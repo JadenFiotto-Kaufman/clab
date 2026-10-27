@@ -29,8 +29,8 @@ def test_values_over_different_sweep_axes_join_on_the_axes_they_share(engines):
     """A value over `src` and `dst` (the patch, a 2x2 grid) beside one over `src` alone (the hit of a read at `src`
     on the same input): the two are joined by `src`, `row` and `pos`, not by their whole coordinates, so each row of
     the grid takes the hit of its `src`, which repeats across `dst`, and the joined `at` holds both coordinates; in
-    either order. The counterfactual's own hit is read on another input, whose prompts tokenize to positions of
-    their own: beside the grid its `pos` counts other prompts, which is refused by name."""
+    either order. The counterfactual's own hit is read on another input: beside the grid its `pos` counts other
+    prompts' positions, which is refused by name."""
     def site(label: str) -> dict:
         return {"component": "layer_output", "layers": {"sweep": [0, 1], "label": label}}
     filled = run(engines, plan(
@@ -55,30 +55,70 @@ def test_values_over_different_sweep_axes_join_on_the_axes_they_share(engines):
         assert len(joined) == 16 and list(joined[0])[0] == "at"
         assert all(t["src_hit"] == hits[t["at"]["src"], t["row"]] for t in joined)
         assert all(t["iia"] == filled.results["iia"][t["at"]["src"], t["at"]["dst"]][t["row"], 0] for t in joined)
-    with pytest.raises(ValueError, match=r"^'iia' is read on pairs\.input and 'cf_hit' on pairs\.counterfactual_inputs"
-                                         r"\[0\], whose rows tokenize to positions of their own, so the two pos columns "
-                                         r"count different prompts; table them one at a time$"):
+    with pytest.raises(ValueError, match=r"^'iia' has a pos column counting positions of pairs\.input, and 'cf_hit' one "
+                                         r"counting positions of pairs\.counterfactual_inputs\[0\]: the column does not "
+                                         r"mean one thing for both, so they do not join; table them one at a time$"):
         filled.table("iia", "cf_hit")
 
 
-def test_a_value_of_one_number_sits_beside_every_row(engines):
-    """A `mean` over everything has no key at all: it is the same beside every row of a value with rows."""
+def test_rowless_values_with_a_layers_axis_join_by_layer_and_a_rowed_one_beside_them_too(engines):
+    """Two means over everything but `layers` are keyed by `layer`, as `elements` prints it: joined, one row per
+    layer with each value's; a value laid out `[layers, rows, pos]` beside one of them takes its layer's number on
+    every row."""
+    def site(component: str) -> dict:
+        return {"component": component, "layers": [0, 1]}
     filled = run(engines, plan(
-        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": logits()}},
+        steps={"f": {"kind": "forward", "input": "pairs.input",
+                     "interventions": {"h": {"site": site("layer_output"), "pos": -1}, "i": {"site": site("layer_input"), "pos": -1}}},
+               "m1": {"kind": "op", "op": "mean", "of": "f.h", "over": ["rows", "pos", "hidden_size"]},
+               "m2": {"kind": "op", "op": "mean", "of": "f.i", "over": ["rows", "pos", "hidden_size"]},
+               "n": {"kind": "op", "op": "mean", "of": "f.h", "over": ["hidden_size"]}}, saves=["m1", "m2", "n"]))
+    assert filled.table("m1", "m2") == [{"layer": layer, "m1": filled.results["m1"][layer].item(),
+                                         "m2": filled.results["m2"][layer].item()} for layer in (0, 1)]
+    joined = filled.table("n", "m1")
+    assert [(t["layer"], t["row"]) for t in joined] == [(layer, row) for layer in (0, 1) for row in range(4)]
+    assert all(t["m1"] == filled.results["m1"][t["layer"]].item() for t in joined)
+
+
+def test_a_value_with_fewer_keys_broadcasts_over_the_other_s(engines):
+    """As an operand broadcasts over an axis it leaves out: a `mean` over everything, unswept, sits beside every
+    row; swept over `L`, each point's number sits beside every row of an unswept value, at that point, in the order
+    of the value with more keys (the rows'), whichever name comes first."""
+    swept = {"component": "layer_output", "layers": {"sweep": [0, 1], "label": "L"}}
+    filled = run(engines, plan(
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {"h": {"site": swept, "pos": -1},
+                                                                                  "logits": logits()}},
                "hit": {"kind": "op", "op": "match", "of": "f.logits", "expected": "pairs.cf_answer"},
-               "acc": {"kind": "op", "op": "mean", "of": "hit"}}, saves=["hit", "acc"]))
-    joined = filled.table("hit", "acc")
-    assert [t["row"] for t in joined] == [0, 1, 2, 3] and {t["acc"] for t in joined} == {filled.results["acc"].item()}
+               "acc": {"kind": "op", "op": "mean", "of": "hit"},
+               "g": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": logits()}},
+               "hit2": {"kind": "op", "op": "match", "of": "g.logits", "expected": "pairs.cf_answer"},
+               "acc2": {"kind": "op", "op": "mean", "of": "hit2"}}, saves=["hit", "acc", "hit2", "acc2"]))
+    plain = filled.table("hit2", "acc2")
+    assert [t["row"] for t in plain] == [0, 1, 2, 3] and {t["acc2"] for t in plain} == {filled.results["acc2"].item()}
+    for names in (("acc", "hit2"), ("hit2", "acc")):
+        joined = filled.table(*names)
+        assert [(t["at"], t["row"]) for t in joined] == [({"L": layer}, row) for row in range(4) for layer in (0, 1)]
+        assert all(t["acc"] == filled.results["acc"][t["at"]["L"]].item() for t in joined)
 
 
-def test_two_reads_that_share_pos_but_agree_nowhere_are_refused_rather_than_joined_to_nothing(engines):
+def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
+    """Two reads of one input at different positions share `pos` and join on it, to nothing where they agree
+    nowhere; a value with no rows axis prints `pos` as a plain index, which beside a token position is refused by
+    name."""
+    layer0 = {"component": "layer_output", "layers": 0}
     filled = run(engines, plan(
-        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {"a": logits(-1), "b": logits(-2)}}},
-        saves=["f.a", "f.b"]))
-    with pytest.raises(ValueError, match=r"^'f\.a' and 'f\.b' share row, pos and agree on no row of it \(two reads at "
-                                         r"different positions share pos but never the same one\); table them one at a "
+        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
+                   "a": logits(-1), "b": logits(-2), "h": {"site": layer0, "pos": {"index": "-3:"}}}},
+               "v": {"kind": "op", "op": "mean", "of": "f.h", "over": ["hidden_size"]},
+               "r": {"kind": "op", "op": "mean", "of": "f.h", "over": ["rows", "hidden_size"]}},
+        saves=["f.a", "f.b", "v", "r"]))
+    assert filled.table("f.a", "f.b") == []
+    assert [t["pos"] for t in filled.table("r")] == [0, 1, 2]
+    with pytest.raises(ValueError, match=r"^'v' has a pos column counting positions of pairs\.input, and 'r' one "
+                                         r"counting a plain index along it \(a value with no rows axis\): the column "
+                                         r"does not mean one thing for both, so they do not join; table them one at a "
                                          r"time$"):
-        filled.table("f.a", "f.b")
+        filled.table("v", "r")
 
 
 def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
