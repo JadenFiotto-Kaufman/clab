@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 from clab import ops
 from clab.compile import positions
-from clab.compile.answers import text_ref
+from clab.compile.answers import text_ref, vocabulary
 from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, resolver, space_of
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found
@@ -326,7 +326,7 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
     ours, theirs = (resolved(plan.steps, n, at, found.swap) for n in (where, value))
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
-    tokens = engine.tokenizer.convert_ids_to_tokens
+    texts = vocabulary(engine.tokenizer)
     for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
@@ -337,5 +337,5 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
             if not (p == q <= start or len(x) - p == len(y) - q <= end + 1):
                 raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                  f"{len(x)} tokens; {consumer} has {len(y)}, so position {i} pairs "
-                                 f"{tokens([x[p]])[0]!r} with {tokens([y[q]])[0]!r}; use a scope to name the token "
+                                 f"{texts[x[p]]!r} with {texts[y[q]]!r}; use a scope to name the token "
                                  "in each row")

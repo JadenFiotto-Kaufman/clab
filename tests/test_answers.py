@@ -14,6 +14,7 @@ from clab.plan import PlanError
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"}
 GPT2 = plan_of("gpt2_reach").model.model_dump()
+QWEN = {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM", "revision": "25bb9b8963688237e94750f6f3e48f1947d3c7a3"}
 DAYS = [{"input": "If today is Monday, tomorrow is", "answer": " Tuesday", "short": " Friday", "lowered": "monday",
          "chat": [{"role": "user", "content": "Hi"}]},
         {"input": "If today is Thursday, tomorrow is", "answer": " Friday", "short": " Sunday", "lowered": "thursday",
@@ -146,6 +147,23 @@ def test_an_answer_of_several_tokens_needs_a_position_per_token(engines):
                                               r"reads the positions that predict the answer's tokens\)$")
 
 
+@pytest.mark.parametrize("before", [True, False])
+def test_an_answer_the_input_says_with_its_space_is_written_as_the_input_says_it(engines, before):
+    """On a byte-level BPE ` signs` is one token where `signs` alone is two (`sign`, `s`), so a column without
+    the space does not line up with the scope that found its text in the input; the refusal names the input's
+    tokens at the read's positions and says to write the answer as the input says it. The scope finds the
+    answer's text either way: `before` reads the positions that predict its tokens, else its own."""
+    rows = [{"input": "Look at the signs", "answer": "signs"}]
+    plan = Plan(model=QWEN, data={"days": {"rows": rows}}, steps={
+        "read": {"kind": "forward", "input": "days.input", "interventions": {"logits": {
+            "site": HEAD, "pos": {"scope": {"column": "days.answer", "before": before}}}}},
+        "p": {"kind": "op", "op": "cross_entropy", "of": "read.logits", "target": "days.answer"}}, saves=["p"]).compile()
+    refused_before_any_forward(engines, plan, r"^p: days\.answer row 0: 'signs' is 2 tokens; the read has 1 position "
+                                              r"on that row; .*; the input says it as ' signs', 1 token "
+                                              r"\(\[' signs'\]\), where 'signs' alone is \['sign', 's'\]: write the "
+                                              r"answer as the input says it, ' signs'$")
+
+
 def test_an_answer_of_several_tokens_needs_a_pos_axis(engines):
     plan = doc(forced({"column": "days.answer", "before": True}, {
         "avg": {"kind": "op", "op": "mean", "of": "forced.logits", "over": ["pos"]},
@@ -264,7 +282,7 @@ def test_a_teacher_forced_answer_is_the_inputs_own_next_token(engines):
             "site": HEAD, "pos": {"scope": {"column": "days.bare", "occurrence": -1, "before": True}}}}},
         "p": {"kind": "op", "op": "token_prob", "of": "forced.logits", "token": "days.bare"}}, saves=["p"]).compile()
     refused_before_any_forward(engines, plan, r"^p: days\.bare row 0: position 4 predicts 'day' in the input, "
-                                              r"which is not token 0 of 'day' as it tokenizes alone \(\['▁day'\]\); "
+                                              r"which is not token 0 of 'day' as it tokenizes alone \(\[' day'\]\); "
                                               r"the answer is scored as it tokenizes, so the input says it the same "
                                               r"way$")
 

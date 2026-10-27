@@ -173,8 +173,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 probe = None                        # past a probe's encode, a column names its classes
                 for o in record.ops:
                     if probe is None:
-                        forced = [e["ids"] for e in encoded] if (pos["scope"] or {}).get("before") else None
-                        check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved_, forced)
+                        check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved_,
+                                     [e["ids"] for e in encoded], bool((pos["scope"] or {}).get("before")))
                     else:
                         check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
@@ -210,16 +210,16 @@ def resolving(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, inspect.Par
     return resolve
 
 
-def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list | None, list[list[int]] | None]:
+def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list | None, list[list[int]] | None, bool]:
     """The positions per row a value holds (its read's, `resolved`: a list, or the marker of a row it does not
-    reach), where they are known before the run, else None; and each row's input ids where that read is a scope
-    that is `before` (whose next tokens an answer scores), else None."""
+    reach), where they are known before the run, with each row's input ids and whether that read is a scope that
+    is `before` (whose next tokens an answer scores); else None, None and False."""
     if of.read is None:
-        return None, None
+        return None, None, False
     where, read = resolved(plan.steps, of.read, at, found.swap), of.read
     if where is None:
-        return None, None
+        return None, None, False
     step, record = entry_of(plan.steps, read, at)
     scope = positions.parse(record.pos)["scope"] or {}
-    return where, [e["ids"] for e in found.inputs[data.input_name(step.input)]["rows"]] \
-        if scope.get("before") else None
+    encoded = found.inputs.get(data.input_name(step.input))     # a harvest's input is not among a fit body's
+    return where, None if encoded is None else [e["ids"] for e in encoded["rows"]], bool(scope.get("before"))
