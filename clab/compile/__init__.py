@@ -343,9 +343,10 @@ def featurizer(cx: Compiling, plan: Plan, name: str) -> dict:
 
 def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> dict:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under each of `eval`'s substitutions too), and no eval reads as another a dataset
-    that a value made before the fit, which the body uses, has a row per example of. It trains featurizers that
-    have something to train, its objective depends on one of them, and it holds no fit."""
+    as many rows as each other (under each of `eval`'s substitutions too), a value made before the fit that the body
+    uses with a row per example is of a dataset a forward of the body reads (with no forward, of one dataset), and
+    no eval reads such a value's dataset as another. It trains featurizers that have something to train, its
+    objective depends on one of them, and it holds no fit."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
@@ -359,8 +360,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
     within = replace(cx, names=dict(cx.names), aliases={f: f"{name}.{f}" for f in spec.train})
     for f in spec.train:
         within.names[f"{name}.{f}"] = Known(kind="featurizer")
-    before = len(cx.refs)
-    body = {}
+    body, harvests = {}, {}         # harvests: each value made before the fit, with rows, that the body uses, by user
     trained = set(spec.train) | set(within.aliases.values())    # what the fit trains, by either of its names
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
@@ -370,6 +370,9 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
                  "a root's")
         start = len(cx.refs)
         body[n] = step(within, f"{path}.steps.{n}", n, s, plan)
+        for r in cx.refs[start:]:
+            if within.names[r] is cx.names.get(r) and "rows" in within.names[r].dims:
+                harvests.setdefault(r, n)
         if any(r in trained or r.partition(".")[0] in trained for r in cx.refs[start:]):
             trained.add(n)                  # a step whose value depends on what the fit trains
     inner = within.names
@@ -403,8 +406,8 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             for d in (a, b):
                 if d not in cx.rows:
                     fail(where, f"no dataset {d!r}; datasets: {', '.join(cx.rows)}")
-            for ref in dict.fromkeys(cx.refs[before:]):     # what the body uses, made before it: the same `Known`
-                if inner[ref] is cx.names.get(ref) and inner[ref].data == a and "rows" in inner[ref].dims:
+            for ref in harvests:
+                if cx.names[ref].data == a:
                     fail(where, f"the body uses {ref!r}, made before the fit with a row per example of {a!r}, and "
                          f"this eval reads {a!r} as {b!r}, over whose rows no step made it; evaluate on {b!r} in "
                          "steps after the fit, which reach what it trained as "
@@ -421,6 +424,15 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan) -> d
             fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
                  + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
                  "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
+    # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
+    own = {s["dataset"] for s in body.values() if s["kind"] != "op"} or {cx.names[r].data for r in list(harvests)[:1]}
+    for ref, n in harvests.items():
+        if cx.names[ref].data not in own:
+            d, theirs = cx.names[ref].data, " and ".join(map(repr, sorted(own)))
+            fail(f"{path}.steps.{n}", f"the body uses {ref!r}, made before the fit with a row per example of {d!r}, "
+                 f"which no forward of the body reads; the body runs over the rows of {theirs}, so a minibatch would "
+                 f"take rows of {d!r} at the ids of its rows of {theirs}, pairing the two row by row: read {d!r} in a "
+                 f"forward of the body, or make {ref!r} over {theirs}")
     for f in spec.train:
         cx.names[f"{name}.{f}"] = Known(kind="featurizer")
         for scalar in featurizers.KINDS[kind_of(plan, f)].scalars:

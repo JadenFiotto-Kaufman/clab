@@ -827,6 +827,11 @@ def few(d):
     d["steps"]["fit"]["steps"]["spread"] = {"kind": "op", "op": "mean", "of": "few_read.h"}
 
 
+def every_day(d):
+    """`few` as many rows as the probe's own dataset, so that only what pairs them is left to refuse."""
+    d["data"]["few"]["rows"] = [{"input": f"If today is {day}"} for day in DAYS]
+
+
 @pytest.mark.parametrize("plan, message", [
     (lambda: edited("das", chain(other_dataset, lambda d: d["steps"]["fit"]["steps"].update(gap={
         "kind": "op", "op": "sub", "of": "patched.logits", "with": "other.logits"}))).compile(),
@@ -834,11 +839,21 @@ def few(d):
      r"op takes one dataset's rows"),
     (lambda: probe(few), r"steps\.fit\.steps: the body's datasets have \{.*'few': 4.*\} rows; it runs over minibatches "
                          r"of the same rows of each, paired row by row"),
+    (lambda: edited("das", chain(other_dataset, lambda d: d["steps"]["fit"]["steps"].update(o={
+        "kind": "op", "op": "token_prob", "of": "other.logits", "token": "test.cf_answer"}))).compile(),
+     r"^steps\.fit\.steps\.o: the body uses 'other\.logits', made before the fit with a row per example of 'test', "
+     r"which no forward of the body reads; the body runs over the rows of 'train', so a minibatch would take rows of "
+     r"'test' at the ids of its rows of 'train', pairing the two row by row: read 'test' in a forward of the body, or "
+     r"make 'other\.logits' over 'train'$"),
+    (lambda: probe(few, every_day), r"^steps\.fit\.steps\.spread: the body uses 'few_read\.h', made before the fit "
+                                    r"with a row per example of 'few', which no forward of the body reads; the body "
+                                    r"runs over the rows of 'days'"),
 ])
-def test_a_harvest_of_another_dataset_is_one_the_body_pairs_with_its_own_or_refuses(plan, message):
-    """A harvest's rows are a dataset's, and the body reads them as such: one of another dataset beside the
-    body's own rows in one op is refused as any op over two datasets is, and an op step over it makes that
-    dataset one of the body's, paired row by row with the others, so one of another row count is refused."""
+def test_a_harvest_of_a_dataset_the_body_does_not_read_is_refused(plan, message):
+    """A harvest's rows are a dataset's, and the body's datasets are those its forwards read (with none, the one its
+    first harvest is of): a harvest of another beside the body's own rows in one op is refused as any op over two
+    datasets is, one of another row count by the row rule, and one of as many rows, which a minibatch's ids would
+    pair with the body's row by row, by name, in a body with a forward (das) and in one without (the probe)."""
     with pytest.raises(PlanError, match=message):
         plan()
 

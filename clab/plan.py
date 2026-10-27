@@ -702,15 +702,18 @@ class Fit(Record):
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
     `<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
     one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
-    ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient, which the
-    body's ops on it carry; so the model runs while the fit trains only where the body has a forward. An eval
-    that reads such a value's dataset as another is refused, since no step made the value over the other's rows:
-    evaluate on other data in steps after the fit, through `<fit>.<featurizer>`. So is an objective none of
-    whose terms depends on what the fit trains, which has no gradient to step on. Nothing leaves the body except
-    through the fit's members: `<fit>.<featurizer>` the trained featurizer (saved as its bundle),
-    `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value from the run named `<eval>`, and
-    `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the fit's values (an
-    objective weight, the learning rate) makes the fit, its members and their users a list of points."""
+    ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
+    so the model runs while the fit trains only where the body has a forward. The body's datasets are those its
+    forwards read (with none, the one its harvests are of): a harvest of another is refused, since a minibatch's
+    ids would pair its rows with theirs. A reduction over rows inside the body is the minibatch's statistic; a
+    statistic of the dataset is a step before the fit. An eval that reads a harvest's dataset as another is
+    refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
+    through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
+    no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
+    trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value
+    from the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
+    of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list
+    of points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]
