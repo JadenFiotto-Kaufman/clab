@@ -134,7 +134,7 @@ def test_b5_a_sweep_of_objects_is_refused_at_compile():
     """trial-06 e10: the points of a sweep are keyed by its values, so a value is a scalar or a list of them."""
     with pytest.raises(PlanError, match=r"a sweep's values are numbers, strings, booleans or lists of them, each "
                                         r"point keyed by its value; \{'index': '-2:'\} is an object: sweep a scalar "
-                                        r"field inside it, \{'index': \{'sweep': \['-2:', \.\.\.\]\}\}"):
+                                        r"inside the pos, which takes one on frame, index and a scope's occurrence"):
         plan(data={"d": DAYS}, steps={
             "f": forward({"w": {"site": LAYER0, "pos": {"sweep": [{"index": "-2:"}, {"index": ":"}]},
                                 "ops": [{"op": "scale", "factor": 2.0}]}, "logits": {"site": HEAD, "pos": -1}}),
@@ -568,7 +568,7 @@ def test_s1_s2_a_published_sae_states_its_site_and_is_checked_against_it(engines
     layer, or at another component of the same width (an MLP's output beside the residual stream), is refused
     before any forward. Its latents are its tensors' to say."""
     with pytest.raises(PlanError, match=r"is a published sae, which says neither how it encodes nor where it was "
-                                        r"trained; state 'site', as its release names them$"):
+                                        r"trained; state 'site', as its release names it$"):
         published_sae().compile()
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.site: no site 'nowhere'; declared: target, head"):
         published_sae(site="nowhere").compile()
@@ -924,6 +924,19 @@ def test_d6_an_eval_reads_a_dataset_as_another_only_where_their_templates_agree(
                                         r"dataset's template, so give the two the same one$"):
         fit({}).compile()
     assert fit({"template": template}).compile().data["other"].template == template
+    # Where the body reads no chat column of the substituted dataset, the templates are not compared: a template on
+    # a dataset no step reads a chat of is what is refused.
+    text = [{"text": f"Is {d} a weekday?", "label": d[0]} for d in ("Monday", "Sunday")]
+    with pytest.raises(PlanError, match=r"^data\.other\.template: no step reads a chat column of 'other', and a template "
+                                        r"renders a chat"):
+        plan(model=QWEN, data={"days": {"rows": text}, "other": {"rows": text, "template": template}},
+             featurizers={"probe": {"kind": "linear", "classes": "days.label"}}, steps={"fit": {
+                 "kind": "fit", "train": ["probe"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 2,
+                 "seed": 0, "optimizer": {"name": "adam", "lr": 0.5}, "eval": {"plain": {"days": "other"}},
+                 "steps": {"read": forward({"scores": {"site": LAYER0, "pos": -1, "ops": [
+                     {"op": "encode", "featurizer": "fit.probe"}]}}, input="days.text"),
+                     "ce": {"kind": "op", "op": "cross_entropy", "of": "read.scores",
+                            "target": "days.label"}}}}, saves=["fit.plain.ce"]).compile()
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

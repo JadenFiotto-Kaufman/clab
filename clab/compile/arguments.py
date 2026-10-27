@@ -95,17 +95,21 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
 
 
 def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: str | None) -> list[str]:
-    """The layout of op `name`'s result on a value laid out `dims`. Inside an entry (`where`) the op sees one
-    batch, so it may not aggregate over rows; `original` is only an entry's."""
-    if where != "entry" and "original" in inspect.signature(ops.OPS[name]).parameters:
+    """The layout of op `name`'s result on a value laid out `dims`. `where` is `step`, or inside an entry `live`
+    up to the entry's last edit, where the op acts on the live value the entry writes back, and `entry` after it;
+    inside an entry the op sees one batch, so it may not aggregate over rows: a reduction of a read is a step after
+    the forward, and one a write would write back is a step before it, written in. `original` is only an entry's."""
+    if where == "step" and "original" in inspect.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside an entry")
     try:
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)
     except ValueError as e:
         fail(path, str(e))
     if where != "step" and "rows" in dims and "rows" not in out:
-        fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; "
-             "make it a step after the forward")
+        fail(path, f"{name!r} aggregates over rows, and inside an entry it sees one batch; " + (
+            "this entry writes it back, so make it an op step before the forward, over a read of the rows it "
+            f"aggregates, and write that in ({{'op': 'swap', 'with': '<that step>'}})" if where == "live" else
+            "make it a step after the forward"))
     return out
 
 
@@ -224,7 +228,8 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         if (theirs.width is None or ours.width is None) and not forward:
             ragged = repr(written) if theirs.width is None else f"the value {name!r} {verb}"
             return (f"{ragged} holds a different number of positions on each row, which pair with no other "
-                    "value's; read both at a static index (pos -1, or {'index': '-3:'})")
+                    "value's; read both at a static index (pos -1, or {'index': '-3:'}), or over decode calls at a "
+                    "frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "

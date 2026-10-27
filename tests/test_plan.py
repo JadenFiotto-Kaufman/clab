@@ -241,7 +241,12 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
-     r"sites\.target\.component: a sweep cannot stand for 'component'"),
+     r"sites\.target\.component: a sweep cannot stand for 'component'$"),
+    (lambda d: d["data"]["pairs"].update(take={"sweep": [1, 2]}),
+     r"data\.pairs\.take: a sweep cannot stand for 'take'; a dataset's rows are compiled once, and a step reads them "
+     r"by name: write one dataset per value$"),
+    (lambda d: d["data"]["pairs"].update(template={"sweep": [{"add_generation_prompt": True}, {}]}),
+     r"data\.pairs\.template: a sweep cannot stand for 'template'; a dataset's rows are compiled once"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
 ])
 def test_a_document_error_names_the_path_and_the_choices(change, message):
@@ -258,6 +263,13 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
      r"steps\.counterfactual\.interventions\.v_cf\.ops\[0\]: 'mean' aggregates over rows.*make it a step after the forward"),
     (lambda d: d["steps"]["iia"].update(expected="pairs.answers"),
      r"steps\.iia\.expected: dataset 'pairs' has no column 'answers'"),
+    (lambda d: d["steps"]["iia"].update(expected="pairs"),
+     r"steps\.iia\.expected: 'pairs' is not a column reference, '<dataset>\.<column>'; dataset 'pairs' has columns "
+     r"answer, base_answer, "),
+    (lambda d: d["steps"]["iia"].update(expected="pairs."),
+     r"steps\.iia\.expected: 'pairs\.' is not a column reference, '<dataset>\.<column>'; dataset 'pairs' has columns"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"column": "pairs"}}),
+     r"steps\.patched\.interventions\.patch\.pos\.scope\.column: 'pairs' is not a column reference"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"]["ops"][0].update({"with": "counterfactual.v"}),
      r"steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v' names no value produced before this step; "
      r"known: counterfactual\.v_cf"),
@@ -333,10 +345,76 @@ def test_anything_but_the_three_forms_is_refused_naming_them(value):
     ({"frame": "1:3", "index": "5:"}, r": index '5:' picks none of the 2 tokens of frame '1:3''s decode calls"),
     ({"frame": "1:3", "index": -3}, r": index -3 picks none of the 2 tokens of frame '1:3''s decode calls"),
     ({"frame": [2], "index": [1, 2]}, r": index \[1, 2\] picks none of the 1 tokens"),
+    ({"frame": "1:3", "index": "1:3"}, r": index '1:3' is 2 tokens wide and picks 1 of the 2 tokens of frame '1:3''s "
+                                       r"decode calls, one each, so it fits no row$"),
+    ({"frame": [1, 2, 3], "index": [0, 5]}, r": index \[0, 5\] is 2 tokens wide and picks 1 of the 3 tokens"),
 ])
 def test_a_selector_that_picks_nothing_is_refused_naming_it(pos, message):
+    """A selector that can pick nothing, and an index whose static width the frame's decode calls can never fill
+    (every row would be `alignment_missing`), are refused when the document is read."""
     with pytest.raises(PlanError, match=r"steps\.patched\.interventions\.patch\.pos" + message):
         edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
+    for fits in ({"frame": "1:4", "index": "1:3"}, {"frame": "1:3", "index": "-2:"}, {"frame": "1:3", "index": ":"}):
+        edited("generate_probe", lambda d: d["steps"]["patched"]["interventions"]["logits"].update(pos=fits))
+
+
+def test_a_pos_that_is_not_an_int_is_not_read_as_one():
+    """A string, a float or a boolean is refused, in a sweep's values too, as `index`, `frame` and `layers` refuse
+    them; nothing is coerced to a position."""
+    where = r"^steps\.patched\.interventions\.patch\.pos: "
+    forms = r"an int \(2, -1\), a slice in Python notation \('2:5', '-3:', ':'\) or a list of picks \(\[1, 3, 7\]\)"
+    for pos in ("-1", {"sweep": ["-1", -2]}):
+        with pytest.raises(PlanError, match=where + r"'-1' is a string, which is not read as a number; a pos is an int "
+                                            r"\(\{'frame': 0, 'index': <int>\}\) or an object, each of whose selectors "
+                                            r"is " + forms + "$"):
+            edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
+    for pos in (1.0, True, {"sweep": [1.0, -2]}):
+        with pytest.raises(PlanError, match=where + r"(1\.0|True) is not a selector: " + forms
+                                            + r"; a pos is an int \(\{'frame': 0, 'index': <int>\}\) or an object$"):
+            edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos=pos))
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos\.index: '-1' is not a selector"):
+        edited("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"index": "-1"}))
+
+
+def test_a_sweep_over_pos_objects_names_the_fields_that_take_one():
+    """A sweep's example sweeps a scalar the pos takes one on (its frame, its index, a scope's occurrence), not
+    the scope object again."""
+    def swept(d):
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"sweep": [
+            {"scope": {"column": "pairs.entity"}}, {"scope": {"column": "pairs.entity"}, "index": -1}]}
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos: a sweep's values are numbers, "
+                                        r"strings, booleans or lists of them, each point keyed by its value; \{'scope': "
+                                        r"\{'column': 'pairs\.entity'\}\} is an object: sweep a scalar inside the pos, "
+                                        r"which takes one on frame, index and a scope's occurrence \(\{'frame': 0, "
+                                        r"'index': \{'sweep': \[-1, -2\]\}\}, or \{'scope': \{'column': \.\.\., "
+                                        r"'occurrence': \{'sweep': \[0, 1\]\}\}\}\)$"):
+        edited("entity_patch", swept)
+    with pytest.raises(PlanError, match=r"^steps\.patched\.generation_config: a sweep's values are numbers, strings, "
+                                        r"booleans or lists of them, each point keyed by its value; \{'a': \{'b': 1\}\} is "
+                                        r"an object: sweep a scalar field inside it, \{'a': \{'b': \{'sweep': \[1, "
+                                        r"\.\.\.\]\}\}\}$"):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(generation_config={"sweep": [{"a": {"b": 1}}]}))
+
+
+@pytest.mark.parametrize("scope, message", [
+    ({"column": {"colum": "pairs.entity"}}, r"column: unknown field 'colum'; valid: column, strip, lower$"),
+    ({"column": [{"colum": "pairs.entity"}]}, r"column\[0\]: unknown field 'colum'; valid: column, strip, lower$"),
+    ({"text": {"text": "Friday", "strip": True}},
+     r"text: \{'text': 'Friday', 'strip': True\} is an object; a text is a literal, and its strip and lower go on the "
+     r"scope beside it: \{'text': 'Friday', 'strip': true\}$"),
+    ({"text": ["Friday", {"text": "Monday"}]}, r"text: \{'text': 'Monday'\} is an object; a text is a literal"),
+    ({"column": 3}, r"column: 3 is not a column reference, '<dataset>\.<column>' or \{'column': '<dataset>\.<column>', "
+                    r"'strip'\?: bool, 'lower'\?: bool\}$"),
+    ({"column": ["pairs.entity", 3]}, r"column: 3 is not a column reference"),
+    ({"column": {"sweep": ["pairs.entity", "pairs.answer"]}},
+     r"column: \{'sweep': \['pairs\.entity', 'pairs\.answer'\]\} is not a column reference, .*; a scope's column takes "
+     r"no sweep \(its occurrence does\)$"),
+])
+def test_a_scope_object_error_names_the_field_and_its_keys(scope, message):
+    """A column reference inside a scope is validated as the one thing its shape says it is, so an unknown key
+    names the keys a reference takes; `strip` inside a text object says where a text's flags go."""
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.pos\.scope\." + message):
+        edited("entity_patch", lambda d: d["steps"]["patched"]["interventions"]["patch"]["pos"].update(scope=scope))
 
 
 def test_a_slice_that_picks_fewer_of_more_things_is_not_refused():
@@ -419,7 +497,7 @@ def test_columns_renames_and_keeps_every_other_column():
      r"^data\.pairs\.columns\.input: 'prompt' is not a column of row 0; its columns: answer, base_answer, "),
     ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},
      r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this rename would overwrite; "
-     r"rename it too, or name the new column otherwise$"),
+     r"name the new column otherwise$"),
     ({"path": "weekdays/data", "template": {"add_generation_prompt": True}},
      r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
      r"of \{'role', 'content'\} messages\) only$"),

@@ -4,9 +4,10 @@ import re
 from typing import Callable
 
 import pytest
-from conftest import BATCH_SIZE, edited, plan_of, same
+from conftest import BATCH_SIZE, dims, edited, plan_of, same
 
 from clab.engines import load
+from clab.format.sweeps import points
 from clab.plan import PlanError
 
 # -- the plan and compile ---------------------------------------------------------------------------------
@@ -206,13 +207,58 @@ def test_a_write_selects_on_one_axis():
 
 
 def test_an_operand_must_have_the_writes_layout():
+    """The one rule's sentence covers an operand with no axes too: it leaves out every axis and broadcasts, as a
+    mean over every axis (`dims: []`) does into a write."""
     def change(d):
         d["steps"]["counterfactual"]["interventions"]["logits"] = {"site": {"component": "lm_head_output"}, "pos": -1}
         d["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "counterfactual.logits"
     with pytest.raises(PlanError, match=r"'counterfactual\.logits' is laid out \['rows', 'pos', 'vocab_size'\]; "
                                         r"'swap' acts on a value laid out \['rows', 'pos', 'hidden_size'\], and an "
-                                        r"operand's axes are among the value's, in its order"):
+                                        r"operand's axes are among the value's, in its order \(those it leaves out it "
+                                        r"broadcasts over\)$"):
         edited("patching", change).compile()
+
+    def scalar(d):
+        d["steps"]["m"] = {"kind": "op", "op": "mean", "of": "iia", "over": ["rows", "pos"]}
+        d["steps"]["again"] = {"kind": "forward", "input": "pairs.input", "interventions": {
+            "w": {"site": "target", "pos": -1, "ops": [{"op": "scale", "factor": "m"}]}}}
+    assert dims(edited("patching", scalar).compile(), "m") == []
+
+
+def test_a_select_mismatch_the_document_decides_is_refused_at_compile():
+    """An operand narrowed by `select` to other indices than the write's selection is refused when the plan
+    compiles, before any model loads, whether the two are written as picks or as front-bounded slices, which name
+    their indices as picks do (`kept_of`)."""
+    def change(theirs, ours):
+        def apply(d):
+            d["steps"]["counterfactual"]["interventions"]["v_cf"]["site"] = {
+                "component": "layer_output", "layers": 0, "select": {"hidden_size": theirs}}
+            d["steps"]["patched"]["interventions"]["patch"]["site"] = {
+                "component": "layer_output", "layers": 0, "select": {"hidden_size": ours}}
+        return apply
+    for theirs, ours in (([0, 1], [0, 1, 2]), ("0:2", "0:3"), (":2", [0, 1, 2])):
+        with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: 'counterfactual\.v_cf' "
+                                            r"holds hidden_size \[0, 1\], and this write's selection holds \[0, 1, 2\]; an "
+                                            r"operand holds the same ones: select hidden_size \[0, 1, 2\] at the read$"):
+            edited("patching", change(theirs, ours)).compile()
+    edited("patching", change("0:2", ":2")).compile()
+
+
+def test_an_op_that_aggregates_over_rows_says_where_it_goes():
+    """After an entry's last edit the aggregate is a reduction of a read, a step after the forward; up to it the
+    entry would write it back, which a step after the forward cannot feed: an op step before the forward, swapped
+    in."""
+    def ops_(*listed):
+        return lambda d: d["steps"]["patched"]["interventions"]["patch"].update(ops=list(listed))
+    swap = {"op": "swap", "with": 0.0}
+    with pytest.raises(PlanError, match=r"patch\.ops\[1\]: 'mean' aggregates over rows, and inside an entry it sees one "
+                                        r"batch; make it a step after the forward$"):
+        edited("patching", ops_(swap, {"op": "mean"})).compile()
+    with pytest.raises(PlanError, match=r"patch\.ops\[0\]: 'mean' aggregates over rows, and inside an entry it sees one "
+                                        r"batch; this entry writes it back, so make it an op step before the forward, "
+                                        r"over a read of the rows it aggregates, and write that in \(\{'op': 'swap', "
+                                        r"'with': '<that step>'\}\)$"):
+        edited("patching", ops_({"op": "mean"}, swap)).compile()
 
 
 def test_renormalize_runs_only_inside_an_entry():
@@ -278,6 +324,8 @@ def refused(engines, plan, kind: str = "hooks"):
      r"counterfactual.v_cf: select hidden_size -17 outside the model's 16"),
     ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": "20:"}),
      r"counterfactual.v_cf: select hidden_size '20:' keeps none of the model's 16"),
+    ("patching", lambda d: d["sites"]["target"].update(select={"hidden_size": "14:20"}),
+     r"counterfactual.v_cf: select hidden_size '14:20' outside the model's 16"),
     ("patching", lambda d: d["steps"]["patched"]["interventions"].update(scored={
         "site": {"component": "lm_head_output"}, "pos": -1, "ops": [{"op": "match", "expected": "pairs.input"}]}),
      "patched.scored: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens"),
@@ -287,13 +335,24 @@ def refused(engines, plan, kind: str = "hooks"):
         "input": "If today is Monday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
-     r"patched.patch: row 0: column 'pairs.entity' is not in its input"),
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) is not in its input$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "tom"}, "index": -1}),
+     r"patched.patch: row 0: text 'tom' is not in its input; it occurs only inside 'tomorrow', cutting a word, and an "
+     r"occurrence lies on word boundaries$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "day is"}, "index": -1}),
+     r"patched.patch: row 0: text 'day is' is not in its input; it occurs only inside 'today is', cutting a word, and "
+     r"an occurrence lies on word boundaries$"),
+    ("patching", lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": "zebra"}, "index": -1}),
+     r"patched.patch: row 0: text 'zebra' is not in its input$"),
+    ("entity_patch", lambda d: d["steps"]["patched"]["interventions"]["patch"]["pos"]["scope"].update(occurrence=1),
+     r"patched.patch: row 0: column 'pairs.entity' \('Thursday'\) occurs 1 time in the row's input; it has no "
+     r"occurrence 1$"),
     ("entity_patch", lambda d: (d["data"].update(pairs={"rows": [{
         "input": "Friday or Friday, tomorrow is", "entity": "Friday", "cf_answer": " Sunday", "base_answer": " Friday",
         "counterfactual_inputs": ["If today is Friday, tomorrow is"],
         "counterfactual_inputs_variables": [{"entity": "Friday"}]}]}),
         d["steps"]["patched"]["interventions"]["patch"]["pos"]["scope"].update(occurrence=2)),
-     r"patched.patch: row 0: column 'pairs.entity' occurs 2 times in the row's input; it has no occurrence 2"),
+     r"patched.patch: row 0: column 'pairs.entity' \('Friday'\) occurs 2 times in the row's input; it has no occurrence 2$"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"].update(turn="system"),
      r"blanked.blank: row 0: the row has no 'system' message"),
     ("chat_turn", lambda d: d["steps"]["blanked"]["interventions"]["blank"]["pos"]["scope"].update(occurrence=2),
@@ -399,10 +458,30 @@ def test_a_device_no_engine_can_place_a_model_on_is_refused_before_anything_load
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_key_the_loader_rejects_is_reported_as_that_key(kind):
+    """The reason is the loader's one line that names the key, without the report of every class nnsight's loader
+    tried, so a misspelled key is refused by name on both engines alike."""
     from clab.engines import ENGINES
     plan = edited("patching", lambda d: d["model"].update(attn_implementation="nonsense"))
     with pytest.raises(ValueError, match=f"^model.attn_implementation: the {kind} engine's loader rejects it: "):
         ENGINES[kind](plan.model)
+    plan = edited("patching", lambda d: d["model"].update(attn_implementaton="eager"))
+    with pytest.raises(ValueError, match=f"^model.attn_implementaton: the {kind} engine's loader rejects it: "
+                                         r"LlamaForCausalLM.__init__\(\) got an unexpected keyword argument "
+                                         r"'attn_implementaton'$"):
+        ENGINES[kind](plan.model)
+
+
+def test_a_bundle_entrys_refusal_names_the_step_that_pulls_it_in():
+    """A bundle's entry has one document path and may be pulled into several steps; its operand resolves in the
+    step that pulls it in, so a refusal names that step after the path."""
+    def change(d):
+        d["steps"]["counterfactual"]["interventions"]["logits"] = {"site": {"component": "lm_head_output"}, "pos": -1}
+        d["interventions"] = {"b": {"patch": {"site": "target", "pos": -1,
+                                               "ops": [{"op": "swap", "with": "counterfactual.logits"}]}}}
+        d["steps"]["patched"]["interventions"] = ["b", {"logits": d["steps"]["patched"]["interventions"]["logits"]}]
+    with pytest.raises(PlanError, match=r"^interventions\.b\.patch\.ops\[0\]\.with in steps\.patched: "
+                                        r"'counterfactual\.logits' is laid out \['rows', 'pos', 'vocab_size'\]"):
+        edited("patching", change).compile()
 
 
 def test_the_model_block_passes_its_other_keys_through_and_spells_dtype_as_torch():
@@ -443,6 +522,26 @@ def test_a_write_with_a_static_width_refuses_an_operand_without_one():
                                             r"positions on each row, which pair with no other value's; read both at a "
                                             r"static index"):
             edited("entity_mean_ablation", lambda d: change(pos, d)).compile()
+
+
+def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_satisfy():
+    """Two reads over every decode call have no static width; the advice names a static index in the prefill and,
+    for a decode read, a frame of a static number of calls with an index of static width, which lines up."""
+    def change(pos):
+        def apply(d):
+            d["steps"]["patched"]["interventions"]["a"] = {"site": {"component": "logits"}, "pos": pos}
+            d["steps"]["counterfactual"]["interventions"]["b"] = {"site": {"component": "logits"}, "pos": pos}
+            d["steps"]["kl"] = {"kind": "op", "op": "kl", "of": "patched.a", "against": "counterfactual.b"}
+            d["saves"] = ["kl"]
+        return apply
+    with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' holds a different number of "
+                                        r"positions on each row, which pair with no other value's; read both at a static "
+                                        r"index \(pos -1, or \{'index': '-3:'\}\), or over decode calls at a frame of a "
+                                        r"static number of them with an index of static width \(\{'frame': '1:4', "
+                                        r"'index': ':3'\}\)$"):
+        edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
+    compiled = edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile()
+    assert points(compiled.steps["kl"])[0].width == 3
 
 
 def test_a_quantized_dtype_names_what_it_computes_in():

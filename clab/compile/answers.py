@@ -40,7 +40,7 @@ def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> st
         fail(path, f"{value!r} is not a column: '<dataset>.<column>' or {{'column': '<dataset>.<column>', "
                    "'strip'?: bool, 'lower'?: bool}")
     name, _, column = ref[0].partition(".")
-    column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}", path, dataset)
+    column_ref(cx, f"{name}.{column.split('[')[0].split('.')[0]}" if column else ref[0], path, dataset)
     for i, row in enumerate(cx.rows[name]):
         try:
             found = data.lookup(row, column)
@@ -57,6 +57,9 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
     name, _, column = value.partition(".") if isinstance(value, str) else ("", "", "")
     if name not in cx.rows:
         fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx.rows)}")
+    if not column:
+        fail(path, f"{value!r} is not a column reference, '<dataset>.<column>'; dataset {name!r} has columns "
+             f"{', '.join(cx.rows[name][0])}")
     if any(column not in r for r in cx.rows[name]):
         fail(path, f"dataset {name!r} has no column {column!r} on every row; columns: {', '.join(cx.rows[name][0])}")
     if dataset is not None and name != dataset:
@@ -66,20 +69,22 @@ def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> 
 
 
 def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str, args: dict, dims: list[str] | None,
-                 placed: list | None, forced: list[list[int]] | None) -> None:
+                 placed: list | None, inputs: list[list[int]] | None, before: bool) -> None:
     """Every column op `name` scores against logits, resolved once into `found.answers` (`answer`): a class or
     a set of several ids is refused where the op reads one id's logit. A column with an answer of several
     tokens lines every row up with the read, one position per token: the value has a pos axis (when its axes
     `dims` are known) and, where the read's positions are known before the run (`placed`, per row), each row
-    the read reaches has as many (a row it does not reach, the marker, is missing, not refused). Where the read
-    is a scope that is `before` on the step's own input (`forced`: each row's input ids), the input's next token
-    at each position is among the ids the answer's token there may be."""
+    the read reaches has as many (a row it does not reach, the marker, is missing, not refused), the input's
+    tokens there (`inputs`, each row's ids; under `before`, the ones those positions predict) saying what differs
+    (`differs`). Where the read is a scope that is `before` on the step's own input, the input's next token at
+    each position is among the ids the answer's token there may be."""
+    texts = vocabulary(engine.tokenizer)
     for key, p in ops.parameters(name).items():
         if p.annotation != ops.Tokens or key not in args:
             continue
         got = answer(engine, plan, found, args[key], where)
         values, sets, column, aligned = got.values, got.sets, got.column, got.aligned
-        strip = (data.column_of(args[key]) or ("", False, False))[1]
+        _, strip, lower = data.column_of(args[key]) or ("", False, False)
         for r, (value, row) in enumerate(zip(values, sets)):
             if name in ONE_ID and any(len(ids) > 1 for ids in row):
                 raise ValueError(f"{where}: {column} row {r}: {value!r} stands for {max(map(len, row))} ids (a set, "
@@ -89,19 +94,19 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
                 raise ValueError(f"{where}: {column} row {r}: {value!r} is {len(row)} token"
                                  f"{'s' * (len(row) != 1)}, a position each, and the value has no pos axis ({dims})")
             if aligned and placed is not None and isinstance(placed[r], list) and len(placed[r]) != len(row):
-                spaced = blank(engine.tokenizer, value, strip, len(row), placed[r], None if forced is None else forced[r])
-                raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}{spaced}")
-        if forced is None or placed is None:
+                held = None if inputs is None else [inputs[r][p + 1 if before else p] for p in placed[r]]
+                why = differs(engine.tokenizer, value, strip, lower, len(row), placed[r], held, before)
+                raise ValueError(f"{where}: {unaligned(column, r, value, len(row), len(placed[r]))}{why}")
+        if not before or inputs is None or placed is None:
             continue
         for r, at in enumerate(placed):
             for i, p in enumerate(at if isinstance(at, list) else []):
-                ids, next_ = sets[r][i if aligned else 0], forced[r][p + 1]
+                ids, next_ = sets[r][i if aligned else 0], inputs[r][p + 1]
                 if next_ not in ids:
-                    shown = engine.tokenizer.convert_ids_to_tokens([next_])[0]
-                    raise ValueError(f"{where}: {column} row {r}: position {p} predicts {shown!r} in the input, which "
-                                     f"is not token {i if aligned else 0} of {values[r]!r} as it tokenizes alone "
-                                     f"({engine.tokenizer.convert_ids_to_tokens(ids[:3])}); the answer is scored as "
-                                     "it tokenizes, so the input says it the same way")
+                    raise ValueError(f"{where}: {column} row {r}: position {p} predicts {texts[next_]!r} in the input, "
+                                     f"which is not token {i if aligned else 0} of {values[r]!r} as it tokenizes alone "
+                                     f"({[texts[i] for i in ids[:3]]}); the answer is scored as it tokenizes, so the "
+                                     "input says it the same way")
 
 
 @dataclass
@@ -204,20 +209,30 @@ def unaligned(column: str, row: int, value: object, k: int, n: int) -> str:
             "\"before\": true reads the positions that predict the answer's tokens)")
 
 
-def blank(tokenizer: PreTrainedTokenizerBase, value: str | list[str], strip: bool, k: int, at: list[int],
-          ids: list[int] | None) -> str:
-    """What to do where a whitespace-only token is what an answer of `k` tokens and its read at positions `at`
-    differ by: the answer's first, which it keeps and a scope under strip does not cover; or, where the read is
-    `before` on the step's input (its `ids`), the token its first position predicts, which the answer lacks."""
+def differs(tokenizer: PreTrainedTokenizerBase, value: str | list[str], strip: bool, lower: bool, k: int,
+            at: list[int], held: list[int] | None, before: bool) -> str:
+    """What to do where an answer of `k` tokens and its read at positions `at` differ, where the tokens say: the
+    answer's first token is whitespace only, which it keeps and a scope under strip does not cover; the input's
+    token at the read's first position (`held`: the tokens the positions hold, or predict under `before`, where
+    known) is whitespace only, which the answer has no token for; or the input says the answer's own text there in
+    other tokens than the column's text makes alone (` signs` one token, `signs` two): the answer is written as the
+    input says it."""
     texts = vocabulary(tokenizer)
-    first = trimmed(tokenizer, tokenizer(value[0] if isinstance(value, list) else value,
-                                         add_special_tokens=False)["input_ids"], strip)[0]
-    if k > len(at) and not texts[first].strip():
-        return (f"; its token 0, {texts[first]!r}, is whitespace only, which an answer keeps and a scope under strip "
-                "does not cover: scope the column without strip")
-    if ids is not None and len(at) > k and not texts[ids[at[0] + 1]].strip():
-        return (f"; the read's position {at[0]} predicts {texts[ids[at[0] + 1]]!r}, whitespace only, which the "
-                "answer has no token for: write the answer with its space")
+    first = value[0] if isinstance(value, list) else value
+    written = trimmed(tokenizer, tokenizer(first, add_special_tokens=False)["input_ids"], strip)
+    if strip and k > len(at) and not texts[written[0]].strip():
+        return (f"; its token 0, {texts[written[0]]!r}, is whitespace only, which an answer keeps and a scope under "
+                "strip does not cover: scope the column without strip")
+    if held is None:
+        return ""
+    if len(at) > k and not texts[held[0]].strip():
+        return (f"; the read's position {at[0]} {'predicts' if before else 'holds'} {texts[held[0]]!r}, whitespace "
+                "only, which the answer has no token for: write the answer with its space")
+    joined = "".join(texts[i] for i in held)
+    if data.compared(joined, True, lower) == data.compared(first, True, lower):
+        return (f"; the input says it as {joined!r}, {len(held)} token{'s' * (len(held) != 1)} "
+                f"({[texts[i] for i in held]}), where {first!r} alone is {[texts[i] for i in written]}: write the "
+                f"answer as the input says it, {joined!r}")
     return ""
 
 
@@ -276,7 +291,9 @@ def classed(text: str, lead: bool, trail: bool, lower: bool) -> str:
 @functools.cache
 def vocabulary(tokenizer: PreTrainedTokenizerBase) -> list[str]:
     """Each id's text: what it decodes to after another token (`a`'s first), so a leading space (` Positive`,
-    `▁Positive`) is its own. Made once per tokenizer."""
+    `▁Positive`) is its own. Made once per tokenizer. It is how a refusal shows a token, what a column or a text
+    scope can hold (`' signs'`); an output (`pos_token`, `run.tokens`, `top_k`'s `tokens`) spells the tokenizer's
+    own pieces (`Ġsigns`, `▁signs`)."""
     anchor = tokenizer("a", add_special_tokens=False)["input_ids"][0]
     lead = len(tokenizer.decode([anchor]))
     return [text[lead:] for text in tokenizer.batch_decode([[anchor, i] for i in range(len(tokenizer))])]

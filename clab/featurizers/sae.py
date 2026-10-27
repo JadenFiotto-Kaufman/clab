@@ -42,7 +42,7 @@ class Sae(Kind):
     saves = trains = ("W_enc", "b_enc", "W_dec", "b_dec")
     header, drawn = ("latents", "activation", "k", "centered"), ("latents",)
     unstated = {"activation": "relu", "centered": True}
-    scalars = ("reconstruction", "l1")
+    scalars = over_encodes = ("reconstruction", "l1")
     threshold: Tensor       # a published JumpReLU's, set with the bundle's other tensors
 
     def __init__(self, width: int, latents: int | None = None, file_path: str | None = None, seed: int | None = None,
@@ -91,7 +91,8 @@ class Sae(Kind):
         unstated = [k for k in ("activation", "centered", "site") if fields.get(k) is None]
         if unstated:
             raise ValueError(f"{file} is a published sae, which says neither how it encodes nor where it was trained; "
-                             f"state {', '.join(map(repr, unstated))}, as its release names them")
+                             f"state {', '.join(map(repr, unstated))}, as its release names "
+                             f"{'them' if len(unstated) > 1 else 'it'}")
         expected = set(cls.saves) | ({"threshold"} & set(tensors))
         if set(tensors) != expected:
             raise ValueError(f"{file} has no clab header and holds {', '.join(sorted(tensors))}; a published sae "

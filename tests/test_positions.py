@@ -5,6 +5,7 @@ document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an att
 The chat cases run on a tiny Qwen3 whose template renders a chat as Qwen3-8B's does (checked below where
 Qwen3-8B's tokenizer is cached): `<|im_start|>` and `<|im_end|>` are its markers, and it adds no BOS."""
 
+import re
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ from transformers import AutoTokenizer
 
 from clab import Plan
 from clab.cli import main
+from clab.format.sweeps import points
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -313,6 +315,40 @@ def test_a_refusal_counts_tokens_as_positions(engines):
     assert [t["key_token"] for t in keyed.table("f.x") if t["row"] == 1] == [tokens[1][3]]
     with pytest.raises(ValueError, match=r"^f\.x: select key 4 outside the 4 tokens of the input's shortest row$"):
         run(engines, plan(-1, 4))
+
+
+def test_a_scopes_occurrence_takes_a_sweep_as_the_grammar_says(engines):
+    """`occurrence` is typed as what it accepts, a selector or a sweep of one, as `frame` and `index` are: a sweep
+    makes a point per occurrence, each at that occurrence's positions."""
+    from clab.plan import Pos
+
+    plan = doc(TINY, [{"input": "one two one two"}], {"f": forward({"x": {
+        "site": LAYER0, "pos": {"scope": {"text": "one", "occurrence": {"sweep": [0, 1]}}}}})}, ["f.x"])
+    assert [p.at for p in points(plan.steps["f"])] == [{"occurrence": 0}, {"occurrence": 1}]
+    assert placed(run(engines, plan))["f.x"] == {"occurrence=0": [[1]], "occurrence=1": [[3]]}
+    assert 'swept    := selector | {"sweep": [selector, ...]}' in (Pos.__doc__ or "") and \
+        '"occurrence"?: swept' in (Pos.__doc__ or "")
+
+
+def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
+    """`{"turn": "system"}` on a chat with no system message: where the template wrote a system header of its own
+    before the first message (Llama 3's `Cutting Knowledge Date` block), the refusal says that header is positions
+    and not a message; where it wrote none (the tiny Qwen3's), the row simply has no such message."""
+    from clab.compile import positions
+
+    llama3 = ("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nToday Date: 26 Jul 2024\n\n<|eot_id|>"
+              "<|start_header_id|>user<|end_header_id|>\n\nhi<|eot_id|>")
+    qwen3 = "<|im_start|>user\nhi<|im_end|>\n"
+    for text, note in ((llama3, "; the template wrote a 'system' header of its own, whose tokens are positions, not a "
+                                "message: locate its words with a {'text': ...} scope"), (qwen3, "")):
+        encoded = {"ids": [0] * 8, "offsets": None, "text": text, "turns": [("user", text.index("hi"), text.index("hi") + 2)]}
+        with pytest.raises(ValueError, match=f"^the row has no 'system' message{re.escape(note)}$"):
+            positions.scoped({"turn": "system"}, list(range(8)), [], [], encoded)
+    assert positions.inside([("tom", False, False)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.inside([("Tom", False, True)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.inside([("day is", False, False)], "If today is Thursday, tomorrow is") == "today is"
+    assert positions.inside([("is Thurs", False, False)], "If today is Thursday, tomorrow is") == "is Thursday"
+    assert positions.inside([("today", False, False)], "If today is Thursday, tomorrow is") is None
 
 
 # A pair of rows 5 and 3 tokens long, BOS included, each with a counterfactual as long as itself.

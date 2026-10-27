@@ -162,7 +162,7 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
      r"state 'activation', 'centered', 'site'"),
     (TENSORS, {"activation": "relu", **WHERE}, r"says neither how it encodes nor where it was trained; state "
                                                r"'centered', as"),
-    (TENSORS, {"activation": "relu", "centered": True}, r"state 'site', as its release names them"),
+    (TENSORS, {"activation": "relu", "centered": True}, r"state 'site', as its release names it$"),
     (TENSORS, {"activation": "topk", "k": 33, "centered": True, **WHERE}, r"has 32 latents; 'topk' keeps k = 33 of "
                                                                           r"them"),
 ])

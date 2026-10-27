@@ -36,7 +36,8 @@ from clab import Plan, featurizers, ops
 from clab.cli import main
 from clab.featurizers.gate import Gate
 from clab.featurizers.subspace import Subspace
-from clab.plan import Model, PlanError
+from clab.format.sweeps import points
+from clab.plan import Fit, Model, PlanError, entries
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
         "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
@@ -513,6 +514,28 @@ def train_an_sae(d):
 def test_a_fit_that_cannot_mean_anything_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
         edited("das", change).compile()
+
+
+def test_a_scalar_over_the_bodys_encodes_needs_an_open_encode_in_the_body():
+    """An sae's `reconstruction` and `l1` are over what the body's encodes of it saw: a body that closes every
+    bracket, or only applies it, reads no coordinates, so the objective is refused when the plan compiles rather
+    than when the fit runs ("this body has none"); an entry ending in its encode, as an encode step, serves it."""
+    def body(ops_):
+        def change(d):
+            d["steps"]["fit"]["steps"] = {"read": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "z": {"site": "target", "pos": {"index": "1:"}, "ops": ops_}}}}
+        return change
+    closed = [{"op": "encode", "featurizer": "fit.dictionary"}, {"op": "decode", "featurizer": "fit.dictionary"}]
+    for ops_ in (closed, [{"op": "apply", "featurizer": "fit.dictionary"}]):
+        with pytest.raises(PlanError, match=r"^steps\.fit\.objective\.dictionary\.reconstruction: 'reconstruction' is "
+                                            r"over the coordinates the body reads of 'dictionary', an encode no decode "
+                                            r"closes \(an entry whose ops end in \{'op': 'encode', 'featurizer': "
+                                            r"'dictionary'\}, or an encode step\), and this body has none: read its "
+                                            r"coordinates in the body, or make the term an op over what it decodes$"):
+            edited("sae_train", body(ops_)).compile()
+    compiled = edited("sae_train", body([{"op": "encode", "featurizer": "fit.dictionary"}])).compile()
+    fit = cast(Fit, points(compiled.steps["fit"])[0])
+    assert entries(points(fit.steps["read"])[0])["z"].gathered
 
 
 def test_a_write_through_a_probe_is_refused():

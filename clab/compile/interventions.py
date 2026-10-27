@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, cast
 
 from clab import ops
 from clab.compile import positions
-from clab.compile.answers import text_ref
+from clab.compile.answers import text_ref, vocabulary
 from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, resolver, space_of
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found
 from clab.format import address, data, selectors
-from clab.format.selectors import Selector, keys, picked
+from clab.format.selectors import Selector, keyed, keys, picked
 from clab.plan import (
     Forward,
     Generate,
@@ -168,7 +168,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         for key, value in args.items():
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{here}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
-                     "step is served in a forward, not yet inside a generate" if step.kind == "generate" else
+                     "step is served in a forward, not inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
         # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.
@@ -186,9 +186,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             dims = before[closes[i]["at"]]
         elif o.op == "encode":
             before[i] = dims
-            dims = layout(here, o.op, args, dims, "entry", kind)
+            dims = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
         else:
-            out = layout(here, o.op, args, dims, "entry", kind)
+            out = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
@@ -215,9 +215,10 @@ def layers_of(layers: Selector | None) -> list[int] | None:
 
 
 def kept_of(select: dict[str, Selector] | None) -> dict[str, list[int]]:
-    """A site's `select` as the indices it keeps on each axis, as far as the document decides them: a `key`
-    selector's keys, a non-negative int's or picks' own, else `[]` until preflight resolves it among the model's."""
-    return {axis: keys(s) if axis == "key" else layers_of(s) or [] for axis, s in (select or {}).items()}
+    """A site's `select` as the indices it keeps on each axis, as far as the document decides them: those of a
+    selector counted from the start (`keyed`: a non-negative int or picks, a front-bounded slice, every `key`
+    selector), else `[]` until preflight resolves it among the model's."""
+    return {axis: keys(s) if keyed(s) else [] for axis, s in (select or {}).items()}
 
 
 def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
@@ -326,7 +327,7 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
     ours, theirs = (resolved(plan.steps, n, at, found.swap) for n in (where, value))
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
-    tokens = engine.tokenizer.convert_ids_to_tokens
+    texts = vocabulary(engine.tokenizer)
     for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
@@ -337,5 +338,5 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
             if not (p == q <= start or len(x) - p == len(y) - q <= end + 1):
                 raise ValueError(f"{where}: operand {value!r} was read on {producer}, row {row} of which is "
                                  f"{len(x)} tokens; {consumer} has {len(y)}, so position {i} pairs "
-                                 f"{tokens([x[p]])[0]!r} with {tokens([y[q]])[0]!r}; use a scope to name the token "
+                                 f"{texts[x[p]]!r} with {texts[y[q]]!r}; use a scope to name the token "
                                  "in each row")

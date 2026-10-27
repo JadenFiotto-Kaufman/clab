@@ -49,9 +49,11 @@ def begin(engine: Engine, plan: Plan, batch_size: int) -> float:
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
     batched(batch_size)
-    if plan.model != engine.spec:
-        raise ValueError(f"this engine loaded {engine.spec.key}@{engine.spec.revision}; the plan pins "
-                         f"{plan.model.key}@{plan.model.revision}")
+    ours, theirs = plan.model.model_dump(), engine.spec.model_dump()
+    differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
+    if differ:                  # a loader key written null is one left out
+        raise ValueError("the plan's model is not the one this engine loaded: " + ", ".join(
+            f"{k} {ours.get(k)!r} where the engine's is {theirs.get(k)!r}" for k in differ))
     plan.run = Run(engine=engine.name, batch_size=batch_size, device=engine.device, options=engine.options,
                    started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()

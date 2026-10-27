@@ -160,7 +160,7 @@ bundle at the root is a dict of entries pulled into a step by name, a template w
 step that pulls it in: an operand naming one of the bundle's own entries bare (`"with": "premix"`) means that
 entry of whichever step pulls it in, and `<a step>.<one of its entries>` is refused, since pulled into
 another step it would still mean that step's. An operand from an entry of its own step is served in a
-forward; inside a generate it is not yet (a cross-site adapter in a generation is on the roadmap).
+forward, not inside a generate: a cross-site adapter inside a generate is refused.
 
 ### An op in an entry
 
@@ -185,13 +185,14 @@ refusal's token counts.
 
 ```
 pos      := int                                # shorthand: {"frame": 0, "index": int}
-          | {"frame"?: frame, "scope"?: scope, "index"?: selector}     # index default ":"
-frame    := selector                                                  # default 0
-scope    := {"column": column or a list, "occurrence"?: selector, "before"?: bool}
-          | {"text": one or a list, "occurrence"?: selector, "strip"?: bool, "lower"?: bool, "before"?: bool}
-          | {"turn": "<role>", "occurrence"?: selector, "before"?: bool}   # occurrence default 0
+          | {"frame"?: frame, "scope"?: scope, "index"?: swept}        # index default ":"
+frame    := swept                                                     # default 0
+scope    := {"column": column or a list, "occurrence"?: swept, "before"?: bool}
+          | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "before"?: bool}
+          | {"turn": "<role>", "occurrence"?: swept, "before"?: bool}      # occurrence default 0
 column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
+swept    := selector | {"sweep": [selector, ...]}                     # a point per selector
 ```
 
 Each stage is a selector over what the stage before it left (`selectors.select`): an int counts one
@@ -199,7 +200,8 @@ Each stage is a selector over what the stage before it left (`selectors.select`)
 (`":"` every one, `"-4:-1"`, `"2:"`, `"::2"`), a list picks those, in the order written. A selector
 that picks nothing however many things there are (`"0:0"`, `"5:2"`) is refused, and so is an index that
 picks none of the tokens of a frame of a static number of decode calls (`{"frame": "1:3", "index":
-"5:"}`).
+"5:"}`), or whose static width those tokens cannot fill (`{"frame": "1:3", "index": "1:3"}`, two wide over the
+one token it picks).
 
 **frame**: 0 is the prefill, the only call a `forward` step has; k >= 1 is decode call k; a negative k
 counts from the row's last call (`-1` is the call that chose its last token, whether that was EOS or the
@@ -315,10 +317,10 @@ to find), and a row with fewer occurrences than it picks is `alignment_missing`.
 counted from a row's last call. A row's calls are what the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
-new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows or the value
-(`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`) are refused before anything
-runs; any other option is the engine's `generate`'s to accept, and one it rejects fails when the step
-runs, naming the step.
+new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows, the value or
+the calls (`num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache`, `prefill_chunk_size`)
+are refused before anything runs; any other option is the engine's `generate`'s to accept, and one it rejects
+fails when the step runs, naming the step.
 
 Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
 projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
@@ -653,9 +655,10 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
 (`drawn`), what a header field left unstated is where the kind rather than its signature decides it
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
-published file must state), the scalars a fit's objective may name (`scalars`) and the fields that count
-directions of the value, so are at most its width (`counts`); its constructor makes an instance. The ops it serves are its
-methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
+published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
+body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
+fields that count directions of the value, so are at most its width (`counts`); its constructor makes an
+instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
 
@@ -850,10 +853,13 @@ columns), and an op takes one dataset's rows.
 
 Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
 the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
-else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
+else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
+booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+or a scope's occurrence, not the object.
 
-A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
+once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
+one label, by default or given, and the same
 values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
 two steps use); sweeps with one label and different values are refused, and sweeps with different labels
 cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],

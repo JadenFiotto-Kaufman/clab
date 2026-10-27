@@ -12,17 +12,20 @@ if TYPE_CHECKING:
     from clab.plan import Plan
 
 
-UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows", "hf",
-           "revision", "config", "split", "file_path", "of", "saves")
+UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "file_path", "of",
+           "saves")
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:
     """Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document path, each with its label:
     the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
-    else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
+    else the name of the field it stands for (the last key of its path). A sweep's values are numbers, strings,
+    booleans or lists of them, each point keyed by its value, and hold no sweep: a `pos` sweeps its frame, its index
+    or a scope's occurrence, not the object.
 
-    A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-    source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+    A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
+    once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
+    one label, by default or given, and the same
     values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
     two steps use); sweeps with one label and different values are refused, and sweeps with different labels
     cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
@@ -40,8 +43,10 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
         if isinstance(value, dict) and "sweep" in value and set(value) <= {"sweep", "label"}:
             where = ".".join(map(str, path))
             field = next(k for k in reversed(path) if isinstance(k, str))
-            if path[0] in ("description", "model") or field in UNSWEPT:
-                raise ValueError(f"{where}: a sweep cannot stand for {field!r}")
+            if path[0] in ("description", "model", "data") or field in UNSWEPT:
+                raise ValueError(f"{where}: a sweep cannot stand for {field!r}"
+                                 + ("; a dataset's rows are compiled once, and a step reads them by name: write one "
+                                    "dataset per value" if path[0] == "data" else ""))
             given = value.get("label")
             label = field if given is None else given
             if given is not None and not (isinstance(label, str) and re.fullmatch(r"\w+", label)):
@@ -49,6 +54,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
                                  "since its points are keyed `<label>=<value>`, joined by commas")
             if holds_sweep(value["sweep"]):
                 raise ValueError(f"{where}: a sweep's values hold no sweep")
+            scalars(where, field, value["sweep"])
             if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
                 other, values = first[label]
                 raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
@@ -67,6 +73,29 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
     walk(document, ())
     return found
+
+
+def scalars(where: str, field: str, values: Any) -> None:
+    """A sweep's values are numbers, strings, booleans or lists of them, since each point is keyed by its value: an
+    object is refused with an example that sweeps a scalar inside it, its first scalar leaf, or, standing for a
+    `pos`, one of the fields a pos takes a sweep on (its frame, its index, a scope's occurrence)."""
+    for value in values if isinstance(values, list) else []:
+        said = "a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value"
+        if isinstance(value, dict) and field == "pos":
+            raise ValueError(f"{where}: {said}; {value!r} is an object: sweep a scalar inside the pos, which takes one "
+                             "on frame, index and a scope's occurrence ({'frame': 0, 'index': {'sweep': [-1, -2]}}, or "
+                             "{'scope': {'column': ..., 'occurrence': {'sweep': [0, 1]}}})")
+        if isinstance(value, dict):
+            path, leaf = [], value            # the example sweeps the object's first scalar leaf
+            while isinstance(leaf, dict) and leaf:
+                key, leaf = next(iter(leaf.items()))
+                path.append(key)
+            example = f"{{'sweep': [{leaf!r}, ...]}}"
+            for key in reversed(path or ["<field>"]):
+                example = f"{{{key!r}: {example}}}"
+            raise ValueError(f"{where}: {said}; {value!r} is an object: sweep a scalar field inside it, {example}")
+        if isinstance(value, list) and any(isinstance(v, (dict, list)) for v in value):
+            raise ValueError(f"{where}: {said}; {value!r} holds a list or an object")
 
 
 def holds_sweep(value: Any) -> bool:
