@@ -228,7 +228,8 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         if (theirs.width is None or ours.width is None) and not forward:
             ragged = repr(written) if theirs.width is None else f"the value {name!r} {verb}"
             return (f"{ragged} holds a different number of positions on each row, which pair with no other "
-                    "value's; read both at a static index (pos -1, or {'index': '-3:'})")
+                    "value's; read both at a static index (pos -1, or {'index': '-3:'}), or over decode calls at a "
+                    "frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})")
         if theirs.width is not None and ours.width is not None and theirs.width != ours.width:
             return (f"{written!r} holds {theirs.width} position(s) per row and the value {name!r} {verb} holds "
                     f"{ours.width}; position i {'scores against' if group == 'metrics' else 'meets'} position i, so "

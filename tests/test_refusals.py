@@ -490,6 +490,25 @@ def test_a_write_with_a_static_width_refuses_an_operand_without_one():
             edited("entity_mean_ablation", lambda d: change(pos, d)).compile()
 
 
+def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_satisfy():
+    """Two reads over every decode call have no static width; the advice names a static index in the prefill and,
+    for a decode read, a frame of a static number of calls with an index of static width, which lines up."""
+    def change(pos):
+        def apply(d):
+            d["steps"]["patched"]["interventions"]["a"] = {"site": {"component": "logits"}, "pos": pos}
+            d["steps"]["counterfactual"]["interventions"]["b"] = {"site": {"component": "logits"}, "pos": pos}
+            d["steps"]["kl"] = {"kind": "op", "op": "kl", "of": "patched.a", "against": "counterfactual.b"}
+            d["saves"] = ["kl"]
+        return apply
+    with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' holds a different number of "
+                                        r"positions on each row, which pair with no other value's; read both at a static "
+                                        r"index \(pos -1, or \{'index': '-3:'\}\), or over decode calls at a frame of a "
+                                        r"static number of them with an index of static width \(\{'frame': '1:4', "
+                                        r"'index': ':3'\}\)$"):
+        edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
+    assert edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile().steps["kl"][0].width == 3
+
+
 def test_a_quantized_dtype_names_what_it_computes_in():
     """A quantization's values are in its compute dtype, `bfloat16` (`int8`'s `float16`), which the compiled plan
     does not replace: its `model.dtype` is the quantization's name."""
