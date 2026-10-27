@@ -164,7 +164,10 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     in the value's order, with the same label (`layers` by model layer, `rows` by dataset, `pos` by the read whose
     positions both hold or by `width`, a selected axis by the indices kept in order, `features` by the encodes it is
     in); a `layers` axis it has covers the layers the op acts at and is aligned by id. A number broadcasts in any
-    coordinates; an adapter's `with` is compared on its rows and positions alone. `write` says the op is one of an
+    coordinates; an adapter's `with` is compared on its rows and positions alone. A column scored as `Tokens` is
+    resolved through the value's vocabulary, every id or class of it, so the value's vocabulary axis is whole: a
+    site's `select` on `vocab_size`, or a probe's `encode` with a `select`, keeps some, at indices that are not
+    their ids, and is refused. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
@@ -174,6 +177,16 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     whose = "this write's selection" if write else "the value it acts on"
     adapts = name == "apply" and key == "with"
     own_axes, their_axes = ours.dims or [], theirs.dims or []
+    if ops.parameters(name)[key].annotation == ops.Tokens:
+        narrowed = next((a for a in ops.VOCABULARY if a in own_axes and (a in ours.kept or
+                                                                         ours.space and "select" in ours.space[-1])), None)
+        if narrowed is not None:
+            kept = f"{len(ours.kept[narrowed])} of its {narrowed} (select)" if ours.kept.get(narrowed) else \
+                f"some of its {narrowed} (select)"
+            return (f"the value {name!r} {verb} keeps {kept}, and it {verb} {written!r} by its id over the whole "
+                    "vocabulary, where index i of the selection is not id i: score the whole vocabulary (read it "
+                    "without the select, and narrow what the metric gives), or rank within the selection by index "
+                    "(argmax or top_k over it)")
     if adapts:                  # an adapter's input: on the value's rows and positions, its features its own
         own_axes = [a for a in own_axes if a in address.EXAMPLE_AXES]
         their_axes = [a for a in their_axes if a in address.EXAMPLE_AXES]

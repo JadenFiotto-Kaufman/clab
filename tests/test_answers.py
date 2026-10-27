@@ -325,3 +325,34 @@ def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
     parts = [i for i, text in enumerate(answers.vocabulary(tokenizer)) if "�" in text]
     assert len(parts) > 1
     assert all(answers.spelled(tokenizer, [i], 0, True, True) == [i] for i in parts)
+
+
+WHOLE = (r"keeps {kept} of its {axis} \(select\), and it scores 'days\.answer' by its id over the whole vocabulary, "
+         r"where index i of the selection is not id i: score the whole vocabulary \(read it without the select, and "
+         r"narrow what the metric gives\), or rank within the selection by index \(argmax or top_k over it\)$")
+
+
+@pytest.mark.parametrize("select, kept", [([0, 1, 2, 3], "4"), (":4", "some")])
+def test_a_metric_against_a_column_scores_the_whole_vocabulary(select, kept):
+    """A site that keeps some of `vocab_size`: a metric resolves its column to ids of the whole vocabulary, which
+    are not indices of the selection (the narrowed argmax 2 is id 27822), so it is refused at compile, as a step and
+    inside an entry alike; a slice the model resolves is refused the same, with its count unknown."""
+    narrow = {"component": "lm_head_output", "select": {"vocab_size": select}}
+    with pytest.raises(PlanError, match=r"^steps\.m\.expected: the value 'match' scores " + WHOLE.format(kept=kept, axis="vocab_size")):
+        doc({"f": {"kind": "forward", "input": "days.input", "interventions": {"h": {"site": narrow, "pos": -1}}},
+             "m": {"kind": "op", "op": "match", "of": "f.h", "expected": "days.answer"}}, ["m"])
+    with pytest.raises(PlanError, match=r"^steps\.f\.interventions\.h\.ops\[0\]\.token: the value 'token_prob' scores "
+                                        + WHOLE.format(kept=kept, axis="vocab_size")):
+        doc({"f": {"kind": "forward", "input": "days.input", "interventions": {
+            "h": {"site": narrow, "pos": -1, "ops": [{"op": "token_prob", "token": "days.answer"}]}}}}, ["f.h"])
+
+
+def test_a_metric_against_a_probes_classes_scores_every_class():
+    """A probe's `encode` that keeps some of its classes narrows them the same way: refused at compile."""
+    ops = [{"op": "encode", "featurizer": "probe", "select": {"features": [0]}}, {"op": "match", "expected": "days.answer"}]
+    with pytest.raises(PlanError, match=r"^steps\.f\.interventions\.h\.ops\[1\]\.expected: the value 'match' scores "
+                                        + WHOLE.format(kept="some", axis="classes")):
+        Plan(model=TINY, data={"days": {"rows": DAYS}}, featurizers={"probe": {"kind": "linear", "classes": "days.answer"}},
+             steps={"f": {"kind": "forward", "input": "days.input", "interventions": {
+                 "h": {"site": {"component": "layer_output", "layers": 0}, "pos": -1, "ops": ops}}}},
+             saves=["f.h"]).compile()
