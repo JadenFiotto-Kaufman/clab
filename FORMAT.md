@@ -852,8 +852,9 @@ Every `{"sweep": [...], "label"?: "<name>"}` standing for a value, by document p
 the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
 else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
 
-A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
+once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
+one label, by default or given, and the same
 values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
 two steps use); sweeps with one label and different values are refused, and sweeps with different labels
 cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],

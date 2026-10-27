@@ -241,7 +241,12 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
-     r"sites\.target\.component: a sweep cannot stand for 'component'"),
+     r"sites\.target\.component: a sweep cannot stand for 'component'$"),
+    (lambda d: d["data"]["pairs"].update(take={"sweep": [1, 2]}),
+     r"data\.pairs\.take: a sweep cannot stand for 'take'; a dataset's rows are compiled once, and a step reads them "
+     r"by name: write one dataset per value$"),
+    (lambda d: d["data"]["pairs"].update(template={"sweep": [{"add_generation_prompt": True}, {}]}),
+     r"data\.pairs\.template: a sweep cannot stand for 'template'; a dataset's rows are compiled once"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
 ])
 def test_a_document_error_names_the_path_and_the_choices(change, message):

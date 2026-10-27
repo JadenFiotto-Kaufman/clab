@@ -122,7 +122,9 @@ WNLI = rf"nyu-mll/glue \(config 'wnli', split 'validation'\) {AT}"
      r"^data\.glue: 'revision' pins a hub dataset \('hf'\); a file's rows and inline ones have none$"),
     ({"rows": [{"sentence1": "a"}], "config": "wnli"},
      r"^data\.glue: 'config' is the subset of a hub dataset \('hf'\); a file's rows and inline ones have none$"),
-    ({**GLUE, "config": {"sweep": ["wnli", "ax"]}}, r"^data\.glue\.config: a sweep cannot stand for 'config'$"),
+    ({**GLUE, "config": {"sweep": ["wnli", "ax"]}},
+     r"^data\.glue\.config: a sweep cannot stand for 'config'; a dataset's rows are compiled once, and a step reads "
+     r"them by name: write one dataset per value$"),
     ({**GLUE, "split": "nope"},
      rf"^data\.glue\.hf: nyu-mll/glue \(config 'wnli', split 'nope'\) {AT} has no such split; its splits: train, "
      r"validation, test$"),

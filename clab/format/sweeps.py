@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from clab.plan import Plan
 
 
-UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "path", "rows", "hf",
-           "revision", "config", "split", "file_path", "of", "saves")
+UNSWEPT = ("kind", "op", "site", "component", "input", "interventions", "train", "featurizer", "file_path", "of",
+           "saves")
 
 
 def find_sweeps(document: dict) -> dict[tuple, str]:
@@ -21,8 +21,9 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     the `label` it gives, letters, digits and underscores (a coordinate is `<label>=<value>`, joined by commas),
     else the name of the field it stands for (the last key of its path). A sweep's values hold no sweep.
 
-    A sweep may stand for any value except under `description` and `model`, on a name, a kind, a dataset's
-    source, or a `file_path`. One label is one axis: sweeps with one label, by default or given, and the same
+    A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
+    once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
+    one label, by default or given, and the same
     values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
     two steps use); sweeps with one label and different values are refused, and sweeps with different labels
     cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
@@ -40,8 +41,10 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
         if isinstance(value, dict) and "sweep" in value and set(value) <= {"sweep", "label"}:
             where = ".".join(map(str, path))
             field = next(k for k in reversed(path) if isinstance(k, str))
-            if path[0] in ("description", "model") or field in UNSWEPT:
-                raise ValueError(f"{where}: a sweep cannot stand for {field!r}")
+            if path[0] in ("description", "model", "data") or field in UNSWEPT:
+                raise ValueError(f"{where}: a sweep cannot stand for {field!r}"
+                                 + ("; a dataset's rows are compiled once, and a step reads them by name: write one "
+                                    "dataset per value" if path[0] == "data" else ""))
             given = value.get("label")
             label = field if given is None else given
             if given is not None and not (isinstance(label, str) and re.fullmatch(r"\w+", label)):
