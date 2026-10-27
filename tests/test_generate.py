@@ -295,18 +295,46 @@ def test_options_a_step_cannot_forward_are_refused_by_the_record(option, message
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_an_option_the_engine_rejects_fails_naming_the_step(engines, kind):
+def test_an_option_the_engine_rejects_fails_naming_the_step(engines, monkeypatch, kind):
     """The engine's own `generate` validates the options it is forwarded, when the step runs."""
     plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_toknes=3)).compile()
     with pytest.raises(ValueError, match=r"^patched: generate rejected 'max_new_toknes': The following "
                                          r"`model_kwargs` are not used by the model"):
         engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
-    # An option of the wrong type: the engine's error names no option, so the step's options are quoted whole.
-    plan = edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_tokens="3")).compile()
-    with pytest.raises(ValueError, match=r"^patched: generate rejected its options \{'max_new_tokens': '3', "
+    # An option of the wrong type is refused at compile, naming it: transformers' GenerationConfig checks it
+    # without a model (per point, so a swept option is checked at each of its values).
+    with pytest.raises(PlanError, match=r"^steps.patched.max_new_tokens at frame=0: '3' is not a value generate takes: "
+                                        r"'<=' not supported between instances of 'str' and 'int'$"):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_tokens="3")).compile()
+    with pytest.raises(PlanError, match=r'^steps.patched.max_new_tokens at frame=0,max_new_tokens="3": \'3\' is not a '
+                                        r"value generate takes"):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(max_new_tokens={"sweep": [3, "3"]})).compile()
+    # One of `generate`'s own parameters (an object a document cannot write) is refused by name with its type.
+    with pytest.raises(PlanError, match=r"^steps.patched.generation_config at frame=0: 'generation_config' is a parameter "
+                                        r"of generate itself, taking GenerationConfig, not a field of a generation "
+                                        r"config; a step's options are the config's fields \(max_new_tokens, do_sample, "
+                                        r"\.\.\.\)$"):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(generation_config={"prefill_chunk_size": 2})).compile()
+    with pytest.raises(PlanError, match=r"^steps.patched.logits_processor at frame=0: 'logits_processor' is a parameter "
+                                        r"of generate itself, taking LogitsProcessorList, "):
+        edited("generate_probe", lambda d: d["steps"]["patched"].update(logits_processor=[])).compile()
+    # A TypeError the engine still raises is the step's (the first generation, `counterfactual`), with its options;
+    # any other error passes unchanged.
+    plan, engine = plan_of("generate_probe"), engines(kind, plan_of("generate_probe").model)
+
+    def refusing(error):
+        def generate(batch, records, options):
+            raise error
+        return generate
+    monkeypatch.setattr(engine, "generate", refusing(TypeError("'<=' not supported between instances of 'str' and 'int'")))
+    with pytest.raises(ValueError, match=r"^counterfactual: generate rejected its options \{'max_new_tokens': 3, "
                                          r"'min_new_tokens': 3, 'do_sample': False\}: '<=' not supported between "
                                          r"instances of 'str' and 'int'$"):
-        engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
+        engine.execute(plan, batch_size=BATCH_SIZE)
+    monkeypatch.setattr(engine, "generate", refusing(ValueError("steps.patched.interventions.patch: row 2 reached no "
+                                                                "position of its frame")))
+    with pytest.raises(ValueError, match="^steps.patched.interventions.patch: row 2 reached no position of its frame$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
 
 
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):

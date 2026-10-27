@@ -903,8 +903,11 @@ class Plan(Record):
             raise TypeError("Plan(dict): a document's fields are keywords, Plan(**fields); Plan(path) reads a "
                             "document file, and Plan.load(out) a run's directory")
         if path is not None:
-            with open(path) as f:
-                fields = {**json.load(f), "document": os.path.abspath(path)}
+            try:
+                with open(path) as f:
+                    fields = {**json.load(f), "document": os.path.abspath(path)}
+            except FileNotFoundError:
+                raise FileNotFoundError(f"no document at {path!r}") from None
         try:
             super().__init__(**fields)
         except ValidationError as e:

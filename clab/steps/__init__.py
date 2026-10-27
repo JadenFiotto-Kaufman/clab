@@ -115,19 +115,19 @@ def exhausted(plan: Plan, name: str, at: dict, batch_size: int, state: ChainMap,
     said = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
     held = [f"{n}{f'[{labelled(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
             if isinstance(by_point, dict) for c, v in by_point.items() if (s := sized(v))]
-    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run holds "
-            + (", ".join(held) if held else "no value yet")
-            + ", each on the model's device until the run ends; run with a smaller --batch-size, or name and save "
-            "fewer values")
+    holds = (f"holds {', '.join(held)}, each on the model's device until the run ends" if held else
+             "holds no value yet")
+    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run {holds}; run with a smaller "
+            "--batch-size, or name and save fewer values")
 
 
 def sized(value: Any) -> str | None:
-    """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict of tensors' per key; None for
-    anything else (a featurizer instance, token strings)."""
+    """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict's per tensor-valued key
+    (`top_k`'s `ids` and `probs`, not its token strings); None for anything else (a featurizer instance)."""
     if isinstance(value, Tensor):
         return f"{list(value.shape)} {str(value.dtype).removeprefix('torch.')} on {value.device}"
-    if isinstance(value, dict) and value and all(isinstance(v, Tensor) for v in value.values()):
-        return "{" + ", ".join(f"{k} {sized(v)}" for k, v in value.items()) + "}"
+    if isinstance(value, dict) and any(isinstance(v, Tensor) for v in value.values()):
+        return "{" + ", ".join(f"{k} {sized(v)}" for k, v in value.items() if isinstance(v, Tensor)) + "}"
     return None
 
 

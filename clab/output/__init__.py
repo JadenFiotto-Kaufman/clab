@@ -150,8 +150,11 @@ def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | d
 
 
 def load(out: str) -> Plan:
-    with open(os.path.join(out, "manifest.json")) as f:
-        manifest = json.load(f)
+    try:
+        with open(os.path.join(out, "manifest.json")) as f:
+            manifest = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
     described = manifest.pop("results")
     plan = Plan(**manifest)
     for name, d in described.items():

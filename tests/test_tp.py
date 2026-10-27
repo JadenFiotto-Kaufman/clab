@@ -71,17 +71,10 @@ def test_a_world_size_other_than_tp_is_refused(unloadable, world, tp):
 
 def test_under_tp_the_device_is_where_transformers_puts_each_shard(unloadable):
     unloadable.setenv("WORLD_SIZE", "2")
-    if not torch.cuda.is_available():
-        # Before any engine decides, `load` refuses a CUDA device where none is visible; a device map reaches tp.
-        with pytest.raises(ValueError, match="^device 'cuda:0': no CUDA device is visible"):
-            load("nnterp", plan_of("patching").model, "cuda:0", tp=2)
-        with pytest.raises(ValueError, match=r"^device 'auto': under tp 2 transformers puts each rank's shard on the "
-                                             r"CPU, no GPU being visible, so the device is 'cpu'$"):
-            load("nnterp", plan_of("patching").model, "auto", tp=2)
-        unloadable.setattr("torch.cuda.is_available", lambda: True)
-        unloadable.setattr("torch.cuda.device_count", lambda: 1)
-    with pytest.raises(ValueError, match=r"^device 'cuda:0': under tp 2 transformers puts each rank's shard on its own "
-                                         r"GPU, cuda:<LOCAL_RANK>, so the device is 'cuda'$"):
+    kind, where = ("cuda", "on its own GPU, cuda:<LOCAL_RANK>") if torch.cuda.is_available() else \
+        ("cpu", "on the CPU, no GPU being visible")
+    with pytest.raises(ValueError, match=rf"^device 'cuda:0': under tp 2 transformers puts each rank's shard {where}, "
+                                         rf"so the device is '{kind}'$"):
         load("nnterp", plan_of("patching").model, "cuda:0", tp=2)
 
 

@@ -70,7 +70,10 @@ def costs(filled: Plan) -> list[list[str]]:
     rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
         for p in points(entry) if step in run.costs else []:
-            cost = run.costs[step][labelled(filled, p.at)] if isinstance(entry, list) else run.costs[step]
+            cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
+            if cost is None:                    # a point the run stopped before
+                rows.append([step, labelled(filled, p.at) or "—", "—", "—", "—", "—"])
+                continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
             rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
@@ -78,20 +81,31 @@ def costs(filled: Plan) -> list[list[str]]:
 
 
 def resolved(filled: Plan) -> list[list[str]]:
-    """Where each read and write resolved, as table rows: one per entry and point, with its `positions` per row
-    (`compact`) under its step's dataset; a fit body's entries under each eval, as `<fit>.<eval>.<step>.<entry>`."""
+    """Where each read and write resolved, as table rows: one per entry and distinct `positions` per row
+    (`compact`) under its step's dataset, with the point it is at, or how many of the step's points share it
+    (a grid's positions vary along one axis, or none); a fit body's entries under each eval, as
+    `<fit>.<eval>.<step>.<entry>`."""
     rows = [["entry", "at", "positions"]]
     for step, entry in filled.steps.items():
-        for p in points(entry):
-            at = labelled(filled, p.at) or "—"
-            if p.kind != "fit":
-                rows += [[f"{step}.{k}", at, compact(e.positions.get(p.dataset))] for k, e in entries(p).items()]
-                continue
-            for label, swap in p.eval.items():
-                for n, s in p.steps.items():
-                    rows += [[f"{step}.{label}.{n}.{k}", at, compact(e.positions.get(swap.get(s.dataset, s.dataset)))]
-                             for k, e in entries(s).items()]
+        listed = points(entry)
+        found: dict[tuple[str, str], list[str]] = {}            # (entry, its positions) -> the points' coordinates
+        for p in listed:
+            for key, per_row in placed(step, p):
+                found.setdefault((key, compact(per_row)), []).append(labelled(filled, p.at))
+        for (key, cell_), ats in found.items():
+            shared = ats[0] or "—" if len(ats) == 1 else f"all {len(ats)} points" if len(ats) == len(listed) else \
+                f"{len(ats)} of {len(listed)} points"
+            rows.append([key, shared, cell_])
     return rows
+
+
+def placed(step: str, p: Any) -> list[tuple[str, list | None]]:
+    """Each entry of step `step`'s point `p` by name with its positions per row under the step's dataset; a fit
+    body's under each eval, read as the eval reads it."""
+    if p.kind != "fit":
+        return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(p).items()]
+    return [(f"{step}.{label}.{n}.{k}", e.positions.get(swap.get(s.dataset, s.dataset)))
+            for label, swap in p.eval.items() for n, s in p.steps.items() for k, e in entries(s).items()]
 
 
 def compact(per_row: list | None) -> str:
@@ -113,6 +127,8 @@ def shaped(shape: Any, swept: bool) -> str:
         return cell(shape)
     distinct = list(dict.fromkeys(cell(s) for s in shape.values()))
     n = len(shape)
+    if n == 1:
+        return f"1 point, {distinct[0]}"
     if len(distinct) == 1:
         return f"{n} points, each {distinct[0]}"
     if len(distinct) <= 3:

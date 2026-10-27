@@ -38,7 +38,6 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
     counting the positions of different inputs or a plain index beside a token position, is refused by name.
     """
-
     from clab.output import ran
 
     run = ran(plan)

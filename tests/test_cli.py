@@ -29,16 +29,14 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
         [[step, f"frame={k}"] for step in ("patched", "p_answer") for k in range(3)]
     assert shown[11].split() == ["entry", "at", "positions"]
     assert shown[12].split() == ["counterfactual.v_cf", "—", "[8],", "[8],", "[10],", "[8]"]
-    assert [line.split() for line in shown[13:19]] == [
-        ["patched.patch", "frame=0", "[10],", "[8],", "[8],", "[8]"],
-        ["patched.logits", "frame=0", "[10],", "[8],", "[8],", "[8]"],
-        ["patched.patch", "frame=1", "[10],", "[8],", "[8],", "[8]"],
-        ["patched.logits", "frame=1", "[11],", "[9],", "[9],", "[9]"],          # call 1 holds generated token 0
-        ["patched.patch", "frame=2", "[10],", "[8],", "[8],", "[8]"],
-        ["patched.logits", "frame=2", "[12],", "[10],", "[10],", "[10]"]]
-    assert shown[19].split() == ["result", "step", "dims", "axes", "shape"]
-    assert shown[20].split() == ["p_answer", "p_answer", "rows,", "pos", "frame", "3", "points,", "each", "[4,1]"]
-    assert shown[21].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
+    assert [line.split(maxsplit=1) for line in shown[13:17]] == [       # the write lands alike at every frame
+        ["patched.patch", "all 3 points  [10], [8], [8], [8]"],
+        ["patched.logits", "frame=0       [10], [8], [8], [8]"],
+        ["patched.logits", "frame=1       [11], [9], [9], [9]"],          # call 1 holds generated token 0
+        ["patched.logits", "frame=2       [12], [10], [10], [10]"]]
+    assert shown[17].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[18].split() == ["p_answer", "p_answer", "rows,", "pos", "frame", "3", "points,", "each", "[4,1]"]
+    assert shown[19].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
 
 
 @pytest.mark.parametrize("name", ["generated_contains", "das"])
@@ -78,6 +76,7 @@ def test_a_shape_is_printed_once_per_value_and_a_token_list_as_its_full_shape(en
     (`shaped`), and a nested token list's (`top_k`'s `tokens`) as its full shape, which the manifest records."""
     assert shaped({"a": [4, 1], "b": [4, 2], "c": [4, 1]}, swept=True) == "3 points, each [4,1] or [4,2]"
     assert shaped({k: [4, k] for k in range(4)}, swept=True) == "4 points of 4 shapes"
+    assert shaped({"pos=-1": [4, 1]}, swept=True) == "1 point, [4,1]"
     assert shaped({"ids": [4, 1, 3], "tokens": [4, 1, 3]}, swept=False) == '{"ids":[4,1,3],"tokens":[4,1,3]}'
     out = tmp_path / "readout"
     assert main(["run", document("readout"), "--batch-size", str(BATCH_SIZE), "--out", str(out)]) == 0
@@ -103,14 +102,18 @@ def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     with none) and a batch size below 1 are each one `clab:` line and exit status 1."""
     out = str(tmp_path / "out")
     assert main(["run", "nowhere.json", "--out", out]) == 1
-    assert capsys.readouterr().err == "clab: [Errno 2] No such file or directory: 'nowhere.json'\n"
+    assert capsys.readouterr().err == "clab: no document at 'nowhere.json'\n"
+    assert main(["show", "nowhere"]) == 1
+    assert capsys.readouterr().err == "clab: no run at 'nowhere' (no manifest.json); run the document first\n"
     assert main(["run", document("patching"), "--device", "gpu", "--out", out]) == 1
     assert capsys.readouterr().err == ("clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map "
                                        "transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')\n")
-    for engine in ("nnterp", "hooks", "ndif"):
+    for engine in ("nnterp", "hooks"):
         assert main(["run", document("patching"), "--engine", engine, "--device", "cuda:0", "--out", out]) == 1
         assert capsys.readouterr().err == ("clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() "
                                            "is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)\n")
+    assert main(["run", document("patching"), "--engine", "ndif", "--device", "cuda:0", "--out", out]) == 1
+    assert capsys.readouterr().err == "clab: device: the ndif engine cannot honor 'cuda:0': the server places the model\n"
     assert main(["run", document("patching"), "--batch-size", "0", "--out", out]) == 1
     assert capsys.readouterr().err == "clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)\n"
     assert not os.path.exists(out)                       # and nothing loaded: each refusal came before the model
@@ -129,3 +132,25 @@ def test_show_compacts_positions_every_row_shares(engines, tmp_path, capsys):
     assert [line.split(maxsplit=2) for line in shown[9:12]] == [
         ["counterfactual.v_cf", "—", "[0] on all 4 rows"], ["patched.patch", "—", "[0] on all 4 rows"],
         ["patched.logits", "—", "[10], [8], [8], [8]"]]
+
+
+def test_show_prints_one_row_per_entry_and_distinct_positions_on_a_grid(engines, tmp_path, capsys):
+    """On a 3×2 grid (the write's `pos` over `dst`, the read's over `src`) each entry's positions vary along one
+    axis alone, so `show` prints one row per entry and distinct positions with how many points share it, 6 rows,
+    not one per entry and point, 13."""
+    def change(d):
+        d["steps"]["patched"]["interventions"]["patch"]["pos"] = {"sweep": [-1, -2, -3], "label": "dst"}
+        d["steps"]["patched"]["interventions"]["logits"]["pos"] = {"sweep": [-1, -2], "label": "src"}
+    plan = edited("pos_sweep", change).compile()
+    engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    assert main(["show", str(tmp_path)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    first = next(i for i, line in enumerate(shown) if line.split() == ["entry", "at", "positions"])
+    last = next(i for i, line in enumerate(shown) if line.split() == ["result", "step", "dims", "axes", "shape"])
+    assert [line.split(maxsplit=1) for line in shown[first + 1:last]] == [     # in the order the points meet them
+        ["counterfactual.v_cf", "—              [8], [8], [10], [8]"],
+        ["patched.patch", "2 of 6 points  [10], [8], [8], [8]"],
+        ["patched.logits", "3 of 6 points  [10], [8], [8], [8]"],
+        ["patched.logits", "3 of 6 points  [9], [7], [7], [7]"],
+        ["patched.patch", "2 of 6 points  [9], [7], [7], [7]"],
+        ["patched.patch", "2 of 6 points  [8], [6], [6], [6]"]]

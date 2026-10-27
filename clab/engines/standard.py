@@ -96,12 +96,14 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     holds the same weights and computes in the same dtype on each by construction: `dtype`, torch's (the compute
     dtype, `Model.computes`, under a quantization), and for a quantization the `quantization_config` nnsight builds
     for its name: bitsandbytes 4-bit in that quant type computing in that dtype (without double quantization),
-    LLM.int8(), or transformers' FP8. Refused by name before anything loads: a bitsandbytes format without
+    LLM.int8(), or transformers' FP8. Refused by name before anything loads: a `device` no engine can place a model
+    on (`placeable`: every engine's constructor comes through here before its loader), a bitsandbytes format without
     bitsandbytes installed, and `fp8` off a GPU of compute capability 8.9 or later (below it transformers would load
     bfloat16)."""
     import torch
     from transformers import BitsAndBytesConfig, FineGrainedFP8Config
 
+    placeable(device)
     dtype = getattr(torch, model.computes)
     if model.dtype not in QUANTIZED:
         return {"dtype": dtype}
