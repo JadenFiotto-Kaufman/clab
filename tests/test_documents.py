@@ -13,7 +13,7 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, FORWARD, INSIDE, close, document, edited, plain, plan_of, same, snapshot
+from conftest import BATCH_SIZE, FORWARD, GEMMA2, INSIDE, close, document, edited, plain, plan_of, same, snapshot
 
 from clab import Plan
 from clab.cli import main
@@ -51,8 +51,15 @@ def from_the_start() -> Plan:
     return edited("patching", change).compile()
 
 
+def softcapped_lens() -> Plan:
+    """logit_lens_all on the tiny Gemma-2, the one tiny model that softcaps its logits, so that an engine whose
+    readout has no cap disagrees with one whose readout has it."""
+    return edited("logit_lens_all", lambda d: d.update(model=GEMMA2)).compile()
+
+
 PLANS = {**{name: (lambda name=name: plan_of(name)) for name in FORWARD},
-         "from_the_start": from_the_start, "mixed_lengths": lambda: mixed_lengths(ROWS)}
+         "from_the_start": from_the_start, "mixed_lengths": lambda: mixed_lengths(ROWS),
+         "softcapped_lens": softcapped_lens}
 SERVED = [(name, kind) for name in PLANS for kind in ("nnterp", "hooks") if not (kind == "hooks" and name in INSIDE)]
 
 

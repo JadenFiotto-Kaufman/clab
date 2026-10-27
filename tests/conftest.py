@@ -29,8 +29,14 @@ FIT = ["das", "das_apply", "dbm", "lora_apply", "lora_train", "pca_control", "ra
        "sae_feature_ablation", "sae_published_jumprelu", "sae_published_topk", "sae_train", "sae_train_ablation"]
 GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "generated_contains"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
-# What the hooks engine refuses by name: values nnterp reads inside a module's forward.
+# The documents the hooks engine refuses by name: the engines differ only where nnterp reads a value inside a module's
+# forward, and each of these reads one.
 INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
+# The one tiny model that softcaps its logits, and a tiny hybrid: blocks 0 to 2 have linear attention, block 3 full
+# attention (tests/test_engines.py says how to fetch them).
+GEMMA2 = {"key": "hf-internal-testing/tiny-random-Gemma2ForCausalLM",
+          "revision": "de7c11b6c25d26ddd1bf4324fcf479b61d18e440", "dtype": "float32"}
+HYBRID = {"key": "yujiepan/qwen3-next-moe-tiny-random", "revision": "ec636a93e953ed50d2ecebda99b04673b5f1e248"}
 
 
 def document(name: str) -> str:

@@ -1,6 +1,7 @@
-"""What the engines share: how nnterp reaches clab's components (the envoy that serves each, its dotted name
-there, the sizes), how a model block becomes a loader call (its dtype as the loader's arguments), where a batch's
-inputs go, where a HuggingFace generation stops, and a forward's or a generation's records grouped by site."""
+"""What the engines share: how nnterp reaches clab's components (the envoy, its dotted name there, the sizes) and where
+not, whether its key reads inside a forward, how a model block becomes a loader call (its dtype as the loader's
+arguments), where a batch's inputs go, where a HuggingFace generation stops, and a forward's or a generation's
+records grouped by site."""
 
 from __future__ import annotations
 
@@ -48,6 +49,24 @@ def envoy(model: StandardizedTransformer, component: str, layer: int | None) -> 
         return model
     block = model.layers[cast(int, layer)]
     return block if where == "layer" else getattr(block, where)
+
+
+def inside(value: Any, host: Envoy) -> bool:
+    """Whether nnterp's key for `value` on `host` reads inside a module's forward: a `source` segment on its path."""
+    return "source" in value.path(host).lstrip("./").split(".")
+
+
+def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] | None]:
+    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`."""
+    support = shell.support()
+    return {c: support.get(nnterp_name(c)) for c in COMPONENTS}
+
+
+def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:
+    """The layers nnterp serves the component at, by its answer `refused` (`unserved`'s); [None] for a model value."""
+    if isinstance(refused, str):
+        return []
+    return [i for i in range(num_layers) if i not in (refused or {})] if COMPONENTS[component]["per_layer"] else [None]
 
 
 # The model-block keys an engine cannot honor, and why: where the model runs and how it is sharded are run options,

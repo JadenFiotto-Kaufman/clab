@@ -21,7 +21,8 @@ if TYPE_CHECKING:       # the engines sit later in the chain, so only the checke
 
 @op("transforms", needs=("hidden_size",), removes=("hidden_size",), adds=("vocab_size",))
 def readout(of: Tensor, engine: "Engine") -> Tensor:
-    """The model's own readout of a residual-stream value, its final norm and head (the logit lens)."""
+    """The engine's readout of a residual-stream value (the logit lens): the model's own on nnterp, the standard final
+    norm, head and softcap on hooks."""
     return engine.readout(of)
 
 
