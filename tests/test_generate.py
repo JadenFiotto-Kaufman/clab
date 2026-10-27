@@ -288,6 +288,9 @@ def test_compile_refuses_what_a_generation_cannot_mean(change, message):
     ({"num_beams": 2}, "patched: num_beams 2; it stays 1: beams change the rows each forward call sees"),
     ({"return_dict_in_generate": True}, "patched: return_dict_in_generate True; it stays False: the step's value"),
     ({"use_cache": False}, "patched: use_cache False; it stays True: without the cache a decode step recomputes"),
+    ({"prefill_chunk_size": 2}, "patched: prefill_chunk_size 2; it stays None: a chunked prefill runs the model's "
+                                "forward more than once for the prompt, so a prefill read or write would meet one "
+                                "chunk of it"),
 ])
 def test_options_a_step_cannot_forward_are_refused_by_the_record(option, message):
     with pytest.raises(PlanError, match=message):
