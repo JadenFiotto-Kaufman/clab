@@ -341,9 +341,9 @@ def test_the_ndif_engine_runs_every_forward_whole_with_the_same_values(engines, 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
     """A forward stopped after block 0 on the tiny Llama: once it returns, nothing unreachable holds a frame, the
-    model's (whose locals are its activations) or the run's (nnsight's stop holds both in cycles that the nnterp
-    engine breaks; on a GPU, forwards of 16 rows of 512 tokens stopped at Llama-3.2-1B's block 8 ran it out of memory
-    in a dozen). The engine has run once, so what it makes once is made."""
+    model's (whose locals are its activations) or the run's (on a GPU, forwards of 16 rows of 512 tokens stopped at
+    Llama-3.2-1B's block 8 that left their frames in cycles ran it out of memory in a dozen; nnsight after 0.8.1 leaves
+    none). The engine has run once, so what it makes once is made."""
     plan = plan_of("sae_train")
     engine = engines(kind, plan.model)
     engine.execute(plan, batch_size=BATCH_SIZE)
