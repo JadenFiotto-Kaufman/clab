@@ -47,7 +47,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | eval | A named run of a fit's body after training, scored, with datasets read as others (`{"held_out": {"train": "test"}}`). | [fit.md](../usage/fit.md#evals) |
 | featurizer | A space or a function declared under `featurizers` and reached from an entry by `encode`, `decode` and `apply`: drawn from a seed, trained by a fit, or loaded from a bundle. | [featurizers.md](../usage/featurizers.md) |
 | fit | The step kind that trains featurizers inside the run, through the frozen model. | [fit.md](../usage/fit.md) |
-| float32 rule | Metrics and the reductions `mean`, `sum` and `min` compute in float32 and return it whatever the model's dtype; an edit computes in float32 and rounds once to the value's dtype. | [ops.md](../usage/ops.md#the-float32-rule) |
+| float32 rule | Metrics, every reduction but `pca` and the elementwise arithmetic compute in float32 and return it whatever the model's dtype; an edit computes in float32 and rounds once to the value's dtype; a comparison gives its 0 or 1 in the value's dtype. | [ops.md](../usage/ops.md#the-float32-rule) |
 | frame | The first stage of a `pos`: which forward calls, 0 the prefill and k ≥ 1 decode call k. | [generate.md](../usage/generate.md#frames-which-forward-call) |
 | header | A bundle's record of what made it (the kind and its fields, the model, the site, the width, the writing document), checked against the loading document. | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
 | history | A fit's per-epoch record of each body op's mean and each trained featurizer's scalar, `<fit>.history.<name>`. | [fit.md](../usage/fit.md#history) |
@@ -61,7 +61,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | member | The part of a reference after its first dot: a step's entry, a dataset's column, a featurizer's scalar, or a fit's output. | [names-and-sweeps.md](../concepts/names-and-sweeps.md#a-name-is-a-thing-then-a-member) |
 | metric | An op that scores each example, one float32 number per row and position (`match`, `logit_diff`, `token_prob`, `kl`, ...). | [ops.md](../usage/ops.md#metrics) |
 | missing | An entry of a value with no data (a row not reached, a position or key past a row's own): NaN in floats, -1 in ids. | [values-and-layout.md](../concepts/values-and-layout.md#missing-entries) |
-| NaN rule | A missing entry stays NaN through every metric and edit and -1 through `argmax` and `top_k`, while `mean`, `sum` and `min` reduce over the entries that are there. | [alignment-missing.md](../errors/alignment-missing.md#how-it-propagates) |
+| NaN rule | A missing entry stays NaN through every metric, edit, elementwise transform and comparison and -1 through `argmax` and `top_k`, while the reductions reduce over the entries that are there and `count` counts only them. | [alignment-missing.md](../errors/alignment-missing.md#how-it-propagates) |
 | ndif | The engine that runs the whole plan in one session on an NDIF server, holding a weightless model on the client. | [engines.md](../usage/engines.md#running-on-ndif) |
 | nnterp | The default engine, nnterp's standardized model inside one nnsight session; also the library whose names are clab's component names. | [engines.md](../usage/engines.md) |
 | null control | A run that changes nothing by construction (a self-swap, an edit at its identity, a fit at `epochs: 0`), whose scores the effect is measured against. | [interventions.md](../usage/interventions.md#the-null-control) |
@@ -81,7 +81,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | ragged | A record whose rows hold different numbers of positions: as wide as its widest row, NaN past each row's own. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | read | An entry with no edit among its ops: it binds the value at its selection and leaves the model alone. | [interventions.md](../usage/interventions.md) |
 | readout | The transform that projects a residual-stream value through the model's final norm and head, the logit lens: nnterp's own on the nnterp engine, the standard norm, head and softcap on hooks. | [logit-lens.md](../patterns/logit-lens.md) |
-| reduction | An op that removes axes (`mean`, `sum`, `min`, `pca`), by default the rows and positions, a `layers` axis kept. | [ops.md](../usage/ops.md#reductions-and-over) |
+| reduction | An op that removes axes (`mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot`, `pca`), by default the rows and positions, a `layers` axis kept; `norm` and `dot` by default `hidden_size`, `count` `pos`. | [ops.md](../usage/ops.md#reductions-and-over) |
 | remote | The `ndif` engine's option: `true` for the NDIF server nnsight is configured for, `"local"` for nnsight's in-process simulation of the trip. | [engines.md](../usage/engines.md#remotelocal) |
 | result | A saved value, in `plan.results` and as a file in the output directory; one that depends on sweep axes is a dict keyed by its coordinate on those axes. | [output.md](../usage/output.md) |
 | row | One example of a dataset, a JSON object; a step's values have one row per row of its dataset. | [data.md](../usage/data.md) |
@@ -105,6 +105,6 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | teacher forcing | A list input that appends each row's answer to its prompt, read at the positions before the answer with `before`. | [generation-experiments.md](../patterns/generation-experiments.md#a-fixed-answer-token-by-token-teacher-forcing) |
 | template | A dataset's arguments to the checkpoint's `apply_chat_template` wherever a chat of it renders (`add_generation_prompt`, ...). | [data.md](../usage/data.md#chat-inputs) |
 | tp | The nnterp engine's option that shards the model over that many ranks by tensor parallelism, one process each under torchrun; results are the unsharded ones to rounding. | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
-| transform | An op that turns each example's value into another layout (`readout`, `encode`, `argmax`, `top_k`, `detokenize`). | [ops.md](../usage/ops.md#transforms) |
+| transform | An op that turns each example's value into another layout (`readout`, `encode`, `argmax`, `top_k`, `detokenize`), or computes on each entry and keeps it (`abs`, `div`, `pow`, ..., the comparisons `eq` to `le`), writing nothing back. | [ops.md](../usage/ops.md#transforms) |
 | turn | A scope naming one message of a chat role, `{"turn": "user", "occurrence": 1}`. | [positions.md](../usage/positions.md#chat-turns) |
 | write | An entry with an edit among its ops: its value after its last edit replaces the live value at its selection. | [interventions.md](../usage/interventions.md) |

@@ -55,8 +55,8 @@ The last is a `before` scope on GPT-2, which adds no BOS. A frame and index of s
 ## How it propagates
 
 - **The entry's value** is NaN at every entry of a missing row; ids (`argmax`, `top_k`'s `ids`) are -1 there and `top_k` gives no token text.
-- **Metrics and edits** of a NaN are NaN. A write never lands on a row it did not reach.
-- **`mean`, `sum` and `min` skip holes.** A `mean` over rows averages the rows that were reached: on six rows of which two stopped early, a mean of `token_prob` at `{"frame": 3}` is the mean of four. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so. A `sum` or `min` over `pos` of a row with no value is NaN.
+- **Metrics, edits, elementwise transforms and comparisons** of a NaN are NaN. A write never lands on a row it did not reach.
+- **Reductions skip holes.** A `mean` over rows averages the rows that were reached: on six rows of which two stopped early, a mean of `token_prob` at `{"frame": 3}` is the mean of four. An accuracy computed this way is the accuracy on the rows that got there, with nothing in the number to say so. A `sum` or `min` over `pos` of a row with no value is NaN, and its `count` 0: `count` over `rows` of a scored read is the number of rows it scored.
 - **Tables** give a missing row one line with `alignment_missing` true and no value; when several names are tabled together, the row carries the flag. A read that no row reached tables to one flagged line per row too; `clab show` gives its `pos` width as 0 (`[4,0,32000]`) and its positions as `— on all 4 rows`. Positions past a row's own on a ragged read are a different hole: they are left out of the table, with no flag.
 
 The layout of holes in general, keys and ragged positions included, is [values-and-layout.md](../concepts/values-and-layout.md#missing-entries).

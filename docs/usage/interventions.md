@@ -36,11 +36,13 @@ Inside an entry, edits act on the live value as the forward reaches the site, an
       "ops": [{"op": "add", "with": 0.5}, {"op": "readout"}, {"op": "token_prob", "token": "pairs.cf_answer"}]}
 ```
 
-The model's logits are bit-identical to those of `[add]` alone, and `x` is one probability per layer, row and position. An edit after an op that changed the layout (a transform, metric or reduction) has no live value to write, and compile refuses it:
+The model's logits are bit-identical to those of `[add]` alone, and `x` is one probability per layer, row and position. An edit after an op that changed the layout (a transform that changes it, a metric or a reduction) has no live value to write, and compile refuses it:
 
 ```text
 steps.s.interventions.x.ops[1]: 'add' is an edit, which writes back, and it follows 'readout', which turned the value into ['rows', 'pos', 'vocab_size']: there is no live value to write; an edit comes before it, or put the transform in a later entry at this site
 ```
+
+The elementwise transforms and the comparisons ([ops](ops.md#transforms)) keep the layout and are not edits, so they write nothing. In an entry with no edit they change only what it binds: `{"ops": [{"op": "abs"}]}` reads the absolute value and leaves the forward as it was. Before a write's last edit they act on the live value that edit writes back: `[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign, and a read listed after it at the site sees exactly that. A comparison read in another forward is a mask for a write: with `clean.positive` read at the write's selection as `{"op": "gt", "with": 0}`, a write of `{"op": "scale", "factor": "clean.positive"}` keeps the entries that were above zero, to the bit, and zeroes the rest. The reductions (`norm`, `dot`, `count`, ...) change the layout, so in a write they come after its last edit, on what it wrote.
 
 Between entries, a step runs them in the order written (a list's items in turn, a bundle's entries where its name stands). Entries at different sites act as the forward reaches them; entries at one site compose in order. A read listed before a write at the same site sees the value before the write, a read listed after it sees the written value. Of two writes at one site, the later wins where they overlap: a freeze that should protect a patch is listed before it. Listed after it, the freeze puts the clean value back, every point equals the clean run, and the nulls still pass ([path patching](../patterns/head-and-neuron-patching.md#path-patching) is the recipe).
 
@@ -55,6 +57,7 @@ The signatures are in [FORMAT.md#edits](../../FORMAT.md#edits); this is which ed
 | put a mean in (mean ablation) | `{"op": "swap", "with": "mean"}`, `mean` an op step | `documents/mean_ablation.json` |
 | add a direction at a dose (steering) | `{"op": "add", "with": "direction", "scale": 4.0}` | `documents/steer_renormalize.json` |
 | subtract, or multiply | `{"op": "sub", "with": ...}`, `{"op": "scale", "factor": 0.5}` | |
+| keep the entries where a comparison holds, zero the rest (a mask) | `{"op": "scale", "factor": "<a comparison's value>"}` | |
 | add Gaussian noise | `{"op": "noise", "scale": 0.5, "seed": 7}` | `documents/noise_write.json` |
 | bound every element | `{"op": "clamp", "min": -0.01, "max": 0.01}` | `documents/clamp_write.json` |
 | remove a direction | `{"op": "project_out", "direction": "direction"}` | `documents/direction_ablation.json` |
