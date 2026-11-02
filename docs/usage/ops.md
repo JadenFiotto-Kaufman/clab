@@ -82,11 +82,11 @@ The ops are the table in [FORMAT.md#ops](../../FORMAT.md#ops) and nothing else. 
 
 `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `div` and `pow` compute on each entry in float32 and keep the layout; each one's formula is its row in [FORMAT.md#transforms](../../FORMAT.md#transforms). They are transforms, not edits, so in a read they change what the entry binds and nothing the model sees: `{"op": "neg"}` in a read is the negated value, where `{"op": "scale", "factor": -1}` would write it back. `div` takes a number or a named value, laid out by the operand rule as `scale`'s `factor` is, and is NaN wherever that is 0, so a relative effect, `sub` of the clean score then `div` by it, is missing rather than infinite on a row whose clean score is zero, and a `mean` leaves that row out. `log` is `-inf` at 0 and NaN below it, `sqrt` NaN below 0.
 
-`eq`, `ne`, `gt`, `ge`, `lt` and `le` compare each entry with a number or a named value: 1 where the comparison holds, 0 where not, in the value's dtype, and NaN where either side is missing, so `eq` and `ne` of the same arguments sum to exactly 1 wherever both are there. A rate is the `mean` of one, over the rows that are there: `{"kind": "op", "op": "gt", "of": "logit_diff", "with": 0}`, then a `mean` of it, is the fraction of rows whose patched logit difference is above zero. `scale` by one is a mask: `{"op": "scale", "factor": "<the comparison>"}` keeps each entry where it holds and zeroes it where not. Ids compare as they are (`{"kind": "op", "op": "eq", "of": "top", "with": "clean_top"}` is 1 where two `argmax` steps agree), so an id of -1, a hole, compares as -1.
+`eq`, `ne`, `gt`, `ge`, `lt` and `le` compare each entry with a number or a named value: 1 where the comparison holds, 0 where not, in the value's dtype (float32 on ids), and NaN where either side is missing, a -1 id included, so `eq` and `ne` of the same arguments sum to exactly 1 wherever both are there. A rate is the `mean` of one, over the rows that are there: `{"kind": "op", "op": "gt", "of": "logit_diff", "with": 0}`, then a `mean` of it, is the fraction of rows whose patched logit difference is above zero. `scale` by one is a mask: `{"op": "scale", "factor": "<the comparison>"}` keeps each entry where it holds and zeroes it where not. Ids compare as they are, and a comparison of a hole is a hole: on `weekdays/train` read at every token (11, 9, 9 and 9 positions), `{"kind": "op", "op": "eq", "of": "top", "with": "other_top"}`, of the logits' `argmax` and the `argmax` of their `square`, is NaN at the six positions past the shorter rows' own, and a `mean` of it, 0.737, is the agreement over the 38 positions there.
 
 ## The float32 rule
 
-Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow`) compute in float32 and return float32, whatever the model's dtype. An edit computes in float32, its value and every operand upcast, and rounds once to the value's dtype, because it writes back. A comparison compares in float32 and gives its 0 or 1 in the value's dtype. A read keeps the model's dtype. On a model loaded `"dtype": "bfloat16"`, the manifest's `results.<name>.dtype` reads:
+Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow`) compute in float32 and return float32, whatever the model's dtype. An edit computes in float32, its value and every operand upcast, and rounds once to the value's dtype, because it writes back. A comparison compares in float32 and gives its 0 or 1 in the value's dtype, float32 on ids, which hold no NaN for a hole. A read keeps the model's dtype. On a model loaded `"dtype": "bfloat16"`, the manifest's `results.<name>.dtype` reads:
 
 | value | dtype |
 |---|---|
@@ -95,6 +95,7 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 | `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` | float32 |
 | `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `div`, `pow` | float32 |
 | a comparison (`eq`, `ne`, `gt`, `ge`, `lt`, `le`) of a read | bfloat16 |
+| a comparison of ids (`argmax`) | float32 |
 | a write's value (`steered.steer`) and an edit as a step | bfloat16 |
 | `top_k` over a vocabulary: `probs` | float32 |
 | `top_k` over another axis: `values` | bfloat16 |
@@ -112,7 +113,7 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 
 ## Missing values
 
-A row or position that a read did not reach (a generation that stopped early, a position past a shorter row's own) is NaN, and so is every metric, edit and elementwise transform of it, a comparison's included; `argmax` and `top_k` give it id -1. Reductions skip it: a `mean` is over the values present, NaN only where none is, and `count` counts only the positions present. Where missingness comes from and how to make it a refusal: [alignment missing](../errors/alignment-missing.md).
+A row or position that a read did not reach (a generation that stopped early, a position past a shorter row's own) is NaN, and so is every metric, edit and elementwise transform of it, a comparison's included; `argmax` and `top_k` give it id -1, and a comparison of that id is NaN again. Reductions skip it: a `mean` is over the values present, NaN only where none is, and `count` counts only the positions present. Where missingness comes from and how to make it a refusal: [alignment missing](../errors/alignment-missing.md).
 
 ## Pitfalls
 

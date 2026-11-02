@@ -2,9 +2,9 @@
 gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
 in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
 generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
-to `pow`) and the comparisons (`eq` to `le`), 0 or 1 in the value's dtype. Unlike an edit, none of them writes back:
-inside an entry a transform before its last edit acts on the live value that edit writes, and one after it, or in an
-entry with no edit, on the value off the model."""
+to `pow`) and the comparisons (`eq` to `le`), 0 or 1 in the value's dtype (float32 on ids) and missing where either
+side is. Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the live
+value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
 
 import json
 import math
@@ -96,9 +96,11 @@ def grad(of: Tensor, of_: str) -> Tensor:
 
 # The ops whose value no gradient passes through, with what each gives: compile refuses a `grad` whose `of` runs one,
 # by name. The registry cannot tell them apart: `match`, `contains` and `argmax` return a tensor, as `logit_diff`
-# does, and remove an axis, as it does.
+# does, and remove an axis, as it does; `sign` and the comparisons keep the layout, as `abs` does, and `count` removes
+# axes, as `sum` does, each with a gradient of exactly zero.
 NO_GRADIENT = {"top_k": "ids with their probabilities or values as a dict", "argmax": "an index", "match": "0 or 1",
-               "contains": "0 or 1", "detokenize": "text"}
+               "contains": "0 or 1", "detokenize": "text", "sign": "-1, 0 or 1",
+               **{name: "0 or 1" for name in ("eq", "ne", "gt", "ge", "lt", "le")}, "count": "a count"}
 
 
 # What `argmax` and `top_k` rank unless `over` names another axis: a vocabulary's tokens.
@@ -222,52 +224,63 @@ def pow(of: Tensor, exponent: Value) -> Tensor:
     return of.float().pow(exponent if not isinstance(exponent, Tensor) else operand(exponent, of).float())
 
 
+def missing(x: Tensor) -> Tensor:
+    """Where a value is missing: NaN, and in ids -1, the id `argmax` and `top_k` give a hole."""
+    return x.isnan() if x.is_floating_point() else x == -1
+
+
 def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]) -> Tensor:
-    """1 where `holds(of, with)`, else 0, in `of`'s dtype: each side compared in float32 where it is floating (ids
-    as they are), and NaN where either is missing, where the dtype holds one."""
+    """1 where `holds(of, with)`, else 0: a floating value's in its dtype, each side compared in float32, and ids' in
+    float32, compared as they are; NaN where either side is missing (`missing`; a number `with` only where it is
+    NaN), so a comparison of a hole is a hole, never a 0 or 1 a `mean` takes."""
     a, b = (of.float() if of.is_floating_point() else of), operand(with_, of)
-    out = holds(a, b).to(of.dtype)
-    return out.masked_fill(a.isnan() | b.isnan(), math.nan) if out.is_floating_point() else out
+    gone = missing(a) | (missing(b) if isinstance(with_, Tensor) else b.isnan())
+    return holds(a, b).to(of.dtype if of.is_floating_point() else torch.float32).masked_fill(gone, math.nan)
 
 
 @op("transforms")
 def eq(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of == with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing."""
+    """1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids)."""
     return compared(of, with_, torch.eq)
 
 
 @op("transforms")
 def ne(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of != with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing, so `eq` and `ne` sum to 1 wherever both are
-    there."""
+    """1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there."""
     return compared(of, with_, torch.ne)
 
 
 @op("transforms")
 def gt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of > with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing."""
+    """1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids)."""
     return compared(of, with_, torch.gt)
 
 
 @op("transforms")
 def ge(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of >= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing."""
+    """1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids)."""
     return compared(of, with_, torch.ge)
 
 
 @op("transforms")
 def lt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of < with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing."""
+    """1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids)."""
     return compared(of, with_, torch.lt)
 
 
 @op("transforms")
 def le(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of <= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
-    `factor` is; compared in float32, and NaN where either is missing."""
+    """1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
+    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
+    a hole, -1, in ids)."""
     return compared(of, with_, torch.le)

@@ -252,6 +252,9 @@ NO_GRADIENT = r"and no gradient passes through it; of names an entry whose value
      rf"{ENTRY}\[0\]\.of: 'm' runs 'match', which gives 0 or 1, {NO_GRADIENT}"),
     ([{"op": "contains", "text": "pairs.base_answer"}],
      rf"{ENTRY}\[0\]\.of: 'm' runs 'contains', which gives 0 or 1, {NO_GRADIENT}"),
+    ([{"op": "sign"}], rf"{ENTRY}\[0\]\.of: 'm' runs 'sign', which gives -1, 0 or 1, {NO_GRADIENT}"),
+    ([*METRIC["ops"], {"op": "gt", "with": 0}], rf"{ENTRY}\[0\]\.of: 'm' runs 'gt', which gives 0 or 1, {NO_GRADIENT}"),
+    ([{"op": "count"}], rf"{ENTRY}\[0\]\.of: 'm' runs 'count', which gives a count, {NO_GRADIENT}"),
     ([{"op": "detokenize"}],
      r"steps\.patched\.interventions\.m\.ops\[0\]: 'detokenize' needs a value with a 'new' axis; this one is "
      r"\['rows', 'pos', 'vocab_size'\]$"),
@@ -259,8 +262,9 @@ NO_GRADIENT = r"and no gradient passes through it; of names an entry whose value
 def test_an_of_no_gradient_passes_through_is_refused_at_compile(ops, message):
     """An `of` that runs an op whose value no gradient passes through is refused by name at compile, before any model
     loads, wherever the op is among its ops: `top_k`'s ids and probabilities, a dict, crashed the backward on it
-    once the model had run, and `argmax`'s index and `match`'s 0 or 1 gave an all-zero gradient. `detokenize` takes
-    a generation's ids, which no forward's value has, so its own layout refuses it first."""
+    once the model had run, and `argmax`'s index, `match`'s 0 or 1, `sign`, a comparison and `count` gave an
+    all-zero gradient. `detokenize` takes a generation's ids, which no forward's value has, so its own layout refuses
+    it first."""
     def change(d):
         d["steps"] = {"patched": {**d["steps"]["patched"], "interventions": {
             "g": grad("m"), "m": {"site": {"component": "lm_head_output"}, "pos": -1, "ops": ops}}}}

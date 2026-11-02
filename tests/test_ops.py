@@ -520,14 +520,19 @@ def test_comparisons_give_0_or_1_in_the_values_dtype_and_nan_where_either_side_i
         assert ops.call(name, x.bfloat16(), {"with": 2}).dtype == torch.bfloat16
         assert ops.out_dims(name, DIMS, {"with": 0}) == DIMS
     assert torch.equal(transforms.eq(X, 0.5) + transforms.ne(X, 0.5), torch.ones_like(X))
-    ids = torch.tensor([[3, -1, 7]])
-    assert torch.equal(transforms.eq(ids, torch.tensor([[3, -1, 2]])), torch.tensor([[1, 1, 0]]))   # ids as they are
-    assert torch.equal(transforms.lt(ids, 2.5), torch.tensor([[0, 1, 0]]))
+    ids = torch.tensor([[3, -1, 7, 2]])                    # -1 is a hole, as `argmax` gives one
+    agree = transforms.eq(ids, torch.tensor([[3, -1, 2, -1]]))      # ids as they are, float32, a hole on either side
+    assert same(agree, torch.tensor([[1.0, NAN, 0.0, NAN]]))
+    assert same(transforms.lt(ids, 2.5), torch.tensor([[0.0, NAN, 0.0, 1.0]]))
+    assert same(transforms.ne(ids, torch.tensor([[NAN, 3.0, 3.0, 3.0]])), torch.tensor([[NAN, NAN, 1.0, 1.0]]))
+    expected = torch.zeros_like(X)
+    expected[..., 1] = NAN
+    assert same(transforms.eq(X, torch.tensor([3, -1, 0, 1, 2])), expected)     # ids as the operand: its -1 a hole too
     half = torch.tensor([1.0039]).bfloat16()               # 1.0039 in bfloat16 is 1.0, which float32 compares exactly
     assert transforms.eq(half, 1.0).item() == 1 and transforms.gt(half, 0.999).item() == 1
 
 
-def test_max_mirrors_min_and_std_is_the_sample_standard_deviation_of_what_is_there():
+def test_max_mirrors_min_each_keeping_an_infinity_and_std_is_the_sample_standard_deviation_of_what_is_there():
     x = torch.tensor([[1.0, 2.0, NAN], [NAN, NAN, NAN], [3.0, -1.0, 0.5], [7.0, NAN, NAN]])
     d = ["rows", "pos"]
     assert same(reductions.max(x, d, over=["pos"]), torch.tensor([2.0, NAN, 3.0, 7.0]))
@@ -535,6 +540,9 @@ def test_max_mirrors_min_and_std_is_the_sample_standard_deviation_of_what_is_the
     assert torch.equal(reductions.max(X, DIMS), X.amax((0, 1)))
     inf = torch.tensor([[1.0, float("inf")]])
     assert reductions.max(inf, d, over=["pos"]).item() == float("inf")
+    infinite = torch.tensor([[-math.inf, 1.0, NAN], [math.inf, NAN, NAN], [math.inf, math.inf, NAN]])
+    assert torch.equal(reductions.min(infinite, d, over=["pos"]), torch.tensor([-math.inf, math.inf, math.inf]))
+    assert reductions.min(transforms.log(torch.tensor([[0.0, 2.0]])), d, over=["pos"]).item() == -math.inf
     std = reductions.std(x, d, over=["pos"])
     torch.testing.assert_close(std[[0, 2]], torch.stack([x[0, :2].std(), x[2].std()]))
     assert std[1].isnan() and std[3].isnan()              # none there, and one: no spread to estimate
@@ -674,6 +682,37 @@ def test_a_comparison_masks_a_write_and_an_elementwise_transform_acts_on_the_liv
     assert torch.equal(v["masked.patch"], h * positive) and torch.equal(v["masked.logits"], v["swapped.logits"])
     assert not torch.equal(v["masked.logits"], v["clean.logits"])
     assert torch.equal(v["live.patch"], 0.1 * h.sign()) and torch.equal(v["live.after"], v["live.patch"])
+
+
+def agreement(d: dict) -> None:
+    """patching.json's logits read at every token, whose rows hold 11, 9, 9 and 9, so a ragged read with six holes:
+    the agreement of two `argmax` steps of it (the second of its `square`, since a ragged read pairs with no other
+    read's), its `mean` and its `count`."""
+    d["steps"] = {
+        "clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "logits": {"site": {"component": "lm_head_output"}, "pos": {"index": ":"}}}},
+        "top": {"kind": "op", "op": "argmax", "of": "clean.logits"},
+        "square": {"kind": "op", "op": "square", "of": "clean.logits"},
+        "other_top": {"kind": "op", "op": "argmax", "of": "square"},
+        "agree": {"kind": "op", "op": "eq", "of": "top", "with": "other_top"},
+        "rate": {"kind": "op", "op": "mean", "of": "agree"},
+        "n": {"kind": "op", "op": "count", "of": "agree"}}
+    d["saves"] = ["top", "other_top", "agree", "rate", "n"]
+
+
+def test_a_comparison_of_ids_is_missing_at_a_hole_so_an_agreement_is_over_the_positions_there(engines):
+    """Both `argmax` steps give the six positions past the shorter rows' own id -1, and `eq` of them is NaN there,
+    float32, so the `mean` of the agreement is 28 of the 38 positions there, 0.737, where counting the holes as
+    agreeing gave 34 of 44, 0.773; its `count` is each row's own number of positions."""
+    plan = edited("patching", agreement).compile()
+    r = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    hole = r["top"] == -1
+    assert int(hole.sum()) == 6 and torch.equal(hole, r["other_top"] == -1)
+    agree = r["agree"]
+    assert agree.dtype == torch.float32 and agree[hole].isnan().all() and not agree[~hole].isnan().any()
+    assert agree[~hole].sum().item() == 28 and round(r["rate"].item(), 3) == 0.737
+    assert r["rate"].item() == pytest.approx(28 / 38, rel=1e-6)
+    assert r["n"].tolist() == [11.0, 9.0, 9.0, 9.0]
 
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():

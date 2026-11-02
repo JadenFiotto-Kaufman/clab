@@ -53,8 +53,8 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     none is."""
     of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
-        return torch.full_like(of.sum(dim=axes), float("nan"))
-    return of.nan_to_num(nan=float("inf")).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), float("nan"))
+        return torch.full_like(of.sum(dim=axes), math.nan)
+    return of.masked_fill(of.isnan(), math.inf).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
 
 
 @op("reductions", layout=reduced)

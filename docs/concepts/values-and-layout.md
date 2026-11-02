@@ -58,7 +58,7 @@ An attention pattern's `key` axis is each row's own keys, numbered as positions:
 
 ## Missing entries
 
-A value has a hole where a row holds no data: positions past a row's own on a ragged read, keys past a row's own, and every entry of a row that is `alignment_missing` ([concepts/positions.md](positions.md#decided-by-the-data-or-a-result)). A hole is NaN in a float value and -1 in ids (`argmax`, `top_k`'s `ids`); `top_k` gives no token text there. Metrics, edits, elementwise transforms and comparisons of a hole are holes; the reductions reduce over the entries that are there, and `count` counts only them. How holes travel through a chain of ops and show up in tables is [errors/alignment-missing.md](../errors/alignment-missing.md).
+A value has a hole where a row holds no data: positions past a row's own on a ragged read, keys past a row's own, and every entry of a row that is `alignment_missing` ([concepts/positions.md](positions.md#decided-by-the-data-or-a-result)). A hole is NaN in a float value and -1 in ids (`argmax`, `top_k`'s `ids`); `top_k` gives no token text there. Metrics, edits, elementwise transforms and comparisons of a hole are holes, a comparison of ids too (it is float32, NaN where either side is -1); the reductions reduce over the entries that are there, and `count` counts only them. How holes travel through a chain of ops and show up in tables is [errors/alignment-missing.md](../errors/alignment-missing.md).
 
 ## Broadcasting
 

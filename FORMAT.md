@@ -441,14 +441,14 @@ reaches the site, and the value after its last edit is written back; the ops aft
 once it is taken off the model (an entry nothing uses is not taken off, so they do not run).
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's own
-where rows hold different numbers of them: NaN, every metric, edit and elementwise transform of it NaN (a
-comparison's too), `argmax` and `top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text).
-Reductions skip it: `mean` is the mean over the rows and positions that have a value, `count` counts only them, and
-`pca` is fitted on them. A featurizer's math sees none of it: a missing vector goes in as zeros and comes out
-missing. An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
-an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are there,
-so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over `key` rank a
-row's own keys, a vector missing only where it has none.
+where rows hold different numbers of them: NaN, every metric, edit and elementwise transform of it NaN, `argmax` and
+`top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN, of a -1 id
+too: a comparison of a hole is a hole. Reductions skip it: `mean` is the mean over the rows and positions that have a
+value, `count` counts only them, and `pca` is fitted on them. A featurizer's math sees none of it: a missing vector
+goes in as zeros and comes out missing. An attention pattern's keys past a row's own are missing the same way, NaN,
+in a read and to a write's ops: an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`)
+takes the entries that are there, so a row's own keys are edited as the row has them, and its tail stays NaN;
+`argmax` and `top_k` over `key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
@@ -470,17 +470,17 @@ attribution patching's estimate at each row and position; after `grad` no `decod
 restores the site's value (`renormalize`). The forward takes one backward after its last site for each value its
 `grad` entries differentiate, and the model's weights take none. A `grad` in a `generate`, in a fit's body or
 under `tp` is refused by name, and so is one whose `of` runs an op no gradient passes through:
-`top_k`, `argmax`, `match`, `contains`, `detokenize`.
+`top_k`, `argmax`, `match`, `contains`, `detokenize`, `sign`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `count`.
 
 Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow`) compute in float32 whatever the
 model's dtype, and return float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16
 model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in float32
 too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a value
-read from the model keeps the model's dtype. A comparison compares in float32 too and gives its 0 or 1 in the
-value's dtype, so `scale` by it (`{"op": "scale", "factor": "<a comparison's value>"}`) masks the value where the
-comparison fails. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
-float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax,
-and over another axis `values`, the ranked values in the value's own dtype.
+read from the model keeps the model's dtype. A comparison compares in float32 too and gives its 0 or 1 in the value's
+dtype (float32 on ids, where a hole needs a NaN), so `scale` by it (`{"op": "scale", "factor": "<a comparison's
+value>"}`) masks the value where the comparison fails. A rank (`match`'s most likely token, `argmax`, `top_k`) is the
+same either way: bfloat16 to float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives
+`probs`, a float32 softmax, and over another axis `values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
 (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
@@ -610,12 +610,12 @@ stays missing: NaN.
 | `neg` | — | keeps the layout | `-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back. |
 | `div` | `with: Value` | keeps the layout | `of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite one. |
 | `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one. |
-| `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing. |
-| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing, so `eq` and `ne` sum to 1 wherever both are there. |
-| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing. |
-| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing. |
-| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing. |
-| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s `factor` is; compared in float32, and NaN where either is missing. |
+| `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there. |
+| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
 
 ## Components
 
