@@ -54,8 +54,10 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dic
     `#0` on the part over the prompt); `stop`, the last site, where a forward ends (null for a generation, which
     runs whole); and for a generation each record's part (`parts`), the `loop` of calls the engine iterates (null:
     every one) and whether a write is found `online`. A write whose operand is an entry of the same forward read at
-    a site the engine reaches no earlier than the write's is refused by name. `trained` is each featurizer the
-    enclosing fit trains, by both its names, with the fit's point."""
+    another site is refused by name unless the engine ranks that site strictly before the write's (two sites the
+    engine ranks alike are refused, whichever the order lists first); one read at the write's own site is done
+    first, in entry order. `trained` is each featurizer the enclosing fit trains, by both its names, with the fit's
+    point."""
     reading = gathered(plan, name, step)
     sites: dict[tuple[str, int | None], list[dict]] = {}
     names: dict[str, dict[int | None, str]] = {}        # the serving point's reads by `<step>.<entry>`, per layer
@@ -77,12 +79,13 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dic
                     if p is step and not part.get("prompt"):
                         names.setdefault(f"{name}.{key}", {})[layer] = read
     order = sorted(sites, key=lambda site: engine.rank(*site))
-    reached = {r["name"]: i for i, site in enumerate(order) for r in sites[site] if "read" in r}
-    for i, site in enumerate(order):
+    reached = {r["name"]: site for site in order for r in sites[site] if "read" in r}
+    for site in order:
         for r in sites[site]:
             for o in r.get("ops", []):
                 for operand in o.values():
-                    if isinstance(operand, dict) and "live" in operand and reached[operand["live"]] > i:
+                    theirs = reached[operand["live"]] if isinstance(operand, dict) and "live" in operand else site
+                    if theirs != site and engine.rank(*theirs) >= engine.rank(*site):
                         raise ValueError(unreached(engine, plan, name, r["write"], operand["name"], site[1], step.at))
     step.schedule.update(sites=[{"component": c, "layer": layer, "records": sites[c, layer]} for c, layer in order],
                          stop=list(order[-1]) if order and step.kind == "forward" else None)

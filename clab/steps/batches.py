@@ -278,7 +278,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
             if "live" in resolved.get(value, {}):
                 value = {"live": resolved[value]["live"]}
             else:
-                value = value_at(plan, state, value, resolved[value]["at"] if value in resolved else at, ids)
+                value = value_at(plan, state, value, at, ids, resolved[value]["at"] if value in resolved else None)
                 if stacked and layers is not None:
                     labels = cast(list, record.layers)
                     if isinstance(layers, int):
@@ -300,11 +300,13 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
     return out
 
 
-def value_at(plan: Plan, state: ChainMap, name: str, at: dict, ids: list[int] | None) -> Any:
-    """Value `name` at the dataset row `ids` (every one: None) of those it holds, which the scope it was found in
-    says (`ROWS`: a fit body's values hold its minibatch's rows, the root's every row of their dataset), taken by id
-    (`data.by_id`)."""
-    value, dims = lookup(state, name, at), record_of(plan.steps, name, at).dims or []
+def value_at(plan: Plan, state: ChainMap, name: str, at: dict, ids: list[int] | None,
+             own: dict[str, int] | None = None) -> Any:
+    """Value `name` at the consumer's point `at` (or at `own`, its coordinates on the value's own axes, where the
+    schedule resolved them; its record is the one at `at`, whose point names every axis of the producer's step), at
+    the dataset row `ids` (every one: None) of those it holds, which the scope it was found in says (`ROWS`: a fit
+    body's values hold its minibatch's rows, the root's every row of their dataset), taken by id (`data.by_id`)."""
+    value, dims = lookup(state, name, at if own is None else own), record_of(plan.steps, name, at).dims or []
     scope = next(m for m in state.maps if name in m)
     return data.by_id(value, ids, scope.get(ROWS), dims.index("rows")) if "rows" in dims else value
 
