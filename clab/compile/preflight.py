@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from clab import featurizers, ops
 from clab.compile import positions
-from clab.compile.answers import check_classes, check_tokens
+from clab.compile.answers import answer, check_classes, check_tokens
 from clab.compile.arguments import carried, mismatch, references
 from clab.compile.interventions import check_operands, refuse, resolved
 from clab.compile.positions import indices
@@ -190,6 +190,11 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
                         probe = arguments(o)["featurizer"]
+                # A metric of an answer of several tokens lines up with the read's positions, which a generation knows
+                # once it ends: it and the ops after it wait for that (`lined_up`).
+                first = len(record.ops) - len(gathers(record))
+                record.per_call = next((i - first for i in range(first, first + record.per_call)
+                                        if lined_up(engine, plan, found, record.ops[i], where)), record.per_call)
             for key, record in entries(step).items():   # the operands, once every entry of the step has its labels
                 where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
                 dims = address.dims(cast(Site, record.site).component)
@@ -210,6 +215,14 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
                 scheduled(engine, plan, name, step, served, trained or {})
     return found
+
+
+def lined_up(engine: Engine, plan: Plan, found: Found, o: Any, where: str) -> bool:
+    """Whether op `o` scores a column with an answer of several tokens (`Answer.aligned`), whose token i scores the
+    read's position i."""
+    params = ops.parameters(o.op)
+    return any(answer(engine, plan, found, v, where).aligned for k, v in arguments(o).items()
+               if k in params and params[k].annotation == ops.Tokens)
 
 
 def resolving(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, inspect.Parameter], Labelled | None]:

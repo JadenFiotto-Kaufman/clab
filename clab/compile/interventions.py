@@ -98,7 +98,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
     follows an op that changed the layout unless that was an `encode` its `decode` closes, and every encode before
     the write-back is closed by then. `live` holds the forward's earlier entries by name (`<step>.<entry>`); `own`
-    names every entry of the step; `where` is this one's name; `at` the step's point."""
+    names every entry of the step; `where` is this one's name; `at` the step's point. Beyond a generation's prefill
+    the leading ops after the last edit that are positionwise, keep `pos` and take no operand with a `pos` axis are
+    counted into `per_call`, the ops the run applies at each call."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -156,6 +158,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
     changed = None                                          # the op that changed the layout, which no edit follows
     laid: list[Op] = []                                     # each op with the layout and coordinates of its value
+    # The ops after the last edit that run at each call a generation reads the entry beyond its prefill: the leading
+    # ones whose value at a position is its own to the bit, which keep `pos` and pair no operand by position.
+    per_call, each = 0, step.kind == "generate" and not positions.prefill(pos)
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
@@ -193,7 +198,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         ours = Labelled(dims=dims, space=space_of(cx.aliases, [n["op"] for n in outer]),
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
-        for key, (written, theirs) in references(o.op, args, resolver(cx, here, "classes" in dims, at, live)).items():
+        operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
+        for key, (written, theirs) in operands.items():
             if written in live and gathers(live[written]):
                 fail(f"{here}.{key}", f"{written!r} runs {gathers(live[written])[0].op!r} once it is off the model, "
                      "after this forward; an operand from the same forward is an entry with no op after its edits")
@@ -213,6 +219,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             out = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
             dims = out
+        if i > last and each:
+            each = ops.DECLARED[o.op]["positionwise"] and "pos" in dims and \
+                not any("pos" in (theirs.dims or []) for _, theirs in operands.values())
+            per_call += each
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
         laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims,
                        space=space_of(cx.aliases, [n["op"] for n in open_after])))
@@ -224,7 +234,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
-                        space=space_of(cx.aliases, [n["op"] for n in unclosed]))
+                        space=space_of(cx.aliases, [n["op"] for n in unclosed]), per_call=per_call)
 
 
 def layers_of(layers: Selector | None) -> list[int] | None:

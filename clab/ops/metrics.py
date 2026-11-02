@@ -56,7 +56,7 @@ def _one(x: Tensor, ids: Tensor, dims: list[str]) -> Tensor:
     return _gather(x, ids, dims)[0].squeeze(-1)
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, positionwise=True)
 def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
     """1 where the most likely token is `expected` (any of its class or set), else 0; the most likely token is
     `argmax`'s, an exact tie to the lower id."""
@@ -64,26 +64,26 @@ def match(of: Tensor, expected: Tokens, dims: list[str]) -> Tensor:
     return hit.masked_fill(missing(of), float("nan"))
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, positionwise=True)
 def logit_diff(of: Tensor, a: Tokens, b: Tokens, dims: list[str]) -> Tensor:
     """The logit of `a` less the logit of `b`."""
     return _one(of, a, dims).float() - _one(of, b, dims).float()
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, positionwise=True)
 def token_prob(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The probability of `token` (of a class or a set, its members' summed)."""
     p, real = _gather(of.float().softmax(-1), token, dims)
     return p.masked_fill(~real, 0.0).sum(-1).masked_fill(missing(of), float("nan"))
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, positionwise=True)
 def token_logit(of: Tensor, token: Tokens, dims: list[str]) -> Tensor:
     """The logit of `token`."""
     return _one(of, token, dims).float()
 
 
-@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
+@op("metrics", needs=(VOCABULARY,), removes=VOCABULARY, positionwise=True)
 def cross_entropy(of: Tensor, target: Tokens, dims: list[str]) -> Tensor:
     """The negative log-probability of `target` (of a class or a set, of its members' summed probability), in
     nats."""

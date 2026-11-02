@@ -47,7 +47,7 @@ def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     return of.nansum(dim=axes).masked_fill(of.isnan().all(dim=axes), float("nan"))
 
 
-@op("reductions", layout=reduced)
+@op("reductions", layout=reduced, positionwise=True)
 def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
     none is."""
@@ -57,7 +57,7 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     return of.masked_fill(of.isnan(), math.inf).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
 
 
-@op("reductions", layout=reduced)
+@op("reductions", layout=reduced, positionwise=True)
 def max(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The greatest value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
     none is."""
@@ -95,7 +95,7 @@ def counted(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     return [a for a in dims if a not in over and a in EXAMPLE_AXES]
 
 
-@op("reductions", layout=counted)
+@op("reductions", layout=counted, positionwise=True)
 def count(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is
     held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is

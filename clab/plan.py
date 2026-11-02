@@ -591,6 +591,11 @@ class Intervention(Labelled):
     ops: list[Op] = []
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
                                     "a later entry or step uses it, or a gathered `grad` entry is its gradient")
+    per_call: int = derived(0, "how many of the ops after the entry's last edit a generation runs at each call it "
+                               "reads the entry beyond its prefill, on that call's own value, the rest running once "
+                               "the calls are arranged by position: the leading ones that are positionwise (Ops), "
+                               "keep the `pos` axis and take no operand that has one, up to the first that scores "
+                               "an answer of several tokens, which preflight finds; 0 in a forward and in the prefill")
     positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
                                              "index into the row's prompt tokens, BOS first, then its generated ones; "
                                              "`alignment_missing` for a row it does not reach), under the dataset whose "
