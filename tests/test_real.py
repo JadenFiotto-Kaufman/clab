@@ -105,6 +105,14 @@ def test_head_patching_finds_layer_12_head_28(filled, kind):
     assert [point for point, v in results["iia"].items() if v.item() > 0] == [best]
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_head_patching_makes_291_model_calls(filled, kind):
+    """The 32 counterfactual points read one head each from one forward, three batches of 16 over the 42 pairs, and
+    each of the 96 patched points runs its own three: 291 model calls, where a forward per point would make 384."""
+    costs = filled["real/head_patching", kind].run.costs
+    assert sum(c["forwards"] for by in costs.values() for c in ([by] if "forwards" in by else by.values())) == 291
+
+
 def test_pattern_patching_moves_nothing(filled):
     results = filled["real/pattern_patching", "nnterp"].results
     diff = {point: v.item() for point, v in results["logit_diff"].items()}

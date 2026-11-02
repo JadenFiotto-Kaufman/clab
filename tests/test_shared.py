@@ -222,23 +222,30 @@ WRITES = {
 }
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 @pytest.mark.parametrize("swept", WRITES)
-def test_a_sweep_on_a_write_runs_a_forward_per_point(engines, swept):
+def test_a_sweep_on_a_write_runs_a_forward_per_point(engines, swept, kind):
     """A write's operand, positions or layer swept: the forward depends on that axis, so every point writes
-    otherwise, each runs its own forward, and the read after the writes, which depends on it too, sees each."""
-    plan = gpt2({**WRITES[swept], "read": at("layer_output", 3)})
+    otherwise, each runs its own forward, and the read after the writes, which depends on it too, sees each: every
+    value is its own document's, to the bit."""
+    doc = gpt2_doc({**WRITES[swept], "read": at("layer_output", 3)})
+    plan = compiled("gpt2_reach", doc)
     axis = {"operand": "factor", "position": "pos", "layer": "layers"}[swept]
     assert [p.schedule for p in points(plan.steps["lens"])] == [{"axes": [axis]}] * 3
     assert axes_of(plan, "lens.read") == [axis]
-    filled = engines("nnterp", plan.model).execute(plan, batch_size=4)
+    engine = engines(kind, plan.model)
+    filled = engine.execute(plan, batch_size=4)
     assert costs(filled, "lens") == {c: (1, [c]) for c in all_points(plan, "lens")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
     values = list(filled.results["lens.read"].values())
     assert not same(values[0], values[1]) and not same(values[1], values[2])
 
 
-def test_a_write_whose_operand_is_a_swept_value_runs_a_forward_per_point(engines):
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_write_whose_operand_is_a_swept_value_runs_a_forward_per_point(engines, kind):
     """A read-only sweep over layers in `cf` runs one forward; a write in `patched` swapping `cf.read` in at one
-    layer depends on the operand's axis, so `patched` runs one forward per point and its read inherits the axis."""
+    layer depends on the operand's axis, so `patched` runs one forward per point and its read inherits the axis:
+    every value is its own document's, to the bit."""
     def change(d):
         d["steps"] = {
             "cf": {"kind": "forward", "input": "pairs.counterfactual_inputs[0]", "interventions": {
@@ -248,13 +255,16 @@ def test_a_write_whose_operand_is_a_swept_value_runs_a_forward_per_point(engines
                           "ops": [{"op": "swap", "with": "cf.read"}]},
                 "logits": at("lm_head_output")}}}
         d["saves"] = ["cf.read", "patched.logits"]
-    plan = compiled("gpt2_reach", doc_of("gpt2_reach", change))
+    doc = doc_of("gpt2_reach", change)
+    plan = compiled("gpt2_reach", doc)
     assert axes_of(plan, "cf.read") == ["layers"] and axes_of(plan, "patched.logits") == ["layers"]
     assert [p.schedule.get("axes") for p in points(plan.steps["patched"])] == [["layers"]] * 3
     assert points(plan.steps["cf"])[0].schedule["axes"] == []
-    filled = engines("nnterp", plan.model).execute(plan, batch_size=4)
+    engine = engines(kind, plan.model)
+    filled = engine.execute(plan, batch_size=4)
     assert costs(filled, "cf") == {"layers=0": (1, all_points(plan, "cf"))}
     assert costs(filled, "patched") == {c: (1, [c]) for c in all_points(plan, "patched")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
 
 
 def fewer_doc(stacked: bool) -> dict:
@@ -319,14 +329,19 @@ def test_a_grid_of_a_swept_write_and_a_swept_read_shares_within_each_write(engin
     assert each_its_own(shared, alone(engine, "gpt2_reach", doc, 4))
 
 
-def test_one_sweep_reached_by_a_read_and_a_write_shares_nothing(engines):
-    """A swept site that a write and a read both use is one axis (zip): each point writes at its own layer."""
-    plan = gpt2({"zero": {"site": "swept", "pos": -1, "ops": ZERO}, "read": {"site": "swept", "pos": -2}},
-                sites={"swept": {"component": "layer_output", "layers": {"sweep": [0, 1, 2]}}})
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_one_sweep_reached_by_a_read_and_a_write_shares_nothing(engines, kind):
+    """A swept site that a write and a read both use is one axis (zip): each point writes at its own layer, and
+    every value is its own document's, to the bit."""
+    doc = gpt2_doc({"zero": {"site": "swept", "pos": -1, "ops": ZERO}, "read": {"site": "swept", "pos": -2}},
+                   sites={"swept": {"component": "layer_output", "layers": {"sweep": [0, 1, 2]}}})
+    plan = compiled("gpt2_reach", doc)
     assert list(plan.sweeps) == ["layers"]
     assert [p.schedule.get("axes") for p in points(plan.steps["lens"])] == [["layers"]] * 3
-    filled = engines("nnterp", plan.model).execute(plan, batch_size=4)
+    engine = engines(kind, plan.model)
+    filled = engine.execute(plan, batch_size=4)
     assert costs(filled, "lens") == {c: (1, [c]) for c in all_points(plan, "lens")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
 
 
 LIVE = {"premix": {"site": {"component": "layer_output", "layers": 0}, "pos": -1},
@@ -344,7 +359,8 @@ def live_doc() -> dict:
 def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_does_not_vary(engines, kind):
     """The write's operand is an earlier entry of the forward that depends on no axis, so the three points share
     the forward, whose write takes the first point's read of that entry (the schedule names it); with that entry
-    swept over blocks 0 and 1 instead, the write depends on its axis, and each point runs its own forward."""
+    swept over blocks 0 and 1 instead, the write depends on its axis, and each point runs its own forward. Either
+    way every value is its own document's, to the bit."""
     doc = live_doc()
     plan = compiled("gpt2_reach", doc)
     assert points(plan.steps["lens"])[0].schedule["axes"] == [] and served(plan, "lens") == [all_points(plan, "lens")]
@@ -359,11 +375,13 @@ def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_do
     assert [r["at"] for s in sites for r in s["records"] if "read" in r] == \
         [{}, {}, {"layers": 0}, {"layers": 1}, {"layers": 2}]
     assert each_its_own(shared, alone(engine, "gpt2_reach", doc, 4))
-    swept = gpt2({**LIVE, "premix": {"site": {"component": "layer_output", "layers": {"sweep": [0, 1]}}, "pos": -1},
-                  "read": at("layer_output", 3)})
+    doc = gpt2_doc({**LIVE, "premix": {"site": {"component": "layer_output", "layers": {"sweep": [0, 1]}}, "pos": -1},
+                    "read": at("layer_output", 3)})
+    swept = compiled("gpt2_reach", doc)
     assert [p.schedule.get("axes") for p in points(swept.steps["lens"])] == [["layers"]] * 2
     filled = engine.execute(swept, batch_size=4)
     assert costs(filled, "lens") == {c: (1, [c]) for c in all_points(swept, "lens")}
+    assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
 
 
 def ranked(rank: Callable[[str, int | None], Any]) -> Any:
@@ -493,7 +511,8 @@ def test_a_later_step_and_a_fit_body_read_each_points_own_value_of_a_shared_forw
     assert not same(scored[0], scored[1])
 
 
-def test_a_swept_read_with_its_own_select_takes_its_own_slice_of_the_shared_forward(engines):
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_swept_read_with_its_own_select_takes_its_own_slice_of_the_shared_forward(engines, kind):
     """head_patching's counterfactual reads one head per point from one forward: each point's value is its own
     head's slice of a read of every head."""
     def change(d):
@@ -502,7 +521,7 @@ def test_a_swept_read_with_its_own_select_takes_its_own_slice_of_the_shared_forw
         d["saves"] = ["counterfactual.v_cf", "counterfactual.every"]
     plan = compiled("head_patching", doc_of("head_patching", change))
     assert axes_of(plan, "counterfactual.v_cf") == ["num_heads"] and axes_of(plan, "counterfactual.every") == []
-    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    filled = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE)
     assert costs(filled, "counterfactual") == {"num_heads=0": (2, all_points(plan, "counterfactual"))}
     every = filled.results["counterfactual.every"]
     assert every.shape == (4, 1, 4, 4)
