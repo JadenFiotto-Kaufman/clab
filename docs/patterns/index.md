@@ -1,6 +1,6 @@
 ---
 title: Patterns Index
-one_liner: "One interpretability technique per page, each built on a corpus document: patching, attribution patching, ablation, attention, logit lens, steering, generation, trained subspaces, SAEs, probes and LoRA."
+one_liner: "One interpretability technique per page, each built on a corpus document: patching, attribution patching, ablation, attention, logit lens, steering, generation, trained subspaces, head masking, SAEs, probes and LoRA."
 tags: [patterns, index]
 related: [docs/index.md, docs/usage/index.md]
 ---
@@ -28,6 +28,7 @@ One technique per page, each built on a document under `documents/`; the usage p
 ## Trained featurizers
 
 - [trained-subspaces](trained-subspaces.md) — DAS, DBM and their controls: fit a rotation or a mask, score held-out accuracy, and compare against PCA and random subspaces of matched rank, a fit at epochs 0 among them.
+- [head-masking](head-masking.md) — Which attention heads carry a behavior, learned as a mask: desiderata-based masking with one gate unit per head of every layer (over), a dropped head taking the corrupt run's value through apply with, the bit-exact null, an L1 sweep, and reading the heads kept.
 - [sae](sae.md) — Sparse autoencoders: splice a published JumpReLU or TopK dictionary in, ablate features through encode and decode, check its L0, and train a dictionary inside a run.
 - [probing](probing.md) — Linear probes: train a linear featurizer on a label column, score its classes with the same metrics as logits, sweep layers to see where a variable is decodable against the floor of an untrained probe, and train many probes in one fit.
 - [lora](lora.md) — Low-rank adapters: train a LoRA through the frozen model to change an answer, apply it as a named intervention in some steps and not others, and adapt across sites with with.

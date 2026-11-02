@@ -117,6 +117,7 @@ Each technique has a page with documents that run:
 - [Steering](docs/patterns/steering.md): add a harvested direction at a dose, sweep the dose, keep it on through generation.
 - [Generation experiments](docs/patterns/generation-experiments.md): score what the model says, its confidence as it says it, and teacher-forced answers.
 - [Trained subspaces](docs/patterns/trained-subspaces.md): DAS and DBM, against PCA and random subspaces of matched rank.
+- [Head masking](docs/patterns/head-masking.md): learn which attention heads carry a behavior, one gate unit per head of every layer.
 - [Sparse autoencoders](docs/patterns/sae.md): splice in a published dictionary, ablate its features, or train one.
 - [Probing](docs/patterns/probing.md): train a linear probe per layer on a label column.
 - [LoRA](docs/patterns/lora.md): train a low-rank adapter through the frozen model and turn it on in chosen steps.
@@ -139,7 +140,7 @@ uv sync
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (47 in all) runs on CPU
+`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (48 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.
