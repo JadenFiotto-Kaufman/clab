@@ -770,7 +770,12 @@ before anything loads; an option the engine cannot honor it refuses by name. It 
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
-Every engine runs with `batch_size`, how many of a step's rows go through the model in one forward or generation (default 8); the options below are each engine's own.
+Every engine runs with `batch_size`, how many of a step's rows go through the model in one forward or generation (default 8), and `padding`, how each of those batches is padded, recorded beside it in `run` (`--padding`; a fit's minibatches and a generation's batches are padded the same way):
+
+- `dataset`: every batch padded to the longest row of the step's whole input, the default: a row's numbers do not depend on which rows share its batch, and a run reproduces to the bit at one batch size
+- `batch`: each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's numbers move in the last bits with its batch's width
+
+The options below are each engine's own.
 
 ### `nnterp`
 

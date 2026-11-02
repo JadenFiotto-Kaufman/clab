@@ -200,6 +200,17 @@ def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template
     return {"ids": got["input_ids"], "offsets": got.get("offset_mapping"), "text": text, "turns": turns}
 
 
+# How a run pads a step's batches (`plan.run.padding`, `clab run --padding`), each with what it trades. Every mode
+# pads on the left, so a row's positions are its own tokens from 0 whatever the width; the lengths it pads by are
+# the encoded rows', known before any forward.
+PADDINGS = {
+    "dataset": "every batch padded to the longest row of the step's whole input, the default: a row's numbers do not "
+               "depend on which rows share its batch, and a run reproduces to the bit at one batch size",
+    "batch": "each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's "
+             "numbers move in the last bits with its batch's width",
+}
+
+
 def pad(tokenizer: PreTrainedTokenizerBase, ids: list[list[int]], width: int) -> dict[str, torch.Tensor]:
     """Rows of ids padded on the left, by hand, to `width`.
 

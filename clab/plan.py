@@ -895,10 +895,11 @@ class Axis(Record):
 
 
 class Run(Record):
-    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the
-    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
-    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
-    where the model is: the server's, under `ndif`). `dtype` and `devices` are the
+    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `padding`, how its batches were
+    padded, one of `data.PADDINGS`, `device`, None where the engine does not place the model, as on an NDIF server,
+    and every engine option after its defaults in `options`), what served it (`versions`: clab's version with its
+    commit, the packages it runs on and python, where the model is: the server's, under `ndif`). `dtype` and
+    `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
@@ -919,6 +920,7 @@ class Run(Record):
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
     batch_size: int
+    padding: str = "dataset"
     device: str | None
     options: dict[str, Any] = {}
     versions: dict[str, str] = {}

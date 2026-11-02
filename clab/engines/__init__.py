@@ -12,8 +12,9 @@ before anything loads; an option the engine cannot honor it refuses by name. It 
 where it does not place the model: an NDIF server does) and `options` as given, after their defaults, which
 `execute` records in `plan.run`.
 
-`execute(plan, batch_size=...)` is the single entry point and the only method an engine that ignores
-`clab.steps` must have; it returns the filled plan. A hub dataset's rows are not in the plan: an engine that
+`execute(plan, batch_size=..., padding=...)` is the single entry point and the only method an engine that ignores
+`clab.steps` must have; it returns the filled plan, `padding` (`data.PADDINGS`) recorded in `plan.run` beside the
+batch size, which `steps.run` pads every batch by. A hub dataset's rows are not in the plan: an engine that
 ignores `clab.steps` loads them where it runs with `compile.materialized`, as `steps.run` does (`steps.held`). The
 rest is what `steps.run` asks of an engine: one batch through the model with a bound schedule executed (`forward`),
 a generation (`generate`), the model's own unembedding (`readout`), what it cannot serve, layer by layer
@@ -72,7 +73,7 @@ class Engine(Protocol):
     @property
     def cuda(self) -> list[str]: ...
 
-    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...
+    def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan: ...
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]: ...
 

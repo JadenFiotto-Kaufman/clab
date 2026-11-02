@@ -25,6 +25,7 @@ from typing import Any
 from clab import output
 from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
+from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, labelled
 from clab.plan import Plan, Run, entries, name, points, projections, serving
 
@@ -48,7 +49,7 @@ def show(filled: Plan) -> str:
                 for step, entry in filled.steps.items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
-    lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
+    lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, padding {run.padding}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
@@ -221,6 +222,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
+    run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),
+                     help="how each batch is padded: dataset (the default, exact) or batch (fewer tokens fed, "
+                          "numbers moved in the last bits)")
     run.add_argument("--device", help="where the engine places the model (default cpu)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
@@ -273,10 +277,10 @@ def command(args: argparse.Namespace) -> int:
     first = os.environ.get("RANK", "0") == "0"          # under torchrun, rank 0 alone writes `out` and prints
     try:
         options = dict(option(text) for text in args.options)
-        for key in {"device", "batch_size"} & set(options):
+        for key in {"device", "batch_size", "padding"} & set(options):
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
-                          device=args.device, **options)
+                          device=args.device, padding=args.padding, **options)
     except (ValueError, NotImplementedError, OSError, RemoteError) as e:
         # A refusal on the server comes home as nnsight's error, its last line the reason; a missing document is
         # the OSError that names it.

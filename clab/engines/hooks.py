@@ -60,9 +60,9 @@ class HooksEngine:
             self.model.to(device)
         self.config["order"] = order(self.model, sites, batches.home(self))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+    def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in this process."""
-        started = steps.begin(self, plan, batch_size)
+        started = steps.begin(self, plan, batch_size, padding)
         steps.run(self, plan, batch_size)
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)

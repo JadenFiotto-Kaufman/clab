@@ -26,10 +26,10 @@ if TYPE_CHECKING:
 
 def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int, found: Found,
              cost: dict[str, Any], served: list[Forward], reading: dict | None = None) -> None:
-    """The step's input in batches of dataset row ids (`chunked`), each through `engine.generate` with the point's
-    schedule bound to it (`bind`) and the step's own keys as its options; each value the generation reads
-    (`reading`, `gathered` over the points it serves, `served`, as a forward's) joined along rows from its own
-    reads, and the new ids, one generation's, put as the step's value.
+    """The step's input in batches of dataset row ids padded as the run says (`chunked`, `plan.run.padding`), each
+    through `engine.generate` with the point's schedule bound to it (`bind`) and the step's own keys as its options;
+    each value the generation reads (`reading`, `gathered` over the points it serves, `served`, as a forward's)
+    joined along rows from its own reads, and the new ids, one generation's, put as the step's value.
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`read`); one beyond it is bound in parts (a part over
     the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the generation
@@ -41,6 +41,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     (its prefill, then a decode call per token after the first), and the tokens they fed: the prompts', then each
     row's generated tokens but its last, which is its EOS (fed on the call after it says it, and not counted, as
     padding is not) or the generation's last, which no call is fed."""
+    assert plan.run is not None
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
     reading = gathered(served) if reading is None else reading
@@ -54,7 +55,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
     landed: dict[tuple[str, tuple], list] = {k: [] for k in landing}
     new = []
-    for ids, batch, pads in chunked(engine, step, state, found, batch_size):
+    for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
         bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         tokens, got = generated(engine, name, batch, bound, dict(step.model_extra or {}))
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)

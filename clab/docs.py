@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from clab import compile as compiler
 from clab import featurizers, ops, output, plan
-from clab.format import address, registry, sweeps
+from clab.format import address, data, registry, sweeps
 from clab.output import table
 
 WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines")
@@ -228,7 +228,10 @@ def markdown() -> str:
     from clab import engines
     parts += ["## Engines and run options\n", "\n\n".join(doc(engines).split("\n\n")[:2]) + "\n",
               "Every engine runs with `batch_size`, how many of a step's rows go through the model in one forward "
-              "or generation (default 8); the options below are each engine's own.\n"]
+              "or generation (default 8), and `padding`, how each of those batches is padded, recorded beside it in "
+              "`run` (`--padding`; a fit's minibatches and a generation's batches are padded the same way):\n\n"
+              + "".join(f"- `{mode}`: {what}\n" for mode, what in data.PADDINGS.items())
+              + "\nThe options below are each engine's own.\n"]
     for name, cls in engines.ENGINES.items():
         listed = "".join(f"- `{o}`" + (f": {text}" if text else "") + "\n" for o, text in run_options(name))
         parts += [f"### `{name}`\n", listed + "\n" + doc(inspect.getmodule(cls)) + "\n"]

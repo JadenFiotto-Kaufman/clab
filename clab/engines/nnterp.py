@@ -64,14 +64,14 @@ class NnterpEngine:
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
 
-    def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan:
+    def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
         model `ready` first; the results, the run record and the records as the run completed them (each value's
         labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
         picks the same tokens on every rank, and the run record lists every rank's device."""
-        started = steps.begin(self, plan, batch_size)
+        started = steps.begin(self, plan, batch_size, padding)
         ranks = self.options.get("tp", 1)
         if ranks > 1:
             seed = [int(torch.randint(2**62, ()))]
