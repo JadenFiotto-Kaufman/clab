@@ -1,5 +1,5 @@
 """Reductions: ops that remove axes. `mean`, `sum` and `min` compute in float32 whatever the value's dtype
-(`ops.ABOUT`); `pca` works in double and returns the value's dtype."""
+(`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
 
 import json
 
@@ -58,7 +58,8 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")
 def pca(of: Tensor, k: int, dims: list[str]) -> dict[str, Tensor]:
     """The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance
-    first) and the `mean` they are centred on: the bundle a `pca` featurizer loads."""
+    first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers
+    are: the bundle a `pca` featurizer loads."""
     x = of.reshape(-1, of.shape[-1]).double()
     x = x[~x.isnan().any(-1)]
     if x.shape[0] <= k:
@@ -68,4 +69,4 @@ def pca(of: Tensor, k: int, dims: list[str]) -> dict[str, Tensor]:
     # An SVD's singular vectors are unique only up to sign; fix it so the largest entry of each is positive.
     basis = vh[:k].T
     basis = basis * basis.gather(0, basis.abs().argmax(0, keepdim=True)).sign()
-    return {"basis": basis.to(of.dtype).contiguous(), "mean": mean.to(of.dtype)}
+    return {"basis": basis.float().contiguous(), "mean": mean.float()}

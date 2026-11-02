@@ -325,6 +325,18 @@ def test_pca_gives_an_orthonormal_basis_of_the_largest_variance_first():
         reductions.pca(x[:3], k=3, dims=["rows", "hidden_size"])
 
 
+def test_pca_of_a_bfloat16_value_is_a_float32_bundle_orthonormal_to_float32s_precision():
+    """A bundle is float32 whatever the value's dtype, as a fit's trained featurizers are: the basis of a bfloat16
+    value is its double-precision SVD rounded once to float32, not to bfloat16's few bits."""
+    torch.manual_seed(1)
+    x = (torch.randn(200, 64) * torch.linspace(4.0, 0.1, 64) + 1.0).bfloat16()
+    got = reductions.pca(x, k=16, dims=["rows", "hidden_size"])
+    assert {k: v.dtype for k, v in got.items()} == {"basis": torch.float32, "mean": torch.float32}
+    assert (got["basis"].T @ got["basis"] - torch.eye(16)).abs().max() < 1e-6
+    exact = reductions.pca(x.double(), k=16, dims=["rows", "hidden_size"])
+    assert all(torch.equal(got[k], exact[k]) for k in got)
+
+
 def test_top_k_and_argmax():
     d = ["rows", "pos", "vocab_size"]
     got = transforms.top_k(LOGITS, k=2, dims=d)

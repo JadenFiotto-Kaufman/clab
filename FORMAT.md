@@ -448,7 +448,7 @@ a residual stream, coordinates from a value, tokens from logits, text from ids).
 transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
-float32 (`pca` works in double and returns the value's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
+float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
 rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
 to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
 (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
@@ -541,7 +541,7 @@ stays missing: NaN.
 | `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
 | `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
 | `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
-| `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on: the bundle a `pca` featurizer loads. |
+| `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers are: the bundle a `pca` featurizer loads. |
 
 ### Edits
 
