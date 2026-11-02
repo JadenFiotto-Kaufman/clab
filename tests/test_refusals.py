@@ -137,7 +137,8 @@ def test_decode_runs_only_inside_the_entry_that_encodes():
 
 def test_an_operand_names_an_earlier_entry_whose_ops_all_write():
     """An operand from the same forward is taken off the model as the forward reaches it, so it names an
-    earlier entry, with no op after its last edit."""
+    earlier entry, with no op after its last edit, and is a write's: an op after an entry's last edit runs once
+    the value is off the model, where the forward's entries are not yet values."""
     def operand(entries):
         def change(d):
             step = d["steps"]["patched"]
@@ -154,6 +155,14 @@ def test_an_operand_names_an_earlier_entry_whose_ops_all_write():
             d["steps"]["patched"]["interventions"]["later"] = early
             d["steps"]["patched"]["interventions"]["patch"]["ops"][0]["with"] = "patched.later"
         edited("patching", later).compile()
+    with pytest.raises(PlanError, match=r"logits\.ops\[0\]\.with: 'patched\.early' is an entry of this forward, and "
+                                        r"'cosine' here runs once the value is off the model"):
+        def after(d):
+            d["steps"]["patched"]["interventions"] = {"early": early, **d["steps"]["patched"]["interventions"]}
+            d["steps"]["patched"]["interventions"]["logits"] = {
+                "site": {"component": "layer_input", "layers": 1}, "pos": -1,
+                "ops": [{"op": "cosine", "with": "patched.early"}]}
+        edited("patching", after).compile()
     with pytest.raises(PlanError, match=r"two entries named 'patch'; a step binds each name once"):
         def twice(d):
             d["interventions"] = {"again": {"patch": early}}

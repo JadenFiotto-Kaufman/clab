@@ -197,6 +197,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             if written in live and gathers(live[written]):
                 fail(f"{here}.{key}", f"{written!r} runs {gathers(live[written])[0].op!r} once it is off the model, "
                      "after this forward; an operand from the same forward is an entry with no op after its edits")
+            if written in live and i > last:
+                fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
+                     "is off the model, batch by batch, where an operand is a value made before this step; an "
+                     "operand from the same forward is a write's: take the two in an op step after the forward")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live)
             if why:
                 fail(f"{here}.{key}", why)
