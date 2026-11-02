@@ -108,8 +108,9 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
     at = ids if among is None else [among.index(i) for i in ids]
     if isinstance(table, dict):
         return {k: by_id(v, ids, among, axis) for k, v in table.items()}
-    if isinstance(table, torch.Tensor):
-        return table.index_select(axis, torch.tensor(at, dtype=torch.long, device=table.device))
+    if isinstance(table, torch.Tensor):            # onto a GPU from pinned memory, which the host does not wait for
+        return table.index_select(axis, torch.tensor(at, dtype=torch.long, pin_memory=table.is_cuda)
+                                  .to(table.device, non_blocking=True))
     return [table[i] for i in at] if axis == 0 else [by_id(v, ids, among, axis - 1) for v in table]
 
 

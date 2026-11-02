@@ -13,7 +13,8 @@ from conftest import BATCH_SIZE, plan_of
 from test_ops import taken
 
 from clab import featurizers, ops
-from clab.engines import load
+from clab.engines import load, standard
+from clab.format import data
 from clab.ops import metrics
 from clab.steps import batches
 
@@ -78,6 +79,65 @@ def test_metrics_and_edits_take_cpu_ids_and_operands():
                      positions=torch.arange(6).expand(3, 6))
     assert torch.equal(noisy.cpu(), ops.call("noise", VALUE, {"scale": 0.5, "seed": 3}, dims=DIMS, rows=torch.arange(3),
                                              positions=torch.arange(6).expand(3, 6)))
+
+
+def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
+    """What a batch bound on the GPU hands the engine (each record's positions, its selection and a key axis's
+    indices, made there from pinned memory), the inputs fed to the model (one non-blocking copy) and an operand's
+    rows looked up by id get there without the host waiting for the GPU, and an equal-width write and a read
+    through `visit` make no host-device sync: under torch's sync debug mode set to raise, none of it raises, and
+    each value is the CPU's."""
+    from clab.format.sweeps import points
+    from clab.plan import entries
+
+    plan = plan_of("patching")
+    record = entries(points(plan.steps["patched"])[0])["patch"]
+    pattern = entries(points(plan_of("attention_pattern_patching").steps["patched"])[0])["look_there"]
+    value, other = VALUE.cuda(), OTHER[:, :1].cuda()
+    batch = {"input_ids": torch.tensor([[0, 5, 6], [7, 8, 9]]), "attention_mask": torch.tensor([[0, 1, 1], [1, 1, 1]]),
+             "position_ids": torch.tensor([[0, 0, 1], [0, 1, 2]])}
+    swap = [{"op": "swap", "args": {"with": other}, "dims": DIMS}]
+    rows = [[1], [2], [4]]
+    probs = torch.randn(3, 2, 6, 6, generator=G)              # as the model serves it: [rows, num_heads, pos, key]
+
+    def bound(device: str) -> tuple:
+        picked = batches.site(record, {"hidden_size": [0, 7]}, rows, [0, 1, 0], 6, False, device)
+        whole = batches.site(record, {}, rows, [0, 1, 0], 6, False, device)
+        keyed = batches.site(pattern, {}, rows, [0, 1, 0], 6, False, device)
+        return picked, whole, keyed
+
+    narrow = [{**swap[0], "args": {"with": other[..., [0, 7]]}}]           # a write on a selection
+    probs_there = probs.cuda()
+    torch.cuda.synchronize()
+    torch.cuda.set_sync_debug_mode("error")
+    try:
+        picked, whole, keyed = bound("cuda:0")
+        fed = standard.inputs(batch, ("input_ids", "attention_mask", "position_ids"), "cuda:0")
+        looked = data.by_id(value, [2, 0])
+        got: dict = {}
+        out = batches.visit(value, "layer_output", [{**picked, "name": "r"}, {**whole, "ops": swap}], got)[0]
+        chosen = batches.visit(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
+        seen: dict = {}
+        batches.visit(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
+    finally:
+        torch.cuda.set_sync_debug_mode("default")
+    here = bound("cpu")
+    assert all(t.device.type == "cuda" for rec in (picked, whole) for t in (rec["positions"], *rec["select"].values()))
+    assert all(keyed["keys"][k].device.type == "cuda" for k in ("index", "own"))
+    assert "keep" not in whole and whole["tok"].device.type == "cpu"
+    assert all(torch.equal(keyed["keys"][k].cpu(), here[2]["keys"][k]) for k in ("index", "own"))
+    assert all(torch.equal(fed[k].cpu(), batch[k]) for k in batch) and torch.equal(looked.cpu(), VALUE[[2, 0]])
+    mine: dict = {}
+    on_cpu = batches.visit(VALUE, "layer_output", [{**here[0], "name": "r"},
+                                                   {**here[1], "ops": [{**swap[0], "args": {"with": OTHER[:, :1]}}]}],
+                           mine)[0]
+    assert torch.equal(got["r"].cpu(), mine["r"]) and torch.equal(out.cpu(), on_cpu)
+    chosen_cpu = batches.visit(VALUE, "layer_output", [{**here[0], "ops": [{**narrow[0], "args": {"with": OTHER[:, :1, [0, 7]]}}]}],
+                               {})[0]
+    assert torch.equal(chosen.cpu(), chosen_cpu)
+    keys_cpu: dict = {}
+    batches.visit(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
+    assert torch.equal(seen["k"].cpu().nan_to_num(-9), keys_cpu["k"].nan_to_num(-9))      # NaN past a row's own keys
 
 
 @pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])

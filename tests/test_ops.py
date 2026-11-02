@@ -255,6 +255,25 @@ def test_a_ragged_write_writes_only_the_positions_it_keeps():
     assert torch.equal(batches.visit(value, "layer_output", [empty], {})[0], value)
 
 
+def test_a_batch_of_equal_rows_binds_no_mask_and_writes_as_an_all_true_one():
+    """`site` gives `keep` only to a batch whose rows hold different numbers of positions; one whose rows hold
+    as many (equal-width reads and writes, the common case) indexes by its positions alone, with no mask the
+    device must count before the host goes on, and writes what an all-true mask writes, to the bit."""
+    from conftest import plan_of
+
+    from clab.plan import entries
+    from clab.format.sweeps import points
+
+    record = entries(points(plan_of("patching").steps["patched"])[0])["patch"]
+    even = batches.site(record, {}, [[1], [2], [0]], [0, 1, 2], 4, False)
+    ragged = batches.site(record, {}, [[1, 2], [3], "missing"], [0, 1, 0], 4, False)
+    assert "keep" not in even and ragged["keep"].tolist() == [[True, True], [True, False], [False, False]]
+    value, other = torch.randn(3, 4, 5), torch.randn(3, 1, 5)
+    write = {**even, "ops": [{"op": "swap", "args": {"with": other}, "dims": DIMS}]}
+    masked = batches.visit(value, "layer_output", [{**write, "keep": torch.ones(3, 1, dtype=torch.bool)}], {})[0]
+    assert torch.equal(batches.visit(value, "layer_output", [write], {})[0], masked)
+
+
 def test_a_window_write_and_three_single_writes_are_one_tensor():
     value = torch.randn(3, 6, 5)                         # batch, seq, hidden
     other = torch.randn(3, 6, 5)

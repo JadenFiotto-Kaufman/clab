@@ -159,8 +159,16 @@ def placing(model: Model, device: str) -> dict[str, str]:
 
 def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:
     """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
-    computed device map puts the model's input."""
-    return {k: batch[k].to(device) for k in keys}
+    computed device map puts the model's input. Onto a GPU the keys' tensors (each `[rows, width]`, as `data.pad`
+    makes them) go stacked in one pinned buffer and one copy the host does not wait for, which runs in stream order
+    before the model's first kernel, so that feeding a batch never drains the GPU's queue."""
+    import torch
+
+    if torch.device(device).type != "cuda":
+        return {k: batch[k].to(device) for k in keys}
+    assert len({batch[k].dtype for k in keys}) == 1, "a batch's keys share one dtype, which the stack would cast"
+    held = torch.stack([batch[k] for k in keys]).pin_memory().to(device, non_blocking=True)
+    return dict(zip(keys, held.unbind()))
 
 
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
