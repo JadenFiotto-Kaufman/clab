@@ -33,8 +33,20 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
     of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
     points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
-    sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
-    tuple of them in axis order.
+    sweep touches runs once.
+
+    A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
+    own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops
+    name, and, for an entry of a forward, the forward's own, which are the step's options' and its writes' (each
+    write's site, positions, ops up to its last edit and their operands; an operand from an earlier entry of the
+    forward counts that entry's); an op step's value depends on its `of`'s and its operands' axes beside its own
+    sweeps, and a fit's members on the fit's. So a read of a forward whose writes do not vary depends on its own
+    sweeps alone, and a generation's ids on the forward's. A value is made once per distinct point on its axes,
+    and a saved value is a dict keyed by coordinate on those axes (the axis's value, or a tuple of them in axis
+    order), the value itself where it depends on none; so a read swept over layers beside writes that do not vary
+    is a dict by layer, and a sampled generation whose points differ in reads alone is one sample. Two points of a
+    forward or generate step run one forward exactly when they agree on the forward's axes (`schedule`): a sweep
+    on what a step reads runs one forward, a sweep on what it writes one per point.
     """
     found: dict[tuple, str] = {}
     first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values
@@ -146,16 +158,12 @@ def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
     raise KeyError(f"{name} at {at}")
 
 
+def projected(at: dict[str, int], axes: list[str]) -> dict[str, int]:
+    """The point `at` projected onto `axes`: its index on each of them, in axis order."""
+    return {label: at[label] for label in axes if label in at}
+
+
 def by_coordinate(plan: Plan, by_point: dict) -> Any:
     """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
     the point's coordinate as text."""
     return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
-
-
-def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
-    """A saved value per point: each point's coordinates (none when its step is not swept) and its value."""
-    entry = plan.steps[name.partition(".")[0]]
-    if not isinstance(entry, list):
-        return [({}, plan.results[name])]
-    return [({label: plan.sweeps[label].values[i] for label, i in p.at.items()}, plan.results[name][coordinate(plan, p.at)])
-            for p in entry]

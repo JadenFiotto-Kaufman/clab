@@ -6,8 +6,11 @@ picks among its sizes), completed into the same records, and what the run needs 
 
 The package holds the two drivers and the concepts they resolve: `sweeps` and `data` are the format's own; `answers`
 (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments
-against the plan's records, and the one rule an operand keeps), `interventions` (an entry, its brackets and operands)
-and `uses` (a featurizer's uses in a plan) are here, each with its checks at compile and what it resolves to in the run.
+against the plan's records, and the one rule an operand keeps), `interventions` (an entry, its brackets and operands),
+`schedule` (the forward as a compiled schedule: which points one forward serves, and what it does) and `uses` (a
+featurizer's uses in a plan) are here, each with its checks at compile and what it resolves to in the run. The sweep
+axes each value depends on (`Labelled.axes`, the dependency rule `sweeps.find_sweeps` states) are computed here as
+the records are built (`forward`, `op_step`).
 
 Compile knows the document and the files; the run knows the model. Anything decided from the document, the
 data files and bundle headers is checked here; anything that needs the tokenizer or a size of the model is
@@ -25,6 +28,7 @@ from clab import featurizers, ops
 from clab.compile.answers import column_ref
 from clab.compile.arguments import called, carried, layout, mismatch, narrowed_readout, references, resolver, space_of, value_of
 from clab.compile.interventions import entry, items
+from clab.compile.schedule import shared
 from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
@@ -52,6 +56,7 @@ from clab.plan import (
     points,
     produced,
     record_of,
+    writes,
 )
 
 
@@ -91,6 +96,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
+    shared(done)
     return done
 
 
@@ -182,6 +188,49 @@ def point(cx: Compiling, at: dict[str, int]) -> Plan:
             return value
         cx.points[key] = Plan(**substitute(cx.doc, ()))
     return cx.points[key]
+
+
+def pathed(path: str) -> tuple:
+    """A document path as text (`steps.x.interventions[0].k`) as the tuple `get` walks (`("steps", "x",
+    "interventions", 0, "k")`): the names between dots, a bracketed index an int."""
+    out: list = []
+    for part in path.split("."):
+        head, *indices = part.replace("]", "").split("[")
+        out.append(head)
+        out += [int(i) for i in indices]
+    return tuple(out)
+
+
+def under(cx: Compiling, *paths: tuple) -> set[str]:
+    """The labels of the sweeps standing under any of the document `paths`."""
+    return {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in paths)}
+
+
+def ordered(cx: Compiling, labels: set[str]) -> list[str]:
+    """Axis labels in axis order."""
+    return [label for label in cx.values if label in labels]
+
+
+def named_axes(cx: Compiling, ref: str, at: dict[str, int]) -> set[str]:
+    """The axes a named value or featurizer varies on, at the consumer's point `at`: a value's as its record says;
+    a declared featurizer's its own; a featurizer a fit trains (`<fit>.<f>`, or its bare name inside the body) the
+    fit's."""
+    thing = cx.aliases.get(ref, ref).partition(".")[0]
+    if thing in cx.featurizers or thing not in cx.steps:          # a declared featurizer, or the fit being compiled
+        return set(cx.axes_of.get(thing, []))
+    return set(record_of(cx.steps, ref, at).axes)
+
+
+def operand_axes(cx: Compiling, listed: list, at: dict[str, int], live: dict[str, set[str]]) -> set[str]:
+    """The axes of every value or featurizer the ops `listed` name as an operand, at `at`: an entry of the same
+    forward (`live`, by its dotted name) those recorded for it there."""
+    found: set[str] = set()
+    for o in listed:
+        params = ops.parameters(o.op)
+        for key, value in arguments(o).items():
+            if key in params and params[key].annotation in (ops.Value, ops.Featurizer) and isinstance(value, str):
+                found |= live[value] if value in live else named_axes(cx, value, at)
+    return found
 
 
 def footprint(cx: Compiling, where: tuple) -> list[tuple]:
@@ -306,9 +355,31 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":
             live[f"{name}.{k}"] = records[k]
-    made = Generate if spec.kind == "generate" else Forward
-    return made(**spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
-                dataset=dataset, at=at)
+    # The dependency rule (`sweeps.find_sweeps`): the forward's axes are the step's options' and each write's
+    # before the forward (`pre`: its site, its positions and its ops up to its last edit, with their operands); an
+    # entry's are its own sweeps, its operands' and the forward's.
+    pre: dict[str, set[str]] = {}
+    for p, k, e in given:
+        where, record = pathed(p), records[k]
+        last = len(record.ops) - len(gathers(record))
+        after = under(cx, *(where + ("ops", i) for i in range(last, len(record.ops))))
+        site = under(cx, ("sites", e.site)) if isinstance(e.site, str) else set()
+        pre[f"{name}.{k}"] = (under(cx, where) - after) | site | operand_axes(cx, record.ops[:last], at, pre)
+    here = pathed(path)
+    forward_axes = under(cx, here) - under(cx, here + ("interventions",))
+    for p, k, e in given:
+        if writes(records[k]):
+            forward_axes |= pre[f"{name}.{k}"]
+    axes: dict[str, set[str]] = {}
+    for p, k, e in given:
+        site = under(cx, ("sites", e.site)) if isinstance(e.site, str) else set()
+        axes[f"{name}.{k}"] = under(cx, pathed(p)) | site | operand_axes(cx, records[k].ops, at, axes) | forward_axes
+        records[k].axes = ordered(cx, axes[f"{name}.{k}"])
+    fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
+                  dataset=dataset, at=at, schedule={"axes": ordered(cx, forward_axes)})
+    if spec.kind == "generate":
+        return Generate(**fields, axes=ordered(cx, forward_axes))       # the ids are the forward's own value
+    return Forward(**fields)
 
 
 def option(path: str, key: str, value: Any) -> None:
@@ -367,8 +438,9 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     layers, kept, width = carried(of, dims)
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in found.values() if "rows" in (t.dims or [])), None)
+    axes = under(cx, pathed(path)) | named_axes(cx, spec.of, at) | operand_axes(cx, [spec], at, {})
     return OpStep(**spec.model_dump(exclude_defaults=True), at=at, dataset=dataset, dims=dims, layers=layers,
-                  read=of.read, kept=kept, width=width, space=space)
+                  read=of.read, kept=kept, width=width, space=space, axes=ordered(cx, axes))
 
 
 # -- references --------------------------------------------------------------------------------------

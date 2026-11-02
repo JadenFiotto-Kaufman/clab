@@ -13,6 +13,7 @@ from clab.compile.answers import check_classes, check_tokens
 from clab.compile.arguments import carried, mismatch, references
 from clab.compile.interventions import check_operands, refuse, resolved
 from clab.compile.positions import indices
+from clab.compile.schedule import scheduled
 from clab.compile.state import Found
 from clab.compile.uses import widths
 from clab.format import address, data, selectors
@@ -41,7 +42,9 @@ if TYPE_CHECKING:
 def preflight(engine: Engine, plan: Plan) -> Found:
     """Everything that needs the model, checked before any forward, and the plan's records completed with it:
     each read's and write's `layers` and `kept` resolved among the engine's sizes, each prefill record's
-    `positions` per row and the `width` they confirm, every op step's labels from its producer's, and each
+    `positions` per row and the `width` they confirm, every op step's labels from its producer's, each forward's
+    and generation's `schedule` (`schedule.scheduled`: the sites it visits in the engine's forward order, with the
+    records done at each, and where it stops), and each
     featurizer's `width` at the sites it is used at (`uses.widths`). Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs beside the records: each dataset input's encoded rows and padded width
     (`inputs`), room for what each generate step's rows said (`said`), and for each fit point the same for its body
@@ -63,8 +66,9 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     tensors are not as wide), with a field that counts more directions than that width (`counts`), at another
     layer than the one it says it was trained at, reading its input elsewhere than its bundle was made reading it
     (`read_with`), or encoded with a `select` outside its features or keeping none of them; and a trained
-    featurizer used at no site. A refusal inside a fit's body names the fit, and under an eval the eval and the
-    datasets it reads.
+    featurizer used at no site. A write whose operand its own forward reads at a site the engine reaches no earlier
+    than the write's is refused where the schedule is written. A refusal inside a fit's body names the fit, and
+    under an eval the eval and the datasets it reads.
     """
     refuse(engine, plan)
     rows = {n: held_rows(plan, n) for n in plan.data}
@@ -82,8 +86,9 @@ def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swa
     refusal names the fit and, under an eval, which one and the datasets it reads in place of the body's, whose
     rows a row number counts."""
     view = body_view(plan, fit, step.at, swap)
+    trained = {alias: step.at for f in step.train for alias in (f, f"{fit}.{f}")}
     try:
-        return view, prepare(engine, view, step.steps, swap, classes)
+        return view, prepare(engine, view, step.steps, swap, classes, trained)
     except ValueError as e:
         if label is None:
             raise ValueError(f"{fit}.{e}") from None
@@ -91,11 +96,14 @@ def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swa
         raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
 
 
-def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list]) -> Found:
+def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list],
+            trained: dict[str, dict[str, int]] | None = None) -> Found:
     """`preflight`'s checks and findings for `steps`, in order (a fit's body prepared at the fit's place, over its
     training rows and under each eval), over the rows `plan` holds: the root's, or a body's. `swap` names each
     dataset as the run reads it (an eval substitution's `{"train": "test"}` records `train.input` as `test.input`
-    and the records' positions under `test`); `classes` is each probe's class list."""
+    and the records' positions under `test`); `classes` is each probe's class list; `trained`, in a body, each
+    featurizer the fit trains by both its names, with the fit's point. Once every point of a step has its records,
+    each serving point's schedule is written (`scheduled`)."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
     found = Found(swap=swap)
@@ -195,6 +203,9 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                     if i < edits:
                         check_operands(engine, plan, where, o, step, record, found)
                     dims = o.dims or dims
+        for step in points(entry):
+            if step.kind in ("forward", "generate") and "serves" in step.schedule:
+                scheduled(engine, plan, name, step, trained or {})
     return found
 
 

@@ -251,11 +251,11 @@ def refuse(engine: Engine, plan: Plan) -> None:
 def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward | Generate, record: Intervention,
                    found: Found) -> None:
     """A write's operands that another entry selected, beyond Ops' one rule (`arguments.mismatch`): from the
-    write's own forward, read at a site this engine reaches first, at each layer the write is made at (where the
-    operand stacks, its read at that layer), and, where either holds no one width on every row, as many positions
-    as the write on each row; an adapter's input (`apply`'s `with`) as wide per position as the value the op acts
-    on, its axes after the positions flattened, and from the same forward read at the write's own positions; on a
-    `key` axis, inputs that line up token for token, and an unscoped operand on another input `windowed`."""
+    write's own forward, where either holds no one width on every row, as many positions as the write on each row
+    (that the forward reaches the operand's site first is checked where the schedule is written); an adapter's
+    input (`apply`'s `with`) as wide per position as the value the op acts on, its axes after the positions
+    flattened, and from the same forward read at the write's own positions; on a `key` axis, inputs that line up
+    token for token, and an unscoped operand on another input `windowed`."""
     args, sizes, site = arguments(o), engine.sizes(), cast(Site, record.site)
     adapts = o.op == "apply"
     for key, p in ops.parameters(o.op).items():
@@ -268,16 +268,6 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         producer, read = entry_of(plan.steps, value, step.at)
         theirs_site = cast(Site, read.site)
         same = value.partition(".")[0] == where.partition(".")[0]
-        for layer in (record.layers or [None]) if same else []:
-            made = layer if address.stacks(theirs_site.layers) else (theirs.layers or [None])[0]
-            if (theirs_site.component, made) != (site.component, layer) and \
-                    engine.rank(theirs_site.component, made) >= engine.rank(site.component, layer):
-                raise ValueError(f"{where}: operand {value!r} is read at {theirs_site.component} layer "
-                                 f"{made if address.stacks(theirs_site.layers) else theirs_site.layers}, which the "
-                                 f"{engine.name} engine's forward reaches no earlier than this write's "
-                                 f"{site.component} layer {layer if address.stacks(site.layers) else site.layers}; an "
-                                 "operand from the write's own forward is an earlier entry at this site, or at a site "
-                                 "the forward reaches first")
         if adapts and key == "with":
             per, own = (math.prod(len(kept[a]) if a in kept else sizes[a] for a in address.dims(s.component)[2:])
                         for s, kept in ((theirs_site, theirs.kept), (site, record.kept)))

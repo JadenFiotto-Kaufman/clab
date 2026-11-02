@@ -37,7 +37,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing, find_sweeps, points
+from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected
 
 
 class PlanError(ValueError):
@@ -129,6 +129,18 @@ Swept = Annotated[Union[T, Sweep], ByShape()]
 
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
+SCHEDULE = ("the forward this point runs, or the point whose forward serves it. A forward depends on the step's "
+            "options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and "
+            "their operands), so the points that agree on those axes are served by one forward: the first of them "
+            "holds the schedule, `serves` listing every point it serves (itself first), and each other holds "
+            "`serving`, its coordinates. Compile writes those; preflight, with the model in hand, writes the sites "
+            "the forward visits in the engine's forward order (`sites`: each its component and layer and the records "
+            "done there in order, a write with its ops up to its last edit and each operand resolved to a "
+            "producer's name and point or to the name of a read of the same forward, a read with the point whose "
+            "entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which "
+            "runs whole), and for a generation each record's `calls` and `online`, `prompt` on a part over the "
+            "prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). "
+            "The engines execute it and decide nothing")
 
 
 # The quantized dtypes (nnsight's names for them) and the dtype each computes in: what its values, and the weights
@@ -507,6 +519,12 @@ class Labelled(Record):
                                              "`[]` stands until preflight resolves a slice or a negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
                                     "first, each its `featurizer` and `select`; none for the site's own layout")
+    axes: list[str] = derived([], "the sweep axes the value depends on, in axis order: the sweeps on its own entry "
+                                  "(its site, its positions, an op's literal argument), those of every value or "
+                                  "featurizer its ops name, and, for an entry of a forward, the forward's "
+                                  "(`schedule`); an op step's are its `of`'s and its operands'; a fit member's are "
+                                  "the fit's. The value is one per distinct point on these axes, and its result is "
+                                  "keyed by them")
 
 
 # What an entry's value spelled `reads` and `writes` is now, said where a document still spells them.
@@ -650,6 +668,7 @@ class Forward(Record):
     interventions: Interventions = {}
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
+    schedule: dict[str, Any] = derived({}, SCHEDULE)
 
     @model_validator(mode="before")
     @classmethod
@@ -884,7 +903,9 @@ class Run(Record):
     generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
     keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
     layout and labels are. `costs` holds what each step cost, by
-    name (a swept step's keyed by coordinate): its wall time in `seconds`, the peak `memory` allocated during it on
+    name, one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each
+    listing in `serves` the coordinates of the points it served: those one forward serves, `schedule`, or those an
+    op's value is one for, `axes`): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
     and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
@@ -1119,11 +1140,51 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
         return found
     label, _, rest = member.partition(".")
     if label == "history" or label in step.train:
-        return Labelled(dims=["epochs"] if label == "history" else [])
+        return Labelled(dims=["epochs"] if label == "history" else [], axes=list(step.at))
     inner = record_of(step.steps, rest, step.at)
     inside = inner.read is not None and inner.read.partition(".")[0] in step.steps
     return inner.model_copy(update={"dataset": step.eval[label].get(inner.dataset, inner.dataset),
-                                    "read": f"{thing}.{label}.{inner.read}" if inside else inner.read})
+                                    "read": f"{thing}.{label}.{inner.read}" if inside else inner.read,
+                                    "axes": list(step.at)})
+
+
+def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
+    """The points of the value `name`, in order: each point of its step projected onto the value's own axes
+    (`Labelled.axes`), each once, with the first point of the step it is the projection of; `[({}, <the step>)]`
+    for a value that depends on no axis."""
+    found: dict[tuple, tuple[dict[str, int], Step]] = {}
+    for p in points(plan.steps[name.partition(".")[0]]):
+        at = projected(p.at, record_of(plan.steps, name, p.at).axes)
+        found.setdefault(tuple(at.items()), (at, p))
+    return list(found.values())
+
+
+def serving(entry: Entry) -> list[tuple[Step, list[dict[str, int]]]]:
+    """The points of a step that run, in order, each with the points it serves: a forward's or generation's those
+    its `schedule` says (the first of the points that agree on the forward's axes, serving them all), an op's the
+    first point of each distinct point on its value's `axes` (the value is one there), a fit's each itself."""
+    out: list[tuple[Step, list[dict[str, int]]]] = []
+    seen: dict[tuple, list[dict[str, int]]] = {}
+    for step in points(entry):
+        if isinstance(step, Forward):
+            if "serves" in step.schedule:
+                out.append((step, step.schedule["serves"]))
+        elif isinstance(step, OpStep):
+            key = tuple(projected(step.at, step.axes).items())
+            if key not in seen:
+                seen[key] = []
+                out.append((step, seen[key]))
+            seen[key].append(step.at)
+        else:
+            out.append((step, [step.at]))
+    return out
+
+
+def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
+    """A saved value per point of its own axes: each point's coordinates (none for a value on no axis) and its
+    value."""
+    return [({label: plan.sweeps[label].values[i] for label, i in at.items()},
+             plan.results[name][coordinate(plan, at)] if at else plan.results[name]) for at, _ in projections(plan, name)]
 
 
 def scope(plan: Plan, where: str) -> dict[str, Entry]:
