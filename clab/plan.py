@@ -1032,7 +1032,8 @@ class Plan(Record):
         return compile(self)
 
     def dump(self, out: str) -> None:
-        """A run's output directory: one file per save and `manifest.json`."""
+        """A run's output directory: one file per save, `manifest.json` and `tokens.json` (each input's tokens per
+        row, `run.tokens`, which `load` reads back)."""
         from clab.output import dump
         dump(self, out)
 

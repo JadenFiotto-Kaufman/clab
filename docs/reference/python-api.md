@@ -39,7 +39,7 @@ Plan(**fields)    # build one from the document's keys as Python values
 | method | does |
 |---|---|
 | `compile() -> Plan` | a new, compiled plan: rows loaded, sites and bundles of entries inlined, sweeps expanded into points, names resolved. A compiled plan returns itself. Raises `PlanError` |
-| `dump(out)` | writes the output directory: one file per save and `manifest.json`. A plan that has not run raises `ValueError` (`the plan has not run, so it has no results; execute it first`) |
+| `dump(out)` | writes the output directory: one file per save, `manifest.json` and `tokens.json` (the rows' tokens, `run.tokens`). A plan that has not run raises `ValueError` (`the plan has not run, so it has no results; execute it first`) |
 | `Plan.load(out)` | classmethod: the filled plan an output directory holds, with `results` and `run` |
 | `table(*names, columns=None) -> list[dict]` | the rows `clab table` prints, one dict per row. `columns` lists the dataset columns to include; by default, those the values' steps used. A plan that has not run raises `ValueError`, as `dump` does |
 | `write(path)` | writes the plan as a JSON document in its current state, without `results`, `run` and `document`, defaults left out |

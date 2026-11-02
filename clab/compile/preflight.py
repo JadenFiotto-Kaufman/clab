@@ -235,5 +235,6 @@ def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list | Non
         return None, None, False
     step, record = entry_of(plan.steps, read, at)
     scope = positions.parse(record.pos)["scope"] or {}
-    encoded = found.inputs.get(data.input_name(step.input))     # a harvest's input is not among a fit body's
+    name = data.input_name(step.input)
+    encoded = found.inputs.get(name) or found.root.get(name)    # a harvest's input is among the root's, not a body's
     return where, None if encoded is None else [e["ids"] for e in encoded["rows"]], bool(scope.get("before"))

@@ -972,6 +972,47 @@ def test_a_body_writes_window_on_another_input_is_refused_as_the_roots_is(engine
                 engines(kind, plan.model).execute(plan, batch_size=4)
 
 
+ROOT_HARVEST_MODEL = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+                      "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
+ROOT_HARVEST_ROWS = [{"input": f"If today is {a}, tomorrow is", "said": f" {b}", "other": f" {c}"}
+                     for a, b, c in [("Sunday", "Monday", "Friday"), ("Friday", "Saturday", "Monday"),
+                                     ("Saturday", "Sunday", "Monday"), ("Monday", "Friday", "Sunday")]]
+
+
+def root_harvest(body: bool, forced_inside: bool = False) -> dict:
+    """A `before`-scoped read of the head on the prompts followed by `said`, scored by cross-entropy against
+    `other`, which the input does not say there: as a root step (`body` False), as a body op over the root's
+    harvest, or with the harvest made inside the body (`forced_inside`)."""
+    head, l0 = {"component": "lm_head_output"}, {"component": "layer_output", "layers": 0}
+    forced = {"kind": "forward", "input": ["d.input", "d.said"], "interventions": {
+        "logits": {"site": head, "pos": {"scope": {"column": "d.said", "occurrence": -1, "before": True}}}}}
+    nll = {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "d.other"}
+    if not body:
+        return {"model": ROOT_HARVEST_MODEL, "data": {"d": {"rows": ROOT_HARVEST_ROWS}},
+                "steps": {"forced": forced, "nll": nll}, "saves": ["nll"]}
+    run = {"kind": "forward", "input": "d.input", "interventions": {
+        "w": {"site": l0, "pos": -1, "ops": [{"op": "apply", "featurizer": "g"}]}, "logits": {"site": head, "pos": -1}}}
+    fit = {"kind": "fit", "train": ["g"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 4, "seed": 0,
+           "optimizer": {"name": "sgd", "lr": 1.0}, "eval": {"train": {}},
+           "steps": {**({"forced": forced} if forced_inside else {}), "run": run,
+                     "ce": {"kind": "op", "op": "cross_entropy", "of": "run.logits", "target": "d.said"}, "nll": nll}}
+    return {"model": ROOT_HARVEST_MODEL, "data": {"d": {"rows": ROOT_HARVEST_ROWS}}, "featurizers": {"g": {"kind": "gate"}},
+            "steps": {**({} if forced_inside else {"forced": forced}), "fit": fit}, "saves": ["fit.train.nll"]}
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_body_op_over_a_root_harvest_is_held_to_its_input_as_the_root_is(engines, kind):
+    """A metric's answer is checked against what the input says at the read's positions (`preflight.placed`, with
+    the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
+    column the input does not say there is refused naming the token, as the root's own op and the body that makes
+    the harvest itself are; a body's `Found` holds only its own inputs, so the harvest's are the root's."""
+    said = r"predicts ' Monday' in the input, which is not token 0 of ' Friday'"
+    for doc in (root_harvest(False), root_harvest(True), root_harvest(True, forced_inside=True)):
+        plan = written(doc)
+        with pytest.raises(ValueError, match=said):
+            engines(kind, plan.model).execute(plan, batch_size=4)
+
+
 def held_out_extra(d):
     """T1's body with a second forward over `extra` (the same prompts), and an eval that reads `extra` as
     `shuffled`, the prompts in another order, beside the eval over its training rows."""

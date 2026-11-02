@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Runs interpretability experiments on transformer LMs from declarative JSON documents."
 requires-python = ">=3.10"
 dependencies = [
-    "nnsight>=0.8.1",
+    "nnsight>=0.8.2",
     "nnterp",
     "torch",
     "safetensors",
