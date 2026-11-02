@@ -1,12 +1,14 @@
-"""Reductions: ops that remove axes. `mean`, `sum` and `min` compute in float32 whatever the value's dtype
-(`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
+"""Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm` and `dot` compute in float32
+whatever the value's dtype (`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
 
 import json
+import math
 
 import torch
 from torch import Tensor
 
 from clab.format.address import EXAMPLE_AXES
+from clab.format.registry import Value
 from clab.ops import op
 
 # What a reduction without `over` removes: the rows and the positions. A `layers` axis says which layer each
@@ -51,8 +53,102 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     none is."""
     of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
-        return torch.full_like(of.sum(dim=axes), float("nan"))
-    return of.nan_to_num(nan=float("inf")).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), float("nan"))
+        return torch.full_like(of.sum(dim=axes), math.nan)
+    return of.masked_fill(of.isnan(), math.inf).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
+
+
+@op("reductions", layout=reduced)
+def max(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """The greatest value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
+    none is."""
+    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
+        return torch.full_like(of.sum(dim=axes), math.nan)
+    return of.masked_fill(of.isnan(), -math.inf).amax(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
+
+
+@op("reductions", layout=reduced)
+def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """The sample standard deviation over the axes `over` names, as `mean` takes them, of the n values that are
+    there: `sqrt(sum((x - mean)^2) / (n - 1))`; NaN where fewer than two are."""
+    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    n = (~of.isnan()).sum(dim=axes)
+    spread = (of - of.nanmean(dim=axes, keepdim=True)).square().nansum(dim=axes)
+    return (spread / (n - 1)).sqrt().masked_fill(n < 2, math.nan)
+
+
+# What `count` counts along unless `over` names other axes: the positions.
+COUNTED = ("pos",)
+
+
+def counted(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one
+    count per position of those it keeps (a read's count over `pos` is one number per row)."""
+    over = COUNTED if args.get("over") is None else args["over"]
+    for axis in over:
+        if axis not in dims:
+            default = " unless 'over' names the axes it counts along" if args.get("over") is None else ""
+            raise ValueError(f"count counts along {axis!r}{default}, and the value is laid out {dims}; 'over' names "
+                             f"axes the value has (\"over\": {json.dumps(dims[-1:])})")
+    if not over:
+        raise ValueError(f"a reduction of a value laid out {dims} removes no axis of it: 'over' names none")
+    return [a for a in dims if a not in over and a in EXAMPLE_AXES]
+
+
+@op("reductions", layout=counted)
+def count(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is
+    held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is
+    each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and
+    0 where it has none."""
+    over = list(COUNTED if over is None else over)
+    held = ~of.isnan() if of.is_floating_point() else of != -1
+    features = [i for i, a in enumerate(dims) if a not in EXAMPLE_AXES and a not in over]
+    if features:
+        held = held.any(dim=features, keepdim=True)
+    return held.sum(dim=[i for i, a in enumerate(dims) if a in over or i in features]).float()
+
+
+# What `norm` and `dot` reduce over unless `over` names other axes: a vector's features.
+FEATURES = ["hidden_size"]
+
+
+def featured(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`."""
+    if args.get("over") is None and FEATURES[0] not in dims:
+        raise ValueError(f"it reduces over {FEATURES[0]} unless 'over' names the axes, and the value is laid out "
+                         f"{dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+    return reduced(dims, {**args, "over": FEATURES if args.get("over") is None else args["over"]})
+
+
+def finite_positive(args: dict) -> None:
+    """`norm`'s `p` is a finite number greater than 0."""
+    p = args.get("p", 2.0)
+    if isinstance(p, (int, float)) and not math.isfinite(p):
+        raise ValueError(f"'norm' p {p} is not finite; an Lp norm takes a finite p > 0 (2, the length; 1, the sum of "
+                         "absolute values), and the largest absolute value over the axes is a `max` of `abs`")
+    if isinstance(p, (int, float)) and p <= 0:
+        raise ValueError(f"'norm' p {p} is not greater than 0; an Lp norm takes p > 0 (2, the length; 1, the sum "
+                         "of absolute values)")
+
+
+@op("reductions", layout=featured, check=finite_positive)
+def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 2.0) -> Tensor:
+    """The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that
+    are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is."""
+    of = of.float()
+    powered = of.square() if p == 2 else of.abs().pow(p)
+    total = sum(powered, dims, FEATURES if over is None else over)
+    return total.sqrt() if p == 2 else total.pow(1 / p)
+
+
+@op("reductions", layout=featured)
+def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with`
+    (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes
+    them (`mul` then `sum`, to the bit); NaN where none is."""
+    product = of.float() * torch.as_tensor(with_, device=of.device).float()
+    return sum(product, dims, FEATURES if over is None else over)
 
 
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")

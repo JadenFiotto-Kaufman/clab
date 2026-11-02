@@ -89,15 +89,14 @@ How to read and choose the doses:
 "The direction does this and a random one does not" is a fair comparison only when the random direction is as long. Draw one from noise and give it the difference's norm, as steps after `direction`:
 
 ```json
-"squares": {"kind": "op", "op": "scale", "of": "difference", "factor": "direction"},
-"norm": {"kind": "op", "op": "sum", "of": "squares", "over": ["hidden_size"]},
+"norm": {"kind": "op", "op": "norm", "of": "difference"},
 "zero": {"kind": "op", "op": "scale", "of": "difference", "factor": 0.0},
 "draw": {"kind": "op", "op": "noise", "of": "zero", "scale": 1.0, "seed": 7},
 "random_unit": {"kind": "op", "op": "normalize", "of": "draw"},
 "random": {"kind": "op", "op": "scale", "of": "random_unit", "factor": "norm"}
 ```
 
-`norm` is the difference's length, the difference times its own unit vector summed, since no op takes a norm ([ops](../usage/ops.md#what-is-not-an-op)). `noise` on a value with no rows is one Gaussian draw from its `seed`, `normalize` makes it unit length, and `scale` gives it the difference's norm: on the corpus, `random`'s norm equals `difference`'s to the bit at seeds 7, 8 and 9. Add `random` at the same doses as `difference` in a forward of its own, and sweep `seed` for the spread a real direction has to clear. Steering with the unit `direction`, as the document above does, the matched control is `random_unit`.
+`norm` is the difference's length, its L2 norm over `hidden_size` ([ops](../usage/ops.md#reductions-and-over)). `noise` on a value with no rows is one Gaussian draw from its `seed`, `normalize` makes it unit length, and `scale` gives it the difference's norm: on the corpus, `random`'s norm equals `difference`'s to the bit at seeds 7, 8 and 9. Add `random` at the same doses as `difference` in a forward of its own, and sweep `seed` for the spread a real direction has to clear. Steering with the unit `direction`, as the document above does, the matched control is `random_unit`.
 
 ## Clamping
 

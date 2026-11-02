@@ -20,7 +20,7 @@
 | Choose a component or layers | [usage/sites.md](docs/usage/sites.md) |
 | Point at a token | [usage/positions.md](docs/usage/positions.md), [concepts/positions.md](docs/concepts/positions.md) |
 | Read or write at a site | [usage/interventions.md](docs/usage/interventions.md) |
-| Score or reduce a value | [usage/ops.md](docs/usage/ops.md) |
+| Score or reduce a value, or compute on one (a norm, a ratio, a comparison) | [usage/ops.md](docs/usage/ops.md) |
 | Run one document at many settings | [usage/sweeps.md](docs/usage/sweeps.md) |
 | Generate text and score it | [usage/generate.md](docs/usage/generate.md), [patterns/generation-experiments.md](docs/patterns/generation-experiments.md) |
 | Train a featurizer, or load one | [usage/featurizers.md](docs/usage/featurizers.md), [usage/fit.md](docs/usage/fit.md), [usage/bundles.md](docs/usage/bundles.md) |

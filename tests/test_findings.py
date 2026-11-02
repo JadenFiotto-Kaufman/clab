@@ -621,8 +621,9 @@ def test_d8_o13_s17_a_bf16_models_mean_cosine_and_probability_are_float32(engine
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16(engines, kind):
-    """Each metric and `mean`, `sum`, `min` returns float32 on a bfloat16 model; a value read from the model, and
-    an edit's value, which it writes back, keep the model's dtype, even with a float32 operand: the edit runs in
+    """Each metric, every reduction but `pca` and each elementwise transform returns float32 on a bfloat16 model, a
+    comparison its 0 or 1 in the model's dtype, as a step and inside an entry; a value read from the model, and an
+    edit's value, which it writes back, keep the model's dtype, even with a float32 operand: the edit runs in
     float32 and rounds once (`add` of the float32 mean, `project_out` of it as a step)."""
     few = {"rows": MANY["rows"][:4]}
     metric = {"match": {"expected": "d.answer"}, "logit_diff": {"a": "d.answer", "b": "d.other"},
@@ -640,9 +641,21 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
              "text": {"kind": "op", "op": "detokenize", "of": "gen"},
              "contains": {"kind": "op", "op": "contains", "of": "text", "text": "d.answer"},
              "out": {"kind": "op", "op": "project_out", "of": "base.resid", "direction": "avg"},
-             "top": {"kind": "op", "op": "top_k", "of": "f.logits", "k": 3}}
-    names = [*metric, "avg", "cosine", "sum", "min", "contains"]
-    kept = ["base.resid", "f.w", "f.logits", "out"]
+             "top": {"kind": "op", "op": "top_k", "of": "f.logits", "k": 3},
+             "max": {"kind": "op", "op": "max", "of": "f.w"}, "std": {"kind": "op", "op": "std", "of": "f.w"},
+             "count": {"kind": "op", "op": "count", "of": "f.w"}, "norm": {"kind": "op", "op": "norm", "of": "f.w"},
+             "dot": {"kind": "op", "op": "dot", "of": "f.w", "with": "avg"},
+             **{name: {"kind": "op", "op": name, "of": "f.w"} for name in ELEMENTWISE},
+             "mul": {"kind": "op", "op": "mul", "of": "f.w", "with": "avg"},
+             "div": {"kind": "op", "op": "div", "of": "f.w", "with": "avg"},
+             "pow": {"kind": "op", "op": "pow", "of": "f.w", "exponent": 3},
+             **{name: {"kind": "op", "op": name, "of": "f.w", "with": "avg"} for name in COMPARISONS},
+             "within": forward({"n": {"site": LAYER0, "pos": -1, "ops": [{"op": "norm"}]},
+                                "a": {"site": LAYER0, "pos": -1, "ops": [{"op": "abs"}]},
+                                "g": {"site": LAYER0, "pos": -1, "ops": [{"op": "gt", "with": 0}]}})}
+    names = [*metric, "avg", "cosine", "sum", "min", "contains", "max", "std", "count", "norm", "dot", *ELEMENTWISE,
+             "mul", "div", "pow", "within.n", "within.a"]
+    kept = ["base.resid", "f.w", "f.logits", "out", *COMPARISONS, "within.g"]
     filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps, saves=[*kept, *names, "top"]).compile(),
                  kind)
     assert {k: filled.results[k].dtype for k in names} == {k: torch.float32 for k in names}
@@ -653,6 +666,14 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
     resid, avg = filled.results["base.resid"], filled.results["avg"]
     assert torch.equal(filled.results["f.w"], (resid.float() + avg).to(torch.bfloat16))
     assert torch.equal(filled.results["out"], ops.edits.project_out(resid.float(), avg).to(torch.bfloat16))
+    w = filled.results["f.w"]
+    assert torch.equal(filled.results["gt"], (w.float() > avg).to(torch.bfloat16))     # compared in float32
+    assert torch.equal(filled.results["norm"], w.float().square().sum(-1).sqrt())
+
+
+# The elementwise transforms that take no argument, and the comparisons.
+ELEMENTWISE = ["abs", "exp", "log", "sign", "sqrt", "square", "neg"]
+COMPARISONS = ["eq", "ne", "gt", "ge", "lt", "le"]
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
