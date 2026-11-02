@@ -36,7 +36,7 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.standard import SIZES, build, envoy, inputs, loading, nnterp_name, placing, served, stops
+from clab.engines.standard import build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.sweeps import points
 from clab.plan import QUANTIZED, Model, Plan, entries, gradient_of, walk
 from clab.steps import batches
@@ -126,14 +126,15 @@ class NnterpEngine:
         return stops(self.model.generation_config, self.model.tokenizer)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """nnterp's answer (`standard.unserved`), and under `tp` why the ranks hold a value in pieces (`split`)."""
+        """nnterp's answer (`standard.unserved`), and under `tp` why the ranks hold a value in pieces (`split`), said
+        as clab says it (`standard.own`)."""
         reasons, tp, n = standard.unserved(self.model), self.options.get("tp", 1), self.model.num_layers
         for c, reason in reasons.items() if tp > 1 else []:
             pieces: dict[Any, str] = {layer: f"under tp {tp} {why}" for layer in served(c, reason, n)
                                       if (why := split(self.model, c, layer))}
             if pieces and not isinstance(reason, str):
                 reasons[c] = pieces[None] if None in pieces else {**pieces, **(reason or {})}
-        return reasons
+        return standard.own(reasons)
 
     def rank(self, component: str, layer: int | None) -> tuple[int, int]:
         """Where the component falls in this checkpoint's forward: nnterp's measured order (under `tp` measured on
@@ -143,7 +144,7 @@ class NnterpEngine:
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
-        return {k: getattr(self.model, k) for k in SIZES}
+        return standard.sizes(self.model)
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
         """One trace over the batch, its one forward call done as `visited` says up to the schedule's stop site

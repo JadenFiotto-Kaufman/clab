@@ -291,11 +291,12 @@ def padded(value: Tensor, dim: int, n: int) -> Tensor:
 def read(engine: Engine, plan: Plan, record: Intervention, value: Tensor, site: dict, ids: list[int], state: ChainMap,
          at: dict, found: Found, layer: int | None) -> Any:
     """One layer of an entry's value (`layer`) taken off the model in the prefill, in one batch (its dataset row `ids`),
-    NaN past a row's own positions (`keep`, which only a batch whose rows hold different numbers of them has), then
-    the ops after its last edit."""
+    NaN past a row's own positions, -1 in ids (`keep`, which only a batch whose rows hold different numbers of them
+    has), then the ops after its last edit."""
     if "keep" in site:
         keep = site["keep"].to(value.device)
-        value = value.masked_fill(~keep.reshape(*keep.shape, *[1] * (value.dim() - 2)), float("nan"))
+        value = value.masked_fill(~keep.reshape(*keep.shape, *[1] * (value.dim() - 2)),
+                                  float("nan") if value.is_floating_point() else -1)
     return with_ops(engine, plan, record, value, state, at, ids, site["tok"], found, layer)
 
 

@@ -674,6 +674,12 @@ component is that engine's business; the name says only what the value is.
 | `mlp_input` | rows, pos, hidden_size | layers, hidden_size | no | what the MLP is called with |
 | `mlp_activation` | rows, pos, intermediate_size | layers, intermediate_size | no | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
 | `mlp_neurons` | rows, pos, intermediate_size | layers, intermediate_size | no | what the down projection sums |
+| `router_logits` | rows, pos, num_experts | layers, num_experts | no | a mixture of experts' router logits, one per expert, before its scoring |
+| `expert_weights` | rows, pos, top_k | layers, top_k | no | the weight each routing slot's expert output is scaled by |
+| `expert_indices` | rows, pos, top_k | layers, top_k | no | the expert each routing slot sends the token to, int64 |
+| `expert_outputs` | rows, pos, top_k, hidden_size | layers, top_k, hidden_size | no | each slot's expert output times its weight, before the slots are summed |
+| `routed_output` | rows, pos, hidden_size | layers, hidden_size | no | the routed experts' sum, without the shared expert |
+| `shared_expert_output` | rows, pos, hidden_size | layers, hidden_size | no | the shared expert's output, where the mixture has one |
 | `mlp_output` | rows, pos, hidden_size | layers, hidden_size | yes | what the MLP adds to the stream |
 | `layer_output` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream leaving block i |
 | `final_norm_output` | rows, pos, hidden_size | hidden_size | no | the final norm's output, what the head projects |
@@ -895,7 +901,9 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `r
 each component is (the module whose output or input nnterp's key for it names), the sizes, the final norm and head
 its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the checkpoint supports,
 layer by layer, which this engine refuses by name before anything runs, as well as a value nnterp reads inside a
-module's forward (`.source`) wherever the module is. `device` is one torch device, which the loaded model moves to
+module's forward (`.source`) or among a module's call arguments (`.inputs`) wherever the module is. A value nnterp
+holds flat over tokens at its module (a mixture of experts' routing and routed sum, `[batch * seq, ...]`) is served
+as nnterp serves it, `[batch, seq, ...]`. `device` is one torch device, which the loaded model moves to
 (a quantized one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...),
 which `from_pretrained` takes as its `device_map` and may spread over several GPUs; the batch's inputs go where the
 model's first parameter is, and transformers moves them on from there.

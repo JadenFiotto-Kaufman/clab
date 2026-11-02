@@ -5,7 +5,9 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `r
 each component is (the module whose output or input nnterp's key for it names), the sizes, the final norm and head
 its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the checkpoint supports,
 layer by layer, which this engine refuses by name before anything runs, as well as a value nnterp reads inside a
-module's forward (`.source`) wherever the module is. `device` is one torch device, which the loaded model moves to
+module's forward (`.source`) or among a module's call arguments (`.inputs`) wherever the module is. A value nnterp
+holds flat over tokens at its module (a mixture of experts' routing and routed sum, `[batch * seq, ...]`) is served
+as nnterp serves it, `[batch, seq, ...]`. `device` is one torch device, which the loaded model moves to
 (a quantized one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...),
 which `from_pretrained` takes as its `device_map` and may spread over several GPUs; the batch's inputs go where the
 model's first parameter is, and transformers moves them on from there.
@@ -24,7 +26,7 @@ from transformers import AutoModelForCausalLM
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.standard import COMPUTED, SIZES, build, envoy, inputs, loading, stops
+from clab.engines.standard import COMPUTED, build, envoy, inputs, loading, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -53,7 +55,7 @@ class HooksEngine:
         sites = {c: reach(shell, c, refused) for c, refused in standard.unserved(shell).items()}
         self.spec, self.device, self.options = model, device, {}
         self.tokenizer = shell.tokenizer
-        self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
+        self.config = {"sizes": standard.sizes(shell), "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, **loaded, device_map=device if mapped else None, **extra).eval())
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
@@ -79,8 +81,9 @@ class HooksEngine:
         return steps.gpus(self)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """nnterp's answer, layer by layer, but at every layer with the module a value nnterp reads inside a forward."""
-        return {c: site["refused"] for c, site in self.config["sites"].items()}
+        """nnterp's answer, layer by layer, but at every layer with the module a value nnterp reads inside a forward
+        or among a call's arguments, said as clab says it (`standard.own`)."""
+        return standard.own({c: site["refused"] for c, site in self.config["sites"].items()})
 
     def rank(self, component: str, layer: int | None) -> int:
         """Where the component falls in this model's forward: when its hook fires, as measured at load."""
@@ -157,13 +160,16 @@ def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict
     def visit(value: Tensor) -> tuple[Tensor, bool]:
         records = now(here, len(calls) - 1)
         records = landed(records, calls[1:], engine.tokenizer, len(calls) - 1) if len(calls) > 1 else records
-        # A flat [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
-        flat = len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
-        value = value.unflatten(-1, shape) if flat else value
+        # A value nnterp holds flat over tokens, [batch * seq, ...], is this call's [batch, seq, ...] rows; else a flat
+        # [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
+        tokens = reach["tokens"] and value.dim() == len(COMPONENTS[component]["dims"]) - 1
+        flat = not tokens and len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
+        value = (value.unflatten(0, (calls[-1].shape[0], -1)) if tokens else
+                 value.unflatten(-1, shape) if flat else value)
         value, wrote = batches.visit(value, component, records, got)
         if ends:
             raise _Stopped
-        return (value.flatten(-2) if flat else value), wrote
+        return (value.flatten(0, 1) if tokens else value.flatten(-2) if flat else value), wrote
 
     if reach["boundary"] == "input":
         def pre(module: torch.nn.Module, args: tuple[Any, ...]) -> tuple[Any, ...] | None:
@@ -212,8 +218,13 @@ def order(model: torch.nn.Module, sites: dict[str, dict[str, Any]], device: str)
 
 
 def reach(shell: StandardizedTransformer, component: str, refused: str | dict[Any, str] | None) -> dict[str, Any]:
-    """Each layer's module nnterp's key reads, or why not: the value is inside a forward there, or nnterp's reason."""
+    """Each layer's module nnterp's key reads, or why not: the value is inside a forward there, or among a module's
+    call arguments, or nnterp's reason; and whether nnterp holds it flat over tokens there (`tokens`, a
+    `TokenEProperty`)."""
+    from nnterp.components.tokens import TokenEProperty
+
     per_layer, paths, reasons, boundary = COMPONENTS[component]["per_layer"], {}, {}, None
+    tokens = False
     for layer in range(shell.num_layers) if per_layer else [None]:
         why = refused.get(layer) if isinstance(refused, dict) else refused
         try:
@@ -223,11 +234,17 @@ def reach(shell: StandardizedTransformer, component: str, refused: str | dict[An
                 raise
             reasons[layer] = why
             continue
-        value = getattr(type(host), component)
+        value = getattr(type(host), component, None)
+        if value is None:               # no such value on this layer's module (a dense MLP's): nnterp says why
+            assert why, f"nnterp serves {component} at layer {layer} on a module that has no such value"
+            reasons[layer] = why
+            continue
         key, inside = value.path(host), standard.inside(value, host)
-        if inside or why:
+        argument, tokens = key.rpartition(".")[2] == "inputs", isinstance(value, TokenEProperty)
+        if inside or argument or why:
             reasons[layer] = (f"nnterp reads it inside a module's forward ({key}), not at a module boundary" if inside
-                              else why)
+                              else f"nnterp reads it among a module's call arguments ({key}), not at a module boundary"
+                              if argument else why)
             continue
         while key.startswith("../"):
             host, key = host.parent, key[3:]
@@ -235,4 +252,5 @@ def reach(shell: StandardizedTransformer, component: str, refused: str | dict[An
         for child in children:
             host = getattr(host, child)
         paths[layer] = host.path.removeprefix("model").removeprefix(".")
-    return {"paths": paths, "boundary": boundary, "refused": (reasons or None) if per_layer else reasons.get(None)}
+    return {"paths": paths, "boundary": boundary, "tokens": tokens,
+            "refused": (reasons or None) if per_layer else reasons.get(None)}

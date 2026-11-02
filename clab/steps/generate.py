@@ -161,7 +161,8 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, got: dict, parts:
     shown = next(iter(some.values())) if isinstance(some, dict) else some     # a top_k's is a dict of tensors
     dtype = some.dtype if isinstance(some, Tensor) and not each else getattr(torch, plan.model.computes)
     device = shown.device if shown is not None else None
-    blank = torch.full((len(where), 1, *rest), float("nan"), dtype=dtype, device=device)
+    blank = torch.full((len(where), 1, *rest), float("nan") if dtype.is_floating_point else -1, dtype=dtype,
+                       device=device)
     missing = edited(blank, blank, each, got, None)
     hit = [got_ if isinstance(got_, list) else [] for got_ in where]      # a marker is a row with none
     width = positions.width(pos) or max(map(len, hit), default=0)
