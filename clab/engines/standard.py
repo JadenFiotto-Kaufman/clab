@@ -166,6 +166,7 @@ def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict
 
     if torch.device(device).type != "cuda":
         return {k: batch[k].to(device) for k in keys}
+    assert len({batch[k].dtype for k in keys}) == 1, "a batch's keys share one dtype, which the stack would cast"
     held = torch.stack([batch[k] for k in keys]).pin_memory().to(device, non_blocking=True)
     return dict(zip(keys, held.unbind()))
 

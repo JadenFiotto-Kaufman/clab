@@ -98,6 +98,7 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
              "position_ids": torch.tensor([[0, 0, 1], [0, 1, 2]])}
     swap = [{"op": "swap", "args": {"with": other}, "dims": DIMS}]
     rows = [[1], [2], [4]]
+    probs = torch.randn(3, 2, 6, 6, generator=G)              # as the model serves it: [rows, num_heads, pos, key]
 
     def bound(device: str) -> tuple:
         picked = batches.site(record, {"hidden_size": [0, 7]}, rows, [0, 1, 0], 6, False, device)
@@ -105,6 +106,8 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
         keyed = batches.site(pattern, {}, rows, [0, 1, 0], 6, False, device)
         return picked, whole, keyed
 
+    narrow = [{**swap[0], "args": {"with": other[..., [0, 7]]}}]           # a write on a selection
+    probs_there = probs.cuda()
     torch.cuda.synchronize()
     torch.cuda.set_sync_debug_mode("error")
     try:
@@ -113,6 +116,9 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
         looked = data.by_id(value, [2, 0])
         got: dict = {}
         out = batches.visit(value, "layer_output", [{**picked, "name": "r"}, {**whole, "ops": swap}], got)[0]
+        chosen = batches.visit(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
+        seen: dict = {}
+        batches.visit(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
     finally:
         torch.cuda.set_sync_debug_mode("default")
     here = bound("cpu")
@@ -126,6 +132,12 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
                                                    {**here[1], "ops": [{**swap[0], "args": {"with": OTHER[:, :1]}}]}],
                            mine)[0]
     assert torch.equal(got["r"].cpu(), mine["r"]) and torch.equal(out.cpu(), on_cpu)
+    chosen_cpu = batches.visit(VALUE, "layer_output", [{**here[0], "ops": [{**narrow[0], "args": {"with": OTHER[:, :1, [0, 7]]}}]}],
+                               {})[0]
+    assert torch.equal(chosen.cpu(), chosen_cpu)
+    keys_cpu: dict = {}
+    batches.visit(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
+    assert torch.equal(seen["k"].cpu().nan_to_num(-9), keys_cpu["k"].nan_to_num(-9))      # NaN past a row's own keys
 
 
 @pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
