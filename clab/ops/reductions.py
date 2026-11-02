@@ -1,5 +1,7 @@
 """Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` and `entropy` compute
-in float32 whatever the value's dtype (`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
+in float32 whatever the value's dtype (`ops.ABOUT`), of the entries that are there: a missing one is NaN, and in ids
+(an integer value: `argmax`'s, `top_k`'s `ids`, `expert_indices`) -1, the hole (`floated`); `pca` works in double and
+returns float32, as every bundle is."""
 
 import json
 import math
@@ -10,6 +12,18 @@ from torch import Tensor
 from clab.format.address import EXAMPLE_AXES
 from clab.format.registry import Value
 from clab.ops import op
+
+
+def floated(x: Value, like: Tensor | None = None) -> Tensor:
+    """`x` in float32 with what is missing from it NaN: a floating value's NaN as it is, and in ids (an integer value)
+    the hole, -1, which `argmax`, `top_k` and a read past a row's own positions give, so that arithmetic and a
+    reduction take a hole as missing, as a comparison does (`transforms.missing`). A number is a number, on `like`'s
+    device where it is given, as a named value moves to it."""
+    if not isinstance(x, Tensor):
+        return torch.as_tensor(x, device=None if like is None else like.device).float()
+    x = x if like is None else x.to(like.device)
+    return x.float() if x.is_floating_point() else x.float().masked_fill(x == -1, math.nan)
+
 
 # What a reduction without `over` removes: the rows and the positions. A `layers` axis says which layer each
 # value is, as a feature axis says which unit, so it stays unless `over` names it.
@@ -33,9 +47,9 @@ def reduced(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
 
 @op("reductions", layout=reduced)
 def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
-    """The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over
-    the rows and positions, a `layers` axis kept."""
-    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    """The mean over the axes `over` names, of the values that are there (a missing one is NaN, in ids -1); by
+    default over the rows and positions, a `layers` axis kept."""
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
 
 
@@ -43,7 +57,7 @@ def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none
     is (a missing row)."""
-    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     return of.nansum(dim=axes).masked_fill(of.isnan().all(dim=axes), float("nan"))
 
 
@@ -51,7 +65,7 @@ def sum(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
     none is."""
-    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
         return torch.full_like(of.sum(dim=axes), math.nan)
     return of.masked_fill(of.isnan(), math.inf).amin(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
@@ -61,7 +75,7 @@ def min(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def max(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The greatest value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where
     none is."""
-    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     if of.numel() == 0:                                  # nothing at all: missing, as sum and mean have it
         return torch.full_like(of.sum(dim=axes), math.nan)
     return of.masked_fill(of.isnan(), -math.inf).amax(dim=axes).masked_fill(of.isnan().all(dim=axes), math.nan)
@@ -71,7 +85,7 @@ def max(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The sample standard deviation over the axes `over` names, as `mean` takes them, of the n values that are
     there: `sqrt(sum((x - mean)^2) / (n - 1))`; NaN where fewer than two are."""
-    of, axes = of.float(), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
     n = (~of.isnan()).sum(dim=axes)
     spread = (of - of.nanmean(dim=axes, keepdim=True)).square().nansum(dim=axes)
     return (spread / (n - 1)).sqrt().masked_fill(n < 2, math.nan)
@@ -136,7 +150,7 @@ def finite_positive(args: dict) -> None:
 def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 2.0) -> Tensor:
     """The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that
     are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is."""
-    of = of.float()
+    of = floated(of)
     powered = of.square() if p == 2 else of.abs().pow(p)
     total = sum(powered, dims, FEATURES if over is None else over)
     return total.sqrt() if p == 2 else total.pow(1 / p)
@@ -147,7 +161,7 @@ def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None
     """The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with`
     (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes
     them (`mul` then `sum`, to the bit); NaN where none is."""
-    product = of.float() * torch.as_tensor(with_, device=of.device).float()
+    product = floated(of) * floated(with_, of)
     return sum(product, dims, FEATURES if over is None else over)
 
 
@@ -173,7 +187,7 @@ def entropy(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tenso
     share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a
     softmax router, ln of the experts' count where it routes evenly."""
     over = [next(a for a in OUTCOMES if a in dims)] if over is None else over
-    axes, of = [i for i, a in enumerate(dims) if a in over], of.float()
+    axes, of = [i for i, a in enumerate(dims) if a in over], floated(of)
     rest = [i for i in range(of.dim()) if i not in axes]
     flat = of.permute(*rest, *axes).flatten(len(rest))         # the axes the softmax is over, as one last axis
     logp = flat.masked_fill(flat.isnan(), -math.inf).log_softmax(-1)

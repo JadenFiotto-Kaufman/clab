@@ -533,6 +533,11 @@ def test_comparisons_give_0_or_1_in_the_values_dtype_and_nan_where_either_side_i
     expected = torch.zeros_like(X)
     expected[..., 1] = NAN
     assert same(transforms.eq(X, torch.tensor([3, -1, 0, 1, 2])), expected)     # ids as the operand: its -1 a hole too
+    d = ["rows", "pos"]                                    # a reduction and arithmetic leave the hole out too
+    assert reductions.sum(ids, d).item() == 12 and reductions.min(ids, d).item() == 2 and reductions.mean(ids, d) == 4
+    assert same(transforms.square(ids), torch.tensor([[9.0, NAN, 49.0, 4.0]]))
+    assert same(transforms.mul(torch.ones(1, 4), ids), torch.tensor([[3.0, NAN, 7.0, 2.0]]))     # a named operand's
+    assert reductions.dot(torch.ones(1, 4), ids, d, over=["pos"]).item() == 12 and transforms.mul(ids, -1)[0, 0] == -3
     half = torch.tensor([1.0039]).bfloat16()               # 1.0039 in bfloat16 is 1.0, which float32 compares exactly
     assert transforms.eq(half, 1.0).item() == 1 and transforms.gt(half, 0.999).item() == 1
 
@@ -768,6 +773,29 @@ def test_a_comparison_of_ids_is_missing_at_a_hole_so_an_agreement_is_over_the_po
     assert agree[~hole].sum().item() == 28 and round(r["rate"].item(), 3) == 0.737
     assert r["rate"].item() == pytest.approx(28 / 38, rel=1e-6)
     assert r["n"].tolist() == [11.0, 9.0, 9.0, 9.0]
+
+
+def test_a_reduction_or_an_elementwise_transform_of_ids_takes_their_hole_as_missing(engines):
+    """The ragged read's `argmax` holds -1 at the six positions past the shorter rows' own; `min`, `sum`, `mean`,
+    `std` and `norm` over `pos` of it, and its `square`, are each that op of the ids with the hole as NaN, to the bit,
+    so a row's least id is one of its own tokens', never -1, where counting the hole gave -1 on the three short rows."""
+    def change(d: dict) -> None:
+        agreement(d)
+        d["steps"] = {k: d["steps"][k] for k in ("clean", "top")}
+        for op in ("min", "sum", "mean", "std", "norm"):
+            d["steps"][op] = {"kind": "op", "op": op, "of": "top", "over": ["pos"]}
+        d["steps"]["square"] = {"kind": "op", "op": "square", "of": "top"}
+        d["saves"] = list(d["steps"])[1:]
+    plan = edited("patching", change).compile()
+    r = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    top = r["top"]
+    floated = top.float().masked_fill(top == -1, NAN)
+    for op in ("min", "sum", "mean", "std", "norm"):
+        assert same(r[op], ops.call(op, floated, {"over": ["pos"]}, dims=["rows", "pos"])), op
+    assert same(r["square"], floated.square()) and int((top == -1).sum()) == 6
+    own = [top[i][top[i] != -1] for i in range(4)]
+    assert r["min"].tolist() == [float(ids.min()) for ids in own] and (r["min"] >= 0).all()
+    assert r["sum"].tolist() == [float(ids.sum()) for ids in own]
 
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():

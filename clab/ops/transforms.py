@@ -2,8 +2,8 @@
 gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
 in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
 generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
-to `pow`) and the comparisons (`eq` to `le`), 0 or 1 in the value's dtype (float32 on ids) and missing where either
-side is. Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the live
+to `pow`, an id's hole, -1, missing as NaN is: `reductions.floated`) and the comparisons (`eq` to `le`), 0 or 1 in the
+value's dtype (float32 on ids) and missing where either side is. Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the live
 value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
 
 import json
@@ -18,6 +18,7 @@ from clab.format import address, selectors
 from clab.format.registry import Featurizer, Value
 from clab.ops import VOCABULARY, op
 from clab.ops.metrics import ranked
+from clab.ops.reductions import floated
 
 if TYPE_CHECKING:       # the engines sit later in the chain, so only the checker sees them
     from clab.engines import Engine
@@ -169,59 +170,59 @@ def operand(x: Value, like: Tensor) -> Tensor:
 @op("transforms", positionwise=True)
 def abs(of: Tensor) -> Tensor:
     """`|of|`, each entry's absolute value, in float32."""
-    return of.float().abs()
+    return floated(of).abs()
 
 
 @op("transforms", positionwise=True)
 def exp(of: Tensor) -> Tensor:
     """`e ** of`, each entry's exponential, in float32 (`inf` past about 88.7)."""
-    return of.float().exp()
+    return floated(of).exp()
 
 
 @op("transforms", positionwise=True)
 def log(of: Tensor) -> Tensor:
     """`ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it."""
-    return of.float().log()
+    return floated(of).log()
 
 
 @op("transforms", positionwise=True)
 def sign(of: Tensor) -> Tensor:
     """Each entry's sign, -1, 0 or 1, in float32; a missing (NaN) entry stays missing."""
-    x = of.float()
+    x = floated(of)
     return x.sign().masked_fill(x.isnan(), math.nan)
 
 
 @op("transforms", positionwise=True)
 def sqrt(of: Tensor) -> Tensor:
     """`of ** 0.5`, each entry's square root, in float32: NaN below 0."""
-    return of.float().sqrt()
+    return floated(of).sqrt()
 
 
 @op("transforms", positionwise=True)
 def square(of: Tensor) -> Tensor:
     """`of * of`, each entry squared, in float32."""
-    return of.float().square()
+    return floated(of).square()
 
 
 @op("transforms", positionwise=True)
 def neg(of: Tensor) -> Tensor:
     """`-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back."""
-    return -of.float()
+    return -floated(of)
 
 
 @op("transforms", positionwise=True)
 def mul(of: Tensor, with_: Value) -> Tensor:
     """`of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product,
     where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask)."""
-    return of.float() * operand(with_, of).float()
+    return floated(of) * floated(with_, of)
 
 
 @op("transforms", positionwise=True)
 def div(of: Tensor, with_: Value) -> Tensor:
     """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
     `with` is 0, so a division by zero is a missing entry, never an infinite one."""
-    by = operand(with_, of).float()
-    return torch.where(by == 0, math.nan, of.float() / by)
+    by = floated(with_, of)
+    return torch.where(by == 0, math.nan, floated(of) / by)
 
 
 @op("transforms")
@@ -229,9 +230,9 @@ def pow(of: Tensor, exponent: Value) -> Tensor:
     """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
     where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side
     is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
-    x = of.float()
+    x = floated(of)
     if isinstance(exponent, Tensor):
-        e = operand(exponent, of).float()
+        e = floated(exponent, of)
         return x.pow(e).masked_fill(x.isnan() | e.isnan(), math.nan)
     return x.pow(exponent).masked_fill(x.isnan() | math.isnan(exponent), math.nan)
 

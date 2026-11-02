@@ -22,7 +22,8 @@ import torch
 from conftest import BATCH_SIZE, GLM4_MOE, JETMOE, MIXTRAL, OLMOE, QWEN3_MOE, document, edited, plan_of, same
 
 from clab import Plan
-from clab.plan import Model
+from clab.format.sweeps import points
+from clab.plan import Model, entries
 
 # Each tiny mixture by name, read at block 1 (GLM-4-MoE's block 0 is dense); every one has 4 experts and routes each
 # token to 2.
@@ -321,3 +322,58 @@ def test_an_id_a_write_lands_that_is_no_expert_is_refused_by_name_before_the_mod
     with pytest.raises(ValueError, match=r"^f\.w: writes 0\.\d+ into expert_indices at row 0, token 7, which is no "
                                          r"id; "):
         engine.execute(swapped({"clean": clean}, "clean.top", -1), batch_size=BATCH_SIZE)
+
+
+# -- an id's hole is missing to a reduction ---------------------------------------------------------------------------
+
+
+def test_a_reduction_of_a_ragged_expert_indices_read_leaves_its_hole_out():
+    """On prompts of 11, 2, 11 and 3 tokens the read at every token holds -1 past each shorter row's own; `sum`,
+    `mean`, `min`, `max`, `std`, `norm`, `dot` and `entropy` (over the slots) and `square` of it are each that op of
+    the ids with the hole as NaN, to the bit, so a row's `min` is the least of its own experts, never -1, and its
+    `sum` is its own ids' sum."""
+    from clab.engines import load
+
+    rows = [{"input": "If today is Monday, tomorrow is Tuesday and then"}, {"input": "Hi"},
+            {"input": "One two three four five six seven eight nine ten"}, {"input": "Yes no"}]
+    over = {"over": ["pos", "top_k"]}
+    reduced = {"sum": over, "mean": over, "min": over, "max": over, "std": over, "norm": {"over": ["top_k"]},
+               "dot": {"with": 2, "over": ["top_k"]}, "entropy": {"over": ["top_k"]}, "square": {}}
+    entries = {"idx": at("expert_indices", 0)} | {op: {**at("expert_indices", 0), "ops": [{"op": op, **args}]}
+                                                  for op, args in reduced.items()}
+    plan = Plan(model=MIXTRAL, data={"prompts": {"rows": rows}},
+                steps={"f": {"kind": "forward", "input": "prompts.input", "interventions": entries}},
+                saves=[f"f.{name}" for name in entries], document=document("patching")).compile()
+    r = load("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    idx = r["f.idx"]
+    hole = idx == -1
+    assert hole.any(-1).sum(-1).tolist() == [0, 9, 0, 8]
+    floated = idx.float().masked_fill(hole, float("nan"))
+    dims = ["rows", "pos", "top_k"]
+    from clab import ops
+    for op, args in reduced.items():
+        assert same(r[f"f.{op}"], ops.call(op, floated, args, dims=dims)), op
+    assert (r["f.min"] >= 0).all() and r["f.sum"].tolist() == [int(idx[i][~hole[i]].sum()) for i in range(4)]
+    assert same(r["f.square"], floated.square())
+
+
+def test_a_generations_per_call_ops_of_ids_agree_with_the_same_ops_over_the_whole_read(engines):
+    """`square` and `min` over the slots run at each decode call, where a row that stopped is a missing position,
+    NaN; as steps over the whole read they meet its hole, -1, which they now take as missing too, so the two give
+    the same bits (where the steps gave 1 and -1 on the stopped rows)."""
+    pos = {"frame": "1:4", "index": ":3"}
+    generation = {"kind": "generate", "input": "prompts.input", "max_new_tokens": 4, "do_sample": False,
+                  "eos_token_id": 5521, "interventions": {
+                      "raw": at("expert_indices", 1, pos),
+                      "square": {**at("expert_indices", 1, pos), "ops": [{"op": "square"}]},
+                      "min": {**at("expert_indices", 1, pos), "ops": [{"op": "min", "over": ["top_k"]}]}}}
+    steps = {"g": generation, "square": {"kind": "op", "op": "square", "of": "g.raw"},
+             "min": {"kind": "op", "op": "min", "of": "g.raw", "over": ["top_k"]}}
+    plan = Plan(model=MIXTRAL, data={"prompts": {"path": "weekdays/train"}}, steps=steps,
+                saves=["g.raw", "g.square", "g.min", "square", "min"], document=document("patching")).compile()
+    held = entries(points(plan.steps["g"])[0])
+    assert held["square"].per_call == held["min"].per_call == 1
+    r = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    stopped = (r["g.raw"] == -1).all(-1)
+    assert stopped.any() and not stopped.all()
+    assert same(r["g.square"], r["square"]) and same(r["g.min"], r["min"]) and r["min"][stopped].isnan().all()

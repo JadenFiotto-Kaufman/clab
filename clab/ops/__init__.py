@@ -33,14 +33,15 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's own
 where rows hold different numbers of them: NaN, every metric, edit and elementwise transform of it NaN, `argmax` and
-`top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN, of a -1 id
-too: a comparison of a hole is a hole. Reductions skip it: `mean` is the mean over the rows and positions that have a
-value, `count` counts only them, and `pca` is fitted on them. A featurizer's math sees none of it: a missing vector
-goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a missing element). An attention
-pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops: an edit that mixes a
-vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are there, so a row's own keys
-are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax` and `top_k` over `key` rank a
-row's own keys, a vector missing only where it has none.
+`top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN. In ids (an
+integer value: `argmax`'s, `top_k`'s `ids`, `expert_indices`) the hole is -1, and it is missing as NaN is: a
+comparison, an elementwise transform or a reduction of it is a hole too. Reductions skip it: `mean` is the mean over
+the rows and positions that have a value, `count` counts only them, and `pca` is fitted on them. A featurizer's math
+sees none of it: a missing vector goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a
+missing element). An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a
+write's ops: an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that
+are there, so a row's own keys are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax`
+and `top_k` over `key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
