@@ -34,12 +34,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -54,12 +49,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "zeroed": {
    "kind": "forward",
@@ -112,12 +102,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "zeroed_ld": {
@@ -132,12 +117,7 @@
    ],
    "dataset": "prompts",
    "read": "zeroed.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -150,12 +130,7 @@
    ],
    "dataset": "prompts",
    "read": "zeroed.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

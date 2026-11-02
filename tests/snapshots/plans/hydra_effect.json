@@ -38,12 +38,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean": {
@@ -106,12 +101,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "ablated": {
@@ -184,12 +174,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "inj0_clean": {
@@ -243,12 +228,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "inj1_clean": {
@@ -302,12 +282,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "inj1_abl": {
@@ -361,12 +336,7 @@
    },
    "dataset": "sample",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "te_clean": {
@@ -380,12 +350,7 @@
    ],
    "dataset": "sample",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "te_abl": {
    "kind": "op",
@@ -398,12 +363,7 @@
    ],
    "dataset": "sample",
    "read": "ablated.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "de0_c": {
    "kind": "op",
@@ -416,12 +376,7 @@
    ],
    "dataset": "sample",
    "read": "inj0_clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "de1_c": {
    "kind": "op",
@@ -434,12 +389,7 @@
    ],
    "dataset": "sample",
    "read": "inj1_clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "de1_a": {
    "kind": "op",
@@ -452,12 +402,7 @@
    ],
    "dataset": "sample",
    "read": "inj1_abl.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

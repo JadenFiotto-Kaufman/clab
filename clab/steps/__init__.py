@@ -8,9 +8,10 @@ generated, up to its first EOS. Under the nnterp and ndif engines it runs inside
 under ndif); under the hooks engine, in plain Python. The cross-step state is a `ChainMap` (a fit's body runs in
 a child of it, carrying the minibatch's row ids: `batches.ROWS`) that never leaves the run: each value under its
 name, by its coordinates on its own axes (`Labelled.axes`).
-A forward or generate step runs at the points whose `schedule` serves others (`plan.serving`), executing it batch
-by batch (`batches.bind`); an op step once per distinct point on its value's axes; each adds the model calls it
-made and the tokens they fed to its `cost`, which `run` records with its time and memory (`measured`).
+A forward or generate step runs at the points no other point's forward serves (`plan.serving`), executing the
+point's schedule batch by batch (`batches.bind`); an op step once per distinct point on its value's axes; each adds
+the model calls it made and the tokens they fed to its `cost`, which `run` records with its time and memory
+(`measured`).
 """
 
 from __future__ import annotations
@@ -86,10 +87,10 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     state = made(plan, home(engine))
     costs: dict = {}
     with torch.no_grad():
-        for name, entry in plan.steps.items():
-            for step, served in serving(entry):
+        for name in plan.steps:
+            for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0,
-                                        **({"serves": [labelled(plan, at) for at in served]} if step.at else {})}
+                                        **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
                 try:
                     measured(engine, cost, lambda: KINDS[step.kind](engine, plan, name, step, state, batch_size, found,
                                                                     cost))
@@ -107,7 +108,7 @@ def ended(engine: Engine, plan: Plan, state: ChainMap, costs: dict, found: Found
     own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
     assert plan.run is not None
     plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
-    done = {name for name, entry in plan.steps.items() if len(costs.get(name, {})) == len(serving(entry))}
+    done = {name for name in plan.steps if len(costs.get(name, {})) == len(serving(plan, name))}
     for name in (n for n in plan.saves if n.partition(".")[0] in done):
         ats = [at for at, _ in projections(plan, name)]
         plan.results[name] = ({coordinate(plan, at): finished(saved(plan, state, name, at)) for at in ats}

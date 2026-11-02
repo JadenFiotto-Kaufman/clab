@@ -38,12 +38,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean": {
@@ -81,12 +76,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": {
@@ -153,12 +143,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "similarity": {
@@ -178,12 +163,7 @@
     4
    ],
    "read": "patched.resid",
-   "width": 2,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 2
   }
  },
  "saves": [

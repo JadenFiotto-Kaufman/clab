@@ -54,12 +54,7 @@
    },
    "dataset": "train",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "fit": [
@@ -106,13 +101,6 @@
       ],
       "at": {
        "mask.mask": 0
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 0
-        }
-       ]
       }
      },
      "patched": {
@@ -205,14 +193,7 @@
       "schedule": {
        "axes": [
         "mask.mask"
-       ],
-       "serves": [
-        {
-         "mask.mask": 0
-        }
-       ],
-       "sites": [],
-       "stop": null
+       ]
       }
      },
      "iia": {
@@ -233,13 +214,6 @@
       ],
       "at": {
        "mask.mask": 0
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 0
-        }
-       ]
       }
      },
      "ce": {
@@ -259,13 +233,6 @@
       ],
       "at": {
        "mask.mask": 0
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 0
-        }
-       ]
       }
      }
     },
@@ -324,13 +291,6 @@
       ],
       "at": {
        "mask.mask": 1
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 1
-        }
-       ]
       }
      },
      "patched": {
@@ -423,14 +383,7 @@
       "schedule": {
        "axes": [
         "mask.mask"
-       ],
-       "serves": [
-        {
-         "mask.mask": 1
-        }
-       ],
-       "sites": [],
-       "stop": null
+       ]
       }
      },
      "iia": {
@@ -451,13 +404,6 @@
       ],
       "at": {
        "mask.mask": 1
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 1
-        }
-       ]
       }
      },
      "ce": {
@@ -477,13 +423,6 @@
       ],
       "at": {
        "mask.mask": 1
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 1
-        }
-       ]
       }
      }
     },
@@ -542,13 +481,6 @@
       ],
       "at": {
        "mask.mask": 2
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 2
-        }
-       ]
       }
      },
      "patched": {
@@ -641,14 +573,7 @@
       "schedule": {
        "axes": [
         "mask.mask"
-       ],
-       "serves": [
-        {
-         "mask.mask": 2
-        }
-       ],
-       "sites": [],
-       "stop": null
+       ]
       }
      },
      "iia": {
@@ -669,13 +594,6 @@
       ],
       "at": {
        "mask.mask": 2
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 2
-        }
-       ]
       }
      },
      "ce": {
@@ -695,13 +613,6 @@
       ],
       "at": {
        "mask.mask": 2
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 2
-        }
-       ]
       }
      }
     },
@@ -760,13 +671,6 @@
       ],
       "at": {
        "mask.mask": 3
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 3
-        }
-       ]
       }
      },
      "patched": {
@@ -859,14 +763,7 @@
       "schedule": {
        "axes": [
         "mask.mask"
-       ],
-       "serves": [
-        {
-         "mask.mask": 3
-        }
-       ],
-       "sites": [],
-       "stop": null
+       ]
       }
      },
      "iia": {
@@ -887,13 +784,6 @@
       ],
       "at": {
        "mask.mask": 3
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 3
-        }
-       ]
       }
      },
      "ce": {
@@ -913,13 +803,6 @@
       ],
       "at": {
        "mask.mask": 3
-      },
-      "schedule": {
-       "serves": [
-        {
-         "mask.mask": 3
-        }
-       ]
       }
      }
     },
@@ -990,23 +873,7 @@
     },
     "dataset": "test",
     "schedule": {
-     "axes": [],
-     "serves": [
-      {
-       "mask.mask": 0
-      },
-      {
-       "mask.mask": 1
-      },
-      {
-       "mask.mask": 2
-      },
-      {
-       "mask.mask": 3
-      }
-     ],
-     "sites": [],
-     "stop": null
+     "axes": []
     }
    },
    {
@@ -1275,14 +1142,7 @@
     "schedule": {
      "axes": [
       "mask.mask"
-     ],
-     "serves": [
-      {
-       "mask.mask": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1375,14 +1235,7 @@
     "schedule": {
      "axes": [
       "mask.mask"
-     ],
-     "serves": [
-      {
-       "mask.mask": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1475,14 +1328,7 @@
     "schedule": {
      "axes": [
       "mask.mask"
-     ],
-     "serves": [
-      {
-       "mask.mask": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1575,14 +1421,7 @@
     "schedule": {
      "axes": [
       "mask.mask"
-     ],
-     "serves": [
-      {
-       "mask.mask": 3
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -1605,13 +1444,6 @@
     ],
     "at": {
      "mask.mask": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "mask.mask": 0
-      }
-     ]
     }
    },
    {
@@ -1632,13 +1464,6 @@
     ],
     "at": {
      "mask.mask": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "mask.mask": 1
-      }
-     ]
     }
    },
    {
@@ -1659,13 +1484,6 @@
     ],
     "at": {
      "mask.mask": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "mask.mask": 2
-      }
-     ]
     }
    },
    {
@@ -1686,13 +1504,6 @@
     ],
     "at": {
      "mask.mask": 3
-    },
-    "schedule": {
-     "serves": [
-      {
-       "mask.mask": 3
-      }
-     ]
     }
    }
   ]

@@ -38,12 +38,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "direction": {
@@ -57,12 +52,7 @@
    "layers": [
     0
    ],
-   "read": "harvest.resid",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "harvest.resid"
   },
   "base": {
    "kind": "forward",
@@ -90,12 +80,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "steered": {
@@ -151,12 +136,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "steered_renormed": {
@@ -240,12 +220,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "renormed_ld": {
@@ -260,12 +235,7 @@
    ],
    "dataset": "pairs",
    "read": "steered_renormed.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -278,12 +248,7 @@
    ],
    "dataset": "pairs",
    "read": "steered_renormed.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "steered_ld": {
    "kind": "op",
@@ -297,12 +262,7 @@
    ],
    "dataset": "pairs",
    "read": "steered.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

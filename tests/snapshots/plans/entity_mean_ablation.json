@@ -41,12 +41,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "mean": {
@@ -60,12 +55,7 @@
    "layers": [
     0
    ],
-   "read": "harvest.acts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "harvest.acts"
   },
   "clean": {
    "kind": "forward",
@@ -89,12 +79,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -109,12 +94,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "ablated": {
    "kind": "forward",
@@ -167,12 +147,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "ablated_ld": {
@@ -187,12 +162,7 @@
    ],
    "dataset": "prompts",
    "read": "ablated.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

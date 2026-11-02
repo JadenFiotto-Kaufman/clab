@@ -45,7 +45,7 @@ def show(filled: Plan) -> str:
     run = filled.run
     if run is None:
         rows = [[step, labelled(filled, p.at) or "—", served(filled, entry, points_)]
-                for step, entry in filled.steps.items() for p, points_ in serving(entry)]
+                for step, entry in filled.steps.items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
@@ -76,7 +76,7 @@ def costs(filled: Plan) -> list[list[str]]:
     assert run is not None
     rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
-        for p, points_ in serving(entry) if step in run.costs else []:
+        for p, points_ in serving(filled, step) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
             serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
@@ -88,13 +88,13 @@ def costs(filled: Plan) -> list[list[str]]:
     return rows
 
 
-def served(filled: Plan, entry: Any, points_: list[dict]) -> str:
+def served(filled: Plan, entry: Any, points_: list) -> str:
     """The points one run of a step serves, as a cell: `—` for itself alone, `all N points`, else each one."""
     if len(points_) == 1:
         return "—"
     if len(points_) == len(points(entry)):
         return f"all {len(points_)} points"
-    return ", ".join(labelled(filled, at) for at in points_)
+    return ", ".join(labelled(filled, p.at) for p in points_)
 
 
 def resolved(filled: Plan) -> list[list[str]]:

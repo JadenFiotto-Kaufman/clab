@@ -34,12 +34,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "counterfactual": {
@@ -68,12 +63,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": {
@@ -127,12 +117,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "kl": {
@@ -146,12 +131,7 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "js": {
    "kind": "op",
@@ -164,12 +144,7 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -182,12 +157,7 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

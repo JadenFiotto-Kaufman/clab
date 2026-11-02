@@ -67,59 +67,7 @@
     },
     "dataset": "days",
     "schedule": {
-     "axes": [],
-     "serves": [
-      {
-       "layers": 0
-      },
-      {
-       "layers": 1
-      },
-      {
-       "layers": 2
-      },
-      {
-       "layers": 3
-      },
-      {
-       "layers": 4
-      },
-      {
-       "layers": 5
-      },
-      {
-       "layers": 6
-      },
-      {
-       "layers": 7
-      },
-      {
-       "layers": 8
-      },
-      {
-       "layers": 9
-      },
-      {
-       "layers": 10
-      },
-      {
-       "layers": 11
-      },
-      {
-       "layers": 12
-      },
-      {
-       "layers": 13
-      },
-      {
-       "layers": 14
-      },
-      {
-       "layers": 15
-      }
-     ],
-     "sites": [],
-     "stop": null
+     "axes": []
     }
    },
    {
@@ -1080,14 +1028,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1161,14 +1102,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1242,14 +1176,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1323,14 +1250,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 3
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1404,14 +1324,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 4
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1485,14 +1398,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 5
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1566,14 +1472,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 6
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1647,14 +1546,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 7
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1728,14 +1620,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 8
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1809,14 +1694,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 9
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1890,14 +1768,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 10
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -1971,14 +1842,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 11
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2052,14 +1916,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 12
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2133,14 +1990,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 13
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2214,14 +2064,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 14
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2295,14 +2138,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 15
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -2378,14 +2214,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2459,14 +2288,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2540,14 +2362,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2621,14 +2436,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 3
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2702,14 +2510,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 4
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2783,14 +2584,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 5
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2864,14 +2658,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 6
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -2945,14 +2732,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 7
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3026,14 +2806,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 8
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3107,14 +2880,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 9
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3188,14 +2954,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 10
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3269,14 +3028,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 11
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3350,14 +3102,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 12
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3431,14 +3176,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 13
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3512,14 +3250,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 14
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -3593,14 +3324,7 @@
     "schedule": {
      "axes": [
       "layers"
-     ],
-     "serves": [
-      {
-       "layers": 15
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -3617,13 +3341,6 @@
     ],
     "at": {
      "layers": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 0
-      }
-     ]
     }
    },
    {
@@ -3638,13 +3355,6 @@
     ],
     "at": {
      "layers": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 1
-      }
-     ]
     }
    },
    {
@@ -3659,13 +3369,6 @@
     ],
     "at": {
      "layers": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 2
-      }
-     ]
     }
    },
    {
@@ -3680,13 +3383,6 @@
     ],
     "at": {
      "layers": 3
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 3
-      }
-     ]
     }
    },
    {
@@ -3701,13 +3397,6 @@
     ],
     "at": {
      "layers": 4
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 4
-      }
-     ]
     }
    },
    {
@@ -3722,13 +3411,6 @@
     ],
     "at": {
      "layers": 5
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 5
-      }
-     ]
     }
    },
    {
@@ -3743,13 +3425,6 @@
     ],
     "at": {
      "layers": 6
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 6
-      }
-     ]
     }
    },
    {
@@ -3764,13 +3439,6 @@
     ],
     "at": {
      "layers": 7
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 7
-      }
-     ]
     }
    },
    {
@@ -3785,13 +3453,6 @@
     ],
     "at": {
      "layers": 8
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 8
-      }
-     ]
     }
    },
    {
@@ -3806,13 +3467,6 @@
     ],
     "at": {
      "layers": 9
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 9
-      }
-     ]
     }
    },
    {
@@ -3827,13 +3481,6 @@
     ],
     "at": {
      "layers": 10
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 10
-      }
-     ]
     }
    },
    {
@@ -3848,13 +3495,6 @@
     ],
     "at": {
      "layers": 11
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 11
-      }
-     ]
     }
    },
    {
@@ -3869,13 +3509,6 @@
     ],
     "at": {
      "layers": 12
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 12
-      }
-     ]
     }
    },
    {
@@ -3890,13 +3523,6 @@
     ],
     "at": {
      "layers": 13
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 13
-      }
-     ]
     }
    },
    {
@@ -3911,13 +3537,6 @@
     ],
     "at": {
      "layers": 14
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 14
-      }
-     ]
     }
    },
    {
@@ -3932,13 +3551,6 @@
     ],
     "at": {
      "layers": 15
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 15
-      }
-     ]
     }
    }
   ],
@@ -3955,13 +3567,6 @@
     ],
     "at": {
      "layers": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 0
-      }
-     ]
     }
    },
    {
@@ -3976,13 +3581,6 @@
     ],
     "at": {
      "layers": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 1
-      }
-     ]
     }
    },
    {
@@ -3997,13 +3595,6 @@
     ],
     "at": {
      "layers": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 2
-      }
-     ]
     }
    },
    {
@@ -4018,13 +3609,6 @@
     ],
     "at": {
      "layers": 3
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 3
-      }
-     ]
     }
    },
    {
@@ -4039,13 +3623,6 @@
     ],
     "at": {
      "layers": 4
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 4
-      }
-     ]
     }
    },
    {
@@ -4060,13 +3637,6 @@
     ],
     "at": {
      "layers": 5
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 5
-      }
-     ]
     }
    },
    {
@@ -4081,13 +3651,6 @@
     ],
     "at": {
      "layers": 6
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 6
-      }
-     ]
     }
    },
    {
@@ -4102,13 +3665,6 @@
     ],
     "at": {
      "layers": 7
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 7
-      }
-     ]
     }
    },
    {
@@ -4123,13 +3679,6 @@
     ],
     "at": {
      "layers": 8
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 8
-      }
-     ]
     }
    },
    {
@@ -4144,13 +3693,6 @@
     ],
     "at": {
      "layers": 9
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 9
-      }
-     ]
     }
    },
    {
@@ -4165,13 +3707,6 @@
     ],
     "at": {
      "layers": 10
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 10
-      }
-     ]
     }
    },
    {
@@ -4186,13 +3721,6 @@
     ],
     "at": {
      "layers": 11
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 11
-      }
-     ]
     }
    },
    {
@@ -4207,13 +3735,6 @@
     ],
     "at": {
      "layers": 12
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 12
-      }
-     ]
     }
    },
    {
@@ -4228,13 +3749,6 @@
     ],
     "at": {
      "layers": 13
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 13
-      }
-     ]
     }
    },
    {
@@ -4249,13 +3763,6 @@
     ],
     "at": {
      "layers": 14
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 14
-      }
-     ]
     }
    },
    {
@@ -4270,13 +3777,6 @@
     ],
     "at": {
      "layers": 15
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 15
-      }
-     ]
     }
    }
   ]

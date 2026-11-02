@@ -52,12 +52,7 @@
    },
    "dataset": "train",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "fit": {
@@ -96,12 +91,7 @@
       {
        "featurizer": "fit.rot"
       }
-     ],
-     "schedule": {
-      "serves": [
-       {}
-      ]
-     }
+     ]
     },
     "patched": {
      "kind": "forward",
@@ -182,12 +172,7 @@
      },
      "dataset": "train",
      "schedule": {
-      "axes": [],
-      "serves": [
-       {}
-      ],
-      "sites": [],
-      "stop": null
+      "axes": []
      }
     },
     "iia": {
@@ -202,12 +187,7 @@
      ],
      "dataset": "train",
      "read": "patched.logits",
-     "width": 1,
-     "schedule": {
-      "serves": [
-       {}
-      ]
-     }
+     "width": 1
     },
     "ce": {
      "kind": "op",
@@ -220,12 +200,7 @@
      ],
      "dataset": "train",
      "read": "patched.logits",
-     "width": 1,
-     "schedule": {
-      "serves": [
-       {}
-      ]
-     }
+     "width": 1
     }
    },
    "early_stop": {
@@ -284,12 +259,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "held_patched": {
@@ -371,12 +341,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "held_iia": {
@@ -391,12 +356,7 @@
    ],
    "dataset": "test",
    "read": "held_patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

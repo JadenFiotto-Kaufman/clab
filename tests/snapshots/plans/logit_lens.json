@@ -55,17 +55,7 @@
     },
     "dataset": "prompts",
     "schedule": {
-     "axes": [],
-     "serves": [
-      {
-       "layers": 0
-      },
-      {
-       "layers": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     "axes": []
     }
    },
    {
@@ -137,13 +127,6 @@
     ],
     "at": {
      "layers": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 0
-      }
-     ]
     }
    },
    {
@@ -166,13 +149,6 @@
     ],
     "at": {
      "layers": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 1
-      }
-     ]
     }
    }
   ],
@@ -197,13 +173,6 @@
     ],
     "at": {
      "layers": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 0
-      }
-     ]
     }
    },
    {
@@ -226,13 +195,6 @@
     ],
     "at": {
      "layers": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "layers": 1
-      }
-     ]
     }
    }
   ]

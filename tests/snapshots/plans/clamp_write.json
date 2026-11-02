@@ -53,12 +53,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -73,12 +68,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "clamped": {
    "kind": "forward",
@@ -149,12 +139,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clamped_ld": {
@@ -169,12 +154,7 @@
    ],
    "dataset": "prompts",
    "read": "clamped.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

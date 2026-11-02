@@ -204,7 +204,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         check_operands(engine, plan, where, o, step, record, found)
                     dims = o.dims or dims
         for step in points(entry):
-            if step.kind in ("forward", "generate") and "serves" in step.schedule:
+            if step.kind in ("forward", "generate") and "serving" not in step.schedule:
                 scheduled(engine, plan, name, step, trained or {})
     return found
 

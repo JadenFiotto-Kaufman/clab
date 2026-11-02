@@ -41,12 +41,7 @@
    "do_sample": false,
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": [
@@ -112,20 +107,7 @@
      "frame": 0
     },
     "schedule": {
-     "axes": [],
-     "serves": [
-      {
-       "frame": 0
-      },
-      {
-       "frame": 1
-      },
-      {
-       "frame": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     "axes": []
     }
    },
    {
@@ -283,13 +265,6 @@
     ],
     "at": {
      "frame": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "frame": 0
-      }
-     ]
     }
    },
    {
@@ -309,13 +284,6 @@
     ],
     "at": {
      "frame": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "frame": 1
-      }
-     ]
     }
    },
    {
@@ -335,13 +303,6 @@
     ],
     "at": {
      "frame": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "frame": 2
-      }
-     ]
     }
    }
   ]

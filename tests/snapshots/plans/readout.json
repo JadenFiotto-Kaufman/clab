@@ -34,12 +34,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "top3": {
@@ -54,12 +49,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_answer": {
    "kind": "op",
@@ -72,12 +62,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

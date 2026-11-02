@@ -38,12 +38,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": [
@@ -109,14 +104,7 @@
     "schedule": {
      "axes": [
       "pos"
-     ],
-     "serves": [
-      {
-       "pos": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -181,14 +169,7 @@
     "schedule": {
      "axes": [
       "pos"
-     ],
-     "serves": [
-      {
-       "pos": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -253,14 +234,7 @@
     "schedule": {
      "axes": [
       "pos"
-     ],
-     "serves": [
-      {
-       "pos": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -282,13 +256,6 @@
     ],
     "at": {
      "pos": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 0
-      }
-     ]
     }
    },
    {
@@ -308,13 +275,6 @@
     ],
     "at": {
      "pos": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 1
-      }
-     ]
     }
    },
    {
@@ -334,13 +294,6 @@
     ],
     "at": {
      "pos": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 2
-      }
-     ]
     }
    }
   ],
@@ -363,13 +316,6 @@
     ],
     "at": {
      "pos": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 0
-      }
-     ]
     }
    },
    {
@@ -390,13 +336,6 @@
     ],
     "at": {
      "pos": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 1
-      }
-     ]
     }
    },
    {
@@ -417,13 +356,6 @@
     ],
     "at": {
      "pos": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "pos": 2
-      }
-     ]
     }
    }
   ]

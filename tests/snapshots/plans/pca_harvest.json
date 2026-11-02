@@ -39,12 +39,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "basis": {
@@ -60,12 +55,7 @@
    "layers": [
     0
    ],
-   "read": "harvest.acts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "harvest.acts"
   }
  },
  "saves": [

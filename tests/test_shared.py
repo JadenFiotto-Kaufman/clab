@@ -3,7 +3,8 @@ execute.
 
 A value depends on the sweep axes its record says (`axes`: the dependency rule, `sweeps.find_sweeps`), and a
 forward on its writes' and options' alone (`schedule["axes"]`), so compile has the first of the points that agree on
-those serve the rest (`schedule["serves"]`), and the run makes that forward once with every served point's reads,
+those serve the rest (each other's `schedule["serving"]`), and the run makes that forward once with every served
+point's reads,
 each bound at its own point. Each point's values are then those a document with that point alone would give, to
 the bit (`alone`: the same document with each sweep replaced by the point's value, run on its own), on every
 engine, under `remote="local"` and through the stand-in server; `run.costs` records each forward once, at the
@@ -114,7 +115,7 @@ def total(plan: Plan) -> int:
 
 def served(plan: Plan, name: str) -> list[list[str]]:
     """Which points each forward of step `name` serves, in point order, by coordinate."""
-    return [[labelled(plan, at) for at in s] for p, s in serving(plan.steps[name]) if isinstance(p, Forward)]
+    return [[labelled(plan, q.at) for q in s] for p, s in serving(plan, name) if isinstance(p, Forward)]
 
 
 def all_points(plan: Plan, name: str) -> list[str]:
@@ -178,8 +179,8 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     doc = gpt2_doc(READS[axis])
     plan = compiled("gpt2_reach", doc)
     lens = points(plan.steps["lens"])
-    assert lens[0].schedule == {"axes": [], "serves": [p.at for p in lens], "sites": [], "stop": None}
-    assert [p.schedule for p in lens[1:]] == [{"serving": lens[0].at}] * 4
+    assert lens[0].schedule == {"axes": []} and [p.schedule for p in lens[1:]] == [{"serving": lens[0].at}] * 4
+    assert served(plan, "lens") == [all_points(plan, "lens")]
     assert axes_of(plan, "lens.read") == [axis]
     engine = engines(kind, plan.model, **ENGINES[kind])
     shared, ran = counted(engine, plan, 4)
@@ -227,8 +228,7 @@ def test_a_sweep_on_a_write_runs_a_forward_per_point(engines, swept):
     otherwise, each runs its own forward, and the read after the writes, which depends on it too, sees each."""
     plan = gpt2({**WRITES[swept], "read": at("layer_output", 3)})
     axis = {"operand": "factor", "position": "pos", "layer": "layers"}[swept]
-    assert [p.schedule for p in points(plan.steps["lens"])] == \
-        [{"axes": [axis], "serves": [p.at], "sites": [], "stop": None} for p in points(plan.steps["lens"])]
+    assert [p.schedule for p in points(plan.steps["lens"])] == [{"axes": [axis]}] * 3
     assert axes_of(plan, "lens.read") == [axis]
     filled = engines("nnterp", plan.model).execute(plan, batch_size=4)
     assert costs(filled, "lens") == {c: (1, [c]) for c in all_points(plan, "lens")}
@@ -407,7 +407,7 @@ def test_a_generations_read_only_sweep_shares_the_generation(engines, kind):
     doc = probe_doc()
     plan = compiled("generate_probe", doc)
     patched = points(plan.steps["patched"])
-    assert patched[0].schedule["serves"] == [p.at for p in patched] and patched[0].axes == []
+    assert served(plan, "patched") == [all_points(plan, "patched")] and patched[0].axes == []
     assert axes_of(plan, "patched.logits") == ["frame"] and axes_of(plan, "p_answer") == ["frame"]
     assert axes_of(plan, "text") == [] and isinstance(plan.steps["text"], list)
     engine = engines(kind, plan.model)
@@ -552,7 +552,8 @@ def test_an_op_over_a_swept_value_depends_on_the_values_axes():
     probe = compiled("generate_probe", probe_doc())
     assert axes_of(plan_of("generate_probe"), "patched") == [] and axes_of(probe, "text") == []
     assert [p.at for p in points(probe.steps["text"])] == [{"frame": i} for i in range(3)]
-    assert [(p.at, s) for p, s in serving(probe.steps["text"])] == [({"frame": 0}, [{"frame": k} for k in range(3)])]
+    assert [(p.at, [q.at for q in s]) for p, s in serving(probe, "text")] == \
+        [({"frame": 0}, [{"frame": k} for k in range(3)])]
 
 
 def test_the_manifest_keys_each_result_by_its_own_axes_and_each_cost_by_the_forward_that_ran(engines, tmp_path):
@@ -569,8 +570,9 @@ def test_the_manifest_keys_each_result_by_its_own_axes_and_each_cost_by_the_forw
         "serves": ["frame=0", "frame=1", "frame=2"]}}
     assert "serves" not in manifest["run"]["costs"]["counterfactual"]
     steps = manifest["steps"]["patched"]
-    assert steps[0]["schedule"]["serves"] == [{"frame": 0}, {"frame": 1}, {"frame": 2}]
+    assert set(steps[0]["schedule"]) == {"axes", "sites", "stop", "loop", "online"}
     assert [s["schedule"] for s in steps[1:]] == [{"serving": {"frame": 0}}] * 2
+    assert "schedule" not in manifest["steps"]["p_answer"][0]
     back = Plan.load(str(tmp_path))
     assert same(back.results, plan.results)
 
@@ -595,7 +597,7 @@ def ran(plan: Plan, bodies: list[tuple]) -> list:
     the fit's batch size."""
     out: list = []
     for name, entry in plan.steps.items():
-        for p, _ in serving(entry):
+        for p, _ in serving(plan, name):
             if isinstance(p, Forward):
                 out += called(p, cast(int, plan.data[cast(str, p.dataset)].n_rows), BATCH_SIZE)
             if not isinstance(p, Fit):

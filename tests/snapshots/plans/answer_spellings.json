@@ -67,12 +67,7 @@
    },
    "dataset": "qa",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "p_spelled": {
@@ -90,12 +85,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "hit_spelled": {
    "kind": "op",
@@ -112,12 +102,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_exact": {
    "kind": "op",
@@ -130,12 +115,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "p_any": {
    "kind": "op",
@@ -148,12 +128,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "hit_any": {
    "kind": "op",
@@ -166,12 +141,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "nll_any": {
    "kind": "op",
@@ -184,12 +154,7 @@
    ],
    "dataset": "qa",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

@@ -40,12 +40,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": [
@@ -121,14 +116,7 @@
     "schedule": {
      "axes": [
       "num_heads"
-     ],
-     "serves": [
-      {
-       "num_heads": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -203,14 +191,7 @@
     "schedule": {
      "axes": [
       "num_heads"
-     ],
-     "serves": [
-      {
-       "num_heads": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -285,14 +266,7 @@
     "schedule": {
      "axes": [
       "num_heads"
-     ],
-     "serves": [
-      {
-       "num_heads": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -367,14 +341,7 @@
     "schedule": {
      "axes": [
       "num_heads"
-     ],
-     "serves": [
-      {
-       "num_heads": 3
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -396,13 +363,6 @@
     ],
     "at": {
      "num_heads": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 0
-      }
-     ]
     }
    },
    {
@@ -422,13 +382,6 @@
     ],
     "at": {
      "num_heads": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 1
-      }
-     ]
     }
    },
    {
@@ -448,13 +401,6 @@
     ],
     "at": {
      "num_heads": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 2
-      }
-     ]
     }
    },
    {
@@ -474,13 +420,6 @@
     ],
     "at": {
      "num_heads": 3
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 3
-      }
-     ]
     }
    }
   ],
@@ -503,13 +442,6 @@
     ],
     "at": {
      "num_heads": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 0
-      }
-     ]
     }
    },
    {
@@ -530,13 +462,6 @@
     ],
     "at": {
      "num_heads": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 1
-      }
-     ]
     }
    },
    {
@@ -557,13 +482,6 @@
     ],
     "at": {
      "num_heads": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 2
-      }
-     ]
     }
    },
    {
@@ -584,13 +502,6 @@
     ],
     "at": {
      "num_heads": 3
-    },
-    "schedule": {
-     "serves": [
-      {
-       "num_heads": 3
-      }
-     ]
     }
    }
   ]

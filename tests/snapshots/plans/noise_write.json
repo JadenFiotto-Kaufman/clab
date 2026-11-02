@@ -53,12 +53,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -73,12 +68,7 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "noisy": {
    "kind": "forward",
@@ -134,12 +124,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "noisy_ld": {
@@ -154,12 +139,7 @@
    ],
    "dataset": "prompts",
    "read": "noisy.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "jitter": {
    "kind": "op",
@@ -177,12 +157,7 @@
     0
    ],
    "read": "clean.resid",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

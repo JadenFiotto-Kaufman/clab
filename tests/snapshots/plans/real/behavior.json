@@ -67,12 +67,7 @@
    },
    "dataset": "days",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "accuracy": {
@@ -81,12 +76,7 @@
    "of": "answer.correct",
    "dims": [],
    "dataset": "days",
-   "read": "answer.correct",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.correct"
   },
   "p_answer": {
    "kind": "op",
@@ -94,12 +84,7 @@
    "of": "answer.p",
    "dims": [],
    "dataset": "days",
-   "read": "answer.p",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.p"
   }
  },
  "saves": [

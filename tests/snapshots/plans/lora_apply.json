@@ -54,12 +54,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "adapted": {
@@ -114,12 +109,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -134,12 +124,7 @@
    ],
    "dataset": "test",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "adapted_ld": {
    "kind": "op",
@@ -153,12 +138,7 @@
    ],
    "dataset": "test",
    "read": "adapted.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "answer": {
    "kind": "generate",
@@ -199,12 +179,7 @@
    "do_sample": false,
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "said": {
@@ -214,12 +189,7 @@
    "dims": [
     "rows"
    ],
-   "dataset": "test",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "dataset": "test"
   }
  },
  "saves": [

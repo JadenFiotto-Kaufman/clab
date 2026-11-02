@@ -131,16 +131,16 @@ AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
 SCHEDULE = ("the forward this point runs, or the point whose forward serves it. A forward depends on the step's "
             "options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and "
-            "their operands), so the points that agree on those axes are served by one forward: the first of them "
-            "holds the schedule, `serves` listing every point it serves (itself first), and each other holds "
-            "`serving`, its coordinates. Compile writes those; preflight, with the model in hand, writes the sites "
-            "the forward visits in the engine's forward order (`sites`: each its component and layer and the records "
-            "done there in order, a write with its ops up to its last edit and each operand resolved to a "
-            "producer's name and point or to the name of a read of the same forward, a read with the point whose "
-            "entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which "
-            "runs whole), and for a generation each record's `calls` and `online`, `prompt` on a part over the "
-            "prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). "
-            "The engines execute it and decide nothing")
+            "their operands), so the points that agree on those axes are served by the forward of the first of "
+            "them, and each other holds `serving`, that point's coordinates, and nothing else (the points a "
+            "forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the "
+            "model in hand, writes at each point that runs its forward the sites the forward visits in the engine's "
+            "forward order (`sites`: each its component and layer and the records done there in order, a write with "
+            "its ops up to its last edit and each operand resolved to a producer's name and point or to the name of "
+            "a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, "
+            "the site the forward ends at (null for a generation, which runs whole), and for a generation each "
+            "record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and "
+            "the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing")
 
 
 # The quantized dtypes (nnsight's names for them) and the dtype each computes in: what its values, and the weights
@@ -749,10 +749,6 @@ class OpStep(Labelled):
     op: str
     of: str
     at: dict[str, int] = derived({}, AT)
-    schedule: dict[str, Any] = derived({}, "the points this point's run serves (`serves`, itself first: those that "
-                                           "agree with it on the value's `axes`, where the value is one), or the "
-                                           "point whose run serves it (`serving`), as a forward's `schedule` has "
-                                           "them")
 
     @model_validator(mode="after")
     def _arguments(self) -> "OpStep":
@@ -908,8 +904,8 @@ class Run(Record):
     keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
     layout and labels are. `costs` holds what each step cost, by
     name, one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each
-    listing in `serves` the coordinates of the points it served: those one forward serves, `schedule`, or those an
-    op's value is one for, `axes`): its wall time in `seconds`, the peak `memory` allocated during it on
+    listing in `serves` the coordinates of the points it served, `serving`: those one forward serves, or those an
+    op's value is one for): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
     and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
@@ -1163,12 +1159,18 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     return list(found.values())
 
 
-def serving(entry: Entry) -> list[tuple[Step, list[dict[str, int]]]]:
-    """The points of a step that run, in order, each with the points it serves, as its `schedule` says (a
-    forward's, a generation's and an op's: the first of the points that agree on the forward's axes, or on the
-    value's, serving them all); a fit's each itself."""
-    return [(step, step.schedule["serves"] if step.kind != "fit" else [step.at]) for step in points(entry)
-            if step.kind == "fit" or "serves" in step.schedule]
+def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
+    """The points of step `name` that run, in order, each with the points its run serves, itself first: a
+    forward's or a generation's each point whose `schedule` holds no `serving`, with the points whose `serving`
+    names it; an op's the points of its value (`projections`: one per distinct point on its `axes`), each with the
+    step's points that agree with it there; a fit's each point, itself alone."""
+    steps = points(plan.steps[name])
+    if steps[0].kind == "op":
+        return [(p, [q for q in steps if projected(q.at, list(at)) == at]) for at, p in projections(plan, name)]
+    if steps[0].kind == "fit":
+        return [(p, [p]) for p in steps]
+    return [(p, [q for q in steps if q is p or q.schedule.get("serving") == p.at]) for p in steps
+            if "serving" not in p.schedule]
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:

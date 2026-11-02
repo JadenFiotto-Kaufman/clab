@@ -81,12 +81,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": {
@@ -168,12 +163,7 @@
    },
    "dataset": "test",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "iia": {
@@ -188,12 +178,7 @@
    ],
    "dataset": "test",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "ce": {
    "kind": "op",
@@ -206,12 +191,7 @@
    ],
    "dataset": "test",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

@@ -61,20 +61,7 @@
     },
     "dataset": "pairs",
     "schedule": {
-     "axes": [],
-     "serves": [
-      {
-       "intermediate_size": 0
-      },
-      {
-       "intermediate_size": 1
-      },
-      {
-       "intermediate_size": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     "axes": []
     }
    },
    {
@@ -263,14 +250,7 @@
     "schedule": {
      "axes": [
       "intermediate_size"
-     ],
-     "serves": [
-      {
-       "intermediate_size": 0
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -351,14 +331,7 @@
     "schedule": {
      "axes": [
       "intermediate_size"
-     ],
-     "serves": [
-      {
-       "intermediate_size": 1
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    },
    {
@@ -439,14 +412,7 @@
     "schedule": {
      "axes": [
       "intermediate_size"
-     ],
-     "serves": [
-      {
-       "intermediate_size": 2
-      }
-     ],
-     "sites": [],
-     "stop": null
+     ]
     }
    }
   ],
@@ -468,13 +434,6 @@
     ],
     "at": {
      "intermediate_size": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 0
-      }
-     ]
     }
    },
    {
@@ -494,13 +453,6 @@
     ],
     "at": {
      "intermediate_size": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 1
-      }
-     ]
     }
    },
    {
@@ -520,13 +472,6 @@
     ],
     "at": {
      "intermediate_size": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 2
-      }
-     ]
     }
    }
   ],
@@ -549,13 +494,6 @@
     ],
     "at": {
      "intermediate_size": 0
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 0
-      }
-     ]
     }
    },
    {
@@ -576,13 +514,6 @@
     ],
     "at": {
      "intermediate_size": 1
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 1
-      }
-     ]
     }
    },
    {
@@ -603,13 +534,6 @@
     ],
     "at": {
      "intermediate_size": 2
-    },
-    "schedule": {
-     "serves": [
-      {
-       "intermediate_size": 2
-      }
-     ]
     }
    }
   ]

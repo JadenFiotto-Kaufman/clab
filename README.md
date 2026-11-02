@@ -268,9 +268,10 @@ record holds it (`dataset`, `layers`, `read`, `kept`, `space`, those it has; per
 a swept step's points differ). The manifest's `steps` hold each step as the run completed it (its entries one dict
 in execution order, each with its labels and `axes`, marked `gathered` when the run takes its value off the model,
 and with the `positions` every read and write resolved to per row, which is how `table` labels `pos_token`; a
-forward's or generation's `schedule`, which point's forward served it, or, at the point that ran it, the points it
-served and the sites the forward visited in the engine's order with the records done at each and where it
-stopped), so a result links back to what computed it. `run.tokens` holds each input's tokens per row.
+forward's or generation's `schedule`: at a point another point's forward served, that point's coordinates
+(`serving`), and at a point that ran its forward, the sites the forward visited in the engine's order with the
+records done at each and where it stopped), so a result links back to what computed it. `run.tokens` holds each
+input's tokens per row.
 
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
 `pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an

@@ -37,12 +37,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "direction": {
@@ -55,12 +50,7 @@
    ],
    "dataset": "pairs",
    "layers": [],
-   "read": "harvest.acts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "harvest.acts"
   },
   "ablated": {
    "kind": "forward",
@@ -118,12 +108,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "ablated_ld": {
@@ -138,12 +123,7 @@
    ],
    "dataset": "pairs",
    "read": "ablated.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

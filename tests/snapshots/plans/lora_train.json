@@ -91,12 +91,7 @@
      },
      "dataset": "train",
      "schedule": {
-      "axes": [],
-      "serves": [
-       {}
-      ],
-      "sites": [],
-      "stop": null
+      "axes": []
      }
     },
     "ce": {
@@ -110,12 +105,7 @@
      ],
      "dataset": "train",
      "read": "adapted.logits",
-     "width": 1,
-     "schedule": {
-      "serves": [
-       {}
-      ]
-     }
+     "width": 1
     }
    },
    "eval": {

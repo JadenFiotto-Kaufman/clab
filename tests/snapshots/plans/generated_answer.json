@@ -57,12 +57,7 @@
    "do_sample": false,
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "p_answer": {
@@ -75,12 +70,7 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "answer.at_said",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.at_said"
   }
  },
  "saves": [

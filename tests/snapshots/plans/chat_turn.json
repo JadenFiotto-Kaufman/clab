@@ -69,12 +69,7 @@
    },
    "dataset": "chats",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "p_answer": {
@@ -88,12 +83,7 @@
    ],
    "dataset": "chats",
    "read": "blanked.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

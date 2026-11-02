@@ -1,7 +1,7 @@
-"""The forward as a compiled schedule (`Forward.schedule`): which points of a step one forward serves, decided by
-compile from the forward's axes (`shared`), and what that forward does, written by preflight with the model in
-hand (`scheduled`): the sites it visits in the engine's forward order, the records done at each, the site it stops
-at, and a generation's calls and loop. The engines execute it and decide nothing."""
+"""The forward as a compiled schedule (`Forward.schedule`): which point's forward serves each point of a step,
+decided by compile from the forward's axes (`shared`), and what that forward does, written by preflight with the
+model in hand (`scheduled`): the sites it visits in the engine's forward order, the records done at each, the site
+it stops at, and a generation's calls and loop. The engines execute it and decide nothing."""
 
 from __future__ import annotations
 
@@ -11,37 +11,26 @@ from clab import ops
 from clab.compile import positions
 from clab.format import address
 from clab.format.sweeps import agreeing, labelled, points, projected
-from clab.plan import Forward, Intervention, OpStep, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, writes
+from clab.plan import Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, serving, writes
 
 if TYPE_CHECKING:
     from clab.engines import Engine
 
 
 def shared(plan: Plan) -> None:
-    """Each step's `schedule` as compile decides who serves whom: the points of a forward or generate step that
-    agree on the forward's axes (`axes`, which `compile.forward` wrote), or of an op step on its value's axes, are
-    served by the first of them, which lists them in `serves`, itself first; each other names it in `serving`. A
-    fit body's step is one point per fit point, which serves itself."""
+    """Who serves whom, as compile decides it: of the points of a forward or generate step that agree on the
+    forward's axes (`axes`, which `compile.forward` wrote), the first runs the forward, and each other's `schedule`
+    is `serving`, that point's coordinates, alone. A fit body's step is one point per fit point, which runs its
+    own."""
     for entry in plan.steps.values():
-        first: dict[tuple, Forward | OpStep] = {}
+        first: dict[tuple, Forward] = {}
         for step in points(entry):
-            if step.kind == "fit":
-                for body in step.steps.values():
-                    body.schedule = {**body.schedule, "serves": [body.at], "sites": [], "stop": None} \
-                        if isinstance(body, Forward) else {"serves": [body.at]}
-                continue
-            if not isinstance(step, (Forward, OpStep)):
-                continue
-            key = tuple(projected(step.at, step.schedule["axes"] if isinstance(step, Forward) else step.axes).items())
-            if key in first:
-                first[key].schedule["serves"].append(step.at)
-                step.schedule = {"serving": first[key].at}
-            elif isinstance(step, Forward):
-                step.schedule = {**step.schedule, "serves": [step.at], "sites": [], "stop": None}
-                first[key] = step
-            else:
-                step.schedule = {"serves": [step.at]}
-                first[key] = step
+            if isinstance(step, Forward):
+                key = tuple(projected(step.at, step.schedule["axes"]).items())
+                if key in first:
+                    step.schedule = {"serving": first[key].at}
+                else:
+                    first[key] = step
 
 
 def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dict[str, dict[str, int]]) -> None:
@@ -97,12 +86,11 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dic
 
 def gathered(plan: Plan, name: str, step: Forward) -> dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]:
     """The values the forward of `step` (a serving point of step `name`) reads, by entry and the value's
-    coordinates on the entry's own axes: each gathered entry of each point the forward serves, once per distinct
-    point on its axes, with the record it is at the first such point (its positions, its `kept`, its ops), those
-    coordinates, and that point."""
+    coordinates on the entry's own axes: each gathered entry of each point the forward serves (`plan.serving`),
+    once per distinct point on its axes, with the record it is at the first such point (its positions, its `kept`,
+    its ops), those coordinates, and that point."""
     out: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}
-    for at in step.schedule["serves"]:
-        p = agreeing(plan.steps[name], at)
+    for p in next(served for q, served in serving(plan, name) if q is step):
         for key, record in entries(p).items():
             if record.gathered:
                 own = projected(p.at, record.axes)

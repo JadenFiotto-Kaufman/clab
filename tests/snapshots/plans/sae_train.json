@@ -45,12 +45,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "fit": {
@@ -89,12 +84,7 @@
       {
        "featurizer": "fit.dictionary"
       }
-     ],
-     "schedule": {
-      "serves": [
-       {}
-      ]
-     }
+     ]
     }
    },
    "eval": {

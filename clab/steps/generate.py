@@ -14,8 +14,8 @@ from clab.compile.positions import head, place, texts
 from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.format import address, data
-from clab.format.sweeps import agreeing, projected, put
-from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, writes
+from clab.format.sweeps import projected, put
+from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, serving, writes
 from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, stacked, stops, with_ops
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     padding is not) or the generation's last, which no call is fed."""
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
-    served = [agreeing(plan.steps[name], at) for at in step.schedule["serves"]]
+    served = next(s for p, s in serving(plan, name) if p is step)
     reading = gathered(plan, name, step)
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
     # coordinates on the entry's axes, with the record it is at the first such point.

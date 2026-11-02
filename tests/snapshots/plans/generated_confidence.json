@@ -42,12 +42,7 @@
    "do_sample": false,
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "p": {
@@ -60,12 +55,7 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "answer.logits",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.logits"
   },
   "nll": {
    "kind": "op",
@@ -77,12 +67,7 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "answer.logits",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.logits"
   },
   "p_seq": {
    "kind": "op",
@@ -95,12 +80,7 @@
     "rows"
    ],
    "dataset": "prompts",
-   "read": "answer.logits",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "answer.logits"
   }
  },
  "saves": [

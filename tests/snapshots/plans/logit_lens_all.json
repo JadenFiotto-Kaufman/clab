@@ -47,12 +47,7 @@
    },
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "p_answer": {
@@ -68,12 +63,7 @@
    "dataset": "prompts",
    "layers": [],
    "read": "lens.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "top1": {
    "kind": "op",
@@ -88,12 +78,7 @@
    "dataset": "prompts",
    "layers": [],
    "read": "lens.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

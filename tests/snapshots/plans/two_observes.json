@@ -53,12 +53,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "clean_ld": {
@@ -73,12 +68,7 @@
    ],
    "dataset": "pairs",
    "read": "clean.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "mean": {
    "kind": "op",
@@ -91,12 +81,7 @@
    "layers": [
     0
    ],
-   "read": "clean.acts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "read": "clean.acts"
   },
   "counterfactual": {
    "kind": "forward",
@@ -124,12 +109,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "patched": {
@@ -183,12 +163,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "iia": {
@@ -202,12 +177,7 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "patching_ld": {
    "kind": "op",
@@ -221,12 +191,7 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   },
   "ablated": {
    "kind": "forward",
@@ -279,12 +244,7 @@
    },
    "dataset": "pairs",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "ablation_ld": {
@@ -299,12 +259,7 @@
    ],
    "dataset": "pairs",
    "read": "ablated.logits",
-   "width": 1,
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "width": 1
   }
  },
  "saves": [

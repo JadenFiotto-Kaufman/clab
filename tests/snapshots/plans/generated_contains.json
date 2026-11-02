@@ -20,12 +20,7 @@
    "do_sample": false,
    "dataset": "prompts",
    "schedule": {
-    "axes": [],
-    "serves": [
-     {}
-    ],
-    "sites": [],
-    "stop": null
+    "axes": []
    }
   },
   "text": {
@@ -35,12 +30,7 @@
    "dims": [
     "rows"
    ],
-   "dataset": "prompts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "dataset": "prompts"
   },
   "said": {
    "kind": "op",
@@ -50,24 +40,14 @@
    "dims": [
     "rows"
    ],
-   "dataset": "prompts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "dataset": "prompts"
   },
   "acc": {
    "kind": "op",
    "op": "mean",
    "of": "said",
    "dims": [],
-   "dataset": "prompts",
-   "schedule": {
-    "serves": [
-     {}
-    ]
-   }
+   "dataset": "prompts"
   }
  },
  "saves": [
