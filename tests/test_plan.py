@@ -279,7 +279,8 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["iia"].update(op="matches"), r"steps\.iia: unknown op 'matches'; valid: swap, add"),
     (lambda d: d["sites"]["target"].update(component="block_output"),
-     r"sites\.target: unknown component 'block_output'; valid: token_embeddings"),
+     r"sites\.target: unknown component 'block_output'; the components clab addresses \(`clab describe components` "
+     r"says what each is\): token_embeddings"),
     (lambda d: d["steps"]["patched"].update(field="input"),
      r"steps\.patched: unknown field 'field'; valid: kind, input, interventions"),
     (lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
@@ -303,11 +304,14 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["sites"]["target"].update(layers="5:2"), r"sites\.target\.layers: '5:2' picks nothing, however "
      r"many things there are$"),
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
-     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
+     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; the components clab addresses "
+     r"\(`clab describe components` says what each is\): token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'$"),
+    (lambda d: d["model"].update(revision={"sweep": ["main", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"]}),
+     r"model\.revision: a sweep cannot stand for 'revision'; a run loads one model: write one document per revision$"),
     (lambda d: d["data"]["pairs"].update(take={"sweep": [1, 2]}),
      r"data\.pairs\.take: a sweep cannot stand for 'take'; a dataset's rows are compiled once, and a step reads them "
      r"by name: write one dataset per value$"),

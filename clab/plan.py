@@ -246,7 +246,8 @@ class Site(Record):
     @model_validator(mode="after")
     def _narrowing(self) -> "Site":
         if self.component not in address.COMPONENTS:
-            raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
+            raise ValueError(f"unknown component {self.component!r}; the components clab addresses (`clab describe "
+                             f"components` says what each is): {', '.join(address.COMPONENTS)}")
         if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
             raise ValueError(f"{self.component} is a block's value and needs 'layers'"
                              if address.COMPONENTS[self.component]["per_layer"]

@@ -56,8 +56,15 @@ def inside(value: Any, host: Envoy) -> bool:
     return "source" in value.path(host).lstrip("./").split(".")
 
 
+# nnterp's reason for a dense MLP's values at a block whose MLP is a mixture of experts (`nnterp.components.moe`
+# `ROUTED`), which points at nnterp's own `Moe` component; clab addresses no mixture's routers or experts, so it says
+# what it does serve there instead (`mixture`).
+ROUTED = "routed experts; read per-expert via the Moe component"
+
+
 def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] | None]:
-    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`. A
+    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`, with
+    clab's own reason where nnterp's sends the reader to a component clab does not address (`mixture`). A
     component nnterp's answer does not name at all is refused by name, since nothing says it is served: a
     component is one nnterp serves, under nnterp's name for it (`nnterp_name`)."""
     support = shell.support()
@@ -66,7 +73,26 @@ def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] |
         raise ValueError(f"nnterp's support() does not name {', '.join(nnterp_name(c) for c in unnamed)}, so nothing "
                          f"says whether it serves {', '.join(unnamed)}; a component of address.COMPONENTS is one "
                          "nnterp serves under that name")
-    return {c: support[nnterp_name(c)] for c in COMPONENTS}
+    answer = {c: support[nnterp_name(c)] for c in COMPONENTS}
+
+    def own(why: str, layer: int | None) -> str:
+        return mixture(answer, layer) if why == ROUTED else why
+    return {c: {layer: own(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
+            refused and own(refused, None) for c, refused in answer.items()}
+
+
+def mixture(answer: dict[str, Any], layer: int | None) -> str:
+    """clab's reason for a dense MLP's value at block `layer` (None: at every block) whose MLP is a mixture of
+    experts, in place of nnterp's (`ROUTED`): that clab addresses no router or expert, and the MLP's components
+    nnterp's `answer` serves there."""
+    mlp = [c for c in COMPONENTS if c.startswith("mlp_")
+           and (answer[c] is None or isinstance(answer[c], dict) and layer is not None and not answer[c].get(layer))]
+    named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
+    if layer is None:
+        return (f"this model's MLPs are mixtures of experts, whose routers and experts clab does not address; its "
+                f"MLPs are served as {named}")
+    return (f"block {layer}'s MLP is a mixture of experts, whose routers and experts clab does not address; at block "
+            f"{layer} its MLP is served as {named}")
 
 
 def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:

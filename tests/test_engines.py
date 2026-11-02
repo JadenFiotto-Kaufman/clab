@@ -151,6 +151,23 @@ def test_attention_output_at_a_linear_attention_block_is_refused_by_name(engines
         engine.execute(plan, batch_size=BATCH_SIZE)
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_dense_mlp_value_on_a_mixture_of_experts_is_refused_naming_what_the_block_serves(engines, kind):
+    """The hybrid's MLPs are mixtures of experts, which clab addresses only whole: `mlp_activation` at a block is
+    refused saying so and naming the MLP's components that block serves, never nnterp's advice to read its own
+    `Moe` component (`standard.ROUTED`, a copy of nnterp's text, which clab replaces), which clab has no name for."""
+    from nnterp.components import moe
+
+    assert standard.ROUTED == moe.ROUTED
+    plan = reading(HYBRID, {"act": at("mlp_activation", 3)})
+    engine = engines(kind, plan.model)
+    assert not any("Moe" in str(why) for why in engine.unserved().values())
+    with pytest.raises(ValueError, match=rf"^f\.act: the {kind} engine does not serve mlp_activation: block 3's MLP is a "
+                                         r"mixture of experts, whose routers and experts clab does not address; at block "
+                                         r"3 its MLP is served as mlp_norm_output, mlp_input and mlp_output$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
+
+
 def test_the_attention_interior_of_the_hybrid_is_served_by_nnterp_alone(engines):
     """Under eager attention nnterp reads block 3's attention pattern; the hooks engine refuses it there, since
     nnterp reads it inside the attention's forward rather than at a module boundary."""

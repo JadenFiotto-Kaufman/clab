@@ -32,7 +32,7 @@ A sweep can stand in these places:
 - a featurizer's fields (`k`, `seed`);
 - a generate step's options (`max_new_tokens`).
 
-A sweep cannot stand for a name (`site`, `input`, `of`, `featurizer`), a `component`, a `kind`, a `file_path`, or anything under `model` or `data`. To run the same steps on two datasets, write the steps twice. Each value of a sweep is a number, a string, a boolean or a list of them. To vary an object, sweep a field inside it:
+A sweep cannot stand for a name (`site`, `input`, `of`, `featurizer`), a `component`, a `kind`, a `file_path`, or anything under `model` or `data`. To run the same steps on two datasets, write the steps twice; a run loads one model, so to compare revisions or checkpoints, write one document per revision and join their tables. Each value of a sweep is a number, a string, a boolean or a list of them. To vary an object, sweep a field inside it:
 
 ```text
 clab: sites.target.component: a sweep cannot stand for 'component'
