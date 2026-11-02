@@ -2,12 +2,13 @@
 gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
 in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
 generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
-to `pow`). Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the
-live value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
+to `pow`) and the comparisons (`eq` to `le`), 0 or 1 in the value's dtype. Unlike an edit, none of them writes back:
+inside an entry a transform before its last edit acts on the live value that edit writes, and one after it, or in an
+entry with no edit, on the value off the model."""
 
 import json
 import math
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Callable
 
 import torch
 from torch import Tensor
@@ -219,3 +220,54 @@ def pow(of: Tensor, exponent: Value) -> Tensor:
     """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
     where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one."""
     return of.float().pow(exponent if not isinstance(exponent, Tensor) else operand(exponent, of).float())
+
+
+def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]) -> Tensor:
+    """1 where `holds(of, with)`, else 0, in `of`'s dtype: each side compared in float32 where it is floating (ids
+    as they are), and NaN where either is missing, where the dtype holds one."""
+    a, b = (of.float() if of.is_floating_point() else of), operand(with_, of)
+    out = holds(a, b).to(of.dtype)
+    return out.masked_fill(a.isnan() | b.isnan(), math.nan) if out.is_floating_point() else out
+
+
+@op("transforms")
+def eq(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of == with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing."""
+    return compared(of, with_, torch.eq)
+
+
+@op("transforms")
+def ne(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of != with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing, so `eq` and `ne` sum to 1 wherever both are
+    there."""
+    return compared(of, with_, torch.ne)
+
+
+@op("transforms")
+def gt(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of > with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing."""
+    return compared(of, with_, torch.gt)
+
+
+@op("transforms")
+def ge(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of >= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing."""
+    return compared(of, with_, torch.ge)
+
+
+@op("transforms")
+def lt(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of < with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing."""
+    return compared(of, with_, torch.lt)
+
+
+@op("transforms")
+def le(of: Tensor, with_: Value) -> Tensor:
+    """1 where `of <= with`, else 0, in the value's dtype, `with` a number or a named value broadcast as `scale`'s
+    `factor` is; compared in float32, and NaN where either is missing."""
+    return compared(of, with_, torch.le)

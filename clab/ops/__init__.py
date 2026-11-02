@@ -30,27 +30,27 @@ refused there (make it a step after the forward). An entry's edits act on the li
 reaches the site, and the value after its last edit is written back; the ops after that run on the value
 once it is taken off the model (an entry nothing uses is not taken off, so they do not run).
 
-A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's
-own where rows hold different numbers of them: NaN, every metric and edit of it NaN, `argmax` and `top_k`
-giving it id -1 (`top_k` NaN `probs` or `values` and no token text). Reductions skip it: `mean` is the mean over the
-rows and positions that have a value, and `pca` is fitted on them. A featurizer's math sees none of it: a
-missing vector goes in as zeros and comes out missing.
+A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's own
+where rows hold different numbers of them: NaN, every metric, edit and elementwise transform of it NaN (a
+comparison's too), `argmax` and `top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text).
+Reductions skip it: `mean` is the mean over the rows and positions that have a value, and `pca` is fitted on them. A
+featurizer's math sees none of it: a missing vector goes in as zeros and comes out missing.
 An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops:
 an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are
 there, so a row's own keys are edited as the row has them, and its tail stays NaN; `argmax` and `top_k` over
 `key` rank a row's own keys, a vector missing only where it has none.
 
-Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or
-1, and the accuracy is a `mean` step after it; `contains` scores a detokenized generation's text);
-**reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
-over `pos`, one value per row); **edits** (<the edits group>) keep the value's layout and change its contents, and inside
-an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
-a residual stream, coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of
-the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `div`, `pow`), which, unlike an
-edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a transform that does, a
-metric, a reduction), or, after an `encode`, before the `decode` that closes it; an elementwise transform may come
-before an edit, and acts on the live value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]`
-writes a tenth of each entry's sign).
+Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
+accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
+by default the rows and positions, a `layers` axis kept (`over` names them; over `pos`, one value per row);
+**edits** (<the edits group>) keep the value's layout and change its contents, and inside an entry are what writes
+back; **transforms** turn each example's value into another of a different layout (logits from a residual stream,
+coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of the same one entry
+by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`,
+`ge`, `lt`, `le`, 1 where they hold and 0 where not), which, unlike an edit, writes nothing back. An edit comes
+before any op of its entry that changes the layout (a transform that does, a metric, a reduction), or, after an
+`encode`, before the `decode` that closes it; an elementwise transform may come before an edit, and acts on the live
+value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
 
 `grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
 acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
@@ -61,13 +61,15 @@ restores the site's value (`renormalize`). The forward takes one backward after 
 under `tp` is refused by name, and so is one whose `of` runs an op no gradient passes through:
 <no gradient>.
 
-Metrics, the reductions `mean`, `sum` and `min` and the elementwise transforms compute in float32 whatever the
-model's dtype, and return float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16
-model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in float32
-too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a value
-read from the model keeps the model's dtype. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same
-either way: bfloat16 to float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives
-`probs`, a float32 softmax, and over another axis `values`, the ranked values in the value's own dtype.
+Metrics, the reductions `mean`, `sum` and `min` and the elementwise arithmetic (`abs` to `pow`) compute in float32
+whatever the model's dtype, and return float32 (`pca` works in double and returns float32 too, a bundle's dtype), so
+a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in
+float32 too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a
+value read from the model keeps the model's dtype. A comparison compares in float32 too and gives its 0 or 1 in the
+value's dtype, so `scale` by it (`{"op": "scale", "factor": "<a comparison's value>"}`) masks the value where the
+comparison fails. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to
+float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax,
+and over another axis `values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
 (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
@@ -241,7 +243,8 @@ OPS.update((fn.__name__, fn) for fn in [
     reductions.mean, reductions.sum, reductions.min, reductions.pca, metrics.match, metrics.logit_diff,
     metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js,
     transforms.top_k, transforms.argmax, transforms.detokenize, transforms.abs, transforms.exp, transforms.log,
-    transforms.sign, transforms.sqrt, transforms.square, transforms.neg, transforms.div, transforms.pow, metrics.cosine])
+    transforms.sign, transforms.sqrt, transforms.square, transforms.neg, transforms.div, transforms.pow, transforms.eq,
+    transforms.ne, transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
 ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
     "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))
