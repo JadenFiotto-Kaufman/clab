@@ -82,15 +82,15 @@ def preflight(engine: Engine, plan: Plan) -> Found:
 
 
 def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swap: dict[str, str],
-         classes: dict[str, list]) -> tuple[Plan, Found]:
+         classes: dict[str, list], root: dict[str, dict]) -> tuple[Plan, Found]:
     """A fit body's plan (under eval `label`, with each dataset `swap` maps read under the body's name for it) and
-    its `prepare`, which completes the body's records (their positions under the dataset each run reads); a
-    refusal names the fit and, under an eval, which one and the datasets it reads in place of the body's, whose
-    rows a row number counts."""
+    its `prepare`, which completes the body's records (their positions under the dataset each run reads), beside
+    the root's inputs encoded so far (`root`, `Found.root`); a refusal names the fit and, under an eval, which one
+    and the datasets it reads in place of the body's, whose rows a row number counts."""
     view = body_view(plan, fit, step.at, swap)
     trained = {alias: step.at for f in step.train for alias in (f, f"{fit}.{f}")}
     try:
-        return view, prepare(engine, view, step.steps, swap, classes, trained)
+        return view, prepare(engine, view, step.steps, swap, classes, trained, root)
     except ValueError as e:
         if label is None:
             raise ValueError(f"{fit}.{e}") from None
@@ -99,22 +99,23 @@ def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swa
 
 
 def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list],
-            trained: dict[str, dict[str, int]] | None = None) -> Found:
+            trained: dict[str, dict[str, int]] | None = None, root: dict[str, dict] | None = None) -> Found:
     """`preflight`'s checks and findings for `steps`, in order (a fit's body prepared at the fit's place, over its
     training rows and under each eval), over the rows `plan` holds: the root's, or a body's. `swap` names each
     dataset as the run reads it (an eval substitution's `{"train": "test"}` records `train.input` as `test.input`
     and the records' positions under `test`); `classes` is each probe's class list; `trained`, in a body, each
-    featurizer the fit trains by both its names, with the fit's point. Once every point of a step has its records,
-    each serving point's schedule is written (`scheduled`)."""
+    featurizer the fit trains by both its names, with the fit's point; `root`, in a body, the root's inputs encoded
+    before the fit. Once every point of a step has its records, each serving point's schedule is written
+    (`scheduled`)."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found = Found(swap=swap)
+    found = Found(swap=swap, root=root or {})
     for name, entry in steps.items():
         for step in points(entry):
             if step.kind == "fit":
-                train = body(engine, plan, name, step, None, {}, classes)
+                train = body(engine, plan, name, step, None, {}, classes, found.inputs)
                 put(found.bodies, name, step.at, {"train": train, "evals": {
-                    label: body(engine, plan, name, step, label, other, classes) if other else train
+                    label: body(engine, plan, name, step, label, other, classes, found.inputs) if other else train
                     for label, other in step.eval.items()}})
                 continue
             if step.kind == "op":
