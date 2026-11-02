@@ -151,6 +151,20 @@ def test_repr_says_the_state():
     assert repr(plan_of("patching")) == "Plan(patching, compiled, 1 point)"
 
 
+def test_print_gives_the_one_line_repr_whatever_the_plan_holds(engines, capsys):
+    """`str` is `repr`, so `print(plan)` is one line, not every field: a compiled plan that loads a bundle
+    (sae_feature_ablation's dictionary) holds its tensors and prints none of them, and a run's prints its state."""
+    compiled = plan_of("sae_feature_ablation")
+    assert any(points(f)[0].bundle for f in compiled.featurizers.values())
+    patching = plan_of("patching")
+    filled = engines("nnterp", patching.model).execute(patching, batch_size=BATCH_SIZE)
+    for plan, said in ((Plan(document("pos_sweep")), "Plan(pos_sweep, uncompiled)"),
+                       (compiled, "Plan(sae_feature_ablation, compiled, 4 points)"),
+                       (filled, "Plan(patching, run on nnterp, 2 results)")):
+        print(plan)
+        assert capsys.readouterr().out == f"{said}\n" and str(plan) == repr(plan) == said
+
+
 def test_write_keeps_the_document(tmp_path):
     plan = Plan(document("steer_renormalize"))
     plan.write(str(tmp_path / "copy.json"))

@@ -17,7 +17,7 @@ document ─Plan(path)─▶ plan ─compile()─▶ compiled plan ─engines.lo
    ─execute()─▶ [ preflight ▸ every step ▸ results and run record ] ─dump()─▶ output directory ─Plan.load()─▶ filled plan
 ```
 
-A plan's `repr` says how far it has gone: `Plan(patching, uncompiled)`, `Plan(patching, compiled, 1 point)`, `Plan(patching, run on nnterp, 2 results)`.
+A plan's `repr`, which `print` gives too, says how far it has gone: `Plan(patching, uncompiled)`, `Plan(patching, compiled, 1 point)`, `Plan(patching, run on nnterp, 2 results)`.
 
 ## 1. Plan: the document as records
 

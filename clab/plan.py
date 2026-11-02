@@ -1011,12 +1011,17 @@ class Plan(Record):
         return document and os.path.relpath(document, corpus_root(self))
 
     def __repr__(self) -> str:
+        """The plan in one line: its name and its state (uncompiled; compiled, with its points; or run, with its
+        engine and how many results it holds), which `str` and `print` give too, never its records' fields or a
+        bundle's tensors."""
         if self.run is not None:
             return f"Plan({name(self)}, run on {self.run.engine}, {len(self.results)} results)"
         if self.compiled:
             n = math.prod(len(axis.values) for axis in self.sweeps.values())
             return f"Plan({name(self)}, compiled, {n} point{'s' * (n != 1)})"
         return f"Plan({name(self)}, uncompiled)"
+
+    __str__ = __repr__
 
     def compile(self) -> "Plan":
         """This plan compiled: rows loaded (a hub dataset's checked, then left out), sites and named interventions

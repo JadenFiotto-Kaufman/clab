@@ -56,7 +56,7 @@ Besides the document's own keys (`description`, `model`, `data`, `sites`, `inter
 
 A swept step is a list of points in `plan.steps`, each a whole step with its `at`. The fields compile and preflight fill on each record (a value's `dims`, labels and `axes`, an entry's `positions` per row under its dataset, a forward's or generation's `schedule`, a step's `dataset` and `at`, a dataset's `sha256` and `n_rows`) are listed in [FORMAT.md](../../FORMAT.md#derived-fields); where a read landed is `plan.steps["patched"].interventions["logits"].positions`, `{"pairs": [[10], [8], [8], [8]]}` on `documents/patching.json`.
 
-A plan's `repr` says its stage: `Plan(patching, uncompiled)`, `Plan(patching, compiled, 1 point)`, `Plan(patching, run on nnterp, 2 results)`.
+A plan's `repr` says its stage: `Plan(patching, uncompiled)`, `Plan(patching, compiled, 1 point)`, `Plan(patching, run on nnterp, 2 results)`. `str` and `print` give the same one line; the records are `plan.steps`, `plan.featurizers` and `plan.model_dump()`.
 
 ## Engines
 
