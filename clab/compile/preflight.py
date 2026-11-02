@@ -172,6 +172,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 layers, select = cast("Selector | None", site.layers), cast("dict[str, Selector] | None", site.select)
                 record.layers = None if layers is None else picked(where, layers, sizes["num_layers"])
                 for axis, index in (select or {}).items():
+                    if selectors.offset(index) is not None:
+                        continue                    # relative to each query: past a row's keys it is missing
                     shortest = min(len(e["ids"]) for e in encoded)
                     size, what = (shortest, f"the {shortest} tokens of the input's shortest row") \
                         if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")

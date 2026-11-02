@@ -205,7 +205,7 @@ def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place:
             at = {**dict(zip(outer, index)), **dict(zip(inner, within))}
             row: dict[str, Any] = dict(whole)
             for i, k in zip(inner, within):
-                row.update(token(place, at[dims.index("rows")], dims[i], k) if place else {dims[i]: k})
+                row.update(token(place, at[dims.index("rows")], dims[i], k, row.get("pos")) if place else {dims[i]: k})
             if row.get("key", 0) is None or row.get("pos", 0) is None:
                 continue                                    # past the row's own keys or positions
             pick = tuple(at.get(i, slice(None)) for i in range(len(dims)))
@@ -219,12 +219,18 @@ def layer(place: dict[str, Any] | None, k: int) -> int:
     return place["layers"][k] if place and place["layers"] is not None else k
 
 
-def token(place: dict[str, Any], row: int, axis: str, k: int) -> dict[str, Any]:
+def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None = None) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
-    through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them;
-    None past the row's own positions or keys."""
+    through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them, and
+    a key relative to the query at its offset from the position `at` the row is labelled with (its `offset` alone
+    where the value has no `pos` axis left); None past the row's own positions or keys."""
     if axis == "pos":
         return label(place, row, place["positions"][row][k], axis) if k < len(place["positions"][row]) else {axis: None}
+    if isinstance(place["keys"], dict):
+        if at is None:
+            return {"offset": place["keys"]["offset"][k]}
+        index = at + place["keys"]["offset"][k]
+        return label(place, row, index, axis) if 0 <= index < len(place["prompt"][row]) else {axis: None}
     index = place["keys"][k] if place["keys"] is not None else k
     return label(place, row, index, axis) if index < len(place["prompt"][row]) else {axis: None}
 

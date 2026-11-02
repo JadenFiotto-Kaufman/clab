@@ -89,13 +89,24 @@ number. `from` stays under its own name. Refused by name: a row whose `from` is 
 
 - `component: str`
 - `layers: selector or a sweep or null = null`
-- `select: object of selector or a sweep or null = null`
+- `select: object of selector or key offset or a sweep or null = null`
 
 A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
 layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
 it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-(`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+(`{<axis>: <selector>}`, which Components describes; on `key`, a selector of keys counted from the start, or
+keys relative to each query, `{"offset": k}`, a key offset). A read and a write take `layers` alike: an entry is
 made at each layer they pick, in one forward.
+
+### A key relative to the query
+
+- `offset: int or list of int or a sweep`
+
+`{"offset": k}` or `{"offset": [k, ...]}`: on an attention pattern's `key` axis, at each query position p the
+entry reads, key p + k of the row's own keys, one per offset in the order written (`{"offset": -1}` the previous
+token, `[-1, -2]` the two before it): the axis is as wide as the offsets are many, and an entry is missing (NaN)
+where p + k is not one of the row's keys (before its first or past its last). A read's alone: a write selects
+keys counted from the start.
 
 ### A column read as text
 
@@ -461,7 +472,7 @@ scored on the training rows after each epoch.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
+- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, a later entry or step uses it, or a gathered `grad` entry is its gradient), `per_call` (how many of the ops after the entry's last edit a generation runs at each call it reads the entry beyond its prefill, on that call's own value, the rest running once the calls are arranged by position: the leading ones that are positionwise (Ops), keep the `pos` axis and take no operand that has one, up to the first that scores an answer of several tokens, which preflight finds; 0 in a forward and in the prefill), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
@@ -681,7 +692,7 @@ in their order, and the axis stays in the layout, so that a site has one layout 
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
 int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
-`"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
+`"0:3"`), or, in a read, keys relative to each query position, `{"offset": -1}`; unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
 shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
 `stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
 entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a

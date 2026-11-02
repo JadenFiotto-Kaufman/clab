@@ -125,6 +125,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"an entry that writes selects on one axis; this one selects "
              f"{', '.join(site.select or {})}")
+    if write and selectors.offset((site.select or {}).get("key")) is not None:
+        fail(f"{path}.site.select.key", "keys relative to the query are a read's: a write selects keys counted "
+             "from the start, the same at every query (0, [0, 2], \"0:3\")")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
     if step.kind != "generate" and selectors.select(frame, 1) != [0]:
@@ -253,11 +256,13 @@ def layers_of(layers: Selector | None) -> list[int] | None:
     return list(picks) if picks is not None and all(i >= 0 for i in picks) else []
 
 
-def kept_of(select: dict[str, Selector] | None) -> dict[str, list[int]]:
+def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
     """A site's `select` as the indices it keeps on each axis, as far as the document decides them: those of a
     selector counted from the start (`keyed`: a non-negative int or picks, a front-bounded slice, every `key`
-    selector), else `[]` until preflight resolves it among the model's."""
-    return {axis: keys(s) if keyed(s) else [] for axis, s in (select or {}).items()}
+    selector), a key relative to the query's offsets (`selectors.relative`), else `[]` until preflight resolves it
+    among the model's."""
+    return {axis: selectors.relative(s) if selectors.offset(s) is not None else keys(s) if keyed(s) else []
+            for axis, s in (select or {}).items()}
 
 
 def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
@@ -308,7 +313,8 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         theirs_site = cast(Site, read.site)
         same = value.partition(".")[0] == where.partition(".")[0]
         if adapter and key == "with":
-            per, own = (math.prod(len(kept[a]) if a in kept else sizes[a] for a in address.dims(s.component)[2:])
+            per, own = (math.prod(selectors.width_of(kept[a]) if a in kept else sizes[a]
+                                  for a in address.dims(s.component)[2:])
                         for s, kept in ((theirs_site, theirs.kept), (site, record.kept)))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import TYPE_CHECKING, Annotated, Union, cast
+from typing import TYPE_CHECKING, Annotated, Any, Union, cast
 
 from pydantic import BeforeValidator
 
@@ -52,10 +52,33 @@ def select(selector: Selector, n: int) -> list[int]:
     return got
 
 
-def kept(selects: dict[str, Selector] | None, sizes: dict[str, int]) -> dict[str, list[int]]:
+# What a site's `select` keeps on an axis, as a record's `kept` holds it: the indices, in order; on `key`, keys relative
+# to each query position, `{"offset": [...]}`, which no absolute key is mistaken for.
+Kept = list[int] | dict[str, list[int]]
+
+
+def kept(selects: dict[str, Any] | None, sizes: dict[str, int]) -> dict[str, Kept]:
     """A site's `select` as the indices it keeps on each axis: the axis's selector among its size in `sizes`,
-    and on `key` its `keys`."""
-    return {axis: keys(s) if axis == "key" else select(s, sizes[axis]) for axis, s in (selects or {}).items()}
+    on `key` its `keys`, or the offsets of a key relative to the query (`relative`)."""
+    return {axis: relative(s) if offset(s) is not None else keys(s) if axis == "key" else select(s, sizes[axis])
+            for axis, s in (selects or {}).items()}
+
+
+def offset(selector: object) -> list[int] | None:
+    """The offsets of a key selector relative to the query (`plan.Offset`, `{"offset": k}` or a list of them), in
+    the order written; None for a selector of absolute indices."""
+    given = getattr(selector, "offset", None)
+    return None if given is None else [given] if isinstance(given, int) else list(given)
+
+
+def relative(selector: object) -> dict[str, list[int]]:
+    """A key selector relative to the query as a record's `kept` holds it."""
+    return {"offset": offset(selector) or []}
+
+
+def width_of(kept: Kept) -> int:
+    """How many indices an axis keeps: the indices, or the offsets of a key relative to the query."""
+    return len(kept["offset"]) if isinstance(kept, dict) else len(kept)
 
 
 def keys(selector: Selector) -> list[int]:
@@ -156,7 +179,7 @@ def selected(where: str, axis: str, selector: Selector, n: int, what: str) -> No
     written = keys(selector) if keyed(selector) else [selector] if isinstance(selector, int) else \
         selector if isinstance(selector, list) else []
     try:
-        got = kept({axis: selector}, {axis: n})[axis]
+        got = cast(list[int], kept({axis: selector}, {axis: n})[axis])      # indices: an offset is not checked here
     except ValueError as e:
         raise ValueError(f"{where}: select {axis}: {e}") from None
     if any(not -n <= i < n for i in written) or any(i >= n for i in got):

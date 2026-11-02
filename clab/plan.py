@@ -267,15 +267,32 @@ class Data(Record):
         return self
 
 
+class Offset(Record):
+    """`{"offset": k}` or `{"offset": [k, ...]}`: on an attention pattern's `key` axis, at each query position p the
+    entry reads, key p + k of the row's own keys, one per offset in the order written (`{"offset": -1}` the previous
+    token, `[-1, -2]` the two before it): the axis is as wide as the offsets are many, and an entry is missing (NaN)
+    where p + k is not one of the row's keys (before its first or past its last). A read's alone: a write selects
+    keys counted from the start."""
+    offset: Swept[int | list[int]]
+
+    @field_validator("offset")
+    @classmethod
+    def _distinct(cls, given: Any) -> Any:
+        if isinstance(given, list) and (not given or len(set(given)) < len(given)):
+            raise ValueError(f"offsets {given} name at least one, each once")
+        return given
+
+
 class Site(Record):
     """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
     layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
     it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-    (`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+    (`{<axis>: <selector>}`, which Components describes; on `key`, a selector of keys counted from the start, or
+    keys relative to each query, `{"offset": k}`, a key offset). A read and a write take `layers` alike: an entry is
     made at each layer they pick, in one forward."""
     component: str
     layers: Swept[Selector] | None = None
-    select: dict[str, Swept[Selector]] | None = None
+    select: dict[str, Swept[Annotated[Union[Selector, Offset], ByShape()]]] | None = None
 
     @model_validator(mode="after")
     def _narrowing(self) -> "Site":
@@ -290,9 +307,13 @@ class Site(Record):
         for axis, index in (self.select or {}).items():
             if axis not in valid:
                 raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
-            if axis == "key" and not isinstance(index, Sweep) and not selectors.keyed(index):
+            if isinstance(index, Offset) and axis != "key":
+                raise ValueError(f"select {axis} {index.model_dump()}: an offset is relative to the query position, "
+                                 "on an attention pattern's key axis alone")
+            if axis == "key" and not isinstance(index, (Sweep, Offset)) and not selectors.keyed(index):
                 raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
-                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\")")
+                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\"), or keys "
+                                 "relative to each query ({'offset': -1})")
         return self
 
 
@@ -569,10 +590,12 @@ class Labelled(Record):
                                       "and that is one number: the static width its read's `pos` names, confirmed "
                                       "from the positions preflight resolves; null where rows hold different numbers "
                                       "of positions, or there is no `pos` axis")
-    kept: dict[str, list[int]] = derived({}, "the indices a site's `select` keeps on each axis it selects, in their "
-                                             "order (`key`: the keys it picks), an op step's those of the value it is "
-                                             "over on the axes its own still has; an unselected axis is whole, and "
-                                             "`[]` stands until preflight resolves a slice or a negative pick")
+    kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
+                                                  "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
+                                                  "those relative to each query), an op step's those of the value it "
+                                                  "is over on the axes its own still has; an unselected axis is "
+                                                  "whole, and `[]` stands until preflight resolves a slice or a "
+                                                  "negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
                                     "first, each its `featurizer` and `select`; none for the site's own layout")
     axes: list[str] = derived([], "the sweep axes the value depends on, in axis order: the sweeps on its own entry "

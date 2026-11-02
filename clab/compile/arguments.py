@@ -9,7 +9,7 @@ from typing import Any
 from clab import featurizers, ops
 from clab.compile.answers import column_ref, literal, text_ref
 from clab.compile.state import Compiling
-from clab.format import address, data, registry
+from clab.format import address, data, registry, selectors
 from clab.format.sweeps import points
 from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
 
@@ -119,7 +119,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, list[int]], int | None]:
+def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:
     """What an op's value keeps of the labels of the value it is over: its layers, unless the op removed a
     `layers` axis (then it is from no layer), the indices kept on each selected axis it still has, and its width
     where it still has a `pos` axis."""
@@ -245,6 +245,12 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         own, held = ours.kept.get(axis), theirs.kept.get(axis)
         if axis in address.EXAMPLE_AXES or adapts or own == [] or held == [] or own == held:
             continue                                        # not a selected axis, pending, or the same
+        if isinstance(own, dict) or isinstance(held, dict):
+            def keyed(k: selectors.Kept | None) -> str:
+                return "every key" if k is None else f"the keys at offsets {k['offset']} from each query" \
+                    if isinstance(k, dict) else f"keys {k}"
+            return (f"{written!r} holds {keyed(held)}, and {whose} holds {keyed(own)}; a key relative to the query "
+                    "pairs with the same offsets alone: select one key offset at both reads")
         if own is not None and held is not None and sorted(own) == sorted(held):
             why = "a select list is positional, so they would trade places"
         elif held is not None and len(held) == 1:
