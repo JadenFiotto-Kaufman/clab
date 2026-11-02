@@ -1191,3 +1191,213 @@ def test_a_fits_eval_records_and_tables_by_dataset_row(engines):
     fit, plain = filled.table("fit.train.noisy.every"), filled.table("plain.every")
     assert [(r["row"], r["pos"], r["pos_token"]) for r in fit] == [(r["row"], r["pos"], r["pos_token"]) for r in plain]
     assert {r["row"] for r in fit} == set(range(12)) and same([r["value"] for r in fit], [r["value"] for r in plain])
+
+
+# -- a gate over named axes: one unit per head of every layer ---------------------------------------------------
+
+
+def head_gates(*changes) -> Plan:
+    """documents/head_gates.json with `changes`, compiled."""
+    return edited("head_gates", chain(*changes)).compile()
+
+
+def untrained(d):
+    """head_gates at one L1 weight and `epochs: 0`, its `train` eval scoring the untrained draw (θ = +1 on every
+    head), with the clean run's premix read where the gate writes and the write's own value saved."""
+    d["steps"]["fit"].update(epochs=0, objective={"sq": 1.0, "heads.mask": 0.0001})
+    d["steps"]["clean"]["interventions"] = {"z": {"site": "premix", "pos": {"index": "0:12"}},
+                                            **d["steps"]["clean"]["interventions"]}
+    d["saves"] = ["clean_ld", "clean.logits", "clean.z", "fit.train.ld", "fit.train.run.logits", "fit.train.run.gated"]
+
+
+def at_the_root(file: str, site: dict | None = None):
+    """head_gates' body at the root, through `heads` loaded from `file` (its `over` left to the header), a read of the
+    site's value before the gated write and the gated write's value saved beside the corrupt read."""
+    def change(d):
+        d["featurizers"]["heads"] = {"kind": "gate", "file_path": file}
+        body = d["steps"].pop("fit")["steps"]
+        gated = body["run"]["interventions"]["gated"]
+        gated["ops"][0]["featurizer"] = "heads"
+        if site is not None:
+            gated["site"] = site
+        body["run"]["interventions"] = {"before": {"site": gated["site"], "pos": gated["pos"]},
+                                        **body["run"]["interventions"]}
+        d["steps"].update(body)
+        d["saves"] = ["run.before", "run.gated", "corrupt.z", "ld", "clean_ld"]
+    return change
+
+
+def write_gate(root: str, theta: torch.Tensor, **header: str) -> str:
+    """A gate over the tiny GPT-2's layers and heads holding `theta`, with the header a fit of head_gates writes
+    (and `header`), as a bundle under the corpus copy at `root`; its file_path."""
+    meta = bundle_header(**{"kind": "gate", "over": '["layers", "num_heads"]', "kept.num_heads": "[0, 1, 2, 3]",
+                            "component": "attention_premix", "layer": "[0, 1, 2, 3, 4]", "width": "20",
+                            "model.key": "hf-internal-testing/tiny-random-gpt2",
+                            "model.revision": "71034c5d8bde858ff824298bdedc65515b97d2b9", **header})
+    save_file({"theta": theta.contiguous()}, os.path.join(root, "documents", "artifacts", "heads.safetensors"),
+              metadata=meta)
+    return "documents/artifacts/heads.safetensors"
+
+
+def test_a_gate_over_layers_and_heads_is_one_unit_per_head_and_keeps_whole_heads(ran):
+    """head_gates' `theta` is `[5, 4]`, the tiny GPT-2's layers by heads, at every L1 weight, each weight keeping its
+    pinned heads (16, 5, 1 and 0 of 20), and its bundle's header says what the units lie on: `over`, the layers,
+    `kept.num_heads` and the 20 units, the same from every engine (ndif's sizing made where the model is)."""
+    masks = ran["head_gates", "nnterp"].results["fit.heads"]
+    assert all(m["theta"].shape == (5, 4) for m in masks.values())
+    kept = {str(w): (m["theta"] > 0).nonzero().tolist() for w, m in masks.items()}
+    assert [len(k) for k in kept.values()] == [16, 5, 1, 0]
+    assert kept == snapshot("head_gates.heads.json", kept)
+    from safetensors import safe_open
+    headers = {}
+    for kind in ("nnterp", "hooks", "ndif"):
+        with safe_open(os.path.join(ran["root"], "out", f"head_gates-{kind}", "fit.heads.safetensors"), "pt") as f:
+            headers[kind] = f.metadata()
+    assert headers["nnterp"] == headers["hooks"] == headers["ndif"]
+    header = {k.partition("/")[2]: v for k, v in headers["nnterp"].items() if k.startswith("heads.mask=0.0001/")}
+    assert {k: header[k] for k in ("over", "kept.num_heads", "layer", "width", "component")} == {
+        "over": '["layers", "num_heads"]', "kept.num_heads": "[0, 1, 2, 3]", "layer": "[0, 1, 2, 3, 4]",
+        "width": "20", "component": "attention_premix"}
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_an_untrained_head_gate_with_the_corrupt_value_is_the_clean_run_to_the_bit(engines, kind, options):
+    """θ = +1 on every head: `apply` with `with` writes back the clean premix itself at every layer, and the logits
+    and the logit difference are the clean run's, to the bit, on each engine (ndif under `remote="local"`)."""
+    plan = head_gates(untrained)
+    values = engines(kind, plan.model, **options).execute(head_gates(untrained), batch_size=BATCH_SIZE).results
+    assert torch.equal(values["fit.train.run.gated"], values["clean.z"])
+    assert torch.equal(values["fit.train.run.logits"], values["clean.logits"])
+    assert torch.equal(values["fit.train.ld"], values["clean_ld"])
+
+
+def test_the_sub_apply_add_form_of_the_interpolation_is_not_exact(engines):
+    """`[sub c, apply, add c]` means the same interpolation and computes `(h − c)·1 + c`, which rounds: its
+    untrained null moves the clean premix in its last bits, where `apply` with `with` does not."""
+    def spelled_out(d):
+        d["steps"]["fit"]["steps"]["run"]["interventions"]["gated"]["ops"] = [
+            {"op": "sub", "with": "corrupt.z"}, {"op": "apply", "featurizer": "fit.heads"},
+            {"op": "add", "with": "corrupt.z"}]
+    values = engines("hooks", head_gates().model).execute(head_gates(untrained, spelled_out),
+                                                         batch_size=BATCH_SIZE).results
+    torch.testing.assert_close(values["fit.train.run.gated"], values["clean.z"], atol=1e-6, rtol=0)
+    assert not torch.equal(values["fit.train.run.gated"], values["clean.z"])
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_head_gate_writes_the_runs_own_value_where_on_and_the_corrupt_value_where_off_to_the_bit(engines,
+                                                                                                  tmp_path, kind):
+    """A loaded gate with two heads on (layer 1 head 2, layer 3 head 0): at every layer the write is the run's own
+    premix at the heads that are on and the corrupt run's at the rest, each to the bit; off everywhere it is
+    `corrupt.z` itself; and applied at layers 1 to 3 of the 5 its header records, it takes those layers' rows by
+    their ids."""
+    root = corpus_copy(tmp_path)
+    theta = -torch.ones(5, 4)
+    theta[1, 2] = theta[3, 0] = 1.0
+    on = (theta > 0)[:, None, None, :, None]
+    document = os.path.join(root, "documents", "head_gates.json")
+    for picked, layers in ((None, slice(None)), ({"component": "attention_premix", "layers": "1:4"}, slice(1, 4))):
+        plan = Plan(**edited("head_gates", at_the_root(write_gate(root, theta), picked)).model_dump(
+            exclude_defaults=True, exclude={"document"}), document=document).compile()
+        values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+        gated, before, corrupt = values["run.gated"], values["run.before"], values["corrupt.z"][layers]
+        assert gated.shape == (5 if picked is None else 3, 4, 12, 4, 8)
+        mask = on[layers].expand_as(gated)
+        assert torch.equal(gated[mask], before[mask]) and torch.equal(gated[~mask], corrupt[~mask])
+        assert not torch.equal(before[~mask], corrupt[~mask])
+    plan = Plan(**edited("head_gates", at_the_root(write_gate(root, -torch.ones(5, 4)))).model_dump(
+        exclude_defaults=True, exclude={"document"}), document=document).compile()
+    values = engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["run.gated"], values["corrupt.z"])
+
+
+def test_a_trained_head_gate_loads_from_its_bundle_and_scores_as_the_fit_did(engines, tmp_path):
+    """head_gates at one L1 weight, its gate loaded by a document that runs the body at the root through it, `over`
+    left to the header: the logit differences of its `train` eval, to the bit."""
+    root = corpus_copy(tmp_path)
+    one = head_gates(lambda d: d["steps"]["fit"]["objective"].update({"heads.mask": 0.0001}))
+    engine = engines("hooks", one.model)
+    filled = engine.execute(one, batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "documents", "artifacts"))
+    plan = Plan(**edited("head_gates", at_the_root("documents/artifacts/fit.heads.safetensors")).model_dump(
+        exclude_defaults=True, exclude={"document"}), document=os.path.join(root, "documents", "head_gates.json"))
+    plan = plan.compile()
+    values = engine.execute(plan, batch_size=BATCH_SIZE).results
+    assert int((filled.results["fit.heads"]["theta"] > 0).sum()) == 5
+    assert same(values["ld"], filled.results["fit.train.ld"])
+
+
+def gated_op(d) -> dict:
+    return d["steps"]["fit"]["steps"]["run"]["interventions"]["gated"]
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda d: d["featurizers"]["heads"].update(over=["num_heads", "layers"]),
+     r"featurizers\.heads\.over: \['num_heads', 'layers'\]: a gate's units are laid out on its axes in the "
+     r"selection's order, and fit\.run\.gated's is \['layers', 'rows', 'pos', 'num_heads', 'head_dim'\]: write over "
+     r"as \['layers', 'num_heads'\]"),
+    (lambda d: d["featurizers"]["heads"].update(over=["hidden_size"]),
+     r"featurizers\.heads\.over: \['hidden_size'\]: fit\.run\.gated's selection at attention_premix is laid out "
+     r"\['layers', 'rows', 'pos', 'num_heads', 'head_dim'\], which has no 'hidden_size'"),
+    (lambda d: d["sites"]["premix"].update(layers=1),
+     r"featurizers\.heads\.over: \['layers', 'num_heads'\]: fit\.run\.gated is at attention_premix layer 1, one "
+     r"layer, whose selection \['rows', 'pos', 'num_heads', 'head_dim'\] has no layers axis; leave layers out of over"),
+    (lambda d: gated_op(d).update(ops=[{"op": "encode", "featurizer": "fit.heads"},
+                                       {"op": "swap", "with": 0.0}, {"op": "decode", "featurizer": "fit.heads"}]),
+     r"featurizers\.heads\.over: \['layers', 'num_heads'\]: fit\.run\.gated encodes 'heads', and a gate over axes "
+     r"serves apply alone: .* an interchange through it is \{'op': 'apply', 'featurizer': 'fit\.heads', 'with': "
+     r"<the other value>\}"),
+    (lambda d: d["featurizers"].update(rot={"kind": "subspace", "k": 2}) or gated_op(d).update(ops=[
+        {"op": "encode", "featurizer": "rot"}, {"op": "apply", "featurizer": "fit.heads"},
+        {"op": "decode", "featurizer": "rot"}]),
+     r"fit\.run\.gated applies 'heads' inside the encode of 'rot', whose coordinates are no axes of its site's "
+     r"selection; apply it outside the encode"),
+    (lambda d: d["featurizers"]["heads"].update(over=["layers", "pos"]),
+     r"over: \['layers', 'pos'\] names pos, an example's; a gate's units lie on the axes of its site's selection"),
+    (lambda d: d["featurizers"]["heads"].update(over=[]), r"over: \[\] names no axis"),
+])
+def test_a_gate_over_axes_its_use_does_not_have_is_refused_at_compile(change, message):
+    with pytest.raises(PlanError, match=message):
+        head_gates(change)
+
+
+def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_before_any_forward(engines, tmp_path):
+    """A drawn gate trained over every layer and applied by a step after the fit at layers 1 to 3 has two selections
+    of its axes, which one `theta` cannot be; a loaded one used at a site that keeps heads its header's
+    `kept.num_heads` does not is refused naming the header."""
+    def later(d):
+        d["steps"]["after"] = {"kind": "forward", "input": "pairs.input", "interventions": {"gated": {
+            "site": {"component": "attention_premix", "layers": "1:4"}, "pos": {"index": "0:12"},
+            "ops": [{"op": "apply", "featurizer": "fit.heads", "with": 0.0}]}}}
+    plan = head_gates(later)
+    with pytest.raises(ValueError, match=r"after\.gated: gate 'heads' is over layers \[1, 2, 3\], num_heads \[0, 1, 2, "
+                                         r"3\] here and layers \[0, 1, 2, 3, 4\], num_heads \[0, 1, 2, 3\] elsewhere; "
+                                         r"its units lie on one selection of the axes it is over"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    root = corpus_copy(tmp_path)
+    file = write_gate(root, torch.ones(5, 2), **{"kept.num_heads": "[0, 1, 2, 3]", "width": "10"})
+
+    def two_heads(d):
+        at_the_root(file, {"component": "attention_premix", "layers": ":", "select": {"num_heads": [1, 2]}})(d)
+        d["steps"]["corrupt"]["interventions"]["z"]["site"] = {"component": "attention_premix", "layers": ":",
+                                                               "select": {"num_heads": [1, 2]}}
+    plan = Plan(**edited("head_gates", two_heads).model_dump(exclude_defaults=True, exclude={"document"}),
+                document=os.path.join(root, "documents", "head_gates.json")).compile()
+    with pytest.raises(ValueError, match=r"run\.gated: documents/artifacts/heads\.safetensors: header 'kept\.num_heads' "
+                                         r"is '\[0, 1, 2, 3\]'; this document uses 'heads' at attention_premix, whose "
+                                         r"selection keeps num_heads \[1, 2\]"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+def test_a_loras_with_stays_its_input_and_a_gates_is_an_operand(engines):
+    """The two kinds whose `apply` takes `with`: a gate's is an operand of the value, refused by Ops' one rule where
+    it holds other heads than the write; a lora's is its input, compared on rows and positions alone, and a number
+    there is still refused."""
+    def other_heads(d):
+        d["steps"]["corrupt"]["interventions"]["z"]["site"] = {"component": "attention_premix", "layers": ":",
+                                                               "select": {"num_heads": [1, 2]}}
+    with pytest.raises(PlanError, match=r"steps\.fit\.steps\.run\.interventions\.gated\.ops\[0\]\.with at "
+                                        r"heads\.mask=2e-05: 'corrupt\.z' holds num_heads \[1, 2\], and this write's "
+                                        r"selection holds every one"):
+        head_gates(other_heads)
+    assert featurizers.KINDS["lora"].adapts and not featurizers.KINDS["gate"].adapts
