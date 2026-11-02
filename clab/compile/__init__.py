@@ -32,7 +32,7 @@ from clab.compile.schedule import shared
 from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites
 from clab.featurizers import KINDS, bundles, labels
-from clab.format import data
+from clab.format import data, registry
 from clab.format.sweeps import find_sweeps, spelled
 from clab.plan import (
     Data,
@@ -393,7 +393,7 @@ def option(path: str, key: str, value: Any) -> None:
     from transformers import GenerationConfig
     from transformers.generation.utils import GenerationMixin
 
-    own = inspect.signature(getattr(GenerationMixin, "generate")).parameters      # `self` is a protocol to pyright
+    own = registry.signature(getattr(GenerationMixin, "generate")).parameters      # `self` is a protocol to pyright
     if key in own and own[key].kind is not inspect.Parameter.VAR_KEYWORD:
         takes = re.sub(r"\b[\w.]+\.(\w+)", r"\1", str(own[key].annotation).replace("typing.Optional[ForwardRef('", "")
                        .replace("')]", "")).replace(" | None", "")

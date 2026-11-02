@@ -10,6 +10,7 @@ The plan's methods are views and serialization, never execution: it pickles, pri
 thing wherever it lands, which is what lets it travel into a remote session and back.
 """
 
+import functools
 import json
 import math
 import os
@@ -75,8 +76,10 @@ class Record(BaseModel):
         return {**{k: v for k, v in dumped.items() if k not in later}, **{k: v for k, v in dumped.items() if k in later}}
 
 
+@functools.cache
 def documented(cls: type[BaseModel]) -> list[str]:
-    """The fields a document writes: every field but the derived ones."""
+    """The fields a document writes: every field but the derived ones, worked out once per record type (every
+    record checks its keys against them, and writes them first), and only read."""
     return [k for k, f in cls.model_fields.items()
             if not (isinstance(f.json_schema_extra, dict) and f.json_schema_extra.get("derived"))]
 

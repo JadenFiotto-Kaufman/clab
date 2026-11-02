@@ -1,6 +1,7 @@
 """The plan: every document compiles to the plan its snapshot holds; the plan is pure data with views; errors
 name the document path of what is wrong and the valid choices."""
 
+import inspect
 import json
 import os
 import pickle
@@ -10,9 +11,9 @@ import pytest
 from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, plan_of, snapshot
 from huggingface_hub import try_to_load_from_cache
 
-from clab import Plan
+from clab import Plan, ops
 from clab.compile import dataset, positions
-from clab.format import data, selectors
+from clab.format import data, registry, selectors
 from clab.format.sweeps import agreeing, lookup, points
 from clab.plan import Data, PlanError
 
@@ -215,6 +216,22 @@ def test_a_value_is_found_by_the_consumers_coordinates_on_its_axes_not_by_a_scan
     state = {"v": Unscannable({(("src", s), ("pos", i)): (s, i) for s in range(2) for i in range(3)})}
     assert [lookup(state, "v", {"src": s, "other": 0, "pos": i}) for s in range(2) for i in range(3)] == \
         [(s, i) for s in range(2) for i in range(3)]
+
+
+def test_a_functions_signature_is_taken_once_however_many_points_are_checked_against_it(monkeypatch):
+    """Compile checks every op at every point of a sweep against its function's signature and spells its
+    parameters by it (`registry.signature`, `ops.parameters`): each function's is taken once, so a compile from cold
+    takes none twice and the next compile none at all."""
+    registry.signature.cache_clear()
+    ops.parameters.cache_clear()
+    taken, signature = [], inspect.signature
+    monkeypatch.setattr(inspect, "signature", lambda fn, *args, **kwargs: taken.append(fn) or signature(fn, *args,
+                                                                                                        **kwargs))
+    plan_of("head_patching")
+    assert taken and len(taken) == len(set(taken))
+    taken.clear()
+    plan_of("head_patching")
+    assert taken == []
 
 
 def test_every_value_knows_its_dataset_and_layout():

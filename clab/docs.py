@@ -113,7 +113,7 @@ def run_options(name: str) -> list[tuple[str, str]]:
     from clab.engines import ENGINES, options
 
     cls: Any = ENGINES[name]
-    params = {"device": inspect.signature(cls.__init__).parameters["device"], **options(name)}
+    params = {"device": registry.signature(cls.__init__).parameters["device"], **options(name)}
     said = registry.described(cls.__init__)
     return [(text, said.get(k, "")) for k, text in zip(params, signature(params))]
 

@@ -43,7 +43,6 @@ what a kind need not have.
 """
 
 import functools
-import inspect
 from contextlib import nullcontext
 from typing import Any, Callable, ClassVar
 
@@ -224,7 +223,7 @@ def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor
     It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
     what a fit trains, its optimizer's state and its math live where the model is."""
     supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels}
-    taken = inspect.signature(KINDS[kind]).parameters
+    taken = registry.signature(KINDS[kind]).parameters
     given = {**fields, "seed": seed if fields.get("seed") is None else fields["seed"]} if "seed" in taken else fields
     instance = KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})
     for name, value in vars(instance).items():
