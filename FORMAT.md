@@ -942,7 +942,8 @@ booleans or lists of them, each point keyed by its value, and hold no sweep: a `
 or a scope's occurrence, not the object.
 
 A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
-once, and a step reads them by name), on a name, a kind, or a `file_path`. One label is one axis: sweeps with
+once, and a step reads them by name), on a name, a kind, a `file_path`, or a gate's `over` (a featurizer has one
+width at every point). One label is one axis: sweeps with
 one label, by default or given, and the same
 values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
 two steps use); sweeps with one label and different values are refused, and sweeps with different labels

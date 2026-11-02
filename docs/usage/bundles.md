@@ -68,6 +68,7 @@ Compile reads the bundle into the plan and checks it with the document alone; wh
 | the component, and a layer written as a non-negative int, at every use | compile | `header 'layer' is '0'; this document uses 'rot' at layer_output layer 1 (counterfactual.v_cf)` |
 | a layer counted from the last, or a site that picks several | preflight | `header 'layer' is '0'; this document uses 'rot' at layer_output layer -1, which is layer 1` |
 | the width of every site it is used at | preflight | `header 'width' is '16'; this document uses 'rot' at layer_output, whose width is 8` |
+| a gate over axes: its `theta` laid out as the header records, as many units on each axis as `layer` and `kept.<axis>` name | compile | `'theta' is [20], and its header lays a gate over ['layers', 'num_heads'] out on layer [0, 1, 2, 3, 4], kept.num_heads [0, 1, 2, 3]: 'theta' is [5, 4], …` |
 | a gate over axes: the indices its site selects on each axis but `layers` | preflight | `header 'kept.num_heads' is '[0, 1, 2, 3]'; this document uses 'heads' at attention_premix, whose selection keeps num_heads [1, 2]` |
 | a cross-site adapter's `with` site | preflight | [lora.md](../patterns/lora.md) |
 

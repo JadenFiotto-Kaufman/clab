@@ -97,7 +97,23 @@ def selection(read: Intervention, o: Op | OpStep) -> list[str]:
 def over_axes(plan: Plan) -> None:
     """A gate over axes is used by `apply` alone, on its site's own layout (inside no `encode`, whose coordinates
     are no axes of the site's), whose selection has each axis it names, in the selection's order, `layers` only
-    where the site picks several. A refusal names the featurizer's `over` and the use."""
+    where the site picks several. A refusal names the featurizer's `over` and the use. A loaded one's `theta` is
+    laid out as its header says, as many units on each axis as it records indices there (`layer`, `kept.<axis>`),
+    which a refusal names with its `file_path`."""
+    for name, spec in plan.featurizers.items():
+        for f in points(spec):
+            over = over_of(f)
+            if over is None or f.bundle is None or f.header is None:
+                continue
+            keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over}
+            recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
+                        json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
+            shape, laid_out = list(f.bundle["theta"].shape), [len(v) for v in recorded]
+            if shape != laid_out:
+                said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values())
+                fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: 'theta' is {shape}, and "
+                     f"its header lays a gate over {over} out on {said}: 'theta' is {laid_out}, one unit per index "
+                     "it keeps on each axis")
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
             over = over_of(agreeing(plan.featurizers[name], at))

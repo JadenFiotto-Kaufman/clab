@@ -38,7 +38,7 @@ class Gate(Kind):
         super().check(fields)
         over = fields.get("over")
         if not isinstance(over, list):
-            return                      # null, or a sweep, each of whose points is checked
+            return                      # null: the last axis (a sweep is refused when the document is read)
         if not over or len(set(over)) < len(over):
             raise ValueError(f"over: {over} names {'no axis' if not over else 'an axis twice'}; a gate's units lie on "
                              "one or more axes of its site's selection, each named once")

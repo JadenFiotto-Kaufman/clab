@@ -1355,6 +1355,9 @@ def gated_op(d) -> dict:
     (lambda d: d["featurizers"]["heads"].update(over=["layers", "pos"]),
      r"over: \['layers', 'pos'\] names pos, an example's; a gate's units lie on the axes of its site's selection"),
     (lambda d: d["featurizers"]["heads"].update(over=[]), r"over: \[\] names no axis"),
+    (lambda d: d["featurizers"]["heads"].update(over={"sweep": [["layers", "num_heads"], ["layers"]]}),
+     r"featurizers\.heads\.over: a sweep cannot stand for 'over'; a featurizer has one width at every point, and a "
+     r"gate's over lays its units out: declare one gate per value$"),
 ])
 def test_a_gate_over_axes_its_use_does_not_have_is_refused_at_compile(change, message):
     with pytest.raises(PlanError, match=message):
@@ -1375,7 +1378,7 @@ def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_
                                          r"its units lie on one selection of the axes it is over"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
     root = corpus_copy(tmp_path)
-    file = write_gate(root, torch.ones(5, 2), **{"kept.num_heads": "[0, 1, 2, 3]", "width": "10"})
+    file = write_gate(root, torch.ones(5, 4))
 
     def two_heads(d):
         at_the_root(file, {"component": "attention_premix", "layers": ":", "select": {"num_heads": [1, 2]}})(d)
@@ -1387,6 +1390,21 @@ def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_
                                          r"is '\[0, 1, 2, 3\]'; this document uses 'heads' at attention_premix, whose "
                                          r"selection keeps num_heads \[1, 2\]"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+@pytest.mark.parametrize("theta", [torch.ones(20), torch.ones(4, 5), torch.ones(5, 3)])
+def test_a_loaded_gate_whose_theta_its_header_does_not_lay_out_is_refused_at_compile(tmp_path, theta):
+    """A header over `["layers", "num_heads"]` at 5 layers keeping 4 heads lays `theta` out `[5, 4]`; a flat one, one
+    transposed, and one of 3 heads are refused naming the file, where they had crashed in the forward."""
+    root = corpus_copy(tmp_path)
+    plan = Plan(**edited("head_gates", at_the_root(write_gate(root, theta))).model_dump(
+        exclude_defaults=True, exclude={"document"}), document=os.path.join(root, "documents", "head_gates.json"))
+    shape = str(list(theta.shape)).replace("[", r"\[").replace("]", r"\]")
+    with pytest.raises(PlanError, match=rf"^featurizers\.heads\.file_path: documents/artifacts/heads\.safetensors: "
+                                        rf"'theta' is {shape}, and its header lays a gate over \['layers', 'num_heads'\] "
+                                        r"out on layer \[0, 1, 2, 3, 4\], kept\.num_heads \[0, 1, 2, 3\]: 'theta' is "
+                                        r"\[5, 4\], one unit per index it keeps on each axis$"):
+        plan.compile()
 
 
 def pattern_gates(root: str) -> Plan:
