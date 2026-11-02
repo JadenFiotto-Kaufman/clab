@@ -81,7 +81,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | ragged | A record whose rows hold different numbers of positions: as wide as its widest row, NaN past each row's own. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | read | An entry with no edit among its ops: it binds the value at its selection and leaves the model alone. | [interventions.md](../usage/interventions.md) |
 | readout | The transform that projects a residual-stream value through the model's final norm and head, the logit lens: nnterp's own on the nnterp engine, the standard norm, head and softcap on hooks. | [logit-lens.md](../patterns/logit-lens.md) |
-| reduction | An op that removes axes (`mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot`, `pca`), by default the rows and positions, a `layers` axis kept; `norm` and `dot` by default `hidden_size`, `count` `pos`. | [ops.md](../usage/ops.md#reductions-and-over) |
+| reduction | An op that removes axes (`mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot`, `entropy`, `pca`), by default the rows and positions, a `layers` axis kept; `norm` and `dot` by default `hidden_size`, `count` `pos`, `entropy` `vocab_size`, else `num_experts`. | [ops.md](../usage/ops.md#reductions-and-over) |
 | remote | The `ndif` engine's option: `true` for the NDIF server nnsight is configured for, `"local"` for nnsight's in-process simulation of the trip. | [engines.md](../usage/engines.md#remotelocal) |
 | result | A saved value, in `plan.results` and as a file in the output directory; one that depends on sweep axes is a dict keyed by its coordinate on those axes. | [output.md](../usage/output.md) |
 | row | One example of a dataset, a JSON object; a step's values have one row per row of its dataset. | [data.md](../usage/data.md) |
@@ -95,7 +95,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | serves, serving | A point that runs its forward serves the points that agree with it on the forward's axes; each of those holds `serving`, that point's coordinates, and `run.costs` lists them in `serves`. | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | set | An answer row that is a list of strings, any member of which is the answer. | [data.md](../usage/data.md#answer-columns) |
 | site | Where an entry reads or writes: a component, its `layers`, and an optional `select`. | [sites.md](../usage/sites.md) |
-| sizes | The model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which selectors count among and `plan.run.sizes` records. | [output.md](../usage/output.md#the-run-record) |
+| sizes | The model's sizes (`num_layers`, `hidden_size`, `num_heads`, ..., and on a mixture of experts `num_experts` and `top_k`), which selectors count among and `plan.run.sizes` records. | [output.md](../usage/output.md#the-run-record) |
 | split | A value the ranks hold in pieces under `tp` (the attention's interior but `attention_premix`, the MLP's activation, an embedding sharded by vocabulary), refused by name. | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | static width | A record whose `pos` names the same number of positions on every row, fixed before any row is seen. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | step | One item of `steps`, a `forward`, `generate`, `op` or `fit`, run in document order. | [writing-a-document.md](../usage/writing-a-document.md#the-document-top-to-bottom) |

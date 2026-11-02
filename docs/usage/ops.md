@@ -1,6 +1,6 @@
 ---
 title: Ops
-one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over (norm, dot, count, std among them), transforms like readout, argmax, top_k, detokenize and grad, elementwise arithmetic and comparisons, op steps versus ops inside an entry, and the float32 rule."
+one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over (norm, dot, count, std, entropy among them), transforms like readout, argmax, top_k, detokenize and grad, elementwise arithmetic and comparisons, op steps versus ops inside an entry, and the float32 rule."
 tags: [usage, ops]
 related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
 sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
@@ -66,6 +66,8 @@ An answer column whose row is a set of strings (`[" Saturday", " Sunday"]`) is a
 
 `std` is the sample standard deviation, `sqrt(sum((x - mean)^2) / (n - 1))` over the n values there, NaN where fewer than two are. `norm` and `dot` reduce a vector's features: by default over `hidden_size`, which a value without one names in `over`. `{"kind": "op", "op": "norm", "of": "base.resid"}` is each row and position's length, the `sqrt` of the `sum` of the `square` to the bit, and `"p"` gives another Lp norm (`1`, the sum of absolute values); `{"kind": "op", "op": "dot", "of": "base.resid", "with": "direction"}` is each vector's component along a unit `direction`, `mul` by it then `sum`, to the bit (`cosine` divides that by both lengths). `count` counts the positions along `over`, by default `pos`, that hold the value, a vector counted once, so it removes the features with them: on `weekdays/train` a read at the whole-entity scope counts 3, 1, 1 and 1, each row's own tokens, a generation's read at `{"frame": "1:"}` counts the decode calls each row made, and a row a read never reached counts 0, so `count` over `rows` of a scored read is how many rows it scored. In ids a hole is -1, and `count` leaves it out too. A `count` is a number on every row, 0 on a row with no position there (a row that is all NaN), so a `mean` of it over `rows` takes those rows in too.
 
+`entropy` is the entropy in nats of a softmax over the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`, so `{"op": "entropy"}` at the head is the next-token distribution's and at `router_logits` the routing's ([expert ablation](../patterns/expert-ablation.md#routing-entropy-and-usage)); an attention score's is `"over": ["key"]`. A missing entry has no share of the softmax (a row's keys past its own), a vector with none is NaN, and a uniform softmax over n gives ln n.
+
 A reduction that would remove no axis is refused (`a reduction of a value laid out [] removes no axis of it`). A reduction takes the values that are there: over a read whose rows hold different numbers of positions, the `mean` is over every position present, so a row with three tokens weighs three times a row with one ([ablation](../patterns/ablation.md#a-mean-over-an-entitys-tokens)). `pca` is a reduction whose value is a bundle a `pca` featurizer loads ([trained subspaces](../patterns/trained-subspaces.md)).
 
 ## What is not an op
@@ -92,7 +94,7 @@ Metrics, every reduction but `pca` and the elementwise arithmetic (`abs` to `pow
 |---|---|
 | a read: `base.resid`, `base.logits` | bfloat16 |
 | a metric, as a step or inside an entry | float32 |
-| `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` | float32 |
+| `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot`, `entropy` | float32 |
 | `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `pow` | float32 |
 | a comparison (`eq`, `ne`, `gt`, `ge`, `lt`, `le`) of a read | bfloat16 |
 | a comparison of ids (`argmax`) | float32 |

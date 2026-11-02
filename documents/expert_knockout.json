@@ -1,0 +1,59 @@
+{
+  "description": "Expert knockout on a mixture of experts, and the forced route. At block 0 of the tiny Mixtral (4 experts, each token routed to 2) `clean` reads, at the prompts' 8 tokens, which slots did not choose expert e (`ne` of `expert_indices`, 1 or 0 per slot, swept over the four experts), the same mask for expert 4, which no slot holds (the null), how many slots chose e on each row (`eq`, summed over positions and slots), and the routing entropy of each token (`entropy` of `router_logits`, over `num_experts`). `knockout` scales every slot's weight by its mask, so expert e's slots add nothing to `routed_output` there; the routing at block 0 is the clean run's, since nothing before it changed, so the mask read in `clean` is this forward's. `null` scales by the null's mask, all ones, and must give the clean numbers to the bit. `forced` writes -1e9 into expert e's router logit, so the router chooses the next expert instead. Each scores the KL of the last token's next-token distribution from the clean run's. The masks are read at a static index, the 8 tokens every prompt has: an operand from another forward pairs with the write position by position.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-MixtralForCausalLM",
+    "revision": "ccb12fe2fc142cb752085506c3db22572290e90c",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "weekdays/train"}},
+  "sites": {
+    "slots": {"component": "expert_indices", "layers": 0},
+    "weights": {"component": "expert_weights", "layers": 0},
+    "router": {"component": "router_logits", "layers": 0},
+    "one_expert": {"component": "router_logits", "layers": 0,
+                   "select": {"num_experts": {"sweep": [0, 1, 2, 3], "label": "expert"}}},
+    "head": {"component": "lm_head_output"}
+  },
+  "steps": {
+    "clean": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "mask": {"site": "slots", "pos": {"index": ":8"},
+                 "ops": [{"op": "ne", "with": {"sweep": [0, 1, 2, 3], "label": "expert"}}]},
+        "none": {"site": "slots", "pos": {"index": ":8"}, "ops": [{"op": "ne", "with": 4}]},
+        "chosen": {"site": "slots", "pos": {"index": ":"},
+                   "ops": [{"op": "eq", "with": {"sweep": [0, 1, 2, 3], "label": "expert"}},
+                           {"op": "sum", "over": ["pos", "top_k"]}]},
+        "routing": {"site": "router", "pos": {"index": ":"}, "ops": [{"op": "entropy"}]},
+        "logits": {"site": "head", "pos": -1}
+      }
+    },
+    "knockout": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "kill": {"site": "weights", "pos": {"index": ":8"}, "ops": [{"op": "scale", "factor": "clean.mask"}]},
+        "kl": {"site": "head", "pos": -1, "ops": [{"op": "kl", "against": "clean.logits"}]}
+      }
+    },
+    "null": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "kill": {"site": "weights", "pos": {"index": ":8"}, "ops": [{"op": "scale", "factor": "clean.none"}]},
+        "kl": {"site": "head", "pos": -1, "ops": [{"op": "kl", "against": "clean.logits"}]}
+      }
+    },
+    "forced": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "away": {"site": "one_expert", "pos": {"index": ":"}, "ops": [{"op": "swap", "with": -1e9}]},
+        "kl": {"site": "head", "pos": -1, "ops": [{"op": "kl", "against": "clean.logits"}]}
+      }
+    },
+    "usage": {"kind": "op", "op": "sum", "of": "clean.chosen", "over": ["rows"]}
+  },
+  "saves": ["usage", "clean.routing", "knockout.kl", "forced.kl", "null.kl"]
+}

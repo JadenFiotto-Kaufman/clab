@@ -1,8 +1,8 @@
 ---
 title: Sites
-one_liner: "Choosing where to read or write: the component table, layers as an int or a selector, select to narrow heads, neurons or keys, the layout a site's value has, and when attention needs eager."
-tags: [usage, sites, components, layers, select, heads, attention]
-related: [docs/usage/positions.md, docs/concepts/values-and-layout.md, docs/usage/interventions.md, docs/usage/engines.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/attention.md, docs/patterns/logit-lens.md]
+one_liner: "Choosing where to read or write: the component table, a mixture of experts' routing and experts, layers as an int or a selector, select to narrow heads, neurons, experts or keys, the layout a site's value has, and when attention needs eager."
+tags: [usage, sites, components, layers, select, heads, attention, mixture-of-experts]
+related: [docs/usage/positions.md, docs/concepts/values-and-layout.md, docs/usage/interventions.md, docs/usage/engines.md, docs/patterns/head-and-neuron-patching.md, docs/patterns/attention.md, docs/patterns/logit-lens.md, docs/patterns/expert-ablation.md]
 sources: [clab/format/address.py, clab/format/selectors.py, clab/plan.py, clab/compile/interventions.py]
 ---
 
@@ -34,12 +34,16 @@ From `documents/head_patching.json`: a site declared once under `sites` and name
 | an attention pattern, or the scores before softmax | `attention_probabilities`, `attention_scores` | eager; [attention](../patterns/attention.md) |
 | queries, keys, values | `attention_queries`, `attention_keys`, `attention_values` | eager; keys and values per KV head, before `repeat_kv` |
 | MLP neurons | `mlp_activation` (the activation of the gate), `mlp_neurons` (what the down projection sums) | different on a gated MLP |
+| a mixture of experts' routing | `router_logits` (`num_experts` wide), `expert_weights`, `expert_indices` (`top_k` slots, the indices int64) | below |
+| what its experts add | `expert_outputs` (each slot's, weighted), `routed_output`, `shared_expert_output` | the slots sum to `routed_output`; `routed_output` + `shared_expert_output` is `mlp_output` on most families |
 | the next-token distribution | `logits` (after any softcap), `lm_head_output` (the head alone) | equal on a model without a softcap |
 | a logit lens | a stream component with `readout` | [logit-lens](../patterns/logit-lens.md) |
 
 The identities in the notes hold to the bit on the corpus Llama, a pre-norm block; check them on your architecture before relying on one.
 
-A mixture of experts is served whole. At a block whose MLP is one, `mlp_norm_output`, `mlp_input` and `mlp_output` are served, and `mlp_activation` and `mlp_neurons`, a dense MLP's values, are refused (`block 0's MLP is a mixture of experts, whose routers and experts clab does not address; ...`). No component addresses a mixture's router or its experts: a name such as `router_logits` is refused as an unknown component, and `clab describe components` lists the components there are.
+### A mixture of experts
+
+At a block whose MLP is a mixture of experts, six components are its values, by nnterp's names and layouts: the router's logits before its scoring, the weight and the expert of each of a token's `top_k` routing slots, each slot's output times its weight, their sum, and the shared expert's output where the mixture has one. The model's sizes then include `num_experts` and `top_k`, which `select` counts among (`{"num_experts": 18}` is expert 18's logit), read off the first block whose MLP is a mixture. `mlp_output` is still what the block adds; `mlp_activation` and `mlp_neurons`, a dense MLP's values, are refused there, the refusal naming what the block serves (`block 0's MLP is a mixture of experts, which has no single activation or down projection; at block 0 its MLP is served as mlp_norm_output, mlp_input, router_logits, ...`). On a dense block each mixture value is refused at that layer, and on a model with no mixture at every layer (`no block of this model has a mixture of experts`); `shared_expert_output` on a mixture without one (`this mixture has no shared expert`). Which values a family has, and what its logits mean (a softmax router, a sigmoid one, a top-k then softmax), is nnterp's: its `support()` answers per block, and the hooks engine serves fewer of them ([engines](engines.md#a-mixture-of-experts-on-hooks)). Knockouts, forced routes, usage and routing entropy are [expert ablation](../patterns/expert-ablation.md).
 
 ## `layers`
 
