@@ -391,7 +391,7 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
     read = {"component": "layer_output", "layer": 0, "name": "read", "positions": torch.tensor([[3], [3]]),
             "select": {}}
     bound = {"sites": [{"component": "layer_output", "layer": 0, "records": [read]}], "stop": ["layer_output", 0],
-             "loop": None, "online": False}
+             "grad": [], "loop": None, "online": False}
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)

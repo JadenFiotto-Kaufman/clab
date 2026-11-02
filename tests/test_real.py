@@ -15,6 +15,7 @@ About two minutes on an idle RTX A6000. Each snapshot records the GPU and the to
 with (`made_with`), which need not be the lock's.
 """
 
+import copy
 import json
 import os
 import statistics
@@ -203,3 +204,43 @@ def test_padding_feeds_fewer_tokens_for_numbers_within_bfloat16s_rounding(padded
 def test_the_engines_agree_to_the_bit_under_each_padding(padded, name, padding):
     nnterp, hooks = padded[name, "nnterp", padding], padded[name, "hooks", padding]
     assert same(nnterp.results, hooks.results) and placed(nnterp) == placed(hooks)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_attribution_patching_ranks_layer_12_head_28_first(filled, kind):
+    """Of the 512 heads, from two forwards and one backward, the one head_patching.json finds, at +2.20 where patching
+    it measures +2.46; over the 96 heads both cover, the estimate follows the patched effect closely."""
+    results = filled["real/attribution_patching", kind].results
+    attribution, base = results["attribution"], results["logit_diff"].item()
+    assert attribution.shape == (16, 32) and divmod(int(attribution.argmax()), 32) == (12, 28)
+    assert abs(attribution[12, 28].item() - 2.204) < 1e-3 and abs(base + 2.4036) < 1e-3
+    patched = filled["real/head_patching", kind].results["logit_diff"]
+    effect = torch.tensor([[patched[layer, head].item() - base for head in range(32)] for layer in (10, 11, 12)])
+    assert torch.corrcoef(torch.stack([effect.flatten(), attribution[10:13].flatten()]))[0, 1] > 0.99
+
+
+def test_a_gradient_holds_less_than_a_fit_and_frozen_weights_less_than_thawed(engines):
+    """On das.json's minibatches of 10 training pairs: a forward that takes one gradient at layer 8, where das trains,
+    peaks below das's fit, whose minibatch forwards train a rotation there; and that fit peaks lower with the weights
+    frozen, as every engine holds them, than with them requiring grad, its every result the same to the bit."""
+    def one_rank(d):
+        d["featurizers"]["rot"]["k"] = 16
+        d["steps"]["fit"]["epochs"] = 2
+
+    def gradient(d):
+        d["steps"] = {"taken": {"kind": "forward", "input": "train.input", "interventions": {
+            "g": {"site": "target", "pos": -4, "ops": [{"op": "grad", "of": "ce"}]},
+            "ce": {"site": "head", "pos": -1, "ops": [{"op": "cross_entropy", "target": "train.cf_answer"}]}}}}
+        d["saves"] = ["taken.g"]
+    fit, taken = edited("real/das", one_rank).compile(), edited("real/das", gradient).compile()
+    engine = engines("nnterp", fit.model, device="cuda")
+    frozen = engine.execute(fit, batch_size=BATCH_SIZE)
+    results, peak = copy.deepcopy(frozen.results), frozen.run.costs["fit"]["memory"]["cuda:0"]
+    engine.model.requires_grad_(True)
+    try:
+        thawed = engine.execute(fit, batch_size=BATCH_SIZE)
+    finally:
+        engine.model.requires_grad_(False)
+    assert same(results, thawed.results) and peak < thawed.run.costs["fit"]["memory"]["cuda:0"]
+    gradient_peak = engine.execute(taken, batch_size=10).run.costs["taken"]["memory"]["cuda:0"]
+    assert gradient_peak < peak

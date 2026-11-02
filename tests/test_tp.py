@@ -36,6 +36,8 @@ REFUSED = {"attention_query": ("counterfactual.v_cf", "attention_queries", "mode
            "attention_knockout": ("clean.pattern", "attention_probabilities", "model.layers.0.self_attn", "q_proj"),
            **({"hybrid_queries": ("counterfactual.v_cf", "attention_queries", "model.layers.3.self_attn", "q_proj")}
               if HYBRID_CACHED else {})}
+# A run the ranks refuse before anything runs: a gradient, which the ranks would hold in pieces of a sharded value.
+GRADIENT = "attribution_patching"
 GPUS = torch.cuda.device_count()
 
 
@@ -220,10 +222,11 @@ def torchrun(out: str, device: str, names: list[str], env: dict) -> dict:
 
 @pytest.fixture(scope="module")
 def ranks(tmp_path_factory) -> tuple[dict, str]:
-    """Every run of `SERVED`, the sampled ones and `REFUSED` at tp 2 on the CPU (gloo), and the directory rank 0
-    wrote them to."""
+    """Every run of `SERVED`, the sampled ones, `REFUSED` and `GRADIENT` at tp 2 on the CPU (gloo), and the
+    directory rank 0 wrote them to."""
     out = str(tmp_path_factory.mktemp("tp"))
-    return torchrun(out, "cpu", [*SERVED, "sampled", "sampled_again", *REFUSED], {"CUDA_VISIBLE_DEVICES": ""}), out
+    return torchrun(out, "cpu", [*SERVED, "sampled", "sampled_again", *REFUSED, GRADIENT],
+                    {"CUDA_VISIBLE_DEVICES": ""}), out
 
 
 @pytest.fixture(scope="module")
@@ -290,3 +293,9 @@ def test_at_tp_2_a_site_the_ranks_hold_in_pieces_is_refused_on_both(ranks, name)
     assert first == second == {"refused": f"{where}: the nnterp engine does not serve {component}: under tp 2 it is "
                                           f"computed inside {host}, whose forward runs on each rank's piece "
                                           f"({host}.{child} is 'colwise')"}
+
+
+def test_at_tp_2_a_gradient_is_refused_on_both(ranks):
+    first, second = ranks[0][GRADIENT]
+    assert first == second == {"refused": "patched.h: the nnterp engine takes no gradient under tp 2, whose ranks hold "
+                                          "a sharded value's gradient in pieces; run it at tp 1"}

@@ -1,0 +1,192 @@
+{
+ "description": "Attribution patching at one site: the gradient of the logit difference at the head with respect to layer 0's residual stream at the base prompt's last token, times the counterfactual's value there less the base's, summed over the hidden axis, is a first-order estimate, per row, of what swapping that one vector in would do to the logit difference. The gradient is a read of the base run, taken in one backward after the forward; three forwards in all.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+  "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998"
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "counterfactual": {
+   "kind": "forward",
+   "input": "pairs.counterfactual_inputs[0]",
+   "interventions": {
+    "v_cf": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "counterfactual.v_cf",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "base": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "interventions": {
+    "v": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "dims": [
+      "rows",
+      "pos",
+      "hidden_size"
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "base.v",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "difference": {
+   "kind": "op",
+   "op": "sub",
+   "of": "counterfactual.v_cf",
+   "with": "base.v",
+   "dims": [
+    "rows",
+    "pos",
+    "hidden_size"
+   ],
+   "dataset": "pairs",
+   "layers": [
+    0
+   ],
+   "read": "counterfactual.v_cf",
+   "width": 1
+  },
+  "patched": {
+   "kind": "forward",
+   "input": "pairs.input",
+   "interventions": {
+    "h": {
+     "site": {
+      "component": "layer_output",
+      "layers": 0
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "grad",
+       "of": "metric",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      },
+      {
+       "op": "scale",
+       "factor": "difference",
+       "dims": [
+        "rows",
+        "pos",
+        "hidden_size"
+       ]
+      },
+      {
+       "op": "sum",
+       "over": [
+        "hidden_size"
+       ],
+       "dims": [
+        "rows",
+        "pos"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "pairs",
+     "layers": [
+      0
+     ],
+     "read": "patched.h",
+     "width": 1,
+     "gathered": true
+    },
+    "metric": {
+     "site": {
+      "component": "lm_head_output"
+     },
+     "pos": -1,
+     "ops": [
+      {
+       "op": "logit_diff",
+       "a": "pairs.cf_answer",
+       "b": "pairs.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ]
+      }
+     ],
+     "dims": [
+      "rows",
+      "pos"
+     ],
+     "dataset": "pairs",
+     "read": "patched.metric",
+     "width": 1,
+     "gathered": true
+    }
+   },
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
+  },
+  "estimate": {
+   "kind": "op",
+   "op": "mean",
+   "of": "patched.h",
+   "dims": [],
+   "dataset": "pairs",
+   "layers": [
+    0
+   ],
+   "read": "patched.h"
+  }
+ },
+ "saves": [
+  "patched.h",
+  "patched.metric",
+  "estimate"
+ ],
+ "document": "documents/attribution_patching.json",
+ "compiled": true
+}

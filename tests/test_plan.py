@@ -40,7 +40,8 @@ def test_the_corpus_is_what_documents_holds_and_the_readme_counts_it():
             "generated_confidence"} <= set(NAMES)
     with open(os.path.join(ROOT, "README.md")) as f:
         assert f"({len(NAMES)} in all)" in f.read()
-    assert REAL == ["real/behavior", "real/das", "real/head_patching", "real/layer_sweep", "real/pattern_patching"]
+    assert REAL == ["real/attribution_patching", "real/behavior", "real/das", "real/head_patching", "real/layer_sweep",
+                    "real/pattern_patching"]
 
 
 @pytest.mark.parametrize("name", NAMES + REAL)

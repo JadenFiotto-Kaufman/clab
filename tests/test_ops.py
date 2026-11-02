@@ -19,7 +19,7 @@ DIMS = ["rows", "pos", "hidden_size"]
 
 def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
-                             "apply", "noise", "clamp", "readout", "encode", "mean", "sum", "min", "pca", "match",
+                             "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "pca", "match",
                              "logit_diff", "token_prob", "token_logit", "cross_entropy", "contains", "kl", "js", "top_k",
                              "argmax", "detokenize", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
@@ -32,7 +32,7 @@ def test_each_op_declares_its_group_and_bundle():
                                                                "normalize", "project_out", "decode", "apply", "noise",
                                                                "clamp"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "pca"}
-    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "top_k", "argmax",
+    assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
                                                                     "detokenize"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
                                                                  "cross_entropy", "contains", "kl", "js", "cosine"}
@@ -241,6 +241,34 @@ def record(start: int, width: int, value, ops_=None) -> dict:
     positions = torch.arange(start, start + width).expand(3, width)
     return {"positions": positions, "select": {},
             "ops": ops_ or [{"op": "swap", "args": {"with": value}, "dims": DIMS}]}
+
+
+def test_grad_gives_back_the_gradient_it_meets_in_its_layout():
+    """The run puts the gradient in the value's place before the entry's ops run; `grad` hands it on as it is."""
+    assert transforms.grad(X, of_="metric") is X
+    assert ops.out_dims("grad", DIMS, {"of": "metric"}) == DIMS
+
+
+def test_a_capture_hands_on_a_leaf_whose_gradient_differentiate_takes():
+    """`visit` puts the value the forward goes on with in `got` whole, a leaf that requires grad, says to set it
+    back, and does a later write on a copy; `differentiate` replaces the capture with the gradient of the sum of its
+    `of` (a NaN row adding nothing), at the record's positions, and detaches every value: here d sum((2 x)^2) / dx
+    at the written position, 8 x."""
+    value = torch.randn(2, 3, 4)                    # batch, seq, hidden
+    capture = {"name": "g@0", "capture": True, "positions": torch.tensor([[2], [2]]), "select": {}}
+    double = {"positions": torch.tensor([[2], [2]]), "select": {},
+              "ops": [{"op": "scale", "args": {"factor": 2.0}, "dims": DIMS}]}
+    got: dict = {}
+    with torch.enable_grad():
+        out, wrote = batches.visit(value, "layer_output", [capture, double], got)
+        assert wrote and got["g@0"].is_leaf and got["g@0"].requires_grad and torch.equal(got["g@0"], value)
+        assert torch.equal(out[:, 2], 2 * value[:, 2]) and torch.equal(got["g@0"], value)    # the leaf unwritten
+        got["m@None"] = (out[:, 2:3] ** 2).sum(-1)
+    got["m@None"] = torch.where(torch.tensor([[True], [False]]), got["m@None"], torch.nan)
+    batches.differentiate(got, [{"of": [("m@None", lambda v: v)], "wrt": [capture]}])
+    torch.testing.assert_close(got["g@0"][0], 8 * value[0, 2:3])
+    assert torch.equal(got["g@0"][1], torch.zeros(1, 4))
+    assert not any(v.requires_grad for v in got.values())
 
 
 def test_a_ragged_write_writes_only_the_positions_it_keeps():
