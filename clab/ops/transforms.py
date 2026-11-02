@@ -210,6 +210,13 @@ def neg(of: Tensor) -> Tensor:
 
 
 @op("transforms")
+def mul(of: Tensor, with_: Value) -> Tensor:
+    """`of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product,
+    where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask)."""
+    return of.float() * operand(with_, of).float()
+
+
+@op("transforms")
 def div(of: Tensor, with_: Value) -> Tensor:
     """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
     `with` is 0, so a division by zero is a missing entry, never an infinite one."""
@@ -220,8 +227,13 @@ def div(of: Tensor, with_: Value) -> Tensor:
 @op("transforms")
 def pow(of: Tensor, exponent: Value) -> Tensor:
     """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
-    where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one."""
-    return of.float().pow(exponent if not isinstance(exponent, Tensor) else operand(exponent, of).float())
+    where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side
+    is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
+    x = of.float()
+    if isinstance(exponent, Tensor):
+        e = operand(exponent, of).float()
+        return x.pow(e).masked_fill(x.isnan() | e.isnan(), math.nan)
+    return x.pow(exponent).masked_fill(x.isnan() | math.isnan(exponent), math.nan)
 
 
 def missing(x: Tensor) -> Tensor:

@@ -457,8 +457,8 @@ and `dot` by default `hidden_size` and `count` `pos`; **edits** (`swap`, `add`, 
 change its contents, and inside an entry are what writes back; **transforms** turn each example's value into another
 of a different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from ids),
 or, `grad`, into its gradient, or of the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`,
-`neg`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where not),
-which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
+`neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where
+not), which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
 transform that does, a metric, a reduction), or, after an `encode`, before the `decode` that closes it; an
 elementwise transform may come before an edit, and acts on the live value that edit writes back (`[{"op": "sign"},
 {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
@@ -477,10 +477,11 @@ model's dtype, and return float32 (`pca` works in double and returns float32 too
 model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in float32
 too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a value
 read from the model keeps the model's dtype. A comparison compares in float32 too and gives its 0 or 1 in the value's
-dtype (float32 on ids, where a hole needs a NaN), so `scale` by it (`{"op": "scale", "factor": "<a comparison's
-value>"}`) masks the value where the comparison fails. A rank (`match`'s most likely token, `argmax`, `top_k`) is the
-same either way: bfloat16 to float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives
-`probs`, a float32 softmax, and over another axis `values`, the ranked values in the value's own dtype.
+dtype (float32 on ids, where a hole needs a NaN), so `mul` by it (`{"op": "mul", "with": "<a comparison's value>"}`)
+masks the value where the comparison fails, and `scale` by it, an edit, writes the masked value back. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k` over a
+vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis `values`, the
+ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
 (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
@@ -572,7 +573,7 @@ stays missing: NaN.
 | `std` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sample standard deviation over the axes `over` names, as `mean` takes them, of the n values that are there: `sqrt(sum((x - mean)^2) / (n - 1))`; NaN where fewer than two are. |
 | `count` | `over: list of str or null = null` | Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one count per position of those it keeps (a read's count over `pos` is one number per row). | How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and 0 where it has none. |
 | `norm` | `over: list of str or null = null`, `p: float = 2.0` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is. |
-| `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes them (`scale` then `sum`, to the bit in float32); NaN where none is. |
+| `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers are: the bundle a `pca` featurizer loads. |
 
 ### Edits
@@ -608,8 +609,9 @@ stays missing: NaN.
 | `sqrt` | — | keeps the layout | `of ** 0.5`, each entry's square root, in float32: NaN below 0. |
 | `square` | — | keeps the layout | `of * of`, each entry squared, in float32. |
 | `neg` | — | keeps the layout | `-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back. |
+| `mul` | `with: Value` | keeps the layout | `of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product, where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask). |
 | `div` | `with: Value` | keeps the layout | `of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite one. |
-| `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one. |
+| `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1. |
 | `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
 | `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there. |
 | `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |

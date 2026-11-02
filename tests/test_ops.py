@@ -24,8 +24,8 @@ def test_every_op_is_listed_once_in_order_under_its_own_name():
                              "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
                              "count", "norm", "dot", "pca", "match", "logit_diff", "token_prob", "token_logit",
                              "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize", "abs", "exp",
-                             "log", "sign", "sqrt", "square", "neg", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le",
-                             "cosine"]
+                             "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt",
+                             "le", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -39,8 +39,8 @@ def test_each_op_declares_its_group_and_bundle():
                                                                     "dot", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
                                                                     "detokenize", "abs", "exp", "log", "sign", "sqrt",
-                                                                    "square", "neg", "div", "pow", "eq", "ne", "gt",
-                                                                    "ge", "lt", "le"}
+                                                                    "square", "neg", "mul", "div", "pow", "eq", "ne",
+                                                                    "gt", "ge", "lt", "le"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
                                                                  "cross_entropy", "contains", "kl", "js", "cosine"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
@@ -485,7 +485,8 @@ NAN = float("nan")
 
 def test_the_elementwise_transforms_are_their_formulas_in_float32_and_keep_a_missing_entry_missing():
     """Each is torch's own function of the float32 value, its layout kept; a NaN stays NaN (`sign`'s too, which
-    torch makes 0); a bfloat16 value comes back float32."""
+    torch makes 0, and `pow`'s on either side, which torch makes 1 at `NaN ** 0` and `1 ** NaN`); a bfloat16 value
+    comes back float32."""
     x = X.clone()
     x[1, 0] = NAN
     for name, expected in {"abs": x.abs(), "exp": x.exp(), "log": x.log(), "sqrt": x.sqrt(), "square": x * x,
@@ -496,6 +497,10 @@ def test_the_elementwise_transforms_are_their_formulas_in_float32_and_keep_a_mis
     assert same(transforms.pow(x, 3), x.pow(3)) and torch.equal(transforms.pow(X, 2), transforms.square(X))
     assert torch.equal(transforms.pow(X.abs(), 0.5), transforms.sqrt(X.abs()))
     assert same(transforms.pow(x, X.flip(0)), x.pow(X.flip(0)))           # a named value, entry by entry
+    assert same(transforms.pow(torch.tensor([NAN, 1.0]), 0), torch.tensor([NAN, 1.0]))
+    assert same(transforms.pow(torch.tensor([1.0, 1.0]), torch.tensor([NAN, 2.0])), torch.tensor([NAN, 1.0]))
+    assert same(transforms.mul(x, X.flip(0)), x * X.flip(0)) and torch.equal(transforms.mul(X, 2), X * 2)
+    assert transforms.mul(x.bfloat16(), 2).dtype == torch.float32 and ops.out_dims("mul", DIMS, {"with": 2}) == DIMS
 
 
 def test_div_is_nan_wherever_its_divisor_is_zero_and_div_then_scale_is_the_value():
@@ -557,7 +562,8 @@ def test_norm_and_dot_reduce_over_hidden_size_unless_over_names_other_axes():
     torch.testing.assert_close(reductions.norm(X, DIMS), X.norm(dim=-1))
     torch.testing.assert_close(reductions.norm(X, DIMS, p=1), X.abs().sum(-1))
     torch.testing.assert_close(reductions.norm(X, DIMS, over=["pos"], p=3), X.norm(p=3, dim=1))
-    assert torch.equal(reductions.dot(X, other, DIMS), reductions.sum(edits.scale(X, other), DIMS, over=["hidden_size"]))
+    product = transforms.mul(X, other)
+    assert torch.equal(reductions.dot(X, other, DIMS), reductions.sum(product, DIMS, over=["hidden_size"]))
     torch.testing.assert_close(reductions.dot(X, other, DIMS), (X * other).sum(-1))
     pattern = torch.rand(2, 6)
     pattern[1, 4:] = NAN                                     # a row's keys past its own: the entries there are taken
@@ -570,6 +576,9 @@ def test_norm_and_dot_reduce_over_hidden_size_unless_over_names_other_axes():
         ops.out_dims("norm", ["rows", "pos", "vocab_size"], {})
     with pytest.raises(ValueError, match=r"'norm' p 0 is not greater than 0"):
         ops.check("norm", {"p": 0})
+    for p in (math.inf, -math.inf, NAN):                     # the largest absolute value is a `max` of `abs`
+        with pytest.raises(ValueError, match=rf"'norm' p {p} is not finite; an Lp norm takes a finite p > 0"):
+            ops.check("norm", {"p": p})
     ops.check("norm", {"p": 1})
 
 
@@ -617,7 +626,7 @@ def arithmetic(d: dict) -> None:
             "logits": {"site": "head", "pos": -1}}},
         "square": op("square", "clean.h"), "summed": op("sum", "square", over=["hidden_size"]),
         "root": op("sqrt", "summed"), "norm": op("norm", "clean.h"),
-        "scaled": op("scale", "clean.h", factor=cf), "scaled_sum": op("sum", "scaled", over=["hidden_size"]),
+        "product": op("mul", "clean.h", **{"with": cf}), "product_sum": op("sum", "product", over=["hidden_size"]),
         "dot": op("dot", "clean.h", **{"with": cf}),
         "sign": op("sign", "clean.h"), "eq": op("eq", "sign", **{"with": 1}), "ne": op("ne", "sign", **{"with": 1}),
         "eq_ne": op("add", "eq", **{"with": "ne"}),
@@ -635,10 +644,15 @@ def arithmetic(d: dict) -> None:
             "logits": {"site": "head", "pos": -1}}},
         "live": {"kind": "forward", "input": "pairs.input", "interventions": {
             "patch": {"site": target, "pos": -1, "ops": [{"op": "sign"}, {"op": "scale", "factor": 0.1}]},
-            "after": {"site": target, "pos": -1}}}}
+            "after": {"site": target, "pos": -1}}},
+        **{f"{name}_read": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "p": {"site": target, "pos": -1, "ops": [product, {"op": "sum", "over": ["hidden_size"]}]},
+            "logits": {"site": "head", "pos": -1}}}
+           for name, product in (("mul", {"op": "mul", "with": cf}), ("scale", {"op": "scale", "factor": cf}))}}
     d["saves"] = [f"clean.{k}" for k in d["steps"]["clean"]["interventions"]] + [
         k for k, step in d["steps"].items() if step["kind"] == "op"] + [
-        "masked.patch", "masked.logits", "swapped.logits", "live.patch", "live.after"]
+        "masked.patch", "masked.logits", "swapped.logits", "live.patch", "live.after", "mul_read.p", "mul_read.logits",
+        "scale_read.p", "scale_read.logits"]
 
 
 @pytest.fixture(scope="module")
@@ -651,14 +665,14 @@ def identities(engines) -> dict:
 
 
 def test_the_arithmetic_identities_hold_on_the_corpus_and_the_engines_agree_to_the_bit(identities):
-    """On weekdays/train at layer 0: `norm` is `sqrt` of the `sum` of the `square` and `dot` the `sum` of `scale`, to
+    """On weekdays/train at layer 0: `norm` is `sqrt` of the `sum` of the `square` and `dot` the `sum` of `mul`, to
     the bit; `eq` and `ne`, and `gt` and `le`, sum to exactly 1; `count` of a static-width read is its width and of a
     ragged one each row's own number of positions; `div` then `scale` by the same value is the value to two float32
     roundings (at worst 0.91 of float32's epsilon, relative, and 86% of entries exact); each op inside a read is its step's value to the bit; and nnterp, hooks and ndif under
     `remote="local"` give the same bits."""
     v = identities["nnterp"]
     assert torch.equal(v["norm"], v["root"]) and v["norm"].shape == (4, 1)
-    assert torch.equal(v["dot"], v["scaled_sum"])
+    assert torch.equal(v["dot"], v["product_sum"])
     assert torch.equal(v["eq_ne"], torch.ones(4, 1, 16)) and 0 < v["eq"].sum() < 64
     assert torch.equal(v["gt_le"], torch.ones(4, 1, 16)) and 0 < v["gt"].sum() < 64
     assert torch.equal(v["count3"], torch.full((4,), 3.0))
@@ -682,6 +696,16 @@ def test_a_comparison_masks_a_write_and_an_elementwise_transform_acts_on_the_liv
     assert torch.equal(v["masked.patch"], h * positive) and torch.equal(v["masked.logits"], v["swapped.logits"])
     assert not torch.equal(v["masked.logits"], v["clean.logits"])
     assert torch.equal(v["live.patch"], 0.1 * h.sign()) and torch.equal(v["live.after"], v["live.patch"])
+
+
+def test_a_product_in_a_read_is_mul_which_writes_nothing_where_scale_writes_it_back(identities):
+    """`[mul v, sum over hidden_size]` in a read binds the `dot` with v and leaves the forward's logits the unpatched
+    ones to the bit; `[scale v, sum]` binds the same number, but `scale` is an edit, so it writes the product back and
+    the logits move."""
+    v = identities["nnterp"]
+    assert torch.equal(v["mul_read.p"], v["dot"]) and torch.equal(v["scale_read.p"], v["dot"])
+    assert torch.equal(v["mul_read.logits"], v["clean.logits"])
+    assert not torch.equal(v["scale_read.logits"], v["clean.logits"])
 
 
 def agreement(d: dict) -> None:
@@ -717,7 +741,8 @@ def test_a_comparison_of_ids_is_missing_at_a_hole_so_an_agreement_is_over_the_po
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():
     """At compile, with the step's path: `norm` of a metric with no `over` (it has no `hidden_size`), `count` of a
-    value with no `pos`, a `count` over `rows` inside an entry (it sees one batch), and a `p` of 0."""
+    value with no `pos`, a `count` over `rows` inside an entry (it sees one batch), a `p` of 0, and a `p` of
+    `Infinity`, which a JSON document can spell and which gave 1.0 for every vector."""
     from clab.plan import PlanError
 
     def with_steps(**steps):
@@ -735,6 +760,8 @@ def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything(
                 "x": {"site": "target", "pos": -1, "ops": [{"op": "count", "over": ["rows"]}]}}}},
         r"steps\.p: 'norm' p 0 is not greater than 0": {"p": {"kind": "op", "op": "norm", "of": "logit_diff",
                                                                 "over": ["pos"], "p": 0}},
+        r"steps\.p: 'norm' p inf is not finite": {"p": {"kind": "op", "op": "norm", "of": "logit_diff",
+                                                          "over": ["pos"], "p": math.inf}},
     }
     for message, steps in cases.items():
         with pytest.raises(PlanError, match=message):

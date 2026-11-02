@@ -47,8 +47,8 @@ and `dot` by default `hidden_size` and `count` `pos`; **edits** (<the edits grou
 change its contents, and inside an entry are what writes back; **transforms** turn each example's value into another
 of a different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from ids),
 or, `grad`, into its gradient, or of the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`,
-`neg`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where not),
-which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
+`neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where
+not), which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
 transform that does, a metric, a reduction), or, after an `encode`, before the `decode` that closes it; an
 elementwise transform may come before an edit, and acts on the live value that edit writes back (`[{"op": "sign"},
 {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
@@ -67,10 +67,11 @@ model's dtype, and return float32 (`pca` works in double and returns float32 too
 model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in float32
 too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a value
 read from the model keeps the model's dtype. A comparison compares in float32 too and gives its 0 or 1 in the value's
-dtype (float32 on ids, where a hole needs a NaN), so `scale` by it (`{"op": "scale", "factor": "<a comparison's
-value>"}`) masks the value where the comparison fails. A rank (`match`'s most likely token, `argmax`, `top_k`) is the
-same either way: bfloat16 to float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives
-`probs`, a float32 softmax, and over another axis `values`, the ranked values in the value's own dtype.
+dtype (float32 on ids, where a hole needs a NaN), so `mul` by it (`{"op": "mul", "with": "<a comparison's value>"}`)
+masks the value where the comparison fails, and `scale` by it, an edit, writes the masked value back. A rank
+(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k` over a
+vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis `values`, the
+ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
 (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
@@ -245,8 +246,8 @@ OPS.update((fn.__name__, fn) for fn in [
     reductions.norm, reductions.dot, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob,
     metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k,
     transforms.argmax, transforms.detokenize, transforms.abs, transforms.exp, transforms.log, transforms.sign,
-    transforms.sqrt, transforms.square, transforms.neg, transforms.div, transforms.pow, transforms.eq, transforms.ne,
-    transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
+    transforms.sqrt, transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq,
+    transforms.ne, transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
 ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
     "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))

@@ -121,15 +121,18 @@ def featured(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     return reduced(dims, {**args, "over": FEATURES if args.get("over") is None else args["over"]})
 
 
-def positive(args: dict) -> None:
-    """`norm`'s `p` is greater than 0."""
+def finite_positive(args: dict) -> None:
+    """`norm`'s `p` is a finite number greater than 0."""
     p = args.get("p", 2.0)
+    if isinstance(p, (int, float)) and not math.isfinite(p):
+        raise ValueError(f"'norm' p {p} is not finite; an Lp norm takes a finite p > 0 (2, the length; 1, the sum of "
+                         "absolute values), and the largest absolute value over the axes is a `max` of `abs`")
     if isinstance(p, (int, float)) and p <= 0:
         raise ValueError(f"'norm' p {p} is not greater than 0; an Lp norm takes p > 0 (2, the length; 1, the sum "
                          "of absolute values)")
 
 
-@op("reductions", layout=featured, check=positive)
+@op("reductions", layout=featured, check=finite_positive)
 def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 2.0) -> Tensor:
     """The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that
     are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is."""
@@ -143,7 +146,7 @@ def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 
 def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with`
     (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes
-    them (`scale` then `sum`, to the bit in float32); NaN where none is."""
+    them (`mul` then `sum`, to the bit); NaN where none is."""
     product = of.float() * torch.as_tensor(with_, device=of.device).float()
     return sum(product, dims, FEATURES if over is None else over)
 
