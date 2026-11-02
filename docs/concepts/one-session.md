@@ -10,14 +10,14 @@ sources: [clab/engines/nnterp.py, clab/engines/ndif.py, clab/engines/__init__.py
 
 ## The idea
 
-A clab run is one nnsight session. The engine opens it, `clab.steps.run` does the whole run inside it (preflight, every step, the run record), and one value comes home at the end: a dict holding the results and the run record. The nnterp engine opens the session with `remote=False`. The ndif engine is the nnterp engine with a weightless model, and opens the same session with `remote=True`, or with `"local"` for nnsight's in-process simulation of the trip. The session body is identical in all three cases, so a document's meaning cannot depend on where it runs. Under `-o remote=local`, `documents/patching.json` and `documents/attention_query.json` give the nnterp engine's tensors bit for bit.
+A clab run is one nnsight session. The engine opens it, `clab.steps.run` does the whole run inside it (preflight, every step, the run record), and one value comes home at the end: a dict holding the results, the run record, the steps as the run completed them (each record's `positions`, each forward's `schedule`) and each featurizer's width. The nnterp engine opens the session with `remote=False`. The ndif engine is the nnterp engine with a weightless model, and opens the same session with `remote=True`, or with `"local"` for nnsight's in-process simulation of the trip. The session body is identical in all three cases, so a document's meaning cannot depend on where it runs. Under `-o remote=local`, `documents/patching.json` and `documents/attention_query.json` give the nnterp engine's tensors bit for bit.
 
 ```text
 client                                   inside the session (the server, under ndif)
   Plan(path), compile()                    rows not in the plan read again, digests checked
   engines.load()  (a meta shell)  ──▶      preflight against the model that runs
   opens the session                        every step and point, in order
-  plan.results, plan.run  ◀── one dict ──  results and the run record (versions, dtype, positions)
+  plan.results, plan.run  ◀── one dict ──  results, the run record (versions, dtype, costs), the completed steps
   dump(out)
 ```
 

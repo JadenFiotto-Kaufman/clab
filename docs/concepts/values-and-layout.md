@@ -10,7 +10,9 @@ sources: [clab/format/address.py, clab/format/selectors.py, clab/steps/batches.p
 
 ## The idea
 
-Every value a document names has a layout: a list of axis names, recorded as `dims` on each entry in the manifest and printed by `clab show`. An op checks its operands against those names before any forward, acts along them, and says what layout it returns ([FORMAT.md#ops](../../FORMAT.md#ops)). So the layout is how clab knows which numbers to compare with which, and reading it is how you know what a saved tensor's indices mean.
+Every value a document names has a layout: a list of axis names, recorded as `dims` on its record in the manifest and printed by `clab show`. Beside `dims` the record carries the labels that say what each axis holds: `dataset` (whose rows), `layers` (the model's layers), `read` (the entry whose positions it holds), `width`, `kept` (the indices a `select` keeps) and `space` (the featurizer coordinates it is in), and each read and write its resolved `positions` ([FORMAT.md#derived-fields](../../FORMAT.md#derived-fields)). An op checks its operands against those names and labels before any forward, acts along them, and says what layout it returns ([FORMAT.md#ops](../../FORMAT.md#ops)). So the layout is how clab knows which numbers to compare with which, and reading it is how you know what a saved tensor's indices mean. A saved result carries the same layout and labels in the manifest's `results`.
+
+A value's record also says which sweep axes it depends on (`axes`): its own entry's sweeps, those of what its ops name, and, for an entry of a forward, the forward's, which are its writes'. A value is made once per distinct point on those axes, and a saved one is keyed by them ([names-and-sweeps.md](names-and-sweeps.md)).
 
 ## Rows and positions first
 
@@ -60,7 +62,7 @@ A value has a hole where a row holds no data: positions past a row's own on a ra
 
 ## Broadcasting
 
-An operand with no rows and no positions, such as a `mean` over every row and position, or a number, is the same for every row and position it meets. One that has positions does not broadcast along them: a metric that compares two distributions position by position refuses a pair read at different widths:
+One rule says what an operand may be ([FORMAT.md#ops](../../FORMAT.md#ops)): it may leave out any axis of the value it meets, and broadcasts over it, and every axis it has is that value's, in its order, matched by label. So a number, or a `mean` over every row and position, is the same everywhere; one vector broadcasts over rows and positions; a per-row number broadcasts over the positions and features. An axis the operand does have must agree: `layers` by model layer, as above; `rows` by dataset; a selected axis by its kept indices; and `pos` by the read whose positions both hold, else by width, so a metric that compares two distributions position by position refuses a pair read at different widths:
 
 ```text
 clab: steps.kl_win_vs_last.against: 'clean.logits' holds 1 position(s) per row and the value 'kl' scores holds 3; position i scores against position i, so both are read at as many (a pos axis does not broadcast)
@@ -74,4 +76,4 @@ A value's dtype is recorded beside its layout (`results.<name>.dtype` in the man
 
 ## Why batch shape moves the last bits
 
-Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest row, with an attention mask over the padding and position ids that count each row's real tokens. A row's numbers therefore do not depend on which rows share its batch, except that at some CPU thread counts a row padded well past its own length moves in the last bits (about 1e-8) with its companions. Every row's numbers depend on the batch's shape: a different number of rows is a different matrix multiply, whose sums may be ordered differently, and a generation's decode calls are `[batch, 1, ...]` multiplies. On the corpus Llama in float32 that moves logits by about 1e-7 and residual-stream values by about 2e-9 between batch sizes 1 and 6; two runs at one batch size are equal to the bit. Choosing a batch size and comparing runs is [usage/running.md](../usage/running.md#batch-size-and-reproducibility).
+Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest row, with an attention mask over the padding and position ids that count each row's real tokens. At 8, 12 or 24 CPU threads a row's numbers therefore do not depend on which rows share its batch; at 4 or fewer they can move in the last bits (about 1e-8) with its companions, since the BLAS splits a matmul's reduction by thread. Every row's numbers depend on the batch's shape: a different number of rows is a different matrix multiply, whose sums may be ordered differently, and a generation's decode calls are `[batch, 1, ...]` multiplies. On the corpus Llama in float32 that moves logits by about 1e-7 and residual-stream values by about 2e-9 between batch sizes 1 and 6; two runs at one batch size are equal to the bit. Choosing a batch size and comparing runs is [usage/running.md](../usage/running.md#batch-size-and-reproducibility).

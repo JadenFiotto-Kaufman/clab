@@ -8,7 +8,7 @@ sources: [clab/compile/__init__.py, clab/format/sweeps.py, clab/plan.py]
 
 # Names and Sweeps
 
-A document is a line of steps that name each other's values, and compile resolves every name before the model loads. A sweep turns that line into a grid: each sweep label is an axis, and a step runs once for each combination of the axes it depends on. The exact rules are [FORMAT.md#names-and-scoping](../../FORMAT.md#names-and-scoping) and [FORMAT.md#sweeps](../../FORMAT.md#sweeps); this page explains the model behind them. The recipes are in [usage/sweeps.md](../usage/sweeps.md).
+A document is a line of steps that name each other's values, and compile resolves every name before the model loads. A sweep turns that line into a grid: each sweep label is an axis, a step has a point for each combination of the axes it depends on, and each value is made once per distinct point on the axes it depends on itself. The exact rules are [FORMAT.md#names-and-scoping](../../FORMAT.md#names-and-scoping) and [FORMAT.md#sweeps](../../FORMAT.md#sweeps); this page explains the model behind them. The recipes are in [usage/sweeps.md](../usage/sweeps.md).
 
 ## A name is a thing, then a member
 
@@ -27,10 +27,10 @@ clab: steps.iia.of: 'patched.logits' names no value produced before this step; k
 
 ## Scopes: the root and a fit's body
 
-The root is one scope. A `fit`'s body is a second scope. It sees every value produced before the fit, but it runs over minibatches of rows many times. A value made outside the body with one row per example of the whole dataset would not line up with a minibatch, so the body refuses it:
+The root is one scope. A `fit`'s body is a second scope. It sees every value produced before the fit, but it runs over minibatches of rows many times. A minibatch is a list of row ids in the body's datasets, so a value made before the fit with one row per example of one of them (a harvest) comes into each run of the body at that run's ids, as it was made; the model then runs while the fit trains only where the body has a forward. What such a value cannot follow is a change of rows: an `eval` that reads the harvest's dataset as another is refused, since no step made the harvest over the other's rows:
 
 ```text
-clab: steps.fit.steps: the body uses 'pre.acts', which has a row per example of the whole dataset; the body runs over minibatches of its rows, so such a value is one it makes
+clab: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; evaluate on 'test' in steps after the fit, which reach what it trained as 'fit.rot'
 ```
 
 Nothing leaves the body except through the fit's members (`<fit>.<featurizer>`, `<fit>.<eval>.<step>.<entry>`, `<fit>.history.<op>`), so its step names do not collide with the root's. A root step named `patched` can sit before a fit whose body also has a `patched`, and a root step after the fit that names `patched.logits` means the root's. Naming a body value bare from outside is refused, and the refusal lists the members you can name instead. [usage/fit.md](../usage/fit.md) covers the members in use.
@@ -43,7 +43,7 @@ A root `interventions` bundle is not a value. It is a set of entries that are pa
 clab: interventions.lens.shifted.ops[0].with: 'clean.resid' names step 'clean''s entry 'resid', which is also this bundle's own entry; name the bundle's own entry bare ('resid'), which means it in whichever step pulls the bundle in
 ```
 
-An operand that names another step's entry (`counterfactual.v_cf` in `documents/das.json`'s `das` bundle) resolves as written. [usage/interventions.md](../usage/interventions.md) covers bundles in use.
+An operand that names another step's entry (`counterfactual.v_cf` in `documents/two_observes.json`'s `patching` bundle) resolves as written. [usage/interventions.md](../usage/interventions.md) covers bundles in use.
 
 ## A sweep label is an axis
 
@@ -55,7 +55,7 @@ An operand that names another step's entry (`counterfactual.v_cf` in `documents/
 
 Default labels are where this bites. Two `layers` sweeps pair their points even when you meant a grid, and `max_new_tokens` swept beside `min_new_tokens` crosses even when you meant the pairs. [usage/sweeps.md](../usage/sweeps.md#labels-zip-or-cross) shows both cases and their fixes.
 
-The compiled plan lists its axes in `plan.sweeps`, each with the paths its sweeps stand at and its values. The axes follow the order of the format's root keys (`data`, `sites`, `interventions`, `featurizers`, `steps`), then document order inside each key. The order of keys in your file does not matter: a featurizer's `seed` sweep is listed before a step's `pos` sweep even when `featurizers` is written after `steps`.
+The compiled plan lists its axes in `plan.sweeps`, each by label with its values (`{'num_heads': Axis(values=[0, 1, 2, 3])}` for `documents/head_patching.json`). The axes follow the order of the format's root keys (`data`, `sites`, `interventions`, `featurizers`, `steps`), then document order inside each key. The order of keys in your file does not matter: a featurizer's `seed` sweep is listed before a step's `pos` sweep even when `featurizers` is written after `steps`.
 
 ## Points
 
@@ -66,16 +66,16 @@ Compile builds the document once for each combination of the axes a step depends
 
 A step that no sweep reaches stays a single step and runs once. Several consequences follow:
 
-- A forward that reads a swept site runs once per point, even when the read is all that is swept ([usage/sweeps.md](../usage/sweeps.md#what-a-sweep-costs)).
+- A forward or generation depends on its options and its writes alone (each write's site, positions, ops up to its last edit and their operands), so points that agree on those share one forward, and a read that is all that is swept costs no forward of its own ([usage/sweeps.md](../usage/sweeps.md#what-a-sweep-costs)). Each point's `schedule` says which forward served it.
 - An op step over a swept value is swept too.
 - A swept featurizer `seed` (`documents/random_subspace.json`) makes every step that encodes with it a list of points.
 - A swept objective weight makes the fit train once per weight, and every step that uses `fit.mask` inherits the axis.
 
 ## How a consumer finds the producer's point
 
-During the run, each value is stored under the point that produced it. A consumer at point *p* takes the producer's point that agrees with *p* on the producer's own axes. A consumer has every axis of what it references, so exactly one point agrees.
+During the run, each value is stored once per distinct point on the axes it depends on (its `axes`), and a saved one is keyed by them. A consumer at point *p* takes the value at *p*'s coordinates on those axes. A consumer has every axis of what it references, so exactly one agrees.
 
-Take the grid in [usage/sweeps.md](../usage/sweeps.md#labels-zip-or-cross). The counterfactual read sweeps `src`, so it has 2 points. The patch sweeps `dst` and references the read, so it has 4 points. The patch at `src=1,dst=0` takes the read made at `src=1`. The read runs twice, not four times, and each of its values serves two patch points. The zipped version of the same document, which has one `layers` label, gives results equal to the grid's diagonal bit for bit.
+Take the grid in [usage/sweeps.md](../usage/sweeps.md#labels-zip-or-cross). The counterfactual read sweeps `src`, so it has 2 points, which share one forward. The patch sweeps `dst` and references the read, so it has 4 points, each its own forward. The patch at `src=1,dst=0` takes the read's value at `src=1`, and each of the read's values serves two patch points. The zipped version of the same document, which has one `layers` label, gives results equal to the grid's diagonal bit for bit.
 
 The same lookup means a step cannot see across points. An op at point *p* gets the producer's value at *p* and no other, so there is no op that averages or compares the points of a sweep. To combine settings inside the document, put them on one value's axis with a wider read ([usage/sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
 
