@@ -43,9 +43,11 @@ def parse(pos: Swept[int | Pos]) -> dict:
 
 def width(pos: dict) -> int | None:
     """A record's width on every row, or None when rows differ: its frame names a static number of calls, its
-    index has a static width, and a scope, if any, is one occurrence in the prefill."""
+    index has a static width, and a scope, if any, is one occurrence in the prefill, not `until` (which runs from
+    the frame's first token to it)."""
     scope = pos["scope"]
-    if fixed(pos["frame"]) is None or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1):
+    if fixed(pos["frame"]) is None or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1
+                                                 or scope.get("until")):
         return None
     return fixed(pos["index"])
 
@@ -139,10 +141,12 @@ def call_of(position: int, prompt: int) -> int:
 def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
            encoded: dict = UNPROMPTED) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
-    role's messages) among `tokens`, in order. Under `before` an occurrence beginning the row (at position 0)
-    has no position before it. The scope's `texts` (each `(text, strip, lower)`) and the `encoded` row word a
-    refusal: a column's values on the row are quoted, a text found only inside a word says which (`inside`), and a
-    role the template wrote a header of its own for, which is no message, says the header is positions."""
+    role's messages) among `tokens`, in order; under `until`, every token of `tokens` up to the last of theirs,
+    and every one where the row has fewer occurrences than it picks. Under `before` an occurrence beginning the row
+    (at position 0) has no position before it, nor an until scope's tokens from there. The scope's `texts` (each
+    `(text, strip, lower)`) and the `encoded` row word a refusal: a column's values on the row are quoted, a text
+    found only inside a word says which (`inside`), and a role the template wrote a header of its own for, which is
+    no message, says the header is positions."""
     if scope is None:
         return tokens
     found = [o for o in occurrences if o & set(tokens)]
@@ -151,6 +155,13 @@ def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], t
     key = next(k for k in ("column", "text", "turn") if k in scope)
     what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
     what += f" ({', '.join(repr(t) for t, _, _ in texts)})" if key == "column" and texts else ""
+    if scope.get("until"):
+        short = not picked or fixed(which) is not None and len(picked) != fixed(which)
+        through = tokens if short else [t for t in tokens if t <= max(max(found[i]) for i in picked)]
+        if scope.get("before") and 0 in through:
+            raise Unaligned(f"{what} with until runs from the frame's first token, position 0, which no position "
+                            "comes before")
+        return through
     if not found and "turn" in scope:
         first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
         header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
@@ -411,6 +422,10 @@ def decided(path: str, pos: dict, most: int | None) -> None:
     the text was there to find; and which occurrences it means count from the first."""
     frame, index = pos["frame"], pos["index"]
     if pos["scope"] is not None:
+        if pos["scope"].get("until"):
+            fail(f"{path}.scope.until", "a write beyond the prefill lands as its call runs, and until names every "
+                 "token up to an occurrence the row may say later or never; until is a read's there, or a write's in "
+                 "the prefill")
         if reach({**pos, "index": ":"})[0]:
             fail(f"{path}.frame", f"frame {frame!r}: a scoped write beyond the prefill is found call by call in the "
                  "generated inputs, so its frame names decode calls only, not counted from the row's last call "

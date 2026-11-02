@@ -1,7 +1,7 @@
 ---
 title: Positions
 one_liner: "Pointing pos at the tokens you mean: the last token, an answer's tokens, a word by occurrence, the token before one, a chat turn, every token, the generated tokens, and reading back where each read and write landed."
-tags: [usage, positions, pos, scope, occurrence, before]
+tags: [usage, positions, pos, scope, occurrence, until, before]
 related: [docs/concepts/positions.md, docs/usage/sites.md, docs/usage/generate.md, docs/usage/output.md, docs/errors/alignment-missing.md, docs/usage/data.md, docs/usage/interventions.md]
 sources: [clab/compile/positions.py, clab/format/selectors.py, clab/plan.py]
 ---
@@ -55,6 +55,8 @@ Each recipe was checked against the entry's `positions` on row 0 of the corpus d
 | where the model said a word | `{"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}` | 12 `▁substr` (`documents/generated_answer.json`) |
 | the calls that chose that word | `{"frame": "1:", "scope": {"column": "prompts.said", "before": true}}` | 11 (`documents/generated_confidence.json`) |
 | a generated word, its leading space optional ([why](generate.md#the-first-generated-tokens-leading-space)) | `{"frame": "1:", "scope": {"column": {"column": "prompts.said", "strip": true}}, "index": -1}` | 12 `▁substr` (`generated_answer.json` with `strip`) |
+| every generated input up to and including a word, all of them where it is never said | `{"frame": "1:", "scope": {"column": "prompts.said", "until": true}}` | 11, 12 `Handler` `▁substr` (`generated_answer.json`) |
+| every prompt token up to and including a text | `{"scope": {"text": " is", "until": true}}` | 0 to 3 |
 
 ## Words and occurrences
 
@@ -64,6 +66,10 @@ A `scope` names text, and `index` then counts that text's tokens. `{"column": "<
 - **A text matches on token and word boundaries only.** `tom` does not occur in `▁tom orrow`, and `Thurs` does not occur in `▁Th urs day`; in the prompt both are refused with `text 'tom' is not in its input`. Write the whole word as the tokenizer spaces it. A leading space is optional (`is` finds `▁is`), and `lower` and `strip` loosen the comparison as [data.md](data.md#answer-columns) describes.
 - **Occurrences are ordered by where they end.** With `"text": [" today is Thursday", " is"]`, occurrence 0 is the ` is` at 3, occurrence 1 is ` today is Thursday` (2 to 6), occurrence 2 the ` is` at 10.
 - **The BOS a tokenizer adds covers no text**, so no scope finds it; `0` is how to name it. A `<s>` that a chat template writes is text and can be found.
+
+## Up to a text: `until`
+
+`until: true` turns a scope into every token the frame holds up to and including the last token of the occurrence it picks, rather than that occurrence's tokens. On a row that never says the text, or has fewer occurrences than `occurrence` picks, it is every token of the frame, so `until` is never refused for an absent text, in the prefill either; the record's `positions` say per row where each ended. That makes a length one read: in a thinking model's generation, `{"frame": "1:", "scope": {"text": "</think>", "until": true}}` is each row's generated inputs through its first `</think>`, and a `count` step over a read there is the thinking's length in tokens, a row that never closes it counting every input it was fed. On `documents/generated_answer.json` the rows say `substr` at generated token 1 and `energcalc` at tokens 2 and 3, and rows 2 and 3 never say their word: a read scoped `{"column": "prompts.said", "until": true}` lands on 11, 12; 9 to 12; and 9 to 13 on the last two, and its `count` is 2, 4, 5 and 5. `occurrence: -1` runs to the last occurrence. With `before` it is the positions that predict those tokens, the calls that chose them in a generation; over the prompt the first of them is position 0, which nothing predicts, so there `before` is refused. An until scope is ragged. A write beyond the prefill cannot take one, since it lands before the row says what follows.
 
 ## The token before: `before`
 
@@ -84,7 +90,7 @@ In a `generate` step, `frame` picks forward calls: 0 is the prefill, decode call
 
 ## Static width or ragged
 
-A read has a **static width**, the same number of positions on every row, when its frame names a fixed number of calls (a forward's one call, an int, picks, `"1:3"`), its index a fixed number of positions (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `":2"`), and a text scope, if it has one, is one occurrence in the prefill. Anything else is **ragged**: an index of `":"` or `"2:"`, a whole scope (an entity of one token on one row and three on another), several occurrences, `"frame": "1:"`.
+A read has a **static width**, the same number of positions on every row, when its frame names a fixed number of calls (a forward's one call, an int, picks, `"1:3"`), its index a fixed number of positions (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `":2"`), and a text scope, if it has one, is one occurrence in the prefill. Anything else is **ragged**: an index of `":"` or `"2:"`, a whole scope (an entity of one token on one row and three on another), several occurrences, an `until` scope, `"frame": "1:"`.
 
 - In the prefill, a static index that does not fit a row is refused before any forward: `{"index": "0:10"}` on a 9-token row gives `row 1: tokens 0:10 do not fit its 9 scope tokens`. Beyond the prefill the row is `alignment_missing`. A ragged index takes what the row has, which can be nothing: on a row too short for `{"index": "10:"}` a read holds no position, the row is `alignment_missing` (NaN all the way, and one `clab table` line flagged `alignment_missing`), while a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 - A ragged value is as wide as its widest row. Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out. So index j of `{"index": ":"}` is token j on every row, while index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths.

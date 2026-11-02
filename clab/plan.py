@@ -308,7 +308,9 @@ class Scope(Record):
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
     scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
     occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
-    side, and no letter or digit adjoining a word it cuts); and `before`,
+    side, and no letter or digit adjoining a word it cuts); `until`, whether it is every token of the frame up to
+    and including the occurrences it picks rather than their tokens alone (every token of the frame on a row
+    without them); and `before`,
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
@@ -319,6 +321,7 @@ class Scope(Record):
     occurrence: Swept[Selector] = 0
     strip: bool = False
     lower: bool = False
+    until: bool = False
     before: bool = False
 
     @field_validator("column", mode="before")
@@ -385,9 +388,10 @@ class Pos(Record):
     pos      := int                                # shorthand: {"frame": 0, "index": int}
               | {"frame"?: frame, "scope"?: scope, "index"?: swept}        # index default ":"
     frame    := swept                                                     # default 0
-    scope    := {"column": column or a list, "occurrence"?: swept, "before"?: bool}
-              | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "before"?: bool}
-              | {"turn": "<role>", "occurrence"?: swept, "before"?: bool}      # occurrence default 0
+    scope    := {"column": column or a list, "occurrence"?: swept, "until"?: bool, "before"?: bool}
+              | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "until"?: bool,
+                 "before"?: bool}
+              | {"turn": "<role>", "occurrence"?: swept, "until"?: bool, "before"?: bool}   # occurrence default 0
     column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     swept    := selector | {"sweep": [selector, ...]}                     # a point per selector
@@ -437,6 +441,15 @@ class Pos(Record):
     "user", "occurrence": 1}` is the second user message, `":"` every one of them); a role the row has no
     message of is refused by name.
 
+    **until** (default false): the scope is every token the frame selected up to and including the last token of
+    the occurrences `occurrence` picks, rather than those occurrences' tokens; on a row that has fewer of them than
+    it picks (the text never occurs), every token the frame selected, in the prefill too, so nothing is refused
+    and the record says per row where it ended. So `{"frame": "1:", "scope": {"text": "</think>", "until": true}}`
+    is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
+    length in tokens (all its inputs on a row that never closes it). An until scope holds a different number of
+    positions on each row. A write beyond the prefill lands as its call runs, before what follows is known, so it
+    takes no until.
+
     **before** (default false): the positions that predict the scope's tokens, each the position just
     before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
     the frame names the row's last call, the token that call chose (the row's last generated token, which
@@ -456,7 +469,7 @@ class Pos(Record):
     names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
     index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
     `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-    the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
+    the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
     row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
     that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
     is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter

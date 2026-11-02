@@ -1206,3 +1206,66 @@ def test_a_kl_against_a_read_of_its_own_generation_is_refused_at_an_earlier_site
                                         r"an entry of this generation; an operand from an entry of its own step is "
                                         r"served in a forward, not inside a generate$"):
         edited("generated_steer", change).compile()
+
+
+def until(d):
+    """generated_answer.json reading the head through each row's `said` word (`substr` is generated token 1 on every
+    row, `energcalc` tokens 2 and 3; rows 2 and 3 never say theirs), through a literal every row says, through the
+    calls that chose those tokens, and the prompt through its first and last ` is` and through a word it never
+    says; with `count` of the first, thinking length's spelling."""
+    d["steps"]["answer"]["interventions"] = {
+        "said": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "until": True}}},
+        "lit": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "substr", "until": True}}},
+        "chose": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "until": True,
+                                                                    "before": True}}},
+        "first": {"site": "l0", "pos": {"scope": {"text": " is", "until": True}}},
+        "last": {"site": "l0", "pos": {"scope": {"text": " is", "until": True, "occurrence": -1}}},
+        "never": {"site": "l0", "pos": {"scope": {"text": " Monday", "until": True}}},
+        "every": {"site": "head", "pos": {"frame": "1:"}}}
+    d["sites"]["l0"] = {"component": "layer_output", "layers": 0}
+    d["steps"] = {"answer": d["steps"]["answer"], "n": {"kind": "op", "op": "count", "of": "answer.said"}}
+    d["saves"] = ["n", *(f"answer.{k}" for k in d["steps"]["answer"]["interventions"])]
+
+
+def test_an_until_scope_is_the_frames_tokens_through_its_occurrence(engines):
+    """`until` is every token the frame holds up to and including the occurrence, and the whole frame on a row that
+    never says it, in the prefill too (nothing refused): the record says so per row, `count` is each row's number of
+    them, and each position holds the frame's own value there, on both engines and under `remote="local"`, which
+    agree to the bit."""
+    plan = edited("generated_answer", until).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("generated_answer", until).compile(),
+                                                                batch_size=BATCH_SIZE)
+            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    at = placed(runs["nnterp"])
+    inputs = [list(range(p, p + 5)) for p in PROMPT]                    # the five generated inputs of each row
+    assert at["answer.said"] == [inputs[0][:2], inputs[1][:4], inputs[2], inputs[3]]
+    assert at["answer.lit"] == [row[:2] for row in inputs]
+    assert at["answer.chose"] == [[p - 1 for p in at["answer.said"][0]], [p - 1 for p in at["answer.said"][1]],
+                                  list(range(PROMPT[2] - 1, PROMPT[2] + 5)), list(range(PROMPT[3] - 1, PROMPT[3] + 5))]
+    assert at["answer.first"] == [[0, 1, 2, 3]] * 4                       # `<s> ▁If ▁today ▁is`
+    assert at["answer.last"] == at["answer.never"] == [list(range(p)) for p in PROMPT]
+    v = runs["nnterp"].results
+    assert v["n"].tolist() == [2.0, 4.0, 5.0, 5.0]
+    for r, where in enumerate(at["answer.said"]):
+        assert torch.equal(v["answer.said"][r, :len(where)], v["answer.every"][r, :len(where)])
+        assert v["answer.said"][r, len(where):].isnan().all()
+    for kind, filled in runs.items():
+        assert placed(filled) == at and same(filled.results, v), kind
+
+
+@pytest.mark.parametrize("pos, message", [
+    ({"frame": "1:", "scope": {"text": "substr", "until": True}, "index": -1},
+     r"pos\.scope\.until: a write beyond the prefill lands as its call runs, and until names every token up to an "
+     r"occurrence the row may say later or never"),
+    ({"scope": {"text": " is", "until": True, "before": True}},
+     r"row 0: text ' is' with until runs from the frame's first token, position 0, which no position comes before"),
+])
+def test_an_until_scope_is_a_reads_beyond_the_prefill_and_starts_at_the_frames_first_token(engines, pos, message):
+    def change(d):
+        d["steps"]["answer"]["interventions"] = {"w": {"site": {"component": "layer_output", "layers": 0}, "pos": pos,
+                                                       "ops": [{"op": "scale", "factor": 0.5}]}}
+        d["steps"] = {"answer": d["steps"]["answer"]}
+        d["saves"] = ["answer"]
+    with pytest.raises(ValueError, match=message):
+        plan = edited("generated_answer", change).compile()
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
