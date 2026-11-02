@@ -37,6 +37,7 @@ from transformers import PreTrainedTokenizerBase
 from clab import steps
 from clab.engines import engine, standard
 from clab.engines.standard import build, envoy, inputs, loading, nnterp_name, placing, served, stops
+from clab.format.address import COMPONENTS
 from clab.format.sweeps import points
 from clab.plan import QUANTIZED, Model, Plan, entries, gradient_of, walk
 from clab.steps import batches
@@ -104,10 +105,15 @@ class NnterpEngine:
 
     def ready(self) -> None:
         """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
-        (ndif under `remote="local"`) loads its weights, which it would at its first trace, and nnterp measures its
-        forward order (`rank`), which it would at the first site a step ranks (under `tp` the engine measured it at
-        load, on a meta shell); each is a no-op once done."""
+        (ndif under `remote="local"`) loads its weights, which it would at its first trace; a mixture of experts'
+        module whose forward nnterp reads a value inside has that forward instrumented (its `.source` touched, as
+        nnterp's docs say to outside a trace), since nnsight would otherwise build it lazily at the first trace that
+        reads that value, too late where the trace has read a child module of it first (JetMoE's router logits, the
+        router's projection, before its indices); and nnterp measures its forward order (`rank`), which it would at
+        the first site a step ranks (under `tp` the engine measured it at load, on a meta shell). Each is a no-op once
+        done."""
         self.model.dispatch()
+        sourced(self.model)
         self.rank("layer_output", 0)
 
     @property
@@ -210,6 +216,26 @@ class NnterpEngine:
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
         return self.model.project_on_vocab(hidden)
+
+
+def sourced(model: StandardizedTransformer) -> None:
+    """Each module of a mixture of experts whose forward nnterp reads one of the mixture's values inside, at every
+    block it serves the value at, with its `.source` touched, which instruments that forward: the module the path of
+    nnterp's key for the value names before its first `source` (JetMoE's router, Mixtral's router and experts)."""
+    reasons = standard.unserved(model)
+    for c in [c for c in COMPONENTS if c in standard.mixed()]:
+        for layer in served(c, reasons[c], model.num_layers):
+            host: Any = envoy(model, c, layer)
+            value = getattr(type(host), c)
+            if not standard.inside(value, host):
+                continue
+            key = value.path(host)
+            while key.startswith("../"):
+                host, key = host.parent, key[3:]
+            parts = key.split(".")
+            for child in parts[:parts.index("source")]:
+                host = getattr(host, child)
+            host.source
 
 
 def measured(shell: StandardizedTransformer) -> dict[tuple[str, int | None], tuple[int, int]]:

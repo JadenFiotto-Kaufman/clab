@@ -217,6 +217,39 @@ def test_on_jetmoe_nnterp_ranks_the_indices_before_the_weights_and_hooks_serves_
         "nnterp reads it inside a module's forward (source.layer_output_1.output), not at a module boundary"
 
 
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("ndif", {"remote": "local"})])
+def test_on_a_fresh_engine_jetmoe_reads_its_router_logits_with_its_indices_in_one_forward(kind, options):
+    """The router's logits are its child projection's output and its indices an operation inside its forward, which
+    nnsight instruments lazily; on an engine no trace has warmed, one forward reading both raised `OutOfOrderError`
+    until `ready` touched the router's `.source` at load. The indices are the top 2 of the logits, on nnterp and on
+    `remote="local"` alike, to the bit."""
+    from clab.engines import load
+
+    plan = reading(JETMOE, {"logits": at("router_logits"), "indices": at("expert_indices")})
+    r = dict(load(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE).results)
+    assert torch.equal(r["f.logits"].topk(2, -1).indices.sort(-1).values, r["f.indices"].sort(-1).values)
+    if kind == "ndif":
+        assert same(r, dict(load("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results))
+
+
+def test_under_nnterps_default_family_a_mixtures_value_is_refused_as_unaddressed():
+    """A checkpoint nnterp has no family for loads under its default family, which says a block's MLP is a mixture
+    (its reason for the activation) and names none of a mixture's values: each is refused as not addressed, with the
+    MLPs' components served there, not as a model without a mixture."""
+    from nnterp import StandardizedTransformer
+    from nnterp.families import default
+
+    from clab.engines import standard
+
+    shell = StandardizedTransformer(MIXTRAL["key"], revision=MIXTRAL["revision"], family=default)
+    answer = standard.own(standard.unserved(shell))
+    for value in VALUES:
+        assert answer[value] == ("nnterp has no family for this architecture (it reads the model under its default "
+                                 "family), so its mixture of experts is not addressed; its MLPs are served as "
+                                 "mlp_input")
+    assert answer["mlp_activation"] == {0: default.MIXTURE, 1: default.MIXTURE}
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_without_a_mixture_each_value_is_refused_by_name_and_its_sizes_are_absent(engines, kind):
     """On the tiny Llama no block has a mixture: `num_experts` and `top_k` are not among its sizes and each value is

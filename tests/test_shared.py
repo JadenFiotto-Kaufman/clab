@@ -537,8 +537,8 @@ def corpus_plan(corpus: str, name: str) -> tuple[Plan, dict]:
 
 
 # The corpus documents a point of which is served by another's forward: each a step that reads at swept layers,
-# heads, neurons, frames, featurizer seeds or op arguments (expert_knockout's expert) beside writes that do not vary, or, in dbm, that reads through a
-# featurizer the swept fit trained, an encode off the model.
+# heads, neurons, frames, featurizer seeds or op arguments (expert_knockout's expert) beside writes that do not vary,
+# or, in dbm, that reads through a featurizer the swept fit trained, an encode off the model.
 SHARE = ["attention_pattern_patching", "dbm", "expert_knockout", "generate_probe", "head_patching", "logit_lens",
          "neuron_patching", "random_subspace"]
 
