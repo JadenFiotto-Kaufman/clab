@@ -25,6 +25,7 @@ from typing import Any
 from clab import output
 from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
+from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, labelled
 from clab.plan import Plan, Run, entries, name, points, projections, serving
 
@@ -48,7 +49,7 @@ def show(filled: Plan) -> str:
                 for step, entry in filled.steps.items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
-    lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
+    lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, padding {run.padding}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
@@ -71,20 +72,21 @@ def costs(filled: Plan) -> list[list[str]]:
     """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`serving`: a forward's or
     generation's per forward, an op's per distinct value, a fit's per point), at the point that ran, with the
     points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
-    each device in MiB (— where none was measured), its model calls and the tokens they fed."""
+    each device in MiB (— where none was measured), its model calls, the tokens they fed, padding included, and
+    the rows' own of them (`real`)."""
     run = filled.run
     assert run is not None
-    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
+    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]]
     for step, entry in filled.steps.items():
         for p, points_ in serving(filled, step) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
             serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
-                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—"])
+                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—", "—"])
                 continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
             rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
-                         str(cost["forwards"]), str(cost["tokens"])])
+                         str(cost["forwards"]), str(cost["tokens"]), str(cost.get("real", "—"))])
     return rows
 
 
@@ -221,6 +223,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
+    run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),
+                     help="how each batch is padded: dataset (the default, exact), batch or sorted (fewer tokens fed, "
+                          "numbers moved in the last bits)")
     run.add_argument("--device", help="where the engine places the model (default cpu)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
@@ -273,10 +278,10 @@ def command(args: argparse.Namespace) -> int:
     first = os.environ.get("RANK", "0") == "0"          # under torchrun, rank 0 alone writes `out` and prints
     try:
         options = dict(option(text) for text in args.options)
-        for key in {"device", "batch_size"} & set(options):
+        for key in {"device", "batch_size", "padding"} & set(options):
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
-                          device=args.device, **options)
+                          device=args.device, padding=args.padding, **options)
     except (ValueError, NotImplementedError, OSError, RemoteError) as e:
         # A refusal on the server comes home as nnsight's error, its last line the reason; a missing document is
         # the OSError that names it.

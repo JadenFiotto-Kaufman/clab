@@ -17,9 +17,10 @@ __all__ = ["Plan", "run", "describe"]
 
 
 def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None = None, batch_size: int = 8,
-        device: str | None = None, **options: Any) -> Plan:
+        device: str | None = None, padding: str = "dataset", **options: Any) -> Plan:
     """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
-    Returns the filled plan. `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
+    Returns the filled plan. `padding` is how each batch is padded (`format.data.PADDINGS`: `dataset`, the exact
+    default, `batch` or `sorted`). `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
     engine was placed and configured when it loaded, so it takes no `device` or option here. Under torchrun
@@ -29,7 +30,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     from clab.engines import load
     from clab.steps import batched
 
-    batched(batch_size)
+    batched(batch_size, padding)
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):
         engine = load(engine, compiled.model, device or "cpu", **options)
@@ -39,7 +40,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     first = os.environ.get("RANK", "0") == "0"
     where = out or os.path.join("out", name(compiled))
     try:
-        filled = engine.execute(compiled, batch_size=batch_size)
+        filled = engine.execute(compiled, batch_size=batch_size, padding=padding)
     except ValueError as e:
         if first and compiled.run is not None and compiled.run.stopped:
             compiled.dump(where)

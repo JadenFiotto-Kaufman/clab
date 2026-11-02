@@ -110,6 +110,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_refusals.py` | what cannot be served, or would change a document's meaning, refused by name before any forward |
 | `tests/test_findings.py` | one test per silent failure mode or unclear refusal, each pinned as a refusal or a check, named by a short tag |
 | `tests/test_documents.py` | forward documents on each engine; what padding, positions, scopes, windows, ragged reads and `layers` mean |
+| `tests/test_padding.py` | every corpus document under `batch` and `sorted` padding: close to the exact run at a stated tolerance, the same rows missing and positions, the engines agreeing to the bit, rows put back in order |
 | `tests/test_patching.py` | `documents/patching.json` end to end, on every engine, and its output |
 | `tests/test_generate.py` | generation, and what a position means across calls |
 | `tests/test_fit.py` | the documents that train or load a featurizer, from `clab run` on every engine |

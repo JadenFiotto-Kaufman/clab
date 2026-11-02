@@ -533,9 +533,9 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
     assert main(["show", str(out)]) == 0
     shown = capsys.readouterr().out.splitlines()
     rows = [line.split() for line in shown if line.startswith("  logit_diff ")]
-    assert [r[:3] + r[4:] for r in rows] == [["logit_diff", "pos=-1", "—", "—", "0", "0"],    # seconds left out
-                                            ["logit_diff", "pos=-2", "—", "—", "—", "—"],
-                                            ["logit_diff", "pos=-3", "—", "—", "—", "—"]]
+    assert [r[:3] + r[4:] for r in rows] == [["logit_diff", "pos=-1", "—", "—", "0", "0", "0"],    # seconds left out
+                                            ["logit_diff", "pos=-2", "—", "—", "—", "—", "—"],
+                                            ["logit_diff", "pos=-3", "—", "—", "—", "—", "—"]]
     assert float(rows[0][3]) >= 0
     assert main(["table", str(out), "iia"]) == 0 and len(capsys.readouterr().out.splitlines()) == 13
 

@@ -455,13 +455,16 @@ def steered(engines, kind: str, batch_size: int, held: bool, change=None, **opti
 
 def test_a_generation_counts_its_calls_and_the_tokens_its_rows_were_fed(engines):
     """A generation makes one call per new token of each batch: the prefill, then a decode call per token after
-    the first. It feeds the prompts' tokens (38), then at each decode call one for each row that has not said EOS:
-    the steered rows say EOS after 1, 5 (none), 3 and 5 (none) tokens, so their own fed tokens are 1, 5, 3 and 5,
-    whatever the batch. In batches of 1 the rows make 2, 6, 4 and 6 calls; in batches of 2 and 4 every batch runs to
-    six, since one of its rows does."""
+    the first. Of what it feeds, its rows' own (`real`) are the prompts' tokens (38), then at each decode call one
+    for each row that has not said EOS: the steered rows say EOS after 1, 5 (none), 3 and 5 (none) tokens, so their
+    own fed tokens are 1, 5, 3 and 5, whatever the batch. In batches of 1 the rows make 2, 6, 4 and 6 calls; in
+    batches of 2 and 4 every batch runs to six, since one of its rows does. What it feeds (`tokens`) is each batch's
+    prompts padded to the longest row, 11 tokens, then a token for every row at each decode call: 4 × 11 + 14 in
+    batches of 1, 4 × 11 + 4 × 5 in batches of 2 and 4."""
     costs = {size: steered(engines, "nnterp", size, held=False).run.costs["answer"] for size in (1, 2, 4)}
-    assert {size: (c["forwards"], c["tokens"]) for size, c in costs.items()} == \
+    assert {size: (c["forwards"], c["real"]) for size, c in costs.items()} == \
         {1: (18, 38 + 14), 2: (12, 38 + 14), 4: (6, 38 + 14)}
+    assert {size: c["tokens"] for size, c in costs.items()} == {1: 44 + 14, 2: 44 + 20, 4: 44 + 20}
     assert all(c["memory"] is None for c in costs.values())
 
 

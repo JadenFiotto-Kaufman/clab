@@ -1,6 +1,7 @@
 """The real-model documents (`documents/real/`, Llama-3.2-1B in float32) on a GPU: each on nnterp and hooks on
 `cuda` at batch size 16, its numbers pinned per engine, the engines agreeing to the bit, and the findings each
-document's description states.
+document's description states; and behavior and layer_sweep in bfloat16 over prompts of four lengths under each
+padding, `batch` and `sorted` feeding fewer tokens for numbers within bfloat16's rounding of the `dataset` run's.
 
 The CPU-only suite skips this file: it needs a CUDA device and the checkpoint in the local Hugging Face cache. It
 runs from a venv whose torch matches your CUDA driver, with clab installed `--no-deps` and `PYTHONPATH` at the
@@ -14,13 +15,18 @@ About two minutes on an idle RTX A6000. Each snapshot records the GPU and the to
 with (`made_with`), which need not be the lock's.
 """
 
+import json
+import os
 import statistics
 
 import pytest
 import torch
 import transformers
-from conftest import REAL, close, placed, plain, plan_of, same, snapshot
+from conftest import REAL, ROOT, close, edited, placed, plain, plan_of, same, snapshot
 from huggingface_hub import try_to_load_from_cache
+
+from clab import Plan
+from clab.format.data import PADDINGS
 
 KEY, REVISION = "meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08"
 CACHED = isinstance(try_to_load_from_cache(KEY, "model.safetensors", revision=REVISION), str)
@@ -131,3 +137,69 @@ def test_das_accuracy_climbs_with_rank(filled, kind):
         basis = bundle["basis"]
         assert basis.shape == (2048, k)
         torch.testing.assert_close(basis.T @ basis, torch.eye(k), atol=1e-4, rtol=0)
+
+
+# How far `batch` and `sorted` padding may move a bfloat16 run's numbers from the `dataset` run's: measured, 0.031
+# on one row's probability of its answer, 0.002 on the mean, and one pair of the 42 in a layer's interchange
+# accuracy (1/42); pinned at 0.05, two pairs, on a probability or a share alike. In float32 the same runs differ by
+# 3.4e-6 at most, and no pair flips.
+BFLOAT16 = 0.05
+
+
+def prefaced(name: str) -> Plan:
+    """`name` in bfloat16 over the 42 weekday pairs, each pair's two prompts after a preface of `i // 11` sentences
+    for row `i`, so that the rows grow in four steps and padding has something to change; a position counted from
+    the end (the day, the last token) is where it was."""
+    with open(os.path.join(ROOT, "data", "weekdays_full", "data.json")) as f:
+        rows = json.load(f)
+    preface = [{**r, "input": "Read the next line. " * (i // 11) + r["input"],
+                "counterfactual_inputs": ["Read the next line. " * (i // 11) + r["counterfactual_inputs"][0]]}
+               for i, r in enumerate(rows)]
+
+    def change(d):
+        d["data"] = {"days": {"rows": preface}}
+        d["model"]["dtype"] = "bfloat16"
+    return edited(name, change).compile()
+
+
+PADDED = ["real/behavior", "real/layer_sweep"]
+
+
+@pytest.fixture(scope="module")
+def padded(engines) -> dict:
+    out = {}
+    for name in PADDED:
+        for kind in ("nnterp", "hooks"):
+            for padding in PADDINGS:
+                plan = prefaced(name)
+                out[name, kind, padding] = engines(kind, plan.model, device="cuda").execute(
+                    plan, batch_size=BATCH_SIZE, padding=padding)
+    return out
+
+
+def fed(run) -> tuple[int, int]:
+    """A run's tokens fed and the rows' own of them, over every step."""
+    costs = [c for by in run.costs.values() for c in (by.values() if "forwards" not in by else [by])]
+    return sum(c["tokens"] for c in costs), sum(c["real"] for c in costs)
+
+
+@pytest.mark.parametrize("padding", ["batch", "sorted"])
+@pytest.mark.parametrize("name", PADDED)
+def test_padding_feeds_fewer_tokens_for_numbers_within_bfloat16s_rounding(padded, name, padding):
+    for kind in ("nnterp", "hooks"):
+        exact, got = padded[name, kind, "dataset"], padded[name, kind, padding]
+        assert got.run.padding == padding and got.run.dtype == ["bfloat16"]
+        (tokens, real), (exact_tokens, exact_real) = fed(got.run), fed(exact.run)
+        assert real == exact_real and tokens < exact_tokens
+        assert placed(got) == placed(exact)
+        for key, value in exact.results.items():
+            torch.testing.assert_close(got.results[key], value, rtol=0, atol=BFLOAT16, msg=lambda m: f"{key}: {m}")
+    if name == "real/behavior":
+        assert padded[name, "nnterp", padding].results["accuracy"].item() == 1.0
+
+
+@pytest.mark.parametrize("padding", PADDINGS)
+@pytest.mark.parametrize("name", PADDED)
+def test_the_engines_agree_to_the_bit_under_each_padding(padded, name, padding):
+    nnterp, hooks = padded[name, "nnterp", padding], padded[name, "hooks", padding]
+    assert same(nnterp.results, hooks.results) and placed(nnterp) == placed(hooks)

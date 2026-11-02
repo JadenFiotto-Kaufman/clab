@@ -26,17 +26,18 @@ if TYPE_CHECKING:
 
 
 def site(record: Intervention, picks: dict, rows: list, pads: list[int], width: int, last_only: bool,
-         device: str = "cpu") -> dict:
+         device: str = "cpu", span: int | None = None) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
     its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
     batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
     own; a row the record does not reach, the marker in `rows`, holds none), the part of the feature axes it keeps
-    (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys
-    (`keys`). Where the value holds the last position alone (`last_only`: a generation's head in the prefill)
-    every index is -1. Where every row holds `n` positions there is no `keep`, so that a read or a write of
-    equal-width rows indexes by no mask, which the device would have to count before the host could go on. The
-    indices and masks the value meets are made on `device`, where the model is (`placed`); `tok` stays on the host,
-    where the ops that read it (`noise`) count with it."""
+    (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys,
+    as many as the input's longest row has (`keys`, `span`; None: `width`). Where the value holds the last
+    position alone (`last_only`: a generation's head in the prefill) every index is -1. Where every row holds `n`
+    positions there is no `keep`, so that a read or a write of equal-width rows indexes by no mask, which the
+    device would have to count before the host could go on. The indices and masks the value meets are made on
+    `device`, where the model is (`placed`); `tok` stays on the host, where the ops that read it (`noise`) count
+    with it."""
     rows = [row if isinstance(row, list) else [] for row in rows]
     n = max(1, *map(len, rows))
     index = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
@@ -45,7 +46,7 @@ def site(record: Intervention, picks: dict, rows: list, pads: list[int], width: 
     index = [[-1] * n for _ in rows] if last_only else index
     ragged = any(len(row) < n for row in rows)
     return {"component": cast(Site, record.site).component, "positions": placed(index, device),
-            "select": selection(record, picks, device), **keys(record, pads, width, device),
+            "select": selection(record, picks, device), **keys(record, pads, width, device, span),
             **({"keep": placed([[j < len(row) for j in range(n)] for row in rows], device)} if ragged else {}),
             "tok": torch.tensor(tok)}
 
@@ -59,16 +60,20 @@ def decoding(record: Intervention, picks: dict, prompts: list[int], device: str 
             "select": selection(record, picks, device), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
-def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu") -> dict:
+def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompted`), which a key selector counts:
-    `dim` is the axis's dimension in the selection's layout, `index` (`[rows, width]`) each row's keys in the
-    padded batch, in order, then its padding's, and `own` which of those are the row's (`owned`), both on
-    `device`. Nothing on a component with no key axis."""
+    `dim` is the axis's dimension in the selection's layout, `index` (`[rows, span]`) each row's keys in the
+    padded batch, `width` tokens wide, in order, then its padding's, then up to `span` (the input's longest row;
+    None: `width`) the first key again, and `own` which of those are the row's (`owned`), both on `device`. So a
+    key axis is as wide as the input's longest row whatever the batch's width. Nothing on a component with no key
+    axis."""
     layout = address.dims(cast(Site, record.site).component)
     if "key" not in layout:
         return {}
-    index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) for pad in pads]
-    own = [[j < width - pad for j in range(width)] for pad in pads]
+    span = width if span is None else span
+    index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) + [0] * (span - width)
+             for pad in pads]
+    own = [[j < width - pad for j in range(span)] for pad in pads]
     return {"keys": {"dim": layout.index("key"), "index": placed(index, device), "own": placed(own, device)}}
 
 
@@ -128,16 +133,31 @@ def over(state: ChainMap) -> list[int] | None:
     return state.maps[0].get(ROWS)
 
 
-def chunked(engine: Engine, step: Forward, state: ChainMap, found: Found, batch_size: int
+def chunked(engine: Engine, step: Forward, state: ChainMap, found: Found, batch_size: int, padding: str = "dataset"
             ) -> Iterator[tuple[list[int], dict, list]]:
-    """The step's input in batches of `batch_size` dataset row ids: of every row in order, or of the rows the run is
-    over (`over`); each one's ids, its tokens padded on the left to the input's longest row, its padding."""
+    """The step's input in batches of `batch_size` dataset row ids, of every row in order or of the rows the run is
+    over (`over`), padded as `padding` says (`data.PADDINGS`): under `dataset` and `batch` in that order, under
+    `sorted` longest first by the encoded rows' token counts (rows of one count in that order); each batch's ids, its
+    tokens padded on the left to the input's longest row (`dataset`) or to the batch's own (`batch`, `sorted`), and
+    its padding. A step that joins its batches puts their rows back in the run's order (`ordered`)."""
     encoded = found.inputs[data.input_name(step.input)]
     rows = over(state)
     rows = rows if rows is not None else list(range(len(encoded["rows"])))
+    if padding == "sorted":
+        rows = sorted(rows, key=lambda i: len(encoded["rows"][i]["ids"]), reverse=True)     # stable, as written
     for ids in (rows[lo:lo + batch_size] for lo in range(0, len(rows), batch_size)):
         tokens = [e["ids"] for e in data.by_id(encoded["rows"], ids)]
-        yield ids, data.pad(engine.tokenizer, tokens, encoded["width"]), [encoded["width"] - len(x) for x in tokens]
+        width = encoded["width"] if padding == "dataset" else max(map(len, tokens))
+        yield ids, data.pad(engine.tokenizer, tokens, width), [width - len(x) for x in tokens]
+
+
+def ordered(state: ChainMap, value: Any, ids: list[int], axis: int = 0) -> Any:
+    """`value`, whose rows along `axis` are dataset row `ids` in the order a step's batches ran them (`chunked`), in
+    the order of the rows the run is over (`over`; every row of the dataset, in order): as it is where the batches
+    ran in that order, else taken by id (`data.by_id`), which puts `sorted` padding's rows back."""
+    rows = over(state)
+    rows = rows if rows is not None else sorted(ids)
+    return value if ids == rows else data.by_id(value, rows, ids, axis)
 
 
 def stops(engine: Engine, step: Generate) -> list[int]:
@@ -157,9 +177,10 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
     record of the value it is (`reading`, `schedule.gathered`), and the bound reads are also returned by entry,
     the value's coordinates and layer, each in the order its parts are done (a forward's one record; beyond a
     generation's prefill the part over the prompt, where there is one, then the part at its decode calls)."""
-    schedule, width = step.schedule, found.inputs[data.input_name(step.input)]["width"]
+    schedule, span = step.schedule, found.inputs[data.input_name(step.input)]["width"]
     device = home(engine)
     prompts = [len(e["ids"]) for e in data.by_id(found.inputs[data.input_name(step.input)]["rows"], ids)]
+    width = prompts[0] + pads[0]            # the batch's: each row's tokens and its padding
     rows = data.by_id(held_rows(plan, cast(str, step.dataset)), ids) if schedule.get("online") else []
     sites, binds = [], {}
     for s in schedule["sites"]:
@@ -172,10 +193,10 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
                 bound = decoding(record, record.kept, prompts, device)
             elif r.get("prompt"):
                 where = [positions.prompted(p, head_only and "write" in r) for p in prompts]
-                bound = site(record, record.kept, where, pads, width, head_only, device)
+                bound = site(record, record.kept, where, pads, width, head_only, device, span)
             else:
                 bound = site(record, record.kept, data.by_id(record.positions[read_over(step, found)], ids), pads,
-                             width, head_only, device)
+                             width, head_only, device, span)
             bound["layer"] = s["layer"]
             if "write" in r:
                 resolved = {v["name"]: v for o in r["ops"] for v in o.values() if isinstance(v, dict) and "name" in v}
@@ -218,11 +239,13 @@ def stacked(record: Intervention, values: list) -> Any:
     return {k: torch.stack([v[k].to(values[0][k].device) for v in values]) for k in values[0]}
 
 
-def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int], values: list) -> None:
+def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int], values: list,
+           ids: list[int] | None = None) -> None:
     """A gathered entry's per-batch `values` joined along rows, on the first batch's device, as `stacked`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
     under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`padded`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
+    to it first (`padded`). The batches' rows are dataset row `ids` in the order they ran, put back in the run's
+    order (`ordered`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
     axes."""
     dims = record.dims or []
 
@@ -230,8 +253,8 @@ def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int],
         if "pos" in dims:
             parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
         return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
-    put(state, name, at, cat(values) if isinstance(values[0], Tensor) else
-        {k: cat([v[k] for v in values]) for k in values[0]})
+    value = cat(values) if isinstance(values[0], Tensor) else {k: cat([v[k] for v in values]) for k in values[0]}
+    put(state, name, at, value if ids is None else ordered(state, value, ids, dims.index("rows")))
 
 
 def padded(value: Tensor, dim: int, n: int) -> Tensor:
@@ -346,8 +369,8 @@ def taken(x: Tensor, record: dict) -> Tensor:
 
 def owned(x: Tensor, record: dict) -> Tensor:
     """A selection's `key` axis as each row's own keys, its positions in order, NaN past them, where the record has
-    one (`record["keys"]`: each row's keys in the padded batch, then its padding's, and which are its own); else
-    `x` as it is."""
+    one (`record["keys"]`: each row's keys in the padded batch, then its padding's, and which are its own, as many
+    as the input's longest row has keys, past the batch's width too); else `x` as it is."""
     if "keys" not in record:
         return x
     dim, keys = record["keys"]["dim"], record["keys"]
@@ -357,10 +380,11 @@ def owned(x: Tensor, record: dict) -> Tensor:
 
 def unowned(current: Tensor, new: Tensor, record: dict) -> Tensor:
     """`new`, a selection in each row's own key order (`owned`), back in the batch's order over `current`: the
-    row's own keys from `new`, its padding's as `current` has them."""
-    dim, keys = record["keys"]["dim"], record["keys"]
-    index, own = (per_row(current, dim, keys[k].to(current.device)) for k in ("index", "own"))
-    return current.scatter(dim, index, torch.where(own, new, current.gather(dim, index)))
+    row's own keys from `new`, its padding's as `current` has them; the keys past the batch's width (`owned`'s,
+    up to the input's longest row) are no row's own, and go nowhere."""
+    dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
+    index, own = (per_row(current, dim, keys[k][:, :n].to(current.device)) for k in ("index", "own"))
+    return current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
 
 
 def take(x: Tensor, dim: int, index: Tensor) -> Tensor:

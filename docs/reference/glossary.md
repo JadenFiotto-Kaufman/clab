@@ -69,6 +69,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | occurrence | Which match of a scope's text the scope is: 0 the first (the default), -1 the last, `":"` every one, ordered by where each ends. | [positions.md](../usage/positions.md#words-and-occurrences) |
 | op | A function over a value, run as an `op` step or inside an entry: a metric, a reduction, an edit or a transform. | [ops.md](../usage/ops.md) |
 | operand | A value an op takes beside the one it acts on (`swap`'s `with`, `kl`'s `against`): a number, or a named value that must fit the value it meets. | [interventions.md](../usage/interventions.md#operands) |
+| padding | How each batch is padded on the left (`--padding`): `dataset`, the default, to the input's longest row, which reproduces to the bit; `batch`, to the batch's own longest row; `sorted`, the rows batched longest first and put back in row order. The last two feed fewer tokens and move the last bits. | [running.md](../usage/running.md#batch-size-and-reproducibility) |
 | plan | The `Plan` a document becomes: its records as written, then compiled, then filled with results and the run record. | [plan-lifecycle.md](../concepts/plan-lifecycle.md) |
 | point | One combination of the sweep axes a step depends on, run as a whole step. | [names-and-sweeps.md](../concepts/names-and-sweeps.md#points) |
 | pos | An entry's positions, narrowed in three stages: frame, scope, index. | [positions.md](../usage/positions.md) |
@@ -84,7 +85,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | remote | The `ndif` engine's option: `true` for the NDIF server nnsight is configured for, `"local"` for nnsight's in-process simulation of the trip. | [engines.md](../usage/engines.md#remotelocal) |
 | result | A saved value, in `plan.results` and as a file in the output directory; one that depends on sweep axes is a dict keyed by its coordinate on those axes. | [output.md](../usage/output.md) |
 | row | One example of a dataset, a JSON object; a step's values have one row per row of its dataset. | [data.md](../usage/data.md) |
-| run option | A setting given when the document runs rather than in it: `--engine`, `--device`, `--batch-size` and `-o key=value`. | [running.md](../usage/running.md#from-the-command-line) |
+| run option | A setting given when the document runs rather than in it: `--engine`, `--device`, `--batch-size`, `--padding` and `-o key=value`. | [running.md](../usage/running.md#from-the-command-line) |
 | run record | `plan.run`: how the plan ran (engine, device, options, versions, dtype, sizes), how each input tokenized (`tokens`), what each run of each step cost (`costs`), and where the run stopped (`stopped`). | [output.md](../usage/output.md#the-run-record) |
 | save | A name in `saves`, a step's value or member, which the run writes to the output directory as one file. | [writing-a-document.md](../usage/writing-a-document.md#saves) |
 | scalar | A trained featurizer's own number that a fit's objective may name, `<featurizer>.<scalar>`: a gate's `mask`, an sae's `reconstruction` and `l1`. | [fit.md](../usage/fit.md#the-objective) |

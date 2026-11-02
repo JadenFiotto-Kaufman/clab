@@ -16,7 +16,7 @@ from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import projected, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, held_rows, writes
-from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, stacked, stops, with_ops
+from clab.steps.batches import bind, chunked, joined, layers, ordered, over, read, read_over, stacked, stops, with_ops
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -26,10 +26,11 @@ if TYPE_CHECKING:
 
 def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int, found: Found,
              cost: dict[str, Any], served: list[Forward], reading: dict | None = None) -> None:
-    """The step's input in batches of dataset row ids (`chunked`), each through `engine.generate` with the point's
-    schedule bound to it (`bind`) and the step's own keys as its options; each value the generation reads
-    (`reading`, `gathered` over the points it serves, `served`, as a forward's) joined along rows from its own
-    reads, and the new ids, one generation's, put as the step's value.
+    """The step's input in batches of dataset row ids padded as the run says (`chunked`, `plan.run.padding`), each
+    through `engine.generate` with the point's schedule bound to it (`bind`) and the step's own keys as its options;
+    each value the generation reads (`reading`, `gathered` over the points it serves, `served`, as a forward's)
+    joined along rows from its own reads, and the new ids, one generation's, put as the step's value, each in the
+    run's row order, as where each entry landed is (`ordered`).
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`read`); one beyond it is bound in parts (a part over
     the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the generation
@@ -38,9 +39,11 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     (`positions`) and each row's continuation, as token strings, in `plan.run.tokens[<step>]`, by a run over every
     row (not over a fit's minibatch). A batch whose rows all stopped early makes fewer calls; its ids are filled
     after their EOS to the longest batch's. Adds to `cost` the model calls it made, one per new token of each batch
-    (its prefill, then a decode call per token after the first), and the tokens they fed: the prompts', then each
-    row's generated tokens but its last, which is its EOS (fed on the call after it says it, and not counted, as
-    padding is not) or the generation's last, which no call is fed."""
+    (its prefill, then a decode call per token after the first), the tokens they fed (the padded prompts, then one
+    per row at each decode call), and the rows' own of them (`real`): the prompts', then each row's generated tokens
+    but its last, which is its EOS (fed on the call after it says it, and not counted, as padding is not) or the
+    generation's last, which no call is fed."""
+    assert plan.run is not None
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
     reading = gathered(served) if reading is None else reading
@@ -53,14 +56,16 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                 landing.setdefault((key, tuple(projected(p.at, record.axes).items())), (record, projected(p.at, record.axes), p))
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
     landed: dict[tuple[str, tuple], list] = {k: [] for k in landing}
-    new = []
-    for ids, batch, pads in chunked(engine, step, state, found, batch_size):
+    new, order = [], []
+    for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
+        order += ids
         bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         tokens, got = generated(engine, name, batch, bound, dict(step.model_extra or {}))
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]
         cost["forwards"] += tokens.shape[1]
-        cost["tokens"] += batch["input_ids"].shape[1] * len(pads) - sum(pads) + sum(map(len, said)) - len(said)
+        cost["tokens"] += batch["input_ids"].numel() + len(ids) * (tokens.shape[1] - 1)
+        cost["real"] += batch["input_ids"].numel() - sum(pads) + sum(map(len, said)) - len(said)
         for k, (record, own, p) in landing.items():
             landed[k] += landed_at(record, examples, inputs, said, eos, engine.tokenizer, head(step, record))
         for k, (record, own, p) in reading.items():
@@ -75,9 +80,11 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                                                  for layer in layers(engine, record)]))
         new.append(tokens)
     width = max(x.shape[1] for x in new)
-    tokens = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
+    tokens = ordered(state, torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos))
+                                       for x in new]), order)
+    landed = {k: ordered(state, v, order) for k, v in landed.items()}
     for k, (record, own, _) in reading.items():
-        joined(state, f"{name}.{k[0]}", record, own, parts[k])
+        joined(state, f"{name}.{k[0]}", record, own, parts[k], order)
     put(state, name, projected(step.at, step.axes), tokens)
     if over(state) is None:          # a run over every row records where each record landed, on every record
         for p in served:

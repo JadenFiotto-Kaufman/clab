@@ -1,9 +1,9 @@
 ---
 title: Running a Document
-one_liner: "Running a document from the command line or Python: clab run and its options, what is refused before the model loads, a step that runs out of memory, choosing batch size, bit reproducibility, where output goes and the corpus root, sharding with tp, and the four calls behind clab.run."
-tags: [usage, running, cli, python, batch-size, reproducibility]
+one_liner: "Running a document from the command line or Python: clab run and its options, what is refused before the model loads, a step that runs out of memory, choosing batch size and padding, bit reproducibility, where output goes and the corpus root, sharding with tp, and the four calls behind clab.run."
+tags: [usage, running, cli, python, batch-size, padding, reproducibility]
 related: [docs/usage/engines.md, docs/usage/output.md, docs/usage/writing-a-document.md, docs/usage/bundles.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
-sources: [clab/cli.py, clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/format/data.py]
+sources: [clab/cli.py, clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/format/data.py, clab/steps/batches.py]
 ---
 
 # Running a Document
@@ -24,7 +24,7 @@ It prints each file it wrote with the step that made it and the value's shape (a
 
 Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says the generation flag `pad_token_id` is not valid and may be ignored. It can be: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
 
-`--engine`, `--device` and `-o key=value` choose where and how the model runs: `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
+`--engine`, `--device` and `-o key=value` choose where and how the model runs, and `--batch-size` and `--padding` how its rows are batched ([below](#batch-size-and-reproducibility)): `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
 ## Check before you run
 
@@ -41,6 +41,7 @@ A refusal raises `clab.plan.PlanError`, a `ValueError`, and the traceback's last
 ```text
 clab: no document at 'documents/nope.json'
 clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)
+clab: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)
 clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')
 clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
 clab: steps.answer.max_new_tokens: '6' is not a value generate takes: '<=' not supported between instances of 'str' and 'int'
@@ -81,9 +82,11 @@ Reading a run back resolves against the working directory too: `clab table` read
 
 ## Batch size and reproducibility
 
-`--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory and compute grow with the batch size times that longest row: one long row makes every batch as wide as it is (on Pythia-2.8B in float32, two forwards over the 5,153 rows of LAMBADA take about 930 s).
+`--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. By default (`--padding dataset`) each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory and compute grow with the batch size times that longest row: one long row makes every batch as wide as it is (on Pythia-2.8B in float32, two forwards over the 5,153 rows of LAMBADA take about 930 s).
 
-**Results reproduce to the bit at a fixed batch size and thread count.** Two runs of one document at one batch size and one thread count write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: at 12 threads, `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
+**`--padding batch` and `--padding sorted` feed the padding the default feeds for nothing, and give up the last bits.** `batch` pads each batch to its own longest row, the rows in dataset order; `sorted` batches a step's rows longest first, pads each batch to its own longest row, and puts every value back in dataset row order before any step reads it, so results, positions, `alignment_missing` rows and tables are laid out as under the default. A fit's minibatches and a generation's batches are padded the same way. On a 10,000-row harvest of AG News through Llama-3.2-1B in bfloat16 at batch size 64, whose longest row is five times the mean, the default feeds 2.73M tokens for 0.52M real ones in 33 s; `batch` feeds 1.22M in 15 s and `sorted` 0.53M in 7 s. The price is the default's guarantee: under the default a row's numbers do not depend on the rest of the dataset, while under `batch` and `sorted` they move with the width of the batch the row lands in, by up to 6e-8 in a forward's values on the corpus in float32; a featurizer Adam trains through such a forward can move by about its learning rate (Adam scales a rounding-sized gradient along a flat direction up to the step size; SGD moves it in the last bits), so train and compare featurizers under the default. In bfloat16 that is rounding-sized: the harvest's vectors move by 1.4% of their norm on average, and a probe trained on them scores 0.832 to 0.833 held out under each padding. Each mode is deterministic: one document at one batch size, padding and thread count gives the same bits on every run, and the run records its padding (`run.padding`, the first line of `clab show`). Use the default where numbers are compared to the bit or across datasets, and `sorted` for a large harvest whose input lengths vary.
+
+**Results reproduce to the bit at a fixed batch size, padding and thread count.** Two runs of one document at one batch size, one padding and one thread count write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: at 12 threads, `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
 
 The CPU thread count moves the last bits too, since the BLAS splits a matmul's reduction by thread. At 8, 12 or 24 threads a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8 with its batch companions, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. torch's thread count is `OMP_NUM_THREADS`, or the host's core count without it; the suite pins 12 (`tests/conftest.py`). Compare runs at one batch size, one row order and one thread count; [engines.md](engines.md#comparing-two-runs-to-the-bit) has the byte-for-byte check.
 
@@ -100,7 +103,7 @@ plan = clab.run("documents/patching.json", out="out/patching", batch_size=8)
 plan.results["iia"]          # tensor [4, 1]
 ```
 
-`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, and the engine's own options as keywords (`remote="local"`, `tp=2`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
+`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, `padding=`, and the engine's own options as keywords (`remote="local"`, `tp=2`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
 
 ### One model, many documents
 
@@ -159,6 +162,6 @@ uv run clab run documents/real/das.json --engine hooks --device cuda --batch-siz
 
 ## Pitfalls
 
-- **Comparing numbers across batch sizes.** A difference in the last bits between two runs is the batch shape, not the intervention. Rerun at one batch size before reading anything into it.
+- **Comparing numbers across batch sizes or paddings.** A difference in the last bits between two runs is the batch shape, not the intervention. Rerun at one batch size and padding before reading anything into it.
 - **The default output directory is under the current directory.** Running from a repository root writes `out/` into it.
 - **Reusing `--out` keeps old files.** A save renamed between runs leaves its old file behind.

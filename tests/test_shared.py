@@ -608,7 +608,7 @@ def test_the_manifest_keys_each_result_by_its_own_axes_and_each_cost_by_the_forw
     assert results["text"]["axes"] == [] and results["text"]["shape"] == [4]
     assert manifest["run"]["costs"]["patched"] == {"frame=0": {
         **{k: manifest["run"]["costs"]["patched"]["frame=0"][k] for k in ("seconds", "memory")},
-        "forwards": 6, "tokens": manifest["run"]["costs"]["patched"]["frame=0"]["tokens"],
+        "forwards": 6, **{k: manifest["run"]["costs"]["patched"]["frame=0"][k] for k in ("tokens", "real")},
         "serves": ["frame=0", "frame=1", "frame=2"]}}
     assert "serves" not in manifest["run"]["costs"]["counterfactual"]
     steps = manifest["steps"]["patched"]

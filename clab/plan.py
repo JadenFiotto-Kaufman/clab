@@ -662,11 +662,19 @@ class Forward(Record):
     any other and belong to no `turn`, and a generate from it continues after the header. Either way
     `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
-    Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
-    row, with position ids that count real tokens. At the thread count the suite pins (`tests/conftest.py`, 12;
-    8 and 24 give the same bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they
-    can differ by about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix,
-    and can differ in the last bits. Results reproduce to the bit at a fixed batch size and thread count."""
+    Rows run in batches of the run's batch size, padded on the left as the run's `padding` says, with position
+    ids that count real tokens: under `dataset`, the default, consecutive batches each padded to the input's
+    longest row; under `batch` each padded to its own longest row; under `sorted` the rows longest first, each
+    batch padded to its own, and every value put back in dataset row order. Padding is never a position, so a
+    row's `positions` and its `key` axis (as wide as the input's longest row, NaN past the row's own keys) are the
+    same under each. At the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same bits) a
+    row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
+    depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
+    narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
+    most); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
+    a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
+    whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
+    batch size, padding and thread count."""
     kind: Literal["forward"]
     input: str | list[str | TextPart]
     interventions: Interventions = {}
@@ -803,8 +811,9 @@ class Fit(Record):
     `eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
     `test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
     so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
-    size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
-    exactly, a null control), and each history is empty, `[0]`.
+    size, padded as the run's `padding` says (under `sorted`, a minibatch's own rows longest first). `epochs: 0`
+    trains nothing: the featurizers are scored as drawn (an untrained lora is the identity exactly, a null
+    control), and each history is empty, `[0]`.
 
     The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
     `<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
@@ -895,10 +904,11 @@ class Axis(Record):
 
 
 class Run(Record):
-    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `device`, None where the
-    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
-    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
-    where the model is: the server's, under `ndif`). `dtype` and `devices` are the
+    """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `padding`, how its batches were
+    padded, one of `data.PADDINGS`, `device`, None where the engine does not place the model, as on an NDIF server,
+    and every engine option after its defaults in `options`), what served it (`versions`: clab's version with its
+    commit, the packages it runs on and python, where the model is: the server's, under `ndif`). `dtype` and
+    `devices` are the
     distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
@@ -913,12 +923,15 @@ class Run(Record):
     op's value is one for): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
-    and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
-    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one).
+    and every decode call, and every forward a fit's body makes), the input `tokens` they fed, padding included
+    (each call's input ids: a batch's padded prompts, then one per row at each decode call), and of those the rows'
+    own, `real` (a generation's rows each fed their generated tokens but the last, their EOS or the generation's
+    final one).
     `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
     batch_size: int
+    padding: str = "dataset"
     device: str | None
     options: dict[str, Any] = {}
     versions: dict[str, str] = {}

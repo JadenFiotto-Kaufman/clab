@@ -15,7 +15,7 @@ Every command exits 0 on success. A refusal or error that clab reports is printe
 ## `clab run`
 
 ```text
-clab run [--engine {nnterp,hooks,ndif}] [--out OUT] [--batch-size N] [--device D] [-o KEY=VALUE ...] DOCUMENT
+clab run [--engine {nnterp,hooks,ndif}] [--out OUT] [--batch-size N] [--padding dataset|batch|sorted] [--device D] [-o KEY=VALUE ...] DOCUMENT
 ```
 
 Compiles the document, loads the engine, runs every step, and writes the output directory.
@@ -26,6 +26,7 @@ Compiles the document, loads the engine, runs every step, and writes the output 
 | `--engine` | `nnterp` | the engine: `nnterp`, `hooks` or `ndif` ([engines.md](../usage/engines.md)) |
 | `--out` | `out/<document file name>` in the current directory | the output directory, created when missing and never cleared |
 | `--batch-size` | `8` | how many rows go through the model per forward or generation call; a positive integer |
+| `--padding` | `dataset` | how each batch is padded: `dataset`, to the input's longest row, the exact run; `batch`, to its own longest row; `sorted`, the rows batched longest first, each batch to its own longest row, every value put back in row order ([running.md](../usage/running.md#batch-size-and-reproducibility)) |
 | `--device` | `cpu` | where the engine places the model: one torch device (`cuda:0`) or a device map transformers computes (`auto`, `balanced`, ...); under `-o tp`, `cuda` or `cpu`. Under `--engine ndif` with a real server the server places it, and any value but `cpu` is refused |
 | `-o KEY=VALUE` | none | one of the engine's own options, repeatable. `VALUE` is read as JSON (`true`, `2`, `{"a": 1}`) and otherwise as text (`local`). `clab describe engines` lists each engine's options: `nnterp` has `tp`, `ndif` has `remote`, `hooks` has none |
 
@@ -40,10 +41,12 @@ Refused before the model loads:
 ```text
 clab: no document at 'documents/nope.json'
 clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)
+clab: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)
 clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')
 clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
 clab: -o device: it is given as --device
 clab: -o batch_size: it is given as --batch-size
+clab: -o padding: it is given as --padding
 clab: -o 'foo': an option is KEY=VALUE
 clab: the nnterp engine takes no 'foo'; its options: tp (where the model runs is `device`, given as --device)
 clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts: `torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; this process is not one of them (WORLD_SIZE is unset)
@@ -74,21 +77,21 @@ clab show OUT
 
 Prints output directory `OUT`'s run in four parts:
 
-- the run record: engine, device and options, batch size, start time and duration, the served dtype and devices, the versions, and a `stopped:` line with the refusal when a step ran out of CUDA memory;
-- what each run of a step cost, one row per run at the point that ran it: `serves` the points it served (`—` itself alone, `all 3 points`, or each one), its seconds, its peak memory on each CUDA device, the model calls it made (`forwards`) and the tokens they fed;
+- the run record: engine, device and options, batch size and padding, start time and duration, the served dtype and devices, the versions, and a `stopped:` line with the refusal when a step ran out of CUDA memory;
+- what each run of a step cost, one row per run at the point that ran it: `serves` the points it served (`—` itself alone, `all 3 points`, or each one), its seconds, its peak memory on each CUDA device, the model calls it made (`forwards`), the tokens they fed, padding included (`tokens`), and the rows' own of those (`real`);
 - where each entry resolved, one row per entry and distinct positions per row (`[10], [8], [8], [8]`; one list and `on all 4 rows` where every row agrees; `—` for a row it did not reach; past twelve rows the first three, `…`, the last and the row count, and a row past twelve positions its first three and last), with the point it is at or how many points share it;
 - per saved value, the step that made it, its dims, the sweep axes the value depends on and its shape (`3 points, each [4,1]` when swept).
 
 ```text
 $ clab show out/pos_sweep
-pos_sweep: run on nnterp, device cpu, tp 1, batch size 2, started 2026-11-02T13:02:15, 0.225 s
+pos_sweep: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, started 2026-11-02T13:02:15, 0.225 s
   served: float32 on cpu
   versions: clab 0.0.1+…, nnsight 0.8.1, nnterp …, torch …, transformers …, python …
-  step            at      serves  seconds  memory  forwards  tokens
-  counterfactual  —       —       0.005    —       2         38
-  patched         pos=-1  —       0.006    —       2         38
+  step            at      serves  seconds  memory  forwards  tokens  real
+  counterfactual  —       —       0.005    —       2         44      38
+  patched         pos=-1  —       0.006    —       2         44      38
   …
-  logit_diff      pos=-3  —       0.000    —       0         0
+  logit_diff      pos=-3  —       0.000    —       0         0       0
   entry                at            positions
   counterfactual.v_cf  —             [8], [8], [10], [8]
   patched.patch        pos=-1        [10], [8], [8], [8]
