@@ -63,6 +63,7 @@ class NnterpEngine:
                 model.key, revision=model.revision, dispatch=False, device_map=None, **extra)))
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
+        self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the

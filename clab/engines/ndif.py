@@ -52,3 +52,10 @@ class NdifEngine(NnterpEngine):
         loaded = loading(model, "ndif", device)
         self.model = build(model, "ndif", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, **placing(model, device), **loaded, **extra))
+
+    def ready(self) -> None:
+        """The nnterp engine's, and under `remote="local"` the shell's weights, loaded here, frozen as the nnterp
+        engine's are at load; a server's weights are the server's."""
+        super().ready()
+        if self.remote == "local":
+            self.model.requires_grad_(False)

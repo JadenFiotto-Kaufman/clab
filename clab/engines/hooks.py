@@ -56,6 +56,7 @@ class HooksEngine:
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, **loaded, device_map=device if mapped else None, **extra).eval())
+        self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         if not mapped:
             self.model.to(device)
         self.config["order"] = order(self.model, sites, batches.home(self))
