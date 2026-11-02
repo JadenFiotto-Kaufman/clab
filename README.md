@@ -139,7 +139,7 @@ uv sync
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (46 in all) runs on CPU
+`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (47 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.

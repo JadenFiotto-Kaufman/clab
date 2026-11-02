@@ -1,0 +1,45 @@
+{
+  "description": "Steering a generation at every call and scoring every call, the shape of a reasoning-trace experiment on the tiny Llama. The direction is the mean residual at layer 0's last prompt token over the prompts told to be brief less the same told to go on at length; `steered` adds `scale` times it at the prefill's last position and at every decode call (two entries: `{'frame': 0, 'index': -1}` and `{'frame': '1:'}`), swept over 0, the null, which leaves every value as it was (`h + 0 * d` is `h` in float32), and 4, which changes what every row says from its third token on. At every call, the prefill's last position included (`{'frame': ':'}` on the head), `p` is the base answer's probability and `ld` the counterfactual answer's logit less the base answer's; each runs at each call, so each holds `[rows, calls]`, one number per call. `l` reads the same logits whole, `[rows, calls, vocab_size]`, and `p_of_l` and `ld_of_l` score it after the generation: they equal `p` and `ld` to the bit, since a metric acts on each position's logits alone.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "weekdays/data"}},
+  "sites": {
+    "resid": {"component": "layer_output", "layers": 0},
+    "head": {"component": "logits"}
+  },
+  "steps": {
+    "terse": {"kind": "forward", "input": [{"text": "Briefly. "}, "pairs.input"],
+              "interventions": {"r": {"site": "resid", "pos": -1}}},
+    "verbose": {"kind": "forward", "input": [{"text": "At great length. "}, "pairs.input"],
+                "interventions": {"r": {"site": "resid", "pos": -1}}},
+    "terse_mean": {"kind": "op", "op": "mean", "of": "terse.r"},
+    "verbose_mean": {"kind": "op", "op": "mean", "of": "verbose.r"},
+    "direction": {"kind": "op", "op": "sub", "of": "terse_mean", "with": "verbose_mean"},
+    "steered": {
+      "kind": "generate",
+      "input": "pairs.input",
+      "max_new_tokens": 6,
+      "do_sample": false,
+      "interventions": [
+        {
+          "steer_prefill": {"site": "resid", "pos": -1,
+                            "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 4.0]}}]},
+          "steer_decode": {"site": "resid", "pos": {"frame": "1:"},
+                           "ops": [{"op": "add", "with": "direction", "scale": {"sweep": [0.0, 4.0]}}]}
+        },
+        {
+          "p": {"site": "head", "pos": {"frame": ":"}, "ops": [{"op": "token_prob", "token": "pairs.base_answer"}]},
+          "ld": {"site": "head", "pos": {"frame": ":"},
+                 "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]},
+          "l": {"site": "head", "pos": {"frame": ":"}}
+        }
+      ]
+    },
+    "p_of_l": {"kind": "op", "op": "token_prob", "of": "steered.l", "token": "pairs.base_answer"},
+    "ld_of_l": {"kind": "op", "op": "logit_diff", "of": "steered.l", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
+  },
+  "saves": ["steered", "steered.p", "steered.ld", "p_of_l", "ld_of_l"]
+}
