@@ -1111,7 +1111,8 @@ def test_a_per_call_metric_over_151936_tokens_is_the_whole_logits_metric(engines
       {"op": "count", "over": ["pos"]}], 3),
     ([{"op": "top_k", "k": 3}], 1),
     ([{"op": "argmax"}, {"op": "eq", "with": 4598}], 2),
-    ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "log"}], 2),
+    ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "log"}], 3),
+    ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "pow", "exponent": 1.7}], 2),
     ([{"op": "mean", "over": ["pos"]}], 0),
     ([{"op": "count"}], 0),
     ([{"op": "kl", "against": "ref"}], 0),
@@ -1120,8 +1121,8 @@ def test_a_per_call_metric_over_151936_tokens_is_the_whole_logits_metric(engines
 ])
 def test_the_ops_a_read_runs_at_each_call_are_the_leading_positionwise_ones_that_keep_pos(engines, ops, n):
     """An entry beyond the prefill runs at each call the ops after its last edit up to the first that removes `pos`
-    (`mean` or `count` over it), that is not positionwise (a sum over the vocabulary, `kl`'s or `mean`'s, and `log`,
-    whose bits torch may compute two ways), or that takes an operand with a `pos` axis (another generation's
+    (`mean` or `count` over it), that is not positionwise (a sum over the vocabulary, `kl`'s or `mean`'s, and `pow`,
+    whose bits torch computes two ways), or that takes an operand with a `pos` axis (another generation's
     probabilities, which pair position by position); the rest run after the generation, and the value is the same to
     the bit as the same ops as steps over the whole logits (a `top_k` step's `tokens` aside, which only a step
     decodes)."""

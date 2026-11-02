@@ -760,8 +760,8 @@ class Generate(Forward, Labelled):
     `{"frame": ":"}` holds one number a call, `[rows, calls]`, where a read with no op, or whose first op waits,
     holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
     arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
-    `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `exp`, `log` and `pow`, which torch
-    may compute two ways), as a call's value and the whole one's differ in shape. Either way a value is the same
+    `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
+    ways), as a call's value and the whole one's differ in shape. Either way a value is the same
     to the bit.
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill

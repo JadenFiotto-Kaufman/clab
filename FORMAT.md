@@ -333,14 +333,14 @@ are refused before anything runs; any other option is the engine's `generate`'s 
 fails when the step runs, naming the step.
 
 A read beyond the prefill runs the ops after its last edit at each call it reads, on that call's value, up
-to the first that is not positionwise (`min`, `max`, `count`, `match`, `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `top_k`, `argmax`, `abs`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `eq`, `ne`, `gt`, `ge`, `lt`, `le` are), removes `pos`, takes an operand with a `pos`
+to the first that is not positionwise (`min`, `max`, `count`, `match`, `logit_diff`, `token_prob`, `token_logit`, `cross_entropy`, `top_k`, `argmax`, `abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `eq`, `ne`, `gt`, `ge`, `lt`, `le` are), removes `pos`, takes an operand with a `pos`
 axis or scores an answer of several tokens; those from there on run once the batch's generation ends, on its
 calls arranged by position (its record's `per_call` counts those it runs at each call). So a metric of the head at
 `{"frame": ":"}` holds one number a call, `[rows, calls]`, where a read with no op, or whose first op waits,
 holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
 arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
-`encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `exp`, `log` and `pow`, which torch
-may compute two ways), as a call's value and the whole one's differ in shape. Either way a value is the same
+`encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
+ways), as a call's value and the whole one's differ in shape. Either way a value is the same
 to the bit.
 
 Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill

@@ -172,13 +172,13 @@ def abs(of: Tensor) -> Tensor:
     return of.float().abs()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def exp(of: Tensor) -> Tensor:
     """`e ** of`, each entry's exponential, in float32 (`inf` past about 88.7)."""
     return of.float().exp()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def log(of: Tensor) -> Tensor:
     """`ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it."""
     return of.float().log()

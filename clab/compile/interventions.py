@@ -220,7 +220,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             changed = o.op if out != dims and changed is None else changed
             dims = out
         if i > last and each:
-            each = ops.DECLARED[o.op]["positionwise"] and "pos" in dims and \
+            each = ops.DECLARED[o.op]["positionwise"] and "pos" in dims and "rows" in dims and \
                 not any("pos" in (theirs.dims or []) for _, theirs in operands.values())
             per_call += each
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
