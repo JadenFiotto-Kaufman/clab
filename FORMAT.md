@@ -465,15 +465,15 @@ row's own keys, a vector missing only where it has none.
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
 by default the rows and positions, a `layers` axis kept (`over` names them; over `pos`, one value per row), `norm`
-and `dot` by default `hidden_size` and `count` `pos`; **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and
-change its contents, and inside an entry are what writes back; **transforms** turn each example's value into another
-of a different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from ids),
-or, `grad`, into its gradient, or of the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`,
-`neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where
-not), which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
-transform that does, a metric, a reduction), or, after an `encode`, before the `decode` that closes it; an
-elementwise transform may come before an edit, and acts on the live value that edit writes back (`[{"op": "sign"},
-{"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
+and `dot` by default `hidden_size`, `count` `pos` and `entropy` (of a softmax) `vocab_size`, else `num_experts`;
+**edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are what writes
+back; **transforms** turn each example's value into another of a different layout (logits from a residual stream,
+coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of the same one entry
+by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`,
+`gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where not), which, unlike an edit, writes nothing back. An edit comes
+before any op of its entry that changes the layout (a transform that does, a metric, a reduction), or, after an
+`encode`, before the `decode` that closes it; an elementwise transform may come before an edit, and acts on the live
+value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
 
 `grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
 acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
@@ -587,6 +587,7 @@ stays missing: NaN.
 | `count` | `over: list of str or null = null` | Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one count per position of those it keeps (a read's count over `pos` is one number per row). | How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and 0 where it has none. |
 | `norm` | `over: list of str or null = null`, `p: float = 2.0` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is. |
 | `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is. |
+| `entropy` | `over: list of str or null = null` | Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with neither names them in `over`. | The entropy in nats of the softmax over the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`: `-sum(p log p)`, `p` the float32 softmax of the entries that are there (a missing one has no share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a softmax router, ln of the experts' count where it routes evenly. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers are: the bundle a `pca` featurizer loads. |
 
 ### Edits

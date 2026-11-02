@@ -1,5 +1,5 @@
-"""Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm` and `dot` compute in float32
-whatever the value's dtype (`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
+"""Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` and `entropy` compute
+in float32 whatever the value's dtype (`ops.ABOUT`); `pca` works in double and returns float32, as every bundle is."""
 
 import json
 import math
@@ -149,6 +149,36 @@ def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None
     them (`mul` then `sum`, to the bit); NaN where none is."""
     product = of.float() * torch.as_tensor(with_, device=of.device).float()
     return sum(product, dims, FEATURES if over is None else over)
+
+
+# What `entropy` takes its softmax over unless `over` names other axes: the first of these the value has, the
+# vocabulary's next tokens or a mixture's experts.
+OUTCOMES = ("vocab_size", "num_experts")
+
+
+def distributed(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+    """Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with
+    neither names them in `over`."""
+    if args.get("over") is None and not set(OUTCOMES) & set(dims):
+        raise ValueError(f"it takes the softmax over {' or '.join(OUTCOMES)} unless 'over' names the axes, and the "
+                         f"value is laid out {dims}; name them in 'over' (\"over\": {json.dumps(dims[-1:])})")
+    over = args.get("over")
+    return reduced(dims, {**args, "over": [next(a for a in OUTCOMES if a in dims)] if over is None else over})
+
+
+@op("reductions", layout=distributed)
+def entropy(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
+    """The entropy in nats of the softmax over the axes `over` names, by default `vocab_size` where the value has it,
+    else `num_experts`: `-sum(p log p)`, `p` the float32 softmax of the entries that are there (a missing one has no
+    share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a
+    softmax router, ln of the experts' count where it routes evenly."""
+    over = [next(a for a in OUTCOMES if a in dims)] if over is None else over
+    axes, of = [i for i, a in enumerate(dims) if a in over], of.float()
+    rest = [i for i in range(of.dim()) if i not in axes]
+    flat = of.permute(*rest, *axes).flatten(len(rest))         # the axes the softmax is over, as one last axis
+    logp = flat.masked_fill(flat.isnan(), -math.inf).log_softmax(-1)
+    p = logp.exp()
+    return -(p * logp).masked_fill(p == 0, 0.0).sum(-1)
 
 
 @op("reductions", needs=("hidden_size",), removes=EXAMPLE_AXES, adds=("k",), bundle="pca")

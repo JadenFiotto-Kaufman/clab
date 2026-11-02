@@ -45,15 +45,15 @@ row's own keys, a vector missing only where it has none.
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
 by default the rows and positions, a `layers` axis kept (`over` names them; over `pos`, one value per row), `norm`
-and `dot` by default `hidden_size` and `count` `pos`; **edits** (<the edits group>) keep the value's layout and
-change its contents, and inside an entry are what writes back; **transforms** turn each example's value into another
-of a different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from ids),
-or, `grad`, into its gradient, or of the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`,
-`neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where
-not), which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
-transform that does, a metric, a reduction), or, after an `encode`, before the `decode` that closes it; an
-elementwise transform may come before an edit, and acts on the live value that edit writes back (`[{"op": "sign"},
-{"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
+and `dot` by default `hidden_size`, `count` `pos` and `entropy` (of a softmax) `vocab_size`, else `num_experts`;
+**edits** (<the edits group>) keep the value's layout and change its contents, and inside an entry are what writes
+back; **transforms** turn each example's value into another of a different layout (logits from a residual stream,
+coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of the same one entry
+by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`,
+`gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where not), which, unlike an edit, writes nothing back. An edit comes
+before any op of its entry that changes the layout (a transform that does, a metric, a reduction), or, after an
+`encode`, before the `decode` that closes it; an elementwise transform may come before an edit, and acts on the live
+value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
 
 `grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
 acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
@@ -255,14 +255,14 @@ def out_dims(name: str, dims: list[str], args: dict, kind: str | None = None) ->
 from clab.ops import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
-    edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
-    edits.decode, edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad,
-    reductions.mean, reductions.sum, reductions.min, reductions.max, reductions.std, reductions.count,
-    reductions.norm, reductions.dot, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob,
-    metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k,
-    transforms.argmax, transforms.detokenize, transforms.abs, transforms.exp, transforms.log, transforms.sign,
-    transforms.sqrt, transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq,
-    transforms.ne, transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
+    edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out, edits.decode,
+    edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad, reductions.mean,
+    reductions.sum, reductions.min, reductions.max, reductions.std, reductions.count, reductions.norm, reductions.dot,
+    reductions.entropy, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob, metrics.token_logit,
+    metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k, transforms.argmax,
+    transforms.detokenize, transforms.abs, transforms.exp, transforms.log, transforms.sign, transforms.sqrt,
+    transforms.square, transforms.neg, transforms.mul, transforms.div, transforms.pow, transforms.eq, transforms.ne,
+    transforms.gt, transforms.ge, transforms.lt, transforms.le, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
 ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
     "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))
