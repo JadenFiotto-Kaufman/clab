@@ -12,11 +12,12 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 
 | word | meaning | explained in |
 |---|---|---|
-| `alignment_missing` | A row that a read or write beyond a generation's prefill did not reach (a call it never made, text it never generated): recorded so in `run.positions`, NaN in every value of it. | [alignment-missing.md](../errors/alignment-missing.md) |
+| `alignment_missing` | A row that a read or write beyond a generation's prefill did not reach (a call it never made, text it never generated): recorded so in the entry's `positions`, NaN in every value of it; in the prefill, a row an index with an open end picks none of. | [alignment-missing.md](../errors/alignment-missing.md) |
 | answer | A column a metric scores against, tokenized exactly as written, each of its tokens scored at one position of the read. | [data.md](../usage/data.md#answer-columns) |
 | apply | The op that replaces a value with a featurizer's own version of it (a subspace's projection, a dictionary's reconstruction without its error term, an adapter's adapted value); an edit, so it writes back. | [featurizers.md](../usage/featurizers.md#the-canonical-entry) |
 | at | A swept step's place on its sweep axes: its index on each axis in a compiled step, and the coordinate's values in the `at` column of a table. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
 | axis | A named dimension of a value's layout (`rows`, `pos`, `layers`, `num_heads`, `hidden_size`, ...), listed in its `dims`; a sweep label is an axis of points. | [values-and-layout.md](../concepts/values-and-layout.md) |
+| axes | The sweep axes a value depends on, which its record and its result say: its entry's own sweeps, those of what its ops name, and its forward's; its result is keyed by them alone. | [FORMAT.md](../../FORMAT.md#sweeps) |
 | batch size | How many rows go through the model in one forward or generation call (`--batch-size`, default 8); results reproduce to the bit only at a fixed one. | [running.md](../usage/running.md#batch-size-and-reproducibility) |
 | before | A scope flag that turns the scope into the positions that predict its tokens, the position before each one. | [positions.md](../usage/positions.md#the-token-before-before) |
 | body | A fit's own `steps`, run over minibatches of its training rows in a scope of its own. | [fit.md](../usage/fit.md#the-body) |
@@ -33,6 +34,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | coordinate | A point's values on its sweep axes (`pos=-1`, `src=0,dst=1`), which key swept results, files, the run record and tables. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
 | corpus | The documents under `documents/`, which run on CPU and whose pinned numbers are the format's semantics. | [contributing.md](../developing/contributing.md#changing-the-format) |
 | corpus root | The nearest directory above a document that holds `data/`; data paths and bundle files resolve against it. | [running.md](../usage/running.md#the-corpus-root) |
+| costs | `plan.run.costs`: what each run of each step cost, keyed by the point that ran it: seconds, peak CUDA memory, model calls (`forwards`), tokens fed, and the points it `serves`. | [output.md](../usage/output.md#the-run-record) |
 | dataset | A named list of rows under `data`, read from a file, written inline, or loaded from the hub. | [data.md](../usage/data.md) |
 | decode | The op that closes the entry's most recent open `encode` of the same featurizer and writes the change of coordinates back as a delta. | [featurizers.md](../usage/featurizers.md#the-canonical-entry) |
 | decode call | A forward call of a generation after the prefill: decode call k takes generated token k−1 as its one input position. | [concepts/positions.md](../concepts/positions.md#a-generation-is-a-timeline-of-calls) |
@@ -55,7 +57,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | kind | Which featurizer a declaration is (`subspace`, `gate`, `pca`, `sae`, `linear`, `lora`), or which a step is (`forward`, `generate`, `op`, `fit`). | [featurizers.md](../usage/featurizers.md) |
 | label | The name of a sweep's axis: its `label`, else the swept field's own key; sweeps with one label zip, with different labels cross. | [sweeps.md](../usage/sweeps.md#labels-zip-or-cross) |
 | layers axis | The leading axis a slice or list of `layers` gives a value, labelled with the model's layers it picks, by which ops align operands. | [values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis) |
-| manifest | `manifest.json` in an output directory: the compiled plan without rows read from files, bundle tensors or values, with the run record and each result's file, step, dims, axes, shape and dtype. | [output.md](../usage/output.md#the-directory) |
+| manifest | `manifest.json` in an output directory: the compiled plan without rows read from files, bundle tensors or values, with the run record and each result's file, step, dims, labels, axes, shape and dtype. | [output.md](../usage/output.md#the-directory) |
 | member | The part of a reference after its first dot: a step's entry, a dataset's column, a featurizer's scalar, or a fit's output. | [names-and-sweeps.md](../concepts/names-and-sweeps.md#a-name-is-a-thing-then-a-member) |
 | metric | An op that scores each example, one float32 number per row and position (`match`, `logit_diff`, `token_prob`, `kl`, ...). | [ops.md](../usage/ops.md#metrics) |
 | missing | An entry of a value with no data (a row not reached, a position or key past a row's own): NaN in floats, -1 in ids. | [values-and-layout.md](../concepts/values-and-layout.md#missing-entries) |
@@ -74,27 +76,34 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | prefill | Forward call 0, which holds every prompt token; a `forward` step's only call. | [concepts/positions.md](../concepts/positions.md#a-generation-is-a-timeline-of-calls) |
 | preflight | The checks the run makes with the model loaded and before any forward: tokens, sizes, served components, positions, answers and widths. | [plan-lifecycle.md](../concepts/plan-lifecycle.md#4-preflight-the-model-in-hand-no-forward-yet) |
 | published SAE | A safetensors file with no clab header holding `W_enc`, `W_dec`, `b_enc`, `b_dec` (and a JumpReLU's `threshold`), which an `sae` loads only with `activation`, `centered` and `site` stated. | [featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder) |
+| quantized dtype | A `model.dtype` that names a quantization (`nf4`, `fp4`, `int8`, `fp8`), whose model computes in `bfloat16` (`int8` in `float16`). | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | ragged | A record whose rows hold different numbers of positions: as wide as its widest row, NaN past each row's own. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | read | An entry with no edit among its ops: it binds the value at its selection and leaves the model alone. | [interventions.md](../usage/interventions.md) |
-| readout | The transform that projects a residual-stream value through the model's final norm and head: the logit lens. | [logit-lens.md](../patterns/logit-lens.md) |
+| readout | The transform that projects a residual-stream value through the model's final norm and head, the logit lens: nnterp's own on the nnterp engine, the standard norm, head and softcap on hooks. | [logit-lens.md](../patterns/logit-lens.md) |
 | reduction | An op that removes axes (`mean`, `sum`, `min`, `pca`), by default the rows and positions, a `layers` axis kept. | [ops.md](../usage/ops.md#reductions-and-over) |
 | remote | The `ndif` engine's option: `true` for the NDIF server nnsight is configured for, `"local"` for nnsight's in-process simulation of the trip. | [engines.md](../usage/engines.md#remotelocal) |
-| result | A saved value, in `plan.results` and as a file in the output directory; a swept one is a dict keyed by coordinate. | [output.md](../usage/output.md) |
+| result | A saved value, in `plan.results` and as a file in the output directory; one that depends on sweep axes is a dict keyed by its coordinate on those axes. | [output.md](../usage/output.md) |
 | row | One example of a dataset, a JSON object; a step's values have one row per row of its dataset. | [data.md](../usage/data.md) |
 | run option | A setting given when the document runs rather than in it: `--engine`, `--device`, `--batch-size` and `-o key=value`. | [running.md](../usage/running.md#from-the-command-line) |
-| run record | `plan.run`: how the plan ran (engine, device, options, versions, dtype) and where every read and write landed (`tokens`, `positions`). | [output.md](../usage/output.md#the-run-record) |
+| run record | `plan.run`: how the plan ran (engine, device, options, versions, dtype, sizes), how each input tokenized (`tokens`), what each run of each step cost (`costs`), and where the run stopped (`stopped`). | [output.md](../usage/output.md#the-run-record) |
 | save | A name in `saves`, a step's value or member, which the run writes to the output directory as one file. | [writing-a-document.md](../usage/writing-a-document.md#saves) |
 | scalar | A trained featurizer's own number that a fit's objective may name, `<featurizer>.<scalar>`: a gate's `mask`, an sae's `reconstruction` and `l1`. | [fit.md](../usage/fit.md#the-objective) |
+| schedule | What one point of a `forward` or `generate` step runs: compile writes which point's forward serves it, preflight the sites the forward visits in the engine's order, the records done at each and the site it stops at; the engines execute it. | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | scope | The second stage of a `pos`, the tokens of a column's value, a literal text or a chat turn; for names, a namespace (the root, or a fit's body). | [positions.md](../usage/positions.md#words-and-occurrences) |
 | select | A site's narrowing of a feature axis (`num_heads`, `intermediate_size`, `key`, ...) to some indices, in the order written, keeping the axis. | [sites.md](../usage/sites.md#select) |
+| serves, serving | A point that runs its forward serves the points that agree with it on the forward's axes; each of those holds `serving`, that point's coordinates, and `run.costs` lists them in `serves`. | [FORMAT.md](../../FORMAT.md#derived-fields) |
 | set | An answer row that is a list of strings, any member of which is the answer. | [data.md](../usage/data.md#answer-columns) |
 | site | Where an entry reads or writes: a component, its `layers`, and an optional `select`. | [sites.md](../usage/sites.md) |
+| sizes | The model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which selectors count among and `plan.run.sizes` records. | [output.md](../usage/output.md#the-run-record) |
+| split | A value the ranks hold in pieces under `tp` (the attention's interior but `attention_premix`, the MLP's activation, an embedding sharded by vocabulary), refused by name. | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | static width | A record whose `pos` names the same number of positions on every row, fixed before any row is seen. | [positions.md](../usage/positions.md#static-width-or-ragged) |
 | step | One item of `steps`, a `forward`, `generate`, `op` or `fit`, run in document order. | [writing-a-document.md](../usage/writing-a-document.md#the-document-top-to-bottom) |
+| stopped | `plan.run.stopped`: the refusal of a step that ran out of CUDA memory, after which the run saved the steps that finished. | [running.md](../usage/running.md#when-a-step-runs-out-of-memory) |
 | sweep | `{"sweep": [...]}` standing for a value, so that every step using it runs once per value. | [sweeps.md](../usage/sweeps.md) |
 | table | The rows `clab table` and `plan.table` make of saved values, one per example and position, labelled with tokens and dataset columns. | [output.md](../usage/output.md#clab-table) |
 | teacher forcing | A list input that appends each row's answer to its prompt, read at the positions before the answer with `before`. | [generation-experiments.md](../patterns/generation-experiments.md#a-fixed-answer-token-by-token-teacher-forcing) |
 | template | A dataset's arguments to the checkpoint's `apply_chat_template` wherever a chat of it renders (`add_generation_prompt`, ...). | [data.md](../usage/data.md#chat-inputs) |
+| tp | The nnterp engine's option that shards the model over that many ranks by tensor parallelism, one process each under torchrun; results are the unsharded ones to rounding. | [engines.md](../usage/engines.md#quantized-and-sharded-models) |
 | transform | An op that turns each example's value into another layout (`readout`, `encode`, `argmax`, `top_k`, `detokenize`). | [ops.md](../usage/ops.md#transforms) |
 | turn | A scope naming one message of a chat role, `{"turn": "user", "occurrence": 1}`. | [positions.md](../usage/positions.md#chat-turns) |
 | write | An entry with an edit among its ops: its value after its last edit replaces the live value at its selection. | [interventions.md](../usage/interventions.md) |
