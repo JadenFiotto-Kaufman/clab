@@ -8,7 +8,7 @@ from typing import Any
 from clab import featurizers, ops
 from clab.compile.answers import column_ref, text_ref
 from clab.compile.state import Compiling
-from clab.format import address, data
+from clab.format import address, data, registry
 from clab.format.sweeps import points
 from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
 
@@ -48,7 +48,7 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
         fail(f"{path}.featurizer", f"{ref!r} is a {kind!r} featurizer, which has no {name}: it serves "
              f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
     if name == "apply" and args.get("with") is not None:
-        if "with_" not in inspect.signature(featurizers.KINDS[kind].method("apply")).parameters:
+        if "with_" not in registry.signature(featurizers.KINDS[kind].method("apply")).parameters:
             fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's)")
         if not isinstance(args["with"], str):
             fail(f"{path}.with", f"{args['with']!r} is not a name; 'with' names a value read at the positions the op "
@@ -99,7 +99,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     up to the entry's last edit, where the op acts on the live value the entry writes back, and `entry` after it;
     inside an entry the op sees one batch, so it may not aggregate over rows: a reduction of a read is a step after
     the forward, and one a write would write back is a step before it, written in. `original` is only an entry's."""
-    if where == "step" and "original" in inspect.signature(ops.OPS[name]).parameters:
+    if where == "step" and "original" in registry.signature(ops.OPS[name]).parameters:
         fail(path, f"{name!r} restores the value a site had before its writes; it runs only inside an entry")
     try:
         out = ops.out_dims(name, dims, {**{k: p.default for k, p in ops.parameters(name).items()}, **args}, kind)

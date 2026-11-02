@@ -10,6 +10,7 @@ The plan's methods are views and serialization, never execution: it pickles, pri
 thing wherever it lands, which is what lets it travel into a remote session and back.
 """
 
+import functools
 import json
 import math
 import os
@@ -75,8 +76,10 @@ class Record(BaseModel):
         return {**{k: v for k, v in dumped.items() if k not in later}, **{k: v for k, v in dumped.items() if k in later}}
 
 
+@functools.cache
 def documented(cls: type[BaseModel]) -> list[str]:
-    """The fields a document writes: every field but the derived ones."""
+    """The fields a document writes: every field but the derived ones, worked out once per record type (every
+    record checks its keys against them, and writes them first), and only read."""
     return [k for k, f in cls.model_fields.items()
             if not (isinstance(f.json_schema_extra, dict) and f.json_schema_extra.get("derived"))]
 
@@ -1163,14 +1166,17 @@ def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
     """The points of step `name` that run, in order, each with the points its run serves, itself first: a
     forward's or a generation's each point whose `schedule` holds no `serving`, with the points whose `serving`
     names it; an op's the points of its value (`projections`: one per distinct point on its `axes`), each with the
-    step's points that agree with it there; a fit's each point, itself alone."""
+    step's points that agree with it there; a fit's each point, itself alone. Found in one pass over the points,
+    each joining the run its coordinates name (an op's on its axes, a forward's its `serving` or its own), whose
+    first point is the one that runs."""
     steps = points(plan.steps[name])
-    if steps[0].kind == "op":
-        return [(p, [q for q in steps if projected(q.at, list(at)) == at]) for at, p in projections(plan, name)]
     if steps[0].kind == "fit":
         return [(p, [p]) for p in steps]
-    return [(p, [q for q in steps if q is p or q.schedule.get("serving") == p.at]) for p in steps
-            if "serving" not in p.schedule]
+    runs: dict[tuple, list[Step]] = {}
+    for q in steps:
+        at = projected(q.at, q.axes) if q.kind == "op" else q.schedule.get("serving", q.at)
+        runs.setdefault(tuple(at.items()), []).append(q)
+    return [(served[0], served) for served in runs.values()]
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:

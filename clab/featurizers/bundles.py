@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
 from typing import TYPE_CHECKING, Any
@@ -11,6 +10,7 @@ from safetensors import safe_open
 from torch import Tensor
 
 from clab.featurizers import FORMAT, KINDS
+from clab.format import registry
 
 if TYPE_CHECKING:
     from clab.plan import Model, Site
@@ -27,7 +27,7 @@ def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None,
     used at (its `layer` the one int, or the list, of the layers it was made at, counted from the first), its
     width and the document's name, and the site it read its input at when that was another (`reads`, a
     cross-site adapter's `with`: `with.component`, `with.layer`)."""
-    params = inspect.signature(KINDS[kind]).parameters
+    params = registry.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **KINDS[kind].unstated, **fields, "classes": labels}
     # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
     own = {k: json.dumps(v) if isinstance(v, (list, bool)) else str(int(v)) if isinstance(v, float) and v.is_integer()

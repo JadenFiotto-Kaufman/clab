@@ -10,6 +10,7 @@ parameter's annotation says how a document fills it (`Value`, `Tokens`, `Featuri
 parameter's document spelling (`with_` is `"with"`).
 """
 
+import functools
 import inspect
 from typing import Any, Callable
 
@@ -159,9 +160,15 @@ def listed(group: str) -> str:
 
 def parameters(name: str) -> dict[str, inspect.Parameter]:
     """An op's parameters by document spelling, without `of` and the supplied ones, an optional thing (`Value |
-    None`) as the thing."""
+    None`) as the thing: worked out once per op function (`_parameters`, so an op replaced under its name is read
+    afresh), and only read."""
+    return _parameters(OPS[name])
+
+
+@functools.cache
+def _parameters(op: Callable) -> dict[str, inspect.Parameter]:
     return {k: p.replace(annotation=registry.thing(p.annotation))
-            for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
+            for k, p in registry.spelled(op, SUPPLIED + ("of",)).items()}
 
 
 def check(name: str, args: dict) -> None:
@@ -190,7 +197,7 @@ def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
     run's `supplied` values its signature names. An edit runs on `value` and every floating tensor it is given
     in float32, and its result is cast to `value`'s dtype once (`ABOUT`)."""
     fn = OPS[name]
-    names = {p.rstrip("_"): p for p in inspect.signature(fn).parameters}
+    names = {p.rstrip("_"): p for p in registry.signature(fn).parameters}
     given = {**{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names}}
     if DECLARED[name]["group"] != "edits" or not isinstance(value, Tensor):
         return fn(value, **given)

@@ -85,15 +85,16 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
     found = preflight(engine, plan)
     state = made(plan, home(engine))
-    costs: dict = {}
+    devices, costs = engine.cuda, {}
     with torch.no_grad():
         for name in plan.steps:
             for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0,
                                         **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
                 try:
-                    measured(engine, cost, lambda: KINDS[step.kind](engine, plan, name, step, state, batch_size, found,
-                                                                    cost))
+                    measured(devices, cost, lambda: KINDS[step.kind](
+                        engine, plan, name, step, state, batch_size, found, cost,
+                        *([served] if isinstance(step, Forward) else [])))
                     put(costs, name, step.at, cost)
                 except torch.OutOfMemoryError as e:
                     plan.run.stopped = exhausted(plan, name, step.at, batch_size, state, e)
@@ -141,13 +142,13 @@ def sized(value: Any) -> str | None:
     return None
 
 
-def measured(engine: Engine, cost: dict[str, Any], call: Callable[[], None]) -> None:
+def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None]) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
-    which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA devices
-    (`gpus`) synchronized at both ends, and the peak memory allocated on each of them while it ran, weights
-    included, in bytes by device (`memory`, None where the model is not on CUDA). The engine says which devices it
-    measures (`engine.cuda`): a remote engine's run makes no CUDA call and its `memory` is None."""
-    devices = engine.cuda
+    which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
+    synchronized at both ends, and the peak memory allocated on each of them while it ran, weights included, in
+    bytes by device (`memory`, None where the model is not on CUDA). The engine says which devices it measures
+    (`engine.cuda`, read once per run by `run`, after preflight, where the model is placed: a walk of its
+    parameters): a remote engine's run makes no CUDA call and its `memory` is None."""
     for device in devices:
         torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)
@@ -244,17 +245,17 @@ def version() -> str:
 
 
 def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, found: Found,
-            cost: dict[str, Any], reading: dict | None = None) -> None:
+            cost: dict[str, Any], served: list[Forward], reading: dict | None = None) -> None:
     """The step's input in batches of dataset row ids (`chunked`), each through `engine.forward` with the point's
-    schedule bound to it (`bind`); each value the forward reads (`reading`, `gathered`: each gathered entry at each
-    distinct point on its axes among the points it serves, which a fit gives once for its every run of the body)
-    joined along rows from its own reads. Adds the model calls it made, one per batch, and the prompt tokens they
-    fed to `cost`.
+    schedule bound to it (`bind`); each value the forward reads (`reading`, `gathered` over the points its run
+    serves, `served`: each gathered entry at each distinct point on its axes among them, which a fit gives once for
+    its every run of the body) joined along rows from its own reads. Adds the model calls it made, one per batch,
+    and the prompt tokens they fed to `cost`.
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
     positions is as wide as the widest, NaN past a row's own."""
-    reading = gathered(plan, name, step) if reading is None else reading
+    reading = gathered(served) if reading is None else reading
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
     for ids, batch, pads in chunked(engine, step, state, found, batch_size):
         bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
@@ -307,5 +308,6 @@ def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
 
 
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls
-# it made and the tokens they fed to `cost` (a forward and a generation also take what they read, `reading`).
+# it made and the tokens they fed to `cost` (a forward and a generation also take the points their run serves,
+# `served`, and what they read, `reading`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}

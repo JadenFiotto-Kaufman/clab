@@ -395,15 +395,15 @@ def test_an_operand_read_at_a_site_the_engine_ranks_alike_with_the_writes_is_ref
     write's own site whatever the ranks, read there first, in entry order."""
     plan = gpt2(LIVE)
     step = points(plan.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, {})
+    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, [step], {})
     assert [s["layer"] for s in step.schedule["sites"]] == [0, 1]
     with pytest.raises(ValueError, match=r"^lens\.added: operand 'lens\.premix' is read at layer_output layer 0, which "
                                          r"the stand-in engine's forward reaches no earlier than this write's "
                                          r"layer_output layer 1; "):
-        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, {})
+        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, [step], {})
     here = gpt2({**LIVE, "premix": at("layer_output", 1)})
     step = points(here.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, {})
+    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, [step], {})
     assert [[r.get("write") or r.get("read") for r in s["records"]] for s in step.schedule["sites"]] == \
         [["premix", "added", "added"]]
 
@@ -573,6 +573,29 @@ def test_an_op_over_a_swept_value_depends_on_the_values_axes():
     assert [p.at for p in points(probe.steps["text"])] == [{"frame": i} for i in range(3)]
     assert [(p.at, [q.at for q in s]) for p, s in serving(probe, "text")] == \
         [({"frame": 0}, [{"frame": k} for k in range(3)])]
+
+
+def test_an_op_whose_swept_operand_names_values_on_other_axes_gives_each_point_its_own(engines):
+    """An op whose operand is a swept name (`other`) picking a read on no axis or one swept over `pos`: its points
+    depend on different axes, its runs, and the mean's after it, serve the points that agree with each on its own
+    (the first operand's two `pos` share one), and each point's value is what its own document gives, to the bit."""
+    def change(d):
+        d["steps"] = {"read": {"kind": "forward", "input": "pairs.input", "interventions": {
+                          "one": {"site": "target", "pos": -1},
+                          "many": {"site": "target", "pos": {"sweep": [-1, -2]}}}},
+                      "cos": {"kind": "op", "op": "cosine", "of": "read.one",
+                              "with": {"sweep": ["read.one", "read.many"], "label": "other"}},
+                      "avg": {"kind": "op", "op": "mean", "of": "cos"}}
+        d["saves"] = ["cos", "avg"]
+    doc = doc_of("pos_sweep", change)
+    plan = compiled("pos_sweep", doc)
+    assert [p.axes for p in points(plan.steps["cos"])] == [["other"], ["pos", "other"]] * 2
+    runs = [['pos=-1,other="read.one"', 'pos=-2,other="read.one"'], ['pos=-1,other="read.many"'],
+            ['pos=-2,other="read.many"']]
+    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "cos")] == runs
+    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "avg")] == runs
+    engine = engines("nnterp", plan.model)
+    assert each_its_own(engine.execute(plan, batch_size=BATCH_SIZE), alone(engine, "pos_sweep", doc))
 
 
 def test_the_manifest_keys_each_result_by_its_own_axes_and_each_cost_by_the_forward_that_ran(engines, tmp_path):

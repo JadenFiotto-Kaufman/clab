@@ -1,6 +1,7 @@
 """How a document's arguments are checked against the signature of the function they go to (an op, a
 featurizer kind, an engine), and how its types are spelled to a reader."""
 
+import functools
 import inspect
 import types
 from typing import TYPE_CHECKING, Annotated, Any, Callable, Literal, Union, get_args, get_origin, is_typeddict
@@ -19,17 +20,24 @@ Text = Annotated[list, "Text"]
 Featurizer = Annotated["Kind", "Featurizer"]
 
 
+@functools.cache
+def signature(fn: Callable) -> inspect.Signature:
+    """`fn`'s signature, taken once per function: compile checks the ops of every point of a sweep against their
+    functions', and the run binds each op's arguments by it."""
+    return inspect.signature(fn)
+
+
 def spelled(fn: Callable, supplied: tuple[str, ...]) -> dict[str, inspect.Parameter]:
     """A function's parameters by document spelling (a trailing underscore dropped: `with_` is `"with"`),
     without the ones the run supplies and a `**` catch-all."""
-    return {p.name.rstrip("_"): p for p in inspect.signature(fn).parameters.values()
+    return {p.name.rstrip("_"): p for p in signature(fn).parameters.values()
             if p.name not in supplied and p.kind is not p.VAR_KEYWORD}
 
 
 def described(fn: Callable) -> dict[str, str]:
     """What each of a function's parameters takes, as its docstring says on a line of its own:
     `<name>: <what it takes>`."""
-    names = inspect.signature(fn).parameters
+    names = signature(fn).parameters
     lines = (line.strip().partition(": ") for line in (inspect.getdoc(fn) or "").splitlines())
     return {name: text for name, sep, text in lines if sep and name in names}
 
@@ -42,8 +50,8 @@ def check(fn: Callable, args: dict[str, Any], supplied: tuple[str, ...], what: s
     checked where it lands."""
     params = spelled(fn, supplied)
     try:
-        inspect.signature(fn).bind(**{p: None for p in supplied if p in inspect.signature(fn).parameters},
-                                   **{params[k].name if k in params else k: v for k, v in args.items()})
+        signature(fn).bind(**{p: None for p in supplied if p in signature(fn).parameters},
+                           **{params[k].name if k in params else k: v for k, v in args.items()})
     except TypeError:
         unknown = [k for k in args if k not in params]
         if unknown:
