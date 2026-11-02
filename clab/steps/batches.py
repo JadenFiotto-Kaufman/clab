@@ -91,20 +91,21 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
          layer: int | None, resolved: dict[str, dict] | None = None, device: str = "cpu") -> list[dict]:
     """An entry's ops up to its last edit at one of the layers it is made at (`layer`), bound to one batch, as
     `visit` runs them: each with the layout of the value it meets there (`dims`: the op before it left it, as its
-    record says; the site's selection before the first), the batch's dataset row ids (`ids`), and its arguments
-    bound at that layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or
-    the name of a read of the same forward, for the forward to fill). An `encode` holds the ops its `decode` closes
-    over, bound the same way (`inner`), and the features its `select` keeps, on `device`, where the model and its
-    featurizers are."""
+    record says; the site's selection before the first), the batch's dataset row ids (`ids`, and as one host tensor
+    every op shares, `rows`), and its arguments bound at that layer (`bound`), each named operand as the schedule
+    `resolved` it (by name: a producer's point, or the name of a read of the same forward, for the forward to fill).
+    An `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features its `select`
+    keeps, on `device`, where the model and its featurizers are."""
     last = len(record.ops) - len(gathers(record))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
+    rows = torch.tensor(ids)
 
     def bind(nodes: list[dict]) -> list[dict]:
         out = []
         for node in nodes:
             o, dims = node["op"], laid[node["at"]]
             args = bound(plan, o.op, arguments(o), state, at, ids, found, resolved=resolved, dims=dims, layers=layer)
-            out.append({"op": o.op, "args": args, "rows": torch.tensor(ids), "dims": dims})
+            out.append({"op": o.op, "args": args, "rows": rows, "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
                 if select is not None:
