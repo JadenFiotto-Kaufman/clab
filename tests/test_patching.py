@@ -139,7 +139,7 @@ def test_the_by_reference_check_sees_a_function_shipped_by_value(engines, monkey
 def test_dump_and_load_are_inverses(filled, tmp_path):
     plan = filled["hooks"]
     plan.dump(str(tmp_path))
-    assert sorted(os.listdir(tmp_path)) == ["iia.safetensors", "logit_diff.safetensors", "manifest.json"]
+    assert sorted(os.listdir(tmp_path)) == ["iia.safetensors", "logit_diff.safetensors", "manifest.json", "tokens.json"]
     back = Plan.load(str(tmp_path))
     assert same(back.results, plan.results)
     assert back.model_dump(exclude={"data", "document"}) == plan.model_dump(exclude={"data", "document"})
@@ -484,7 +484,7 @@ def test_a_step_out_of_cuda_memory_stops_the_run_naming_what_it_held_and_saves_t
     with pytest.raises(ValueError, match=refusal + f"; the steps before it are saved in {out}$"):
         clab.run(document("patching"), engine=engines(kind, plan_of("patching").model), out=str(out),
                  batch_size=BATCH_SIZE)
-    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json"]
+    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json", "tokens.json"]
     back = Plan.load(str(out))
     assert back.run is not None and re.match(refusal + "$", back.run.stopped or "")
     assert list(back.results) == ["iia"] and list(back.run.costs) == ["counterfactual", "patched", "iia"]
@@ -527,7 +527,7 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
                                          rf"--batch-size, or name and save fewer values; the steps before it are saved in {out}$"):
         clab.run(document("pos_sweep"), engine=engines("nnterp", plan_of("pos_sweep").model), out=str(out),
                  batch_size=BATCH_SIZE)
-    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json"]
+    assert sorted(os.listdir(out)) == ["iia.safetensors", "manifest.json", "tokens.json"]
     back = Plan.load(str(out))
     assert back.run is not None and list(back.run.costs["logit_diff"]) == ["pos=-1"]
     assert main(["show", str(out)]) == 0

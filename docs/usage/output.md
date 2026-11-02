@@ -8,7 +8,7 @@ sources: [clab/output/__init__.py, clab/output/table.py, clab/plan.py, clab/cli.
 
 # Output
 
-A run writes one directory: a file per saved value and `manifest.json`, which records the compiled plan, how the run went, and which token every read and write landed on. `clab show` prints what the directory holds, `clab table` prints saved values as rows labelled with their tokens and data, and `Plan.load` reads it all back in Python. The exact file rules are in [FORMAT.md](../../FORMAT.md#saves-and-the-output).
+A run writes one directory: a file per saved value, `manifest.json`, which records the compiled plan, how the run went, and which token every read and write landed on, and `tokens.json`, every input's tokens. `clab show` prints what the directory holds, `clab table` prints saved values as rows labelled with their tokens and data, and `Plan.load` reads it all back in Python. The exact file rules are in [FORMAT.md](../../FORMAT.md#saves-and-the-output).
 
 ## The directory
 
@@ -17,12 +17,14 @@ out/patching/
   iia.safetensors
   logit_diff.safetensors
   manifest.json
+  tokens.json
 ```
 
 - **One file per name in `saves`**, named after it: `<name>.safetensors` for a tensor or a dict of tensors, `<name>.json` for anything else. A value that holds text is JSON: `top_k` as a step holds its decoded `tokens`, so `documents/readout.json` writes `top3.json`.
 - **A swept value is one file** holding one entry per point of the sweep axes the value depends on (its `axes`), keyed by coordinate: `pos=-1`, `pos=-2`, or `layers=0,pos=-1` over two axes. A value that depends on none of its step's sweeps is one tensor: `documents/generate_probe.json` sweeps its reads over three frames, and its generated ids, `patched`, are one `[4, 3]` tensor ([sweeps.md](sweeps.md)).
 - **A saved featurizer is a bundle** whose file carries the header a loading document checks ([bundles.md](bundles.md)).
-- **`manifest.json`** is the compiled plan as the run completed it: sites inlined, sweeps expanded, each record's layout and labels filled in (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), each read's and write's `positions` per row, and each forward's and generation's `schedule`; plus `run`, plus `results`: for each save its `file`, the `step` that made it, its layout and labels, the sweep `axes` it depends on, `shape` and `dtype`. It holds no values, and no rows from a file or the hub. Inline rows stay in it.
+- **`manifest.json`** is the compiled plan as the run completed it: sites inlined, sweeps expanded, each record's layout and labels filled in (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), each read's and write's `positions` per row, and each forward's and generation's `schedule`; plus `run` without its `tokens`, plus `results`: for each save its `file`, the `step` that made it, its layout and labels, the sweep `axes` it depends on, `shape` and `dtype`. It holds no values, and no rows from a file or the hub. Inline rows stay in it.
+- **`tokens.json`** is the run record's `tokens`: each input's token strings per row and what each generation's rows said. It grows with every token of every row, to tens of megabytes at 50,000 rows, so it sits beside the manifest rather than in it. `Plan.load` reads it back into `plan.run.tokens`, and `clab table` labels `pos_token` from it.
 
 Where the directory goes and what happens when you reuse one is [running.md](running.md#where-output-goes).
 
@@ -137,14 +139,14 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
 | `started`, `seconds` | when the run began and how long it took |
 | `sizes` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which a site's `layers` and `select` count among |
-| `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name |
+| `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name; written to `tokens.json`, not the manifest |
 | `costs` | each step's runs by name: `seconds`, the peak `memory` on each CUDA device in bytes (null off CUDA and on a server), the model calls in `forwards` and the input `tokens` they fed; a swept step's keyed by the coordinate of the point that ran, with the points it served in `serves` |
 | `stopped` | the refusal of the step that ran out of CUDA memory, when one did; null otherwise |
 
-A swept step's `tokens` are keyed by coordinate. From `documents/patching.json`:
+A swept step's `tokens` are keyed by coordinate. From `documents/patching.json`, its `tokens.json` and the manifest's `run.costs`:
 
 ```json
-"tokens": {"pairs.input": [["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom", "orrow", "▁is"], ...]},
+{"pairs.input": [["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom", "orrow", "▁is"], ...], ...}
 "costs": {"counterfactual": {"seconds": 0.017, "memory": null, "forwards": 1, "tokens": 38}, ...}
 ```
 

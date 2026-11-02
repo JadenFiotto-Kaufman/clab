@@ -102,7 +102,7 @@ The full rules, including a fit's own scope and how a swept name resolves, are i
 
 ## `saves`
 
-Each name in `saves` is a step's value or a step's member: `iia`, `patched.logits`, `fit.rot`. Each becomes one file, and the manifest lists them in this order. A name saved twice, or one that names no value, is refused; the refusal lists every name that could be saved. With no `saves`, the run writes only the manifest.
+Each name in `saves` is a step's value or a step's member: `iia`, `patched.logits`, `fit.rot`. Each becomes one file, and the manifest lists them in this order. A name saved twice, or one that names no value, is refused; the refusal lists every name that could be saved. A step saved whole is not named `manifest` or `tokens`, the names of the directory's own two files. With no `saves`, the run writes only `manifest.json` and `tokens.json`.
 
 Save what you will read. An entry's value leaves the model only when something saves or uses it, and saving `patched.logits` here keeps `[4, 1, 32000]` floats where the metric is `[4, 1]`.
 

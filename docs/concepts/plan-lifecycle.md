@@ -99,7 +99,7 @@ The other is a step that runs out of CUDA memory, which stops the run there: the
 
 ## 6. Results, dump and load
 
-After the last step, each saved value goes into `plan.results` as a detached CPU copy, keyed by coordinate on the sweep axes it depends on. `plan.run` records how the run went: the engine and its options, the versions that served it, the served dtype and devices, the model's sizes, every input's tokens and what each step cost; the records hold every position each read and write resolved to and each forward's schedule. `plan.dump(out)` writes one file per save plus `manifest.json`, and `Plan.load(out)` reads them back as the filled plan. [output.md](../usage/output.md) covers reading them.
+After the last step, each saved value goes into `plan.results` as a detached CPU copy, keyed by coordinate on the sweep axes it depends on. `plan.run` records how the run went: the engine and its options, the versions that served it, the served dtype and devices, the model's sizes, every input's tokens and what each step cost; the records hold every position each read and write resolved to and each forward's schedule. `plan.dump(out)` writes one file per save plus `manifest.json` and, beside it, every input's tokens in `tokens.json`; `Plan.load(out)` reads them back as the filled plan. [output.md](../usage/output.md) covers reading them.
 
 A loaded plan holds no rows from file datasets. `plan.table` reads them again and refuses if the file changed since the run, with the message shown under stage 5. An output directory is written only when the run completes, so a refusal at any stage leaves none, except an out-of-memory stop, which writes the steps before it.
 

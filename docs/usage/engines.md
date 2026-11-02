@@ -31,7 +31,7 @@ The hooks engine reaches the model another way: `register_forward_hook` and `reg
 
 ### Comparing two runs to the bit
 
-Two runs agree to the bit when their value files do. Every file in the output directory but `manifest.json` holds values, so compare those byte for byte; the manifest always differs, since it records the engine and the time:
+Two runs agree to the bit when their value files do. Every file in the output directory but `manifest.json` holds values or, in `tokens.json`, the tokens, which one checkpoint's tokenizer makes alike, so compare those byte for byte; the manifest always differs, since it records the engine and the time:
 
 ```text
 for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/hooks/${f##*/}"; done

@@ -19,7 +19,7 @@ document.json
   load(name, plan.model)  clab/engines/      the checkpoint loaded and placed
   engine.execute(plan)    clab/engines/      the run opened, in one session
     steps.run(...)        clab/steps/        preflight with the model, then every step at each point that runs
-  plan.dump(out)          clab/output/       one file per save, and manifest.json
+  plan.dump(out)          clab/output/       one file per save, manifest.json and tokens.json
   Plan.load(out), table   clab/output/       the directory read back as a plan, and as tables
 ```
 

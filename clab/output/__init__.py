@@ -19,9 +19,12 @@ value depends on, so that a result links back to the step that made it and says 
 records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
 each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
-did; its `featurizers` each one's width; its `run` holds how each input tokenized, what each generate step's rows
-generated, the model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each
-CUDA device, its model calls and the tokens they fed, and the points it served). Values are never in the manifest.
+did; its `featurizers` each one's width; its `run` holds the model's sizes and what each run of each step cost
+(`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens they fed, and the points
+it served). Values are never in the manifest. `tokens.json` beside it is the run's `tokens`, how each input
+tokenized and what each generate step's rows generated, a token string per position of every row, which `table`
+labels positions with: kept apart, since at many rows they are nearly all of what the manifest would hold, and
+`load` reads it back into `run.tokens`.
 """
 
 import json
@@ -52,7 +55,7 @@ def ran(plan: Plan) -> Run:
 
 
 def dump(plan: Plan, out: str) -> None:
-    ran(plan)
+    run = ran(plan)
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
@@ -69,13 +72,15 @@ def dump(plan: Plan, out: str) -> None:
         described[name] = {"file": file, "step": name.partition(".")[0], **layouts(plan, name),
                            "axes": axes(plan, name), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
-    manifest = plan.model_dump(mode="json", exclude_defaults=True)
+    manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there
     with open(os.path.join(out, "manifest.json"), "w") as f:
         f.write(pretty({**manifest, "results": described}) + "\n")
+    with open(os.path.join(out, "tokens.json"), "w") as f:
+        f.write(pretty(run.tokens) + "\n")
 
 
 def pretty(value: Any, level: int = 0) -> str:
@@ -163,6 +168,10 @@ def load(out: str) -> Plan:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
     described = manifest.pop("results")
     plan = Plan(**manifest)
+    tokens = os.path.join(out, "tokens.json")
+    if plan.run is not None and os.path.exists(tokens):
+        with open(tokens) as f:
+            plan.run.tokens = json.load(f)
     for name, d in described.items():
         file = os.path.join(out, d["file"])
         if file.endswith(".safetensors"):

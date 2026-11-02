@@ -85,6 +85,9 @@ def compile(plan: Plan) -> Plan:
         if name not in saveable:
             fail(f"saves[{i}]", f"{name!r} names no step's value; a save is a step or a step's member: "
                  f"{', '.join(saveable)}")
+        if name in ("manifest", "tokens"):
+            fail(f"saves[{i}]", f"{name!r} is the name of a run directory's own {name}.json, which a save beside it "
+                 "would be written over or write over; give the step another name")
     for name, d in plan.data.items():
         if d.template is not None and name not in cx.chats:
             fail(f"data.{name}.template", f"no step reads a chat column of {name!r}, and a template renders a chat "

@@ -904,7 +904,8 @@ class Run(Record):
     bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
     each dataset input tokenized and what each
     generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
-    keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
+    keyed by coordinate); a run's directory holds them in `tokens.json` beside its manifest, not in it, and
+    `Plan.load` reads them back here. Where every read and write resolved is on its own record (`positions`), as a value's
     layout and labels are. `costs` holds what each step cost, by
     name, one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each
     listing in `serves` the coordinates of the points it served, `serving`: those one forward serves, or those an

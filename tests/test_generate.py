@@ -356,14 +356,22 @@ def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
         assert values.results["answer"].shape == (4, 2) and values.results["text"] == ["Handler"] * 4
 
 
-def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_path):
+def test_the_manifest_holds_each_rows_positions_and_tokens_json_what_it_said(filled, tmp_path):
+    """The manifest holds where each read landed per row; `tokens.json` beside it holds the run's tokens, the
+    prompt's and what each row generated, which the manifest leaves out and `Plan.load` reads back for `table`."""
     out = tmp_path / "probe"
-    filled["generate_probe", "nnterp"].dump(str(out))
+    run = filled["generate_probe", "nnterp"]
+    run.dump(str(out))
     manifest = json.loads((out / "manifest.json").read_text())
     assert [p["interventions"]["logits"]["positions"][p["dataset"]] for p in manifest["steps"]["patched"]] == \
         [[[p - 1 + k] for p in PROMPT] for k in range(3)]
-    assert manifest["run"]["tokens"]["patched"][0] == ["Handler", "▁substr", "▁energ"]    # one generation, three frames
-    rows = Plan.load(str(out)).table("p_answer")
+    assert "tokens" not in manifest["run"]
+    tokens = json.loads((out / "tokens.json").read_text())
+    assert run.run is not None and tokens == run.run.tokens and {"pairs.input", "patched"} <= set(tokens)
+    assert tokens["patched"][0] == ["Handler", "▁substr", "▁energ"]                # one generation, three frames
+    back = Plan.load(str(out))
+    assert back.run is not None and back.run.tokens == tokens
+    rows = back.table("p_answer")
     assert [(r["at"], r["row"], r["pos"], r["pos_token"], r["call"]) for r in rows][4] == \
         ({"frame": 1}, 0, 11, "Handler", 1)
 
