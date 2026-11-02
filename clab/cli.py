@@ -72,20 +72,21 @@ def costs(filled: Plan) -> list[list[str]]:
     """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`serving`: a forward's or
     generation's per forward, an op's per distinct value, a fit's per point), at the point that ran, with the
     points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
-    each device in MiB (— where none was measured), its model calls and the tokens they fed."""
+    each device in MiB (— where none was measured), its model calls, the tokens they fed, padding included, and
+    the rows' own of them (`real`)."""
     run = filled.run
     assert run is not None
-    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
+    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]]
     for step, entry in filled.steps.items():
         for p, points_ in serving(filled, step) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
             serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
-                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—"])
+                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—", "—"])
                 continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
             rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
-                         str(cost["forwards"]), str(cost["tokens"])])
+                         str(cost["forwards"]), str(cost["tokens"]), str(cost.get("real", "—"))])
     return rows
 
 

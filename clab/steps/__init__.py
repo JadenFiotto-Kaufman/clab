@@ -94,7 +94,7 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     with torch.no_grad():
         for name in plan.steps:
             for step, served in serving(plan, name):
-                cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0,
+                cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0, "real": 0,
                                         **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
                 try:
                     measured(devices, cost, lambda: KINDS[step.kind](
@@ -257,7 +257,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     through `engine.forward` with the point's schedule bound to it (`bind`); each value the forward reads
     (`reading`, `gathered` over the points its run serves, `served`: each gathered entry at each distinct point on
     its axes among them, which a fit gives once for its every run of the body) joined along rows from its own reads,
-    in the run's row order. Adds the model calls it made, one per batch, and the prompt tokens they fed to `cost`.
+    in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
+    padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -275,7 +276,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
             raise RuntimeError(f"{name}: the {engine.name} engine ended the forward at {bound['stop']} without "
                                f"reading {', '.join(missing)}; the schedule's stop site comes after its last read")
         cost["forwards"] += 1
-        cost["tokens"] += batch["input_ids"].shape[1] * len(pads) - sum(pads)
+        cost["tokens"] += batch["input_ids"].numel()
+        cost["real"] += batch["input_ids"].numel() - sum(pads)
         for k, (record, own, p) in reading.items():
             parts[k].append(stacked(record, [read(engine, plan, record, got[binds[k + (layer,)][0]["name"]],
                                                   binds[k + (layer,)][0], ids, state, p.at, found, layer)
@@ -318,6 +320,6 @@ def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
 
 
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls
-# it made and the tokens they fed to `cost` (a forward and a generation also take the points their run serves,
+# it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take the points their run serves,
 # `served`, and what they read, `reading`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}

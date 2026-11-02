@@ -26,7 +26,7 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
                                "started ")
     assert shown[1] == "  served: float32 on cpu"
     assert shown[2].startswith("  versions: clab ")
-    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]
+    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]
     assert [line.split()[:2] for line in shown[4:9]] == [["counterfactual", "—"], ["patched", "frame=0"]] + \
         [["p_answer", f"frame={k}"] for k in range(3)]                  # one generation serves the three points
     assert shown[5].split(maxsplit=2)[2].startswith("all 3 points")

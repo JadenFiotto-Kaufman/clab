@@ -914,8 +914,10 @@ class Run(Record):
     op's value is one for): its wall time in `seconds`, the peak `memory` allocated during it on
     each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
     run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
-    and every decode call, and every forward a fit's body makes) and the input `tokens` they fed, padding excluded
-    (a generation's rows each fed their generated tokens but the last, their EOS or the generation's final one).
+    and every decode call, and every forward a fit's body makes), the input `tokens` they fed, padding included
+    (each call's input ids: a batch's padded prompts, then one per row at each decode call), and of those the rows'
+    own, `real` (a generation's rows each fed their generated tokens but the last, their EOS or the generation's
+    final one).
     `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str

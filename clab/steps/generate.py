@@ -39,9 +39,10 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     (`positions`) and each row's continuation, as token strings, in `plan.run.tokens[<step>]`, by a run over every
     row (not over a fit's minibatch). A batch whose rows all stopped early makes fewer calls; its ids are filled
     after their EOS to the longest batch's. Adds to `cost` the model calls it made, one per new token of each batch
-    (its prefill, then a decode call per token after the first), and the tokens they fed: the prompts', then each
-    row's generated tokens but its last, which is its EOS (fed on the call after it says it, and not counted, as
-    padding is not) or the generation's last, which no call is fed."""
+    (its prefill, then a decode call per token after the first), the tokens they fed (the padded prompts, then one
+    per row at each decode call), and the rows' own of them (`real`): the prompts', then each row's generated tokens
+    but its last, which is its EOS (fed on the call after it says it, and not counted, as padding is not) or the
+    generation's last, which no call is fed."""
     assert plan.run is not None
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
@@ -63,7 +64,8 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]
         cost["forwards"] += tokens.shape[1]
-        cost["tokens"] += batch["input_ids"].shape[1] * len(pads) - sum(pads) + sum(map(len, said)) - len(said)
+        cost["tokens"] += batch["input_ids"].numel() + len(ids) * (tokens.shape[1] - 1)
+        cost["real"] += batch["input_ids"].numel() - sum(pads) + sum(map(len, said)) - len(said)
         for k, (record, own, p) in landing.items():
             landed[k] += landed_at(record, examples, inputs, said, eos, engine.tokenizer, head(step, record))
         for k, (record, own, p) in reading.items():

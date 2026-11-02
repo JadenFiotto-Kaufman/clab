@@ -1,7 +1,7 @@
 """What a run costs, and where a forward ends.
 
-`plan.run.costs` holds every run of every step: its seconds, peak memory (null off CUDA), model calls and input
-tokens and the points it served, exact for a forward, a swept step, an op and a fit, and the server's under ndif,
+`plan.run.costs` holds every run of every step: its seconds, peak memory (null off CUDA), model calls, the input
+tokens they fed with their padding and the rows' own of them (`real`), and the points it served, exact for a forward, a swept step, an op and a fit, and the server's under ndif,
 which come home in the run record; `clab show` prints them. (A generation's are pinned in test_generate.py; the
 points one forward serves in test_shared.py.)
 
@@ -31,7 +31,7 @@ from clab.format.sweeps import labelled, points, put
 from clab.plan import entries
 from clab.steps.batches import edit
 
-COST = {"seconds", "memory", "forwards", "tokens"}
+COST = {"seconds", "memory", "forwards", "tokens", "real"}
 
 
 def lengths(run, name: str) -> int:
@@ -42,7 +42,8 @@ def lengths(run, name: str) -> int:
 def test_every_run_of_a_step_has_a_cost_and_a_forward_one_call_per_batch(engines):
     """logit_lens: `lens` is swept over two layers it only reads at, so its one forward, at the first point, serves
     both (`serves`), and its ops' costs are keyed by coordinate as `positions` are; the forward is two batches of
-    two of the four rows, each prompt token fed once; an op calls no model; off CUDA no memory is measured."""
+    two of the four rows, each prompt token fed once and each batch padded to the longest row, 11 tokens; an op
+    calls no model; off CUDA no memory is measured."""
     plan = plan_of("logit_lens")
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert list(run.costs) == list(plan.steps)
@@ -55,17 +56,22 @@ def test_every_run_of_a_step_has_a_cost_and_a_forward_one_call_per_batch(engines
             assert set(cost) == COST | {"serves"} and cost["memory"] is None and cost["seconds"] >= 0
     prompts = lengths(run, "prompts.input")
     assert prompts == 38
-    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts)]
-    assert all((c["forwards"], c["tokens"]) == (0, 0) for name in ("p_answer", "top1")
+    assert [(c["forwards"], c["tokens"], c["real"]) for c in run.costs["lens"].values()] == [(2, 4 * 11, prompts)]
+    assert all((c["forwards"], c["tokens"], c["real"]) == (0, 0, 0) for name in ("p_answer", "top1")
                for c in run.costs[name].values())
 
 
-def test_a_forward_feeds_the_same_tokens_at_every_batch_size(engines):
-    """Padding is not fed: four rows in batches of 1, 2 and 4 make 4, 2 and 1 calls of the same 38 tokens."""
+@pytest.mark.parametrize("padding, fed", [("dataset", {1: 44, 2: 44, 4: 44}), ("batch", {1: 38, 2: 40, 4: 44})])
+def test_a_forward_feeds_its_rows_tokens_and_the_padding_at_every_batch_size(engines, padding, fed):
+    """Four rows of 11, 9, 9 and 9 tokens in batches of 1, 2 and 4 make 4, 2 and 1 calls of the same 38 tokens of
+    their own (`real`), and feed those and their padding (`tokens`): every batch as wide as the input's longest row
+    under `dataset` padding, as its own under `batch`."""
     plan = plan_of("logit_lens")
     engine = engines("hooks", plan.model)
-    lens = {size: engine.execute(plan, batch_size=size).run.costs["lens"]["layers=0"] for size in (1, 2, 4)}
-    assert {size: (c["forwards"], c["tokens"]) for size, c in lens.items()} == {1: (4, 38), 2: (2, 38), 4: (1, 38)}
+    lens = {size: engine.execute(plan, batch_size=size, padding=padding).run.costs["lens"]["layers=0"]
+            for size in (1, 2, 4)}
+    assert {size: (c["forwards"], c["real"]) for size, c in lens.items()} == {1: (4, 38), 2: (2, 38), 4: (1, 38)}
+    assert {size: c["tokens"] for size, c in lens.items()} == fed
 
 
 def das(epochs: int = 3):
@@ -82,16 +88,17 @@ def test_a_fit_counts_every_forward_its_body_makes(engines):
     """A fit's calls are its body's: per epoch, each minibatch through the body's forward (2 × 1) and the
     training rows scored after it (two rows, a batch of one each: 2); then the `train` eval's two rows once. Each
     pass over a dataset feeds each of its rows' tokens once: two passes over the training prompts an epoch, one of
-    them scoring, then one in the eval; the counterfactual prompts, harvested before the fit, are fed there once,
-    in one call."""
+    them scoring, then one in the eval, each row padded to the longest, 11 tokens; the counterfactual prompts,
+    harvested before the fit, are fed there once, in one call."""
     plan = das()
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     train = lengths(run, "train.input")
     epochs, minibatches, body = 3, 2, 1
     assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body == 14
-    assert run.costs["fit"]["tokens"] == epochs * 2 * train + train
-    assert {k: run.costs["counterfactual"][k] for k in ("forwards", "tokens")} == \
-        {"forwards": 1, "tokens": lengths(run, "train.counterfactual_inputs[0]")}
+    assert run.costs["fit"]["real"] == epochs * 2 * train + train
+    assert run.costs["fit"]["tokens"] == (epochs * 2 + 1) * 2 * 11
+    assert {k: run.costs["counterfactual"][k] for k in ("forwards", "tokens", "real")} == \
+        {"forwards": 1, "tokens": 2 * 11, "real": lengths(run, "train.counterfactual_inputs[0]")}
 
 
 def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
@@ -106,8 +113,8 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
         assert list(run.costs) == list(das().steps)
         for step, cost in run.costs.items():
             assert set(cost) == COST and cost["memory"] is None
-            assert {k: cost[k] for k in ("forwards", "tokens")} == \
-                {k: local.costs[step][k] for k in ("forwards", "tokens")}
+            assert {k: cost[k] for k in ("forwards", "tokens", "real")} == \
+                {k: local.costs[step][k] for k in ("forwards", "tokens", "real")}
 
 
 def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines, monkeypatch):
@@ -175,12 +182,12 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
     assert main(["show", str(tmp_path)]) == 0
     shown = capsys.readouterr().out.splitlines()
-    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]
-    rows = [line.split(maxsplit=2) + line.split()[-4:] for line in shown[4:9]]      # the serves cell has spaces
-    assert [(r[0], r[1], r[2].rsplit(maxsplit=4)[0], r[4], r[5], r[6]) for r in rows] == [
-        ("lens", "layers=0", "all 2 points", "—", "2", "38"),
-        ("p_answer", "layers=0", "—", "—", "0", "0"), ("p_answer", "layers=1", "—", "—", "0", "0"),
-        ("top1", "layers=0", "—", "—", "0", "0"), ("top1", "layers=1", "—", "—", "0", "0")]
+    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]
+    rows = [line.split(maxsplit=2) + line.split()[-5:] for line in shown[4:9]]      # the serves cell has spaces
+    assert [(r[0], r[1], r[2].rsplit(maxsplit=5)[0], *r[4:]) for r in rows] == [
+        ("lens", "layers=0", "all 2 points", "—", "2", "44", "38"),
+        ("p_answer", "layers=0", "—", "—", "0", "0", "0"), ("p_answer", "layers=1", "—", "—", "0", "0", "0"),
+        ("top1", "layers=0", "—", "—", "0", "0", "0"), ("top1", "layers=1", "—", "—", "0", "0", "0")]
     assert all(float(r[3]) >= 0 for r in rows)
     assert shown[9].split() == ["entry", "at", "positions"]                 # then where each entry resolved
     assert shown[10].split(maxsplit=1) == ["lens.logits", "all 2 points  [10], [8], [8], [8]"]   # one row, both layers
