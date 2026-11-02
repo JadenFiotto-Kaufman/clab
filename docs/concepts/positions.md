@@ -12,7 +12,7 @@ sources: [clab/compile/positions.py, clab/format/selectors.py, clab/plan.py, cla
 
 A position is where one input token sits in one row. Every token the model is fed is a position, numbered from 0 in the order it is fed: BOS where the tokenizer adds one, a chat template's markers, the prompt's words, then in a generation each generated token that is fed back. Padding is never a position. One numbering serves everywhere a token is counted: a document's `pos`, a record's `positions`, `clab table`'s `pos` and `key`, an attention pattern's `key` axis, and the token counts in refusals.
 
-So a position names a token of *this row*, never a column of the padded batch. Rows run in batches padded on the left to the input's longest row, with position ids that count real tokens; `pos: -1` is each row's own last token whatever its length, and `pos: 0` its BOS. Recipes for pointing at tokens are in [usage/positions.md](../usage/positions.md).
+So a position names a token of *this row*, never a column of the padded batch. Rows run in batches padded on the left, to the input's longest row or under `--padding batch` and `sorted` to the batch's own, with position ids that count real tokens; `pos: -1` is each row's own last token whatever its length, and `pos: 0` its BOS. Recipes for pointing at tokens are in [usage/positions.md](../usage/positions.md).
 
 ## Three stages: frame, scope, index
 

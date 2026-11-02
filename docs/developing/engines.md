@@ -29,9 +29,9 @@ An engine then holds `name`, `spec` (the model block), `model` (anything with `.
 
 ## `execute`
 
-`execute(plan, *, batch_size=8)`, its batch size keyword-only, is the single entry point, and the only method an engine that runs a plan without `clab.steps` must have; it returns the filled plan. An engine that runs through `clab.steps` (all three shipped ones do) does three things, the hooks engine's `execute` being the shortest:
+`execute(plan, *, batch_size=8, padding="dataset")`, its batch size and padding keyword-only, is the single entry point, and the only method an engine that runs a plan without `clab.steps` must have; it returns the filled plan. An engine that runs through `clab.steps` (all three shipped ones do) does three things, the hooks engine's `execute` being the shortest:
 
-1. `clab/steps/__init__.py` `begin`: refuses an uncompiled plan, a batch size below one row, or a plan whose `model` block differs in any key from the one the engine loaded (the message names each key that differs, with both values), and starts `plan.run` with the engine, batch size, device and options.
+1. `clab/steps/__init__.py` `begin`: refuses an uncompiled plan, a batch size below one row, a padding `clab/format/data.py` `PADDINGS` does not name, or a plan whose `model` block differs in any key from the one the engine loaded (the message names each key that differs, with both values), and starts `plan.run` with the engine, batch size, padding, device and options.
 2. `clab/steps/__init__.py` `run`, inside the engine's one session if it has one.
 3. `plan.run.seconds` set from `begin`'s start time.
 

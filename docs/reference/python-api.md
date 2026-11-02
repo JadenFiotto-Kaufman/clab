@@ -13,7 +13,7 @@ sources: [clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/output/
 ## `clab.run`
 
 ```python
-clab.run(plan, engine="nnterp", out=None, batch_size=8, device=None, **options) -> Plan
+clab.run(plan, engine="nnterp", out=None, batch_size=8, device=None, padding="dataset", **options) -> Plan
 ```
 
 | parameter | meaning |
@@ -23,6 +23,7 @@ clab.run(plan, engine="nnterp", out=None, batch_size=8, device=None, **options) 
 | `out` | the output directory; default `out/<document name>` under the current directory (`out/plan` for a plan built from a dict) |
 | `batch_size` | rows per forward or generation call |
 | `device` | where a named engine places the model; default `"cpu"` |
+| `padding` | how each batch is padded: `"dataset"` (the exact default), `"batch"` or `"sorted"` ([running.md](../usage/running.md#batch-size-and-reproducibility)); any other is refused before the model loads |
 | `**options` | the named engine's own options, such as `remote="local"` for `ndif` or `tp=2` for `nnterp` |
 
 It compiles the plan, loads the engine when given a name, executes, dumps into `out`, and returns the filled plan. A loaded engine takes no `device` or options: `the loaded nnterp engine runs on cpu with {'tp': 1}; device and options are given when an engine loads`. Under torchrun (`tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`. A step that runs out of CUDA memory stops the run: `out` is written with the steps that finished and the refusal in `plan.run.stopped`, then the refusal is raised as a `ValueError` ending `the steps before it are saved in <out>` ([running.md](../usage/running.md#when-a-step-runs-out-of-memory)).
@@ -64,7 +65,7 @@ A plan's `repr` says its stage: `Plan(patching, uncompiled)`, `Plan(patching, co
 from clab.engines import ENGINES, load
 
 engine = load(name, model, device="cpu", **options)
-filled = engine.execute(plan, batch_size=8)
+filled = engine.execute(plan, batch_size=8, padding="dataset")
 ```
 
 `ENGINES` maps each registered engine's name to its class: `nnterp`, `hooks`, `ndif`.
@@ -82,7 +83,7 @@ filled = engine.execute(plan, batch_size=8)
 | `tokenizer` | the checkpoint's tokenizer |
 | `sizes()` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which `plan.run.sizes` records |
 
-`execute(plan, *, batch_size=8)` runs a compiled plan: preflight, then every step. It fills the plan's `results` and `run` in place and returns the same plan. It refuses a plan that is not compiled (`plan is not compiled; call plan.compile()`) and one whose model block differs from the one the engine loaded, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision …`). One engine executes any number of plans that pin its model block. A step that runs out of CUDA memory fills `results`, `run.costs` and `run.stopped` for the steps that finished and raises the refusal. Writing an engine is [developing/engines.md](../developing/engines.md).
+`execute(plan, *, batch_size=8, padding="dataset")` runs a compiled plan, its batches padded as `padding` says: preflight, then every step. It fills the plan's `results` and `run` in place and returns the same plan. It refuses a plan that is not compiled (`plan is not compiled; call plan.compile()`) and one whose model block differs from the one the engine loaded, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision …`). One engine executes any number of plans that pin its model block. A step that runs out of CUDA memory fills `results`, `run.costs` and `run.stopped` for the steps that finished and raises the refusal. Writing an engine is [developing/engines.md](../developing/engines.md).
 
 ## `clab.describe`
 

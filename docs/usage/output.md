@@ -32,14 +32,14 @@ Where the directory goes and what happens when you reuse one is [running.md](run
 
 ```text
 $ clab show out/patching
-patching: run on nnterp, device cpu, tp 1, batch size 8, started 2026-11-02T12:57:20, 0.22 s
+patching: run on nnterp, device cpu, tp 1, batch size 8, padding dataset, started 2026-11-02T12:57:20, 0.22 s
   served: float32 on cpu
   versions: clab 0.0.1+..., nnsight 0.8.1, nnterp ..., torch ..., transformers ..., python ...
-  step            at  serves  seconds  memory  forwards  tokens
-  counterfactual  —   —       0.017    —       1         38
-  patched         —   —       0.007    —       1         38
-  iia             —   —       0.005    —       0         0
-  logit_diff      —   —       0.000    —       0         0
+  step            at  serves  seconds  memory  forwards  tokens  real
+  counterfactual  —   —       0.017    —       1         44      38
+  patched         —   —       0.007    —       1         44      38
+  iia             —   —       0.005    —       0         0       0
+  logit_diff      —   —       0.000    —       0         0       0
   entry                at  positions
   counterfactual.v_cf  —   [8], [8], [10], [8]
   patched.patch        —   [10], [8], [8], [8]
@@ -49,18 +49,18 @@ patching: run on nnterp, device cpu, tp 1, batch size 8, started 2026-11-02T12:5
   logit_diff  logit_diff  rows, pos  —     [4,1]
 ```
 
-The first lines are the run record: the engine, its device and options, the batch size, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
+The first lines are the run record: the engine, its device and options, the batch size and padding, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
 
-- **What each step cost**, one row per run of a step, at the point that ran it: `serves` lists the points that run served (`—` for itself alone, `all 3 points` for every point of the step), then its seconds, its peak memory on each CUDA device (`—` off CUDA), the model calls it made and the tokens they fed. A forward or generation runs once for every set of points that differ only in what they read, so a read-only sweep is one row.
+- **What each step cost**, one row per run of a step, at the point that ran it: `serves` lists the points that run served (`—` for itself alone, `all 3 points` for every point of the step), then its seconds, its peak memory on each CUDA device (`—` off CUDA), the model calls it made, the tokens they fed (`tokens`, padding included) and the rows' own of those (`real`). A forward or generation runs once for every set of points that differ only in what they read, so a read-only sweep is one row.
 - **Where each entry resolved**, one row per entry and distinct positions, each row's positions in row order (`[10] on all 4 rows` where every row agrees, `—` for a row the entry did not reach), with the point it is at or how many points share it. Past twelve rows that differ it prints the first three rows', `…`, the last row's and the count (`[8], [8], [10], …, [9] (50,000 rows; clab table shows each)`), and a row of more than twelve positions as its first three and its last (`[0,1,2,…,511]`); `clab table` and the manifest hold every row's.
 - **Each saved value**: the step that made it, its layout (`dims`), the sweep axes it depends on (`axes`) and its shape, counted over its points when swept (`3 points, each [4,1]`; the manifest holds each point's).
 
 From `documents/generate_probe.json`, whose reads sweep three frames of one generation:
 
 ```text
-  step            at       serves        seconds  memory  forwards  tokens
-  counterfactual  —        —             0.011    —       3         46
-  patched         frame=0  all 3 points  0.008    —       3         46
+  step            at       serves        seconds  memory  forwards  tokens  real
+  counterfactual  —        —             0.011    —       3         52      46
+  patched         frame=0  all 3 points  0.008    —       3         52      46
   ...
   result    step      dims       axes   shape
   p_answer  p_answer  rows, pos  frame  3 points, each [4,1]
@@ -112,7 +112,7 @@ plan.results["logit_diff"]                # tensor [4, 1]
 plan.table("iia", "logit_diff")           # the rows clab table prints, as dicts
 plan.table("iia", columns=["entity"])     # choose the dataset columns; [] for none
 plan.steps["patched"].interventions["logits"].positions   # {'pairs': [[10], [8], [8], [8]]}
-plan.run.costs["patched"]                 # {'seconds': 0.007, 'memory': None, 'forwards': 1, 'tokens': 38}
+plan.run.costs["patched"]                 # {'seconds': 0.007, 'memory': None, 'forwards': 1, 'tokens': 44, 'real': 38}
 ```
 
 `plan.table` takes the same names and returns a list of dicts; `columns=` replaces the default dataset columns, which the command line cannot do. A swept result is a dict keyed by coordinate; the key's form in each place is in [sweeps.md](sweeps.md#reading-swept-results). A value loaded from JSON is a tensor again where it was one. `Plan.load` needs no data files, but it rebuilds the plan, so a run that loaded a bundle loads only where that bundle's `file_path` resolves ([bundles.md](bundles.md#reading-back-a-run-that-loads-a-bundle)).
@@ -134,21 +134,23 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 
 | field | holds |
 |---|---|
-| `engine`, `batch_size`, `device`, `options` | how it was asked to run; `device` is None when an NDIF server placed the model, and `options` holds the engine's options after their defaults |
+| `engine`, `batch_size`, `padding`, `device`, `options` | how it was asked to run; `device` is None when an NDIF server placed the model, and `options` holds the engine's options after their defaults |
 | `dtype`, `devices` | the distinct dtypes and devices of the model's parameters where it ran |
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
 | `started`, `seconds` | when the run began and how long it took |
 | `sizes` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which a site's `layers` and `select` count among |
 | `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name; written to `tokens.json`, not the manifest |
-| `costs` | each step's runs by name: `seconds`, the peak `memory` on each CUDA device in bytes (null off CUDA and on a server), the model calls in `forwards` and the input `tokens` they fed; a swept step's keyed by the coordinate of the point that ran, with the points it served in `serves` |
+| `costs` | each step's runs by name: `seconds`, the peak `memory` on each CUDA device in bytes (null off CUDA and on a server), the model calls in `forwards`, the input `tokens` they fed, padding included, and of those the rows' own, `real`; a swept step's keyed by the coordinate of the point that ran, with the points it served in `serves` |
 | `stopped` | the refusal of the step that ran out of CUDA memory, when one did; null otherwise |
 
 A swept step's `tokens` are keyed by coordinate. From `documents/patching.json`, its `tokens.json` and the manifest's `run.costs`:
 
 ```json
 {"pairs.input": [["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom", "orrow", "▁is"], ...], ...}
-"costs": {"counterfactual": {"seconds": 0.017, "memory": null, "forwards": 1, "tokens": 38}, ...}
+"costs": {"counterfactual": {"seconds": 0.017, "memory": null, "forwards": 1, "tokens": 44, "real": 38}, ...}
 ```
+
+`tokens` is what the model was fed and `real` the part of it that is the rows' own; the rest is padding. Under the default `dataset` padding every batch is as wide as the input's longest row, so a dataset whose lengths vary feeds far more than its `real` tokens (on a 10,000-row AG News harvest, five times as many), and the step's `seconds` and `memory` follow `tokens`, not `real`. A run with a large gap is the one to rerun with `--padding sorted` ([running.md](running.md#batch-size-and-reproducibility)), which reports the same `real` and lays out every value as before.
 
 ## Where each read and write landed
 

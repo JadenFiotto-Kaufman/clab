@@ -289,11 +289,17 @@ With `{"add_generation_prompt": true}` it ends with the assistant's header, whos
 any other and belong to no `turn`, and a generate from it continues after the header. Either way
 `{"scope": {"turn": "user", "occurrence": 1}}` names the second user message's own tokens.
 
-Rows run in consecutive batches of the run's batch size, each padded on the left to the input's longest
-row, with position ids that count real tokens. At the thread count the suite pins (`tests/conftest.py`, 12;
-8 and 24 give the same bits) a row's numbers do not depend on which rows share its batch; at 4 or fewer they
-can differ by about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix,
-and can differ in the last bits. Results reproduce to the bit at a fixed batch size and thread count.
+Rows run in batches of the run's batch size, padded on the left as the run's `padding` says, with position
+ids that count real tokens: under `dataset`, the default, consecutive batches each padded to the input's
+longest row; under `batch` each padded to its own longest row; under `sorted` the rows longest first, each
+batch padded to its own, and every value put back in dataset row order. Padding is never a position, so a
+row's `positions` and its `key` axis (as wide as the input's longest row, NaN past the row's own keys) are the
+same under each. At the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same bits) a
+row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
+depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
+narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
+most, a trained featurizer's by 7e-7). Results reproduce to the bit at a fixed batch size, padding and thread
+count.
 
 ### `generate`
 
@@ -365,8 +371,9 @@ op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.h
 `eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
 `test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
 so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
-size. `epochs: 0` trains nothing: the featurizers are scored as drawn (an untrained lora is the identity
-exactly, a null control), and each history is empty, `[0]`.
+size, padded as the run's `padding` says (under `sorted`, a minibatch's own rows longest first). `epochs: 0`
+trains nothing: the featurizers are scored as drawn (an untrained lora is the identity exactly, a null
+control), and each history is empty, `[0]`.
 
 The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
 `<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
@@ -911,12 +918,13 @@ value depends on, so that a result links back to the step that made it and says 
 records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
 each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
-did; its `featurizers` each one's width; its `run` holds the model's sizes and what each run of each step cost
-(`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens they fed, and the points
-it served). Values are never in the manifest. `tokens.json` beside it is the run's `tokens`, how each input
-tokenized and what each generate step's rows generated, a token string per position of every row, which `table`
-labels positions with: kept apart, since at many rows they are nearly all of what the manifest would hold, and
-`load` reads it back into `run.tokens`.
+did; its `featurizers` each one's width; its `run` holds the batch size and `padding` it ran at, the model's sizes,
+and what each run of each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls,
+the tokens they fed, padding included, and of those the rows' own, `real`, and the points it served). Values are
+never in the manifest. `tokens.json` beside it is the run's `tokens`, how each input tokenized and what each
+generate step's rows generated, a token string per position of every row, which `table` labels positions with:
+kept apart, since at many rows they are nearly all of what the manifest would hold, and `load` reads it back
+into `run.tokens`.
 
 The saved values `names` as rows, joined wide on the keys they share, one column per name.
 
