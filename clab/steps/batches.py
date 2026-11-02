@@ -136,16 +136,28 @@ def over(state: ChainMap) -> list[int] | None:
 def chunked(engine: Engine, step: Forward, state: ChainMap, found: Found, batch_size: int, padding: str = "dataset"
             ) -> Iterator[tuple[list[int], dict, list]]:
     """The step's input in batches of `batch_size` dataset row ids, of every row in order or of the rows the run is
-    over (`over`), padded as `padding` says (`data.PADDINGS`); each batch's ids, its tokens padded on the left to the
-    input's longest row (`dataset`) or to the batch's own (`batch`), and its padding."""
+    over (`over`), padded as `padding` says (`data.PADDINGS`): under `dataset` and `batch` in that order, under
+    `sorted` longest first by the encoded rows' token counts (rows of one count in that order); each batch's ids, its
+    tokens padded on the left to the input's longest row (`dataset`) or to the batch's own (`batch`, `sorted`), and
+    its padding. A step that joins its batches puts their rows back in the run's order (`ordered`)."""
     encoded = found.inputs[data.input_name(step.input)]
     rows = over(state)
     rows = rows if rows is not None else list(range(len(encoded["rows"])))
+    if padding == "sorted":
+        rows = sorted(rows, key=lambda i: len(encoded["rows"][i]["ids"]), reverse=True)     # stable, as written
     for ids in (rows[lo:lo + batch_size] for lo in range(0, len(rows), batch_size)):
         tokens = [e["ids"] for e in data.by_id(encoded["rows"], ids)]
         width = encoded["width"] if padding == "dataset" else max(map(len, tokens))
         yield ids, data.pad(engine.tokenizer, tokens, width), [width - len(x) for x in tokens]
 
+
+def ordered(state: ChainMap, value: Any, ids: list[int], axis: int = 0) -> Any:
+    """`value`, whose rows along `axis` are dataset row `ids` in the order a step's batches ran them (`chunked`), in
+    the order of the rows the run is over (`over`; every row of the dataset, in order): as it is where the batches
+    ran in that order, else taken by id (`data.by_id`), which puts `sorted` padding's rows back."""
+    rows = over(state)
+    rows = rows if rows is not None else sorted(ids)
+    return value if ids == rows else data.by_id(value, rows, ids, axis)
 
 
 def stops(engine: Engine, step: Generate) -> list[int]:
@@ -227,11 +239,13 @@ def stacked(record: Intervention, values: list) -> Any:
     return {k: torch.stack([v[k].to(values[0][k].device) for v in values]) for k in values[0]}
 
 
-def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int], values: list) -> None:
+def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int], values: list,
+           ids: list[int] | None = None) -> None:
     """A gathered entry's per-batch `values` joined along rows, on the first batch's device, as `stacked`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
     under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`padded`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
+    to it first (`padded`). The batches' rows are dataset row `ids` in the order they ran, put back in the run's
+    order (`ordered`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
     axes."""
     dims = record.dims or []
 
@@ -239,8 +253,8 @@ def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int],
         if "pos" in dims:
             parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
         return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
-    put(state, name, at, cat(values) if isinstance(values[0], Tensor) else
-        {k: cat([v[k] for v in values]) for k in values[0]})
+    value = cat(values) if isinstance(values[0], Tensor) else {k: cat([v[k] for v in values]) for k in values[0]}
+    put(state, name, at, value if ids is None else ordered(state, value, ids, dims.index("rows")))
 
 
 def padded(value: Tensor, dim: int, n: int) -> Tensor:

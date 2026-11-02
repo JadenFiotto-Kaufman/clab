@@ -256,8 +256,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     """The step's input in batches of dataset row ids padded as the run says (`chunked`, `plan.run.padding`), each
     through `engine.forward` with the point's schedule bound to it (`bind`); each value the forward reads
     (`reading`, `gathered` over the points its run serves, `served`: each gathered entry at each distinct point on
-    its axes among them, which a fit gives once for its every run of the body) joined along rows from its own
-    reads. Adds the model calls it made, one per batch, and the prompt tokens they fed to `cost`.
+    its axes among them, which a fit gives once for its every run of the body) joined along rows from its own reads,
+    in the run's row order. Adds the model calls it made, one per batch, and the prompt tokens they fed to `cost`.
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -265,7 +265,9 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     assert plan.run is not None
     reading = gathered(served) if reading is None else reading
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
+    order: list[int] = []
     for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
+        order += ids
         bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         got = engine.forward(batch, bound)
         missing = [r["name"] for s in bound["sites"] for r in s["records"] if "name" in r and r["name"] not in got]
@@ -279,7 +281,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
                                                   binds[k + (layer,)][0], ids, state, p.at, found, layer)
                                              for layer in layers(engine, record)]))
     for k, (record, own, _) in reading.items():
-        joined(state, f"{name}.{k[0]}", record, own, parts[k])
+        joined(state, f"{name}.{k[0]}", record, own, parts[k], order)
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found,

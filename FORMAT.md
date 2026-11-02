@@ -774,6 +774,7 @@ Every engine runs with `batch_size`, how many of a step's rows go through the mo
 
 - `dataset`: every batch padded to the longest row of the step's whole input, the default: a row's numbers do not depend on which rows share its batch, and a run reproduces to the bit at one batch size
 - `batch`: each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's numbers move in the last bits with its batch's width
+- `sorted`: a step's rows ordered by token count, longest first, before they are batched, each batch padded to its own longest row, and every value put back in dataset row order before anything reads it: the fewest tokens fed, and numbers that move as under `batch`, a fit's trained tensors a little more (a minibatch's gradients sum over its rows in another order)
 
 The options below are each engine's own.
 

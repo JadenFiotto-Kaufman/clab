@@ -20,7 +20,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
         device: str | None = None, padding: str = "dataset", **options: Any) -> Plan:
     """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
     Returns the filled plan. `padding` is how each batch is padded (`format.data.PADDINGS`: `dataset`, the exact
-    default, or `batch`). `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
+    default, `batch` or `sorted`). `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
     engine was placed and configured when it loaded, so it takes no `device` or option here. Under torchrun

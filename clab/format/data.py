@@ -105,7 +105,13 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
     fit's body made holds the rows that run was over: `batches.value_at`)."""
     if ids is None:
         return table
-    at = ids if among is None else [among.index(i) for i in ids]
+    if among is None:
+        at = ids
+    else:
+        where: dict[int, int] = {}
+        for j, i in enumerate(among):           # each id's first place, in one pass over `among`
+            where.setdefault(i, j)
+        at = [where[i] for i in ids]
     if isinstance(table, dict):
         return {k: by_id(v, ids, among, axis) for k, v in table.items()}
     if isinstance(table, torch.Tensor):            # onto a GPU from pinned memory, which the host does not wait for
@@ -201,13 +207,17 @@ def encode(tokenizer: PreTrainedTokenizerBase, value: str | list[dict], template
 
 
 # How a run pads a step's batches (`plan.run.padding`, `clab run --padding`), each with what it trades. Every mode
-# pads on the left, so a row's positions are its own tokens from 0 whatever the width; the lengths it pads by are
-# the encoded rows', known before any forward.
+# pads on the left, so a row's positions are its own tokens from 0 whatever the width; the lengths it orders and
+# pads by are the encoded rows', known before any forward.
 PADDINGS = {
     "dataset": "every batch padded to the longest row of the step's whole input, the default: a row's numbers do not "
                "depend on which rows share its batch, and a run reproduces to the bit at one batch size",
     "batch": "each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's "
              "numbers move in the last bits with its batch's width",
+    "sorted": "a step's rows ordered by token count, longest first, before they are batched, each batch padded to "
+              "its own longest row, and every value put back in dataset row order before anything reads it: the "
+              "fewest tokens fed, and numbers that move as under `batch`, a fit's trained tensors a little more (a "
+              "minibatch's gradients sum over its rows in another order)",
 }
 
 

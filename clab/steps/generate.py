@@ -16,7 +16,7 @@ from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import projected, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, held_rows, writes
-from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, stacked, stops, with_ops
+from clab.steps.batches import bind, chunked, joined, layers, ordered, over, read, read_over, stacked, stops, with_ops
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -29,7 +29,8 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     """The step's input in batches of dataset row ids padded as the run says (`chunked`, `plan.run.padding`), each
     through `engine.generate` with the point's schedule bound to it (`bind`) and the step's own keys as its options;
     each value the generation reads (`reading`, `gathered` over the points it serves, `served`, as a forward's)
-    joined along rows from its own reads, and the new ids, one generation's, put as the step's value.
+    joined along rows from its own reads, and the new ids, one generation's, put as the step's value, each in the
+    run's row order, as where each entry landed is (`ordered`).
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`read`); one beyond it is bound in parts (a part over
     the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the generation
@@ -54,8 +55,9 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                 landing.setdefault((key, tuple(projected(p.at, record.axes).items())), (record, projected(p.at, record.axes), p))
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
     landed: dict[tuple[str, tuple], list] = {k: [] for k in landing}
-    new = []
+    new, order = [], []
     for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
+        order += ids
         bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         tokens, got = generated(engine, name, batch, bound, dict(step.model_extra or {}))
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
@@ -76,9 +78,11 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                                                  for layer in layers(engine, record)]))
         new.append(tokens)
     width = max(x.shape[1] for x in new)
-    tokens = torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos)) for x in new])
+    tokens = ordered(state, torch.cat([torch.nn.functional.pad(x, (0, width - x.shape[1]), value=min(eos))
+                                       for x in new]), order)
+    landed = {k: ordered(state, v, order) for k, v in landed.items()}
     for k, (record, own, _) in reading.items():
-        joined(state, f"{name}.{k[0]}", record, own, parts[k])
+        joined(state, f"{name}.{k[0]}", record, own, parts[k], order)
     put(state, name, projected(step.at, step.axes), tokens)
     if over(state) is None:          # a run over every row records where each record landed, on every record
         for p in served:

@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
     run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),
-                     help="how each batch is padded: dataset (the default, exact) or batch (fewer tokens fed, "
+                     help="how each batch is padded: dataset (the default, exact), batch or sorted (fewer tokens fed, "
                           "numbers moved in the last bits)")
     run.add_argument("--device", help="where the engine places the model (default cpu)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
