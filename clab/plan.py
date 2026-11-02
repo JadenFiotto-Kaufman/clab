@@ -141,7 +141,9 @@ SCHEDULE = ("the forward this point runs, or the point whose forward serves it. 
             "forward order (`sites`: each its component and layer and the records done there in order, a write with "
             "its ops up to its last edit and each operand resolved to a producer's name and point or to the name of "
             "a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, "
-            "the site the forward ends at (null for a generation, which runs whole), and for a generation each "
+            "the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` "
+            "entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per "
+            "layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each "
             "record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and "
             "the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing")
 
@@ -555,7 +557,9 @@ class Intervention(Labelled):
     write's included, so what a write wrote is readable. An edit comes before any op that changes the value's
     layout (`readout`, a metric, a reduction, an `encode` no `decode` closes): after one there is no live value
     to write. An entry's value leaves the model only when something uses it (`saves`, or a later entry or step
-    names it); an entry nothing names only writes, and costs no memory.
+    names it); an entry nothing names only writes, and costs no memory. An entry whose first op is `grad` (see
+    Ops) writes nothing: its value is a gradient, and every op after `grad`, an edit too, acts on it once it is
+    off the model.
 
     An entry is made at each layer its site's `layers` pick, in one forward: a write at `layers: "2:6"` runs its
     ops at each of layers 2 to 5 on that layer's live value, in the forward's order, exactly as four entries
@@ -586,7 +590,7 @@ class Intervention(Labelled):
     pos: Swept[int | Pos] = Pos()
     ops: list[Op] = []
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
-                                    "or a later entry or step uses it")
+                                    "a later entry or step uses it, or a gathered `grad` entry is its gradient")
     positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
                                              "index into the row's prompt tokens, BOS first, then its generated ones; "
                                              "`alignment_missing` for a row it does not reach), under the dataset whose "
@@ -630,14 +634,23 @@ def edits(o: Op) -> bool:
     return ops.DECLARED[o.op]["group"] == "edits"
 
 
+def gradient_of(entry: Intervention) -> str | None:
+    """The entry of the same forward whose value a `grad` entry is the gradient of (its first op's `of`), or None
+    for an entry that takes no gradient."""
+    first = entry.ops[0] if entry.ops else None
+    return arguments(first)["of"] if first is not None and first.op == "grad" else None
+
+
 def writes(entry: Intervention) -> bool:
-    """Whether an entry writes back: it holds an edit."""
-    return any(edits(o) for o in entry.ops)
+    """Whether an entry writes back: it holds an edit, and takes no gradient (`grad` first, whose edits act on the
+    gradient)."""
+    return gradient_of(entry) is None and any(edits(o) for o in entry.ops)
 
 
 def gathers(entry: Intervention) -> list[Op]:
-    """The ops of an entry that run on its value once it is taken off the model: those after its last edit."""
-    last = max((i for i, o in enumerate(entry.ops) if edits(o)), default=-1)
+    """The ops of an entry that run on its value once it is taken off the model: those after its last edit, and
+    every one of a `grad` entry's."""
+    last = -1 if gradient_of(entry) is not None else max((i for i, o in enumerate(entry.ops) if edits(o)), default=-1)
     return entry.ops[last + 1:]
 
 
@@ -764,6 +777,9 @@ class OpStep(Labelled):
 
     @model_validator(mode="after")
     def _arguments(self) -> "OpStep":
+        if self.op == "grad":
+            raise ValueError("grad is no step: it is the first op of an entry of a forward, whose value is the "
+                             "gradient of a later entry of that forward ({'op': 'grad', 'of': '<entry>'})")
         ops.check(self.op, arguments(self))
         return self
 

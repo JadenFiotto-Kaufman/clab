@@ -11,7 +11,8 @@ from clab import ops
 from clab.compile import positions
 from clab.format import address
 from clab.format.sweeps import agreeing, labelled, points, projected
-from clab.plan import Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, writes
+from clab.plan import (Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, gradient_of, horizon,
+                        record_of, writes)
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -46,11 +47,15 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
     record's part (`parts`), the `loop` of calls the engine iterates (null: every one) and whether a write is found
     `online`. A write whose operand is an entry of the same forward read at another site is refused by name unless
     the engine ranks that site strictly before the write's (two sites the engine ranks alike are refused, whichever
-    the order lists first); one read at the write's own site is done first, in entry order. `trained` is each
-    featurizer the enclosing fit trains, by both its names, with the fit's point."""
+    the order lists first); one read at the write's own site is done first, in entry order. A forward with `grad`
+    entries also holds `grad`: for each distinct value its gathered `grad` reads differentiate (the `of` entry at
+    the point each serves), the names of that value's reads (`of`, one per layer) and of the `grad` reads it serves
+    (`wrt`), each `grad` read refused by name unless the engine ranks every site its `of` is read at strictly after
+    its own. `trained` is each featurizer the enclosing fit trains, by both its names, with the fit's point."""
     reading = gathered(served)
     sites: dict[tuple[str, int | None], list[dict]] = {}
     names: dict[str, dict[int | None, str]] = {}        # the serving point's reads by `<step>.<entry>`, per layer
+    made: dict[tuple, list[tuple[str, tuple]]] = {}     # each value's reads, by entry and coordinates, with sites
     for key, record in entries(step).items():
         component = cast(Site, record.site).component
         if writes(record):
@@ -66,6 +71,7 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
                     read = f"{key}@{layer}" + ("#0" if part.get("prompt") else "") + \
                         ("" if p is step else f"@{labelled(plan, own)}")
                     sites.setdefault((component, layer), []).append({"read": key, "at": own, "name": read, **part})
+                    made.setdefault((key, tuple(own.items())), []).append((read, (component, layer)))
                     if p is step and not part.get("prompt"):
                         names.setdefault(f"{name}.{key}", {})[layer] = read
     order = sorted(sites, key=lambda site: engine.rank(*site))
@@ -79,6 +85,26 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
                         raise ValueError(unreached(engine, plan, name, r["write"], operand["name"], site[1], step.at))
     step.schedule.update(sites=[{"component": c, "layer": layer, "records": sites[c, layer]} for c, layer in order],
                          stop=list(order[-1]) if order and step.kind == "forward" else None)
+    for p in served:
+        for key, record in entries(p).items():
+            if (of := gradient_of(record)) is None:
+                continue
+            for site in sites_of(record):
+                for there in sites_of(entries(p)[of]):
+                    if engine.rank(*there) <= engine.rank(*site):
+                        raise ValueError(f"{name}.{key}: grad's of {of!r} is read at {spelt(there)}, which the "
+                                         f"{engine.name} engine's forward reaches no later than this entry's "
+                                         f"{spelt(site)} (rank {engine.rank(*there)} against "
+                                         f"{engine.rank(*site)}); of is an entry at a site the forward reaches "
+                                         "after this one")
+    differentiated: dict[tuple, dict[str, list[str]]] = {}
+    for (key, own), (theirs, _, p) in reading.items():
+        if (of := gradient_of(theirs)) is not None:
+            value = (of, tuple(projected(p.at, entries(p)[of].axes).items()))
+            item = differentiated.setdefault(value, {"of": [n for n, _ in made[value]], "wrt": []})
+            item["wrt"] += [n for n, _ in made[key, own]]
+    if differentiated:
+        step.schedule["grad"] = list(differentiated.values())
     if step.kind == "generate":
         asked = [r["calls"] for site in sites.values() for r in site if "calls" in r]
         step.schedule.update(loop=None if None in asked else sorted({0, *(k for a in asked for k in a)}),
@@ -137,6 +163,16 @@ def resolved(plan: Plan, name: str, record: Intervention, layer: int | None, nam
                 listed[key] = {"name": value, "at": projected(at, record_of(plan.steps, value, at).axes)}
         out.append(listed)
     return out
+
+
+def sites_of(record: Intervention) -> list[tuple[str, int | None]]:
+    """The sites an entry is made at: its component at each of its layers (None for a model's own value)."""
+    return [(cast(Site, record.site).component, layer) for layer in record.layers or [None]]
+
+
+def spelt(site: tuple[str, int | None]) -> str:
+    """A site as a refusal names it: its component, and its layer where it has one."""
+    return site[0] if site[1] is None else f"{site[0]} layer {site[1]}"
 
 
 def unreached(engine: Engine, plan: Plan, name: str, key: str, value: str, layer: int | None, at: dict[str, int]) -> str:
