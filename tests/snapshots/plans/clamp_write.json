@@ -51,7 +51,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "clean_ld": {
    "kind": "op",
@@ -134,7 +142,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "clamped_ld": {
    "kind": "op",

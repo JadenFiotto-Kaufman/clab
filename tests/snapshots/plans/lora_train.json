@@ -89,7 +89,15 @@
        "gathered": true
       }
      },
-     "dataset": "train"
+     "dataset": "train",
+     "schedule": {
+      "axes": [],
+      "serves": [
+       {}
+      ],
+      "sites": [],
+      "stop": null
+     }
     },
     "ce": {
      "kind": "op",

@@ -70,7 +70,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "spliced": {
    "kind": "forward",
@@ -121,7 +129,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "p_answer": {
    "kind": "op",

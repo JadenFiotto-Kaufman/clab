@@ -52,7 +52,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "adapted": {
    "kind": "forward",
@@ -104,7 +112,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "clean_ld": {
    "kind": "op",
@@ -171,7 +187,15 @@
    },
    "max_new_tokens": 4,
    "do_sample": false,
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "said": {
    "kind": "op",

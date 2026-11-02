@@ -46,74 +46,28 @@
      ]
     ]
    },
-   "patched": {
-    "0": [
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ]
+   "patched": [
+    [
+     4598,
+     25148,
+     18190
     ],
-    "1": [
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ]
+    [
+     4598,
+     25148,
+     18190
     ],
-    "2": [
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ],
-     [
-      4598,
-      25148,
-      18190
-     ]
+    [
+     4598,
+     25148,
+     18190
+    ],
+    [
+     4598,
+     25148,
+     18190
     ]
-   }
+   ]
   },
   "positions": {
    "counterfactual.v_cf": [
@@ -338,74 +292,28 @@
      "▁energ"
     ]
    ],
-   "patched": {
-    "frame=0": [
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ]
+   "patched": [
+    [
+     "Handler",
+     "▁substr",
+     "▁energ"
     ],
-    "frame=1": [
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ]
+    [
+     "Handler",
+     "▁substr",
+     "▁energ"
     ],
-    "frame=2": [
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ],
-     [
-      "Handler",
-      "▁substr",
-      "▁energ"
-     ]
+    [
+     "Handler",
+     "▁substr",
+     "▁energ"
+    ],
+    [
+     "Handler",
+     "▁substr",
+     "▁energ"
     ]
-   }
+   ]
   }
  }
 }

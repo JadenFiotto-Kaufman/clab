@@ -39,7 +39,15 @@
    "max_new_tokens": 3,
    "min_new_tokens": 3,
    "do_sample": false,
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "patched": [
    {
@@ -90,6 +98,9 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "frame"
+      ],
       "gathered": true
      }
     },
@@ -99,6 +110,22 @@
     "dataset": "pairs",
     "at": {
      "frame": 0
+    },
+    "schedule": {
+     "axes": [],
+     "serves": [
+      {
+       "frame": 0
+      },
+      {
+       "frame": 1
+      },
+      {
+       "frame": 2
+      }
+     ],
+     "sites": [],
+     "stop": null
     }
    },
    {
@@ -150,6 +177,9 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "frame"
+      ],
       "gathered": true
      }
     },
@@ -159,6 +189,11 @@
     "dataset": "pairs",
     "at": {
      "frame": 1
+    },
+    "schedule": {
+     "serving": {
+      "frame": 0
+     }
     }
    },
    {
@@ -210,6 +245,9 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "frame"
+      ],
       "gathered": true
      }
     },
@@ -219,6 +257,11 @@
     "dataset": "pairs",
     "at": {
      "frame": 2
+    },
+    "schedule": {
+     "serving": {
+      "frame": 0
+     }
     }
    }
   ],
@@ -235,6 +278,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "frame"
+    ],
     "at": {
      "frame": 0
     }
@@ -251,6 +297,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "frame"
+    ],
     "at": {
      "frame": 1
     }
@@ -267,6 +316,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "frame"
+    ],
     "at": {
      "frame": 2
     }

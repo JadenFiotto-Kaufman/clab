@@ -41,7 +41,15 @@
      "gathered": true
     }
    },
-   "dataset": "days"
+   "dataset": "days",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "nll": {
    "kind": "op",

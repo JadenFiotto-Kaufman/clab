@@ -1,8 +1,9 @@
 """`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
-`show` prints what a run's directory holds (how the run ran and what each step cost, where each entry resolved,
-then each result with its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values,
+`show` prints what a run's directory holds (how the run ran and what each run of each step cost, with the points
+it served, where each entry resolved, then each result with its step, dims, axes and shape); `table` prints
+`plan.table(...)` over its saved values,
 aligned or as CSV. Both are `Plan.load` and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
@@ -25,7 +26,7 @@ from clab import output
 from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, entries, name, points
+from clab.plan import Plan, Run, entries, name, points, projections, serving
 
 
 def how(run: Run) -> str:
@@ -51,31 +52,34 @@ def show(filled: Plan) -> str:
     lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
-        entry = filled.steps[saved.partition(".")[0]]
-        value = filled.results[saved]
-        if isinstance(entry, list):
-            value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
+        value, ats = filled.results[saved], projections(filled, saved)
+        swept = ats != [({}, ats[0][1])]
+        if swept:
+            value = {labelled(filled, at): value[coordinate(filled, at)] for at, _ in ats}
         dims = output.layouts(filled, saved)["dims"]
         rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(points(entry)[0].at) or "—",
-                     shaped(output.describe(value, "shape"), isinstance(entry, list))])
+                     ", ".join(output.axes(filled, saved)) or "—", shaped(output.describe(value, "shape"), swept)])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
 def costs(filled: Plan) -> list[list[str]]:
-    """What each step cost (`plan.run.costs`) as table rows, one per step and point: its seconds, its peak memory
-    on each device in MiB (— where none was measured), its model calls and the tokens they fed."""
+    """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`serving`: a forward's or
+    generation's per forward, an op's per distinct value, a fit's per point), at the point that ran, with the
+    points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
+    each device in MiB (— where none was measured), its model calls and the tokens they fed."""
     run = filled.run
     assert run is not None
-    rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
+    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
-        for p in points(entry) if step in run.costs else []:
+        for p, served in serving(entry) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
+            serves = ("—" if len(served) == 1 else f"all {len(served)} points" if len(served) == len(points(entry))
+                      else ", ".join(labelled(filled, at) for at in served))
             if cost is None:                    # a point the run stopped before
-                rows.append([step, labelled(filled, p.at) or "—", "—", "—", "—", "—"])
+                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—"])
                 continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
-            rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
+            rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
 

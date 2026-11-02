@@ -65,7 +65,15 @@
      "gathered": true
     }
    },
-   "dataset": "qa"
+   "dataset": "qa",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "p_spelled": {
    "kind": "op",

@@ -50,7 +50,15 @@
      "gathered": true
     }
    },
-   "dataset": "train"
+   "dataset": "train",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "fit": {
    "kind": "fit",
@@ -167,7 +175,15 @@
        "gathered": true
       }
      },
-     "dataset": "train"
+     "dataset": "train",
+     "schedule": {
+      "axes": [],
+      "serves": [
+       {}
+      ],
+      "sites": [],
+      "stop": null
+     }
     },
     "iia": {
      "kind": "op",
@@ -251,7 +267,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "held_patched": {
    "kind": "forward",
@@ -330,7 +354,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "held_iia": {
    "kind": "op",

@@ -76,7 +76,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "zeroed": [
    {
@@ -147,7 +155,10 @@
        0
       ],
       "read": "zeroed.ablate",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "features"
+      ]
      },
      "logits": {
       "site": {
@@ -162,13 +173,28 @@
       "dataset": "prompts",
       "read": "zeroed.logits",
       "width": 1,
+      "axes": [
+       "features"
+      ],
       "gathered": true
      }
     },
     "at": {
      "features": 0
     },
-    "dataset": "prompts"
+    "dataset": "prompts",
+    "schedule": {
+     "axes": [
+      "features"
+     ],
+     "serves": [
+      {
+       "features": 0
+      }
+     ],
+     "sites": [],
+     "stop": null
+    }
    },
    {
     "kind": "forward",
@@ -238,7 +264,10 @@
        0
       ],
       "read": "zeroed.ablate",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "features"
+      ]
      },
      "logits": {
       "site": {
@@ -253,13 +282,28 @@
       "dataset": "prompts",
       "read": "zeroed.logits",
       "width": 1,
+      "axes": [
+       "features"
+      ],
       "gathered": true
      }
     },
     "at": {
      "features": 1
     },
-    "dataset": "prompts"
+    "dataset": "prompts",
+    "schedule": {
+     "axes": [
+      "features"
+     ],
+     "serves": [
+      {
+       "features": 1
+      }
+     ],
+     "sites": [],
+     "stop": null
+    }
    },
    {
     "kind": "forward",
@@ -329,7 +373,10 @@
        0
       ],
       "read": "zeroed.ablate",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "features"
+      ]
      },
      "logits": {
       "site": {
@@ -344,13 +391,28 @@
       "dataset": "prompts",
       "read": "zeroed.logits",
       "width": 1,
+      "axes": [
+       "features"
+      ],
       "gathered": true
      }
     },
     "at": {
      "features": 2
     },
-    "dataset": "prompts"
+    "dataset": "prompts",
+    "schedule": {
+     "axes": [
+      "features"
+     ],
+     "serves": [
+      {
+       "features": 2
+      }
+     ],
+     "sites": [],
+     "stop": null
+    }
    },
    {
     "kind": "forward",
@@ -420,7 +482,10 @@
        0
       ],
       "read": "zeroed.ablate",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "features"
+      ]
      },
      "logits": {
       "site": {
@@ -435,13 +500,28 @@
       "dataset": "prompts",
       "read": "zeroed.logits",
       "width": 1,
+      "axes": [
+       "features"
+      ],
       "gathered": true
      }
     },
     "at": {
      "features": 3
     },
-    "dataset": "prompts"
+    "dataset": "prompts",
+    "schedule": {
+     "axes": [
+      "features"
+     ],
+     "serves": [
+      {
+       "features": 3
+      }
+     ],
+     "sites": [],
+     "stop": null
+    }
    }
   ],
   "logit_diff": [
@@ -458,6 +538,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 0
     }
@@ -475,6 +558,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 1
     }
@@ -492,6 +578,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 2
     }
@@ -509,6 +598,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 3
     }
@@ -527,6 +619,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 0
     }
@@ -543,6 +638,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 1
     }
@@ -559,6 +657,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 2
     }
@@ -575,6 +676,9 @@
     "dataset": "prompts",
     "read": "zeroed.logits",
     "width": 1,
+    "axes": [
+     "features"
+    ],
     "at": {
      "features": 3
     }

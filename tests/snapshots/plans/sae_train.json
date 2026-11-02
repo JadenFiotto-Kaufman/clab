@@ -43,7 +43,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "fit": {
    "kind": "fit",

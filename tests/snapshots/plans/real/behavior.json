@@ -65,7 +65,15 @@
      "gathered": true
     }
    },
-   "dataset": "days"
+   "dataset": "days",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "accuracy": {
    "kind": "op",

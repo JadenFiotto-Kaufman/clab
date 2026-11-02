@@ -77,7 +77,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "patched": {
    "kind": "forward",
@@ -156,7 +164,15 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "iia": {
    "kind": "op",

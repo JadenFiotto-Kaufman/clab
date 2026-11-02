@@ -36,7 +36,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "clean": {
    "kind": "forward",
@@ -96,7 +104,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "ablated": {
    "kind": "forward",
@@ -166,7 +182,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "inj0_clean": {
    "kind": "forward",
@@ -217,7 +241,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "inj1_clean": {
    "kind": "forward",
@@ -268,7 +300,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "inj1_abl": {
    "kind": "forward",
@@ -319,7 +359,15 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "te_clean": {
    "kind": "op",

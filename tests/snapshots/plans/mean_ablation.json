@@ -36,7 +36,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "mean": {
    "kind": "op",
@@ -71,7 +79,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "clean_ld": {
    "kind": "op",
@@ -136,7 +152,15 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "ablated_ld": {
    "kind": "op",

@@ -38,7 +38,15 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "patched": {
    "kind": "forward",
@@ -91,7 +99,15 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": [],
+    "serves": [
+     {}
+    ],
+    "sites": [],
+    "stop": null
+   }
   },
   "logit_diff": {
    "kind": "op",

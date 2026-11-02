@@ -2,8 +2,9 @@
 
 One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
 bundle, `top_k`'s ids and probabilities), `<name>.json` otherwise, tensors in it as nested lists. A swept
-save holds one entry per point, keyed by its coordinate, `pos=-1` (`layers=0,pos=-1` over two axes), in
-safetensors and JSON alike, a dict's own keys after a `/`. A file is the value and
+save holds one entry per point of the value's own axes (`axes`: those of its step's it depends on), keyed by its
+coordinate, `pos=-1` (`layers=0,pos=-1` over two axes), in safetensors and JSON alike, a dict's own keys after a
+`/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
@@ -13,13 +14,14 @@ never were there; `table` loads either again, from its file or the hub, and chec
 `dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
 its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), once
-where every point agrees, else per point by coordinate, as `shape` and `dtype` are, so that a result links back to
-the step that made it and says what each point of it is. It records the document's path relative to the corpus
-root, and each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and
-write, the positions it resolved to per row, which `table` uses to label positions; its `featurizers` each one's
-width; its `run` holds how each input tokenized, what each generate step's rows generated, the model's sizes, and
-what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
-they fed). Values are never in the manifest.
+where every point agrees, else per point by coordinate, as `shape` and `dtype` are, and `axes`, the sweep axes the
+value depends on, so that a result links back to the step that made it and says what each point of it is. It
+records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
+each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
+to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
+did; its `featurizers` each one's width; its `run` holds how each input tokenized, what each generate step's rows
+generated, the model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each
+CUDA device, its model calls and the tokens they fed, and the points it served). Values are never in the manifest.
 """
 
 import json
@@ -35,7 +37,7 @@ from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Entry, Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, points, record_of, scope
+from clab.plan import Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, points, projections, record_of, scope
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -54,19 +56,18 @@ def dump(plan: Plan, out: str) -> None:
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
-        entry = plan.steps[name.partition(".")[0]]
-        value = plan.results[name]
-        if isinstance(entry, list):
-            value = {labelled(plan, p.at): value[coordinate(plan, p.at)] for p in entry}
+        value, ats = plan.results[name], projections(plan, name)
+        if ats != [({}, ats[0][1])]:
+            value = {labelled(plan, at): value[coordinate(plan, at)] for at, _ in ats}
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
             write(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
-                  headed(plan, name, entry))
+                  headed(plan, name))
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
         described[name] = {"file": file, "step": name.partition(".")[0], **layouts(plan, name),
-                           "axes": list(points(entry)[0].at), "shape": describe(value, "shape"),
+                           "axes": axes(plan, name), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True)
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
@@ -89,12 +90,17 @@ def pretty(value: Any, level: int = 0) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def axes(plan: Plan, name: str) -> list[str]:
+    """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
+    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
+
+
 def layouts(plan: Plan, name: str) -> dict[str, Any]:
-    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where its step is
-    not swept or every point agrees, else per point by coordinate, as the manifest records a result's `shape`."""
-    entry = plan.steps[name.partition(".")[0]]
-    per = {labelled(plan, p.at): layout(record_of(plan.steps, name, p.at)) for p in points(entry)}
-    if not isinstance(entry, list):
+    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where the value
+    depends on no axis or every point of it agrees, else per point by coordinate, as the manifest records a
+    result's `shape`."""
+    per = {labelled(plan, at): layout(record_of(plan.steps, name, p.at)) for at, p in projections(plan, name)}
+    if list(per) == [""]:
         return per[""]
     out = {}
     for key in ("dims", *LABELS):
@@ -165,9 +171,8 @@ def load(out: str) -> Plan:
         else:
             with open(file) as f:
                 value = restored(json.load(f), d["dtype"])
-        entry = plan.steps[d["step"]]
-        if isinstance(entry, list):
-            value = {coordinate(plan, p.at): value[labelled(plan, p.at)] for p in entry}
+        if d["axes"]:
+            value = {coordinate(plan, at): value[labelled(plan, at)] for at, _ in projections(plan, name)}
         plan.results[name] = value
     return plan
 
@@ -192,18 +197,19 @@ def restored(value: Any, dtype: str | dict[str, Any] | None) -> Any:
     return value
 
 
-def headed(plan: Plan, name: str, entry: Entry) -> dict[str, str] | None:
+def headed(plan: Plan, name: str) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
-    if not isinstance(entry, list):
-        return header(plan, name, entry)
+    ats = projections(plan, name)
+    if ats == [({}, ats[0][1])]:
+        return header(plan, name, ats[0][1])
     found: dict[str, str] = {}
-    for p in entry:
+    for at, p in ats:
         point = header(plan, name, p)
         if point is None:
             return None
         found["format"] = point.pop("format")
-        found.update({f"{labelled(plan, p.at)}/{k}": v for k, v in point.items()})
+        found.update({f"{labelled(plan, at)}/{k}": v for k, v in point.items()})
     return found
 
 
