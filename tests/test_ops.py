@@ -5,6 +5,8 @@ import math
 import pytest
 import torch
 
+from conftest import BATCH_SIZE, edited, placed, same
+
 from clab import ops
 from clab.ops import edits, metrics, reductions, transforms
 from clab.steps import batches
@@ -19,9 +21,11 @@ DIMS = ["rows", "pos", "hidden_size"]
 
 def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
-                             "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "pca", "match",
-                             "logit_diff", "token_prob", "token_logit", "cross_entropy", "contains", "kl", "js", "top_k",
-                             "argmax", "detokenize", "cosine"]
+                             "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
+                             "count", "norm", "dot", "pca", "match", "logit_diff", "token_prob", "token_logit",
+                             "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize", "abs", "exp",
+                             "log", "sign", "sqrt", "square", "neg", "div", "pow", "eq", "ne", "gt", "ge", "lt", "le",
+                             "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -31,9 +35,12 @@ def test_each_op_declares_its_group_and_bundle():
     assert {n for n, g in groups.items() if g == "edits"} == {"swap", "add", "sub", "scale", "renormalize",
                                                                "normalize", "project_out", "decode", "apply", "noise",
                                                                "clamp"}
-    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "pca"}
+    assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "count", "norm",
+                                                                    "dot", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
-                                                                    "detokenize"}
+                                                                    "detokenize", "abs", "exp", "log", "sign", "sqrt",
+                                                                    "square", "neg", "div", "pow", "eq", "ne", "gt",
+                                                                    "ge", "lt", "le"}
     assert {n for n, g in groups.items() if g == "metrics"} == {"match", "logit_diff", "token_prob", "token_logit",
                                                                  "cross_entropy", "contains", "kl", "js", "cosine"}
     assert {n: d["bundle"] for n, d in ops.DECLARED.items() if d["bundle"]} == {"pca": "pca"}
@@ -469,3 +476,227 @@ def test_cosine_is_over_the_hidden_axis_one_number_per_row_and_position():
     assert ops.out_dims("cosine", ["layers", "rows", "pos", "hidden_size"], {}) == ["layers", "rows", "pos"]
     with pytest.raises(ValueError, match="'cosine' needs a value with a 'hidden_size' axis"):
         ops.out_dims("cosine", ["rows", "pos", "vocab_size"], {})
+
+
+# -- arithmetic, comparisons and the reductions beside `mean` ---------------------------------------------------------
+
+NAN = float("nan")
+
+
+def test_the_elementwise_transforms_are_their_formulas_in_float32_and_keep_a_missing_entry_missing():
+    """Each is torch's own function of the float32 value, its layout kept; a NaN stays NaN (`sign`'s too, which
+    torch makes 0); a bfloat16 value comes back float32."""
+    x = X.clone()
+    x[1, 0] = NAN
+    for name, expected in {"abs": x.abs(), "exp": x.exp(), "log": x.log(), "sqrt": x.sqrt(), "square": x * x,
+                           "neg": -x, "sign": x.sign().masked_fill(x.isnan(), NAN)}.items():
+        assert same(ops.call(name, x, {}), expected), name
+        assert ops.out_dims(name, DIMS, {}) == DIMS
+        assert ops.call(name, x.bfloat16(), {}).dtype == torch.float32
+    assert same(transforms.pow(x, 3), x.pow(3)) and torch.equal(transforms.pow(X, 2), transforms.square(X))
+    assert torch.equal(transforms.pow(X.abs(), 0.5), transforms.sqrt(X.abs()))
+    assert same(transforms.pow(x, X.flip(0)), x.pow(X.flip(0)))           # a named value, entry by entry
+
+
+def test_div_is_nan_wherever_its_divisor_is_zero_and_div_then_scale_is_the_value():
+    y = torch.randn(3, 2, 5)
+    y[0, 1, 2] = 0.0
+    got = transforms.div(X, y)
+    assert got[0, 1, 2].isnan() and got.isnan().sum() == 1
+    assert torch.equal(got.masked_fill(got.isnan(), 0), (X / y).masked_fill(y == 0, 0))
+    assert transforms.div(X, 0).isnan().all() and torch.equal(transforms.div(X, 2), X / 2)
+    back = edits.scale(got, y)
+    held = y != 0
+    assert ((back - X).abs() <= 2 * torch.finfo(torch.float32).eps * X.abs())[held].all()
+
+
+def test_comparisons_give_0_or_1_in_the_values_dtype_and_nan_where_either_side_is_missing():
+    x = torch.tensor([[1.0, 2.0, NAN, 4.0]])
+    other = torch.tensor([[2.0, 2.0, 0.0, NAN]])
+    for name, holds in {"eq": torch.eq, "ne": torch.ne, "gt": torch.gt, "ge": torch.ge, "lt": torch.lt,
+                        "le": torch.le}.items():
+        got = ops.call(name, x, {"with": other})
+        assert same(got, holds(x, other).float().masked_fill(x.isnan() | other.isnan(), NAN)), name
+        assert ops.call(name, x.bfloat16(), {"with": 2}).dtype == torch.bfloat16
+        assert ops.out_dims(name, DIMS, {"with": 0}) == DIMS
+    assert torch.equal(transforms.eq(X, 0.5) + transforms.ne(X, 0.5), torch.ones_like(X))
+    ids = torch.tensor([[3, -1, 7]])
+    assert torch.equal(transforms.eq(ids, torch.tensor([[3, -1, 2]])), torch.tensor([[1, 1, 0]]))   # ids as they are
+    assert torch.equal(transforms.lt(ids, 2.5), torch.tensor([[0, 1, 0]]))
+    half = torch.tensor([1.0039]).bfloat16()               # 1.0039 in bfloat16 is 1.0, which float32 compares exactly
+    assert transforms.eq(half, 1.0).item() == 1 and transforms.gt(half, 0.999).item() == 1
+
+
+def test_max_mirrors_min_and_std_is_the_sample_standard_deviation_of_what_is_there():
+    x = torch.tensor([[1.0, 2.0, NAN], [NAN, NAN, NAN], [3.0, -1.0, 0.5], [7.0, NAN, NAN]])
+    d = ["rows", "pos"]
+    assert same(reductions.max(x, d, over=["pos"]), torch.tensor([2.0, NAN, 3.0, 7.0]))
+    assert same(reductions.max(-x, d, over=["pos"]), -reductions.min(x, d, over=["pos"]))
+    assert torch.equal(reductions.max(X, DIMS), X.amax((0, 1)))
+    inf = torch.tensor([[1.0, float("inf")]])
+    assert reductions.max(inf, d, over=["pos"]).item() == float("inf")
+    std = reductions.std(x, d, over=["pos"])
+    torch.testing.assert_close(std[[0, 2]], torch.stack([x[0, :2].std(), x[2].std()]))
+    assert std[1].isnan() and std[3].isnan()              # none there, and one: no spread to estimate
+    torch.testing.assert_close(reductions.std(X, DIMS), X.std((0, 1)))
+    assert ops.out_dims("std", DIMS, {}) == ["hidden_size"] and ops.out_dims("max", DIMS, {"over": ["pos"]}) == \
+        ["rows", "hidden_size"]
+
+
+def test_norm_and_dot_reduce_over_hidden_size_unless_over_names_other_axes():
+    other = torch.randn(3, 2, 5)
+    assert torch.equal(reductions.norm(X, DIMS), reductions.sum(X * X, DIMS, over=["hidden_size"]).sqrt())
+    torch.testing.assert_close(reductions.norm(X, DIMS), X.norm(dim=-1))
+    torch.testing.assert_close(reductions.norm(X, DIMS, p=1), X.abs().sum(-1))
+    torch.testing.assert_close(reductions.norm(X, DIMS, over=["pos"], p=3), X.norm(p=3, dim=1))
+    assert torch.equal(reductions.dot(X, other, DIMS), reductions.sum(edits.scale(X, other), DIMS, over=["hidden_size"]))
+    torch.testing.assert_close(reductions.dot(X, other, DIMS), (X * other).sum(-1))
+    pattern = torch.rand(2, 6)
+    pattern[1, 4:] = NAN                                     # a row's keys past its own: the entries there are taken
+    torch.testing.assert_close(reductions.norm(pattern, ["rows", "key"], over=["key"])[1], pattern[1, :4].norm())
+    assert reductions.norm(torch.full((1, 5), NAN), ["rows", "hidden_size"]).isnan().all()
+    assert ops.out_dims("norm", DIMS, {}) == ["rows", "pos"] and ops.out_dims("dot", DIMS, {"over": ["pos"]}) == \
+        ["rows", "hidden_size"]
+    with pytest.raises(ValueError, match=r"it reduces over hidden_size unless 'over' names the axes, and the value is "
+                                         r"laid out \['rows', 'pos', 'vocab_size'\]"):
+        ops.out_dims("norm", ["rows", "pos", "vocab_size"], {})
+    with pytest.raises(ValueError, match=r"'norm' p 0 is not greater than 0"):
+        ops.check("norm", {"p": 0})
+    ops.check("norm", {"p": 1})
+
+
+def test_count_counts_the_positions_that_hold_the_value_a_vector_once():
+    """Over `pos` a row's own positions, the features removed with them; a row with none counts 0; over `rows`, how
+    many rows hold each position; a pattern's ragged keys over `key`; in ids, -1 is no position."""
+    x = X.clone()
+    x[1, 1] = NAN
+    x[2] = NAN
+    assert torch.equal(reductions.count(x, DIMS), torch.tensor([2.0, 1.0, 0.0]))
+    assert torch.equal(reductions.count(x, DIMS, over=["rows"]), torch.tensor([2.0, 1.0]))
+    assert torch.equal(reductions.count(x, DIMS, over=["rows", "pos"]), torch.tensor(3.0))
+    assert torch.equal(reductions.count(x, DIMS, over=["hidden_size"]), torch.tensor([[5.0, 5.0], [5.0, 0.0],
+                                                                                       [0.0, 0.0]]))
+    pattern = torch.rand(2, 3, 2, 4)                         # rows, pos, num_heads, key
+    pattern[1, :, :, 2:] = NAN
+    layout = ["rows", "pos", "num_heads", "key"]
+    assert torch.equal(reductions.count(pattern, layout, over=["key"]), torch.tensor([[4.0] * 3, [2.0] * 3]))
+    assert torch.equal(reductions.count(torch.tensor([[3, -1, 0]]), ["rows", "pos"]), torch.tensor([2.0]))
+    assert ops.out_dims("count", ["layers", *DIMS], {}) == ["layers", "rows"]
+    assert ops.out_dims("count", layout, {"over": ["key"]}) == ["rows", "pos"]
+    with pytest.raises(ValueError, match=r"count counts along 'pos' unless 'over' names the axes it counts along, and "
+                                         r"the value is laid out \['rows', 'hidden_size'\]"):
+        ops.out_dims("count", ["rows", "hidden_size"], {})
+
+
+def arithmetic(d: dict) -> None:
+    """patching.json as the identities' document: three reads at layer 0 (the last token, every token and the whole
+    entity, the last two ragged) and the counterfactual's last token, each identity a pair of values, and the ops in
+    a read and in a write as well as as steps."""
+    target, cf = "target", "counterfactual.v_cf"
+    d["sites"]["head"] = {"component": "lm_head_output"}
+    op = lambda name, of, **args: {"kind": "op", "op": name, "of": of, **args}       # noqa: E731
+    d["steps"] = {
+        "counterfactual": d["steps"]["counterfactual"],
+        "clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "h": {"site": target, "pos": -1}, "last3": {"site": target, "pos": {"index": "-3:"}},
+            "every": {"site": target, "pos": {"index": ":"}},
+            "entity": {"site": target, "pos": {"scope": {"column": "pairs.entity"}}},
+            "positive": {"site": target, "pos": -1, "ops": [{"op": "gt", "with": 0}]},
+            "n_within": {"site": target, "pos": -1, "ops": [{"op": "norm"}]},
+            "dot_within": {"site": target, "pos": -1, "ops": [{"op": "dot", "with": cf}]},
+            "count_within": {"site": target, "pos": {"scope": {"column": "pairs.entity"}}, "ops": [{"op": "count"}]},
+            "abs_within": {"site": target, "pos": -1, "ops": [{"op": "abs"}]},
+            "logits": {"site": "head", "pos": -1}}},
+        "square": op("square", "clean.h"), "summed": op("sum", "square", over=["hidden_size"]),
+        "root": op("sqrt", "summed"), "norm": op("norm", "clean.h"),
+        "scaled": op("scale", "clean.h", factor=cf), "scaled_sum": op("sum", "scaled", over=["hidden_size"]),
+        "dot": op("dot", "clean.h", **{"with": cf}),
+        "sign": op("sign", "clean.h"), "eq": op("eq", "sign", **{"with": 1}), "ne": op("ne", "sign", **{"with": 1}),
+        "eq_ne": op("add", "eq", **{"with": "ne"}),
+        "gt": op("gt", "clean.h", **{"with": cf}), "le": op("le", "clean.h", **{"with": cf}),
+        "gt_le": op("add", "gt", **{"with": "le"}),
+        "count3": op("count", "clean.last3"), "count_every": op("count", "clean.every"),
+        "count_entity": op("count", "clean.entity"), "abs": op("abs", "clean.h"),
+        "div": op("div", "clean.h", **{"with": cf}), "back": op("scale", "div", factor=cf),
+        "masked_value": op("scale", "clean.h", factor="clean.positive"),
+        "masked": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "patch": {"site": target, "pos": -1, "ops": [{"op": "scale", "factor": "clean.positive"}]},
+            "logits": {"site": "head", "pos": -1}}},
+        "swapped": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "patch": {"site": target, "pos": -1, "ops": [{"op": "swap", "with": "masked_value"}]},
+            "logits": {"site": "head", "pos": -1}}},
+        "live": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "patch": {"site": target, "pos": -1, "ops": [{"op": "sign"}, {"op": "scale", "factor": 0.1}]},
+            "after": {"site": target, "pos": -1}}}}
+    d["saves"] = [f"clean.{k}" for k in d["steps"]["clean"]["interventions"]] + [
+        k for k, step in d["steps"].items() if step["kind"] == "op"] + [
+        "masked.patch", "masked.logits", "swapped.logits", "live.patch", "live.after"]
+
+
+@pytest.fixture(scope="module")
+def identities(engines) -> dict:
+    """The identities' document run on each engine, ndif under `remote="local"`: each run's results."""
+    plan = edited("patching", arithmetic).compile()
+    runs = {kind: engines(kind, plan.model).execute(plan, batch_size=BATCH_SIZE).results for kind in ("nnterp", "hooks")}
+    there = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
+    return {**runs, "ndif": there.results, "positions": placed(there)}
+
+
+def test_the_arithmetic_identities_hold_on_the_corpus_and_the_engines_agree_to_the_bit(identities):
+    """On weekdays/train at layer 0: `norm` is `sqrt` of the `sum` of the `square` and `dot` the `sum` of `scale`, to
+    the bit; `eq` and `ne`, and `gt` and `le`, sum to exactly 1; `count` of a static-width read is its width and of a
+    ragged one each row's own number of positions; `div` then `scale` by the same value is the value to two float32
+    roundings (at worst 0.91 of float32's epsilon, relative, and 86% of entries exact); each op inside a read is its step's value to the bit; and nnterp, hooks and ndif under
+    `remote="local"` give the same bits."""
+    v = identities["nnterp"]
+    assert torch.equal(v["norm"], v["root"]) and v["norm"].shape == (4, 1)
+    assert torch.equal(v["dot"], v["scaled_sum"])
+    assert torch.equal(v["eq_ne"], torch.ones(4, 1, 16)) and 0 < v["eq"].sum() < 64
+    assert torch.equal(v["gt_le"], torch.ones(4, 1, 16)) and 0 < v["gt"].sum() < 64
+    assert torch.equal(v["count3"], torch.full((4,), 3.0))
+    every, entity = (identities["positions"][f"clean.{k}"] for k in ("every", "entity"))
+    assert v["count_every"].tolist() == [len(p) for p in every] == [11, 9, 9, 9]
+    assert v["count_entity"].tolist() == [len(p) for p in entity] == [3, 1, 1, 1]
+    h = v["clean.h"]
+    assert ((v["back"] - h).abs() <= 2 * torch.finfo(torch.float32).eps * h.abs()).all()
+    assert torch.equal(v["clean.n_within"], v["norm"]) and torch.equal(v["clean.dot_within"], v["dot"])
+    assert torch.equal(v["clean.count_within"], v["count_entity"]) and torch.equal(v["clean.abs_within"], v["abs"])
+    assert v["clean.positive"].dtype == torch.float32 and set(v["clean.positive"].unique().tolist()) == {0.0, 1.0}
+    assert same(identities["hooks"], v) and same(identities["ndif"], v)
+
+
+def test_a_comparison_masks_a_write_and_an_elementwise_transform_acts_on_the_live_value(identities):
+    """`scale` by a comparison read in another forward writes the value where it holds and zero where not, the same
+    logits as swapping in the masked value made as a step; `[sign, scale 0.1]` writes a tenth of each entry's sign,
+    which a read after it sees; `abs` alone in a read writes nothing (the clean logits are the unpatched ones)."""
+    v = identities["nnterp"]
+    h, positive = v["clean.h"], v["clean.positive"]
+    assert torch.equal(v["masked.patch"], h * positive) and torch.equal(v["masked.logits"], v["swapped.logits"])
+    assert not torch.equal(v["masked.logits"], v["clean.logits"])
+    assert torch.equal(v["live.patch"], 0.1 * h.sign()) and torch.equal(v["live.after"], v["live.patch"])
+
+
+def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():
+    """At compile, with the step's path: `norm` of a metric with no `over` (it has no `hidden_size`), `count` of a
+    value with no `pos`, a `count` over `rows` inside an entry (it sees one batch), and a `p` of 0."""
+    from clab.plan import PlanError
+
+    def with_steps(**steps):
+        def change(d):
+            d["steps"].update(steps)
+        return change
+    cases = {
+        r"steps\.n: it reduces over hidden_size unless 'over' names the axes, and the value is laid out \['rows', 'pos'\]":
+            {"n": {"kind": "op", "op": "norm", "of": "logit_diff"}},
+        r"steps\.c: count counts along 'pos' unless 'over' names the axes it counts along, and the value is laid out "
+        r"\['hidden_size'\]": {"m": {"kind": "op", "op": "mean", "of": "counterfactual.v_cf"},
+                               "c": {"kind": "op", "op": "count", "of": "m"}},
+        r"ops\[0\]: 'count' aggregates over rows, and inside an entry it sees one batch":
+            {"r": {"kind": "forward", "input": "pairs.input", "interventions": {
+                "x": {"site": "target", "pos": -1, "ops": [{"op": "count", "over": ["rows"]}]}}}},
+        r"steps\.p: 'norm' p 0 is not greater than 0": {"p": {"kind": "op", "op": "norm", "of": "logit_diff",
+                                                                "over": ["pos"], "p": 0}},
+    }
+    for message, steps in cases.items():
+        with pytest.raises(PlanError, match=message):
+            edited("patching", with_steps(**steps)).compile()

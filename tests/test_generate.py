@@ -506,6 +506,26 @@ def test_rows_that_stop_at_different_calls(engines):
                        "cf_answer": " Sunday"} and rows[1]["top"] == 18190
 
 
+def counted_calls(d):
+    """`count` of a read at every decode call, `{"frame": "1:"}`: the decode calls each row made."""
+    d["steps"]["answer"]["interventions"]["calls"] = {"site": "head", "pos": {"frame": "1:"}}
+    d["steps"]["n"] = {"kind": "op", "op": "count", "of": "answer.calls"}
+    d["saves"].append("n")
+
+
+def test_count_of_a_read_at_every_decode_call_is_the_calls_each_row_made(engines):
+    """generated_answer.json's rows run to six tokens, five decode calls each; steered, with EOS not held off, they
+    stop after 1, 5, 3 and 5 tokens, so they made 1, 5, 3 and 5 calls (the decode call that chose EOS among them):
+    each row's own number of positions in the read, on both engines and under `remote="local"`, to the bit."""
+    plan = edited("generated_answer", counted_calls).compile()
+    assert engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["n"].tolist() == [5.0] * 4
+    runs = {kind: steered(engines, kind, BATCH_SIZE, held=False, change=counted_calls, **options)
+            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    n = runs["nnterp"].results["n"]
+    assert n.tolist() == [1.0, 5.0, 3.0, 5.0] == [len(p) for p in placed(runs["nnterp"])["answer.calls"]]
+    assert all(torch.equal(run.results["n"], n) for run in runs.values())
+
+
 def test_min_new_tokens_holds_eos_off(engines):
     for kind in ("nnterp", "hooks"):
         plan = steered(engines, kind, 2, held=True)
