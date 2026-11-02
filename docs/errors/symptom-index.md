@@ -12,7 +12,7 @@ Up: [docs/index.md](../index.md) — all sections.
 
 Start here when the run finished, nothing was refused, and the numbers look wrong. For a refusal, look its message up in [index.md](index.md).
 
-Most of these show up when you read back what the run recorded: where each read and write landed (`run.positions` in the manifest, the `pos` and `pos_token` columns of `clab table`), how many rows each value holds, and the sweep axes `clab show` lists ([output.md](../usage/output.md)).
+Most of these show up when you read back what the run recorded: where each read and write landed (each entry's `positions` in the manifest's `steps`, the entry lines of `clab show`, the `pos` and `pos_token` columns of `clab table`), how many rows each value holds, and the sweep axes each result depends on, which `clab show` lists ([output.md](../usage/output.md)).
 
 ## Positions and selections
 
@@ -23,8 +23,7 @@ Most of these show up when you read back what the run recorded: where each read 
 | A window swap between two inputs moved different tokens than you meant | The same unscoped `pos` on two inputs pairs position i with position i. Rows that tokenize to different lengths are checked; rows of equal length are not, whatever their tokens. Scope each side to the text it means. | [below](#a-window-between-rows-of-equal-length) |
 | A read over every token includes `<s>` or a chat template's markers | Every input token is a position, BOS at 0 and a template's markers included, so `{"index": ":"}` takes them all. `documents/pca_harvest.json` reads `{"index": "1:"}` to leave BOS out. | [positions.md](../usage/positions.md) |
 | `pos: -1` on a chat input reads a template marker (`]` of `[/INST]`) | The rendered chat ends with whatever the template writes last, and `-1` is that token. A `turn` scope names the message's own tokens. | [data.md](../usage/data.md#chat-inputs) |
-| A chat document renders different tokens on another day, nothing refused | The chat template reads the clock: Llama-3.2's Instruct template writes today's date into the system header it adds. A dataset's digest covers its rows, not their rendering. Pin the date with `"date_string"` in the dataset's `template` and check `run.tokens`. | [data.md](../usage/data.md#chat-inputs) |
-| Some rows of a prefill read are NaN and missing from `clab table` | An index with an open end (`"10:"`) picks no token on rows too short for it. A write there is refused; a read is not. | [position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row) |
+| Some rows of a prefill read are NaN, and `clab table` flags them `alignment_missing` | An index with an open end (`"10:"`) picks no token on rows too short for it, so those rows are `alignment_missing`. A write there is refused; a read is not. | [position-not-in-row.md](position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row) |
 | `argmax` or `top_k` over heads gives 0 and 1 where you selected heads 3 and 1 | Along a `select`ed axis, values and indices follow the `select` list, counted within it: index 0 is the list's first pick. Map an index back through the list. | [values-and-layout.md](../concepts/values-and-layout.md#select-keeps-the-axis) |
 | A query patched between two prompts moved where its head looks from | `attention_queries` and `attention_keys` are taken after RoPE, so a query read on a prompt of another length carries that prompt's position. Patch between prompts that tokenize alike. | [attention.md](../patterns/attention.md#queries-after-rope) |
 
@@ -37,16 +36,17 @@ Most of these show up when you read back what the run recorded: where each read 
 | A patch meant for one layer at a time changed every layer at once | A `layers` slice or list on a write writes at every layer it picks, in one forward. One layer per point is `"layers": {"sweep": [...]}`. | [interventions.md](../usage/interventions.md#writes-across-layers) |
 | Every point of a patch equals the clean run, and the nulls pass | A later write at the same site overwrote it: entries at one site compose in the order written, so a freeze listed after the patch puts the clean value back. List the freeze first. | [interventions.md](../usage/interventions.md#the-order-ops-run-in) |
 | A vector read at one layer changed every layer of a write across `layers` | An operand without a `layers` axis is the same at every layer the write is made at. Read the operand at the same `layers` to pair layer with layer, by label. | [interventions.md](../usage/interventions.md#writes-across-layers) |
+| A swept step's saved read is one tensor, not a dict keyed by point | A result is keyed by the sweep axes its own value depends on (`axes`, which `clab show` lists per result): a read whose forward's writes do not vary depends on its own sweeps alone, and a generation's ids on the forward's. In `documents/generate_probe.json`, `p_answer` is a dict by `frame` and `patched` one `[4, 3]` tensor. | [sweeps.md](../usage/sweeps.md#reading-swept-results) |
 | A `mean` or `sum` came back with one number per layer | A reduction removes the rows and positions by default and keeps a `layers` axis. Name `layers` in `over` to remove it. | [ops.md](../usage/ops.md#reductions-and-over) |
 
 ## Values and reductions
 
 | What you saw | What it is | Where |
 |---|---|---|
-| An accuracy or mean covers fewer rows than the dataset has | A row a read beyond the prefill does not reach (a scope the generation never said, a call after the row stopped) is `alignment_missing`: NaN, and `mean`, `sum` and `min` leave it out. Count them in `run.positions`, or as the table's `alignment_missing` rows; `clab show`'s shape counts every row, reached or not (`[4,1,32000]` for a read at `{"frame": 3}` that one of four rows never reached). | [alignment-missing.md](alignment-missing.md) |
+| An accuracy or mean covers fewer rows than the dataset has | A row a read does not reach (a scope the generation never said, a call after the row stopped, an index with an open end past a short row) is `alignment_missing`: NaN, and `mean`, `sum` and `min` leave it out. Count them in the entry's `positions`, or as the table's `alignment_missing` rows; `clab show`'s shape counts every row, reached or not (`[4,1,16]` for a read at `{"index": "10:"}` that three of four rows do not reach). | [alignment-missing.md](alignment-missing.md) |
 | A mean over each row's entity favours rows whose entity has more tokens | A reduction over a ragged read averages every position present, so a three-token entity weighs three times a one-token one. Reduce `"over": ["pos"]` first. | [ablation.md](../patterns/ablation.md#a-mean-over-an-entitys-tokens) |
 | After knocking keys out and `renormalize`, the pattern's rows do not sum to 1 | `renormalize` restores each vector's L2 norm unless told otherwise; `{"op": "renormalize", "norm": "sum"}` restores its sum. | [attention.md](../patterns/attention.md#knocking-out-keys) |
-| A steered run is NaN at every dose, 0 included | `normalize` of a zero vector is NaN, and adding NaN at any dose is NaN. Check a direction's norm before normalizing it. | [steering.md](../patterns/steering.md#a-mean-difference-at-a-dose) |
+| A steered run equals the unsteered one at every dose | `normalize` of a zero vector leaves it zero, and adding zero at any dose changes nothing. Check a direction's norm before normalizing it. | [steering.md](../patterns/steering.md#a-mean-difference-at-a-dose) |
 | Small effects on every head of a bfloat16 sweep, early layers included | bfloat16 rounding: about ±0.02 on a mean logit difference over 120 rows on Qwen3-4B, where float32 gives exactly 0. A bit-exact null does not rule it out. Recompute a few heads in float32. | [ops.md](../usage/ops.md#the-float32-rule) |
 | A mean-difference direction moves nothing in particular | A difference of means over the same prompts in another order is rounding noise (a norm of about 4e-9), and `normalize` makes it a unit vector pointing nowhere. Save the difference and read its norm. | [steering.md](../patterns/steering.md#a-mean-difference-at-a-dose) |
 
@@ -57,7 +57,6 @@ Most of these show up when you read back what the run recorded: where each read 
 | `token_prob` is higher than the probability of the token you meant | `strip` or `lower` on the column makes each answer token a class (under `strip`, ` a` and `a`; under `lower`, ` a` and ` A`), and `token_prob` sums the class. | [data.md](../usage/data.md#answer-columns) |
 | A metric scores a different token than the model says | Answers are tokenized as written. On a byte-level BPE tokenizer such as GPT-2's, `a` and ` a` are two different one-token answers. Write the column as the model continues the prompt, leading space included. | [answer-does-not-line-up.md](answer-does-not-line-up.md) |
 | A probe has more classes than you meant | Its classes are the distinct values of its `classes` column, compared exactly: `yes` and `Yes` are two. | [probing.md](../patterns/probing.md#scoring-classes) |
-| `match` is 0 on every row of a head narrowed with `select` | A metric looks the answer up by token id and needs the whole vocabulary; on a head narrowed on `vocab_size` it compares an index within the selection with an id. Score the full head. | [ops.md](../usage/ops.md#metrics) |
 
 ## Featurizers
 
@@ -78,18 +77,15 @@ Most of these show up when you read back what the run recorded: where each read 
 | `contains` never finds the stop token's text | A `detokenize`d row ends before its first EOS. The step's ids after that EOS are filler, not the row's words. | [generate.md](../usage/generate.md#rows-that-stop-early) |
 | A read at a later decode call is NaN on some rows | Those rows stopped at an EOS before that call, so they are `alignment_missing` there. `min_new_tokens` holds every row to a count. | [generate.md](../usage/generate.md#rows-that-stop-early) |
 | `{"frame": -1}` read every prompt token on some rows | On a row whose first generated token was EOS the last call is the prefill, and `{"frame": -1}` without an `index` is all of it. Write `{"frame": -1, "index": -1}`. | [positions.md](../usage/positions.md#generated-tokens) |
-| A write and a read with the same scoped `pos` landed on different tokens | A write found online sees nothing past the token it is fed, so it takes an occurrence's end as a word's end; a read is resolved after the row stops and sees what follows. Compare both in `run.positions`. | [concepts/positions.md](../concepts/positions.md#where-a-write-lands) |
+| A write and a read with the same scoped `pos` landed on different tokens | A write found online sees nothing past the token it is fed, so it takes an occurrence's end as a word's end; a read is resolved after the row stops and sees what follows. Compare both entries' positions in `clab show`. | [concepts/positions.md](../concepts/positions.md#where-a-write-lands) |
 
 ## Tables and reproducibility
 
 | What you saw | What it is | Where |
 |---|---|---|
-| `clab table` prints nothing for a saved read | No row reached it: `clab show` gives its `pos` width as 0 (`[4,0,16]`), and every row in `run.positions` is `alignment_missing`. | [alignment-missing.md](alignment-missing.md#how-it-propagates) |
-| `clab table out a b` prints nothing, while each alone prints rows | A table joins its values on what they share: two reads at different positions share no `pos`, and values swept over different axes (`src, dst` against `src` alone) share no point. Table them one at a time. | [output.md](../usage/output.md#clab-table), [sweeps.md](../usage/sweeps.md#pitfalls) |
-| `clab table` of two `fit.history` values prints epochs × epochs rows | Two histories do not pair by epoch, and the table prints every pair. Table one history at a time. | [output.md](../usage/output.md#clab-table) |
-| The last bits of a value differ between two runs | Batch shape: another `--batch-size`, or a trailing partial batch, is another matrix (about 1e-7 in float32); at some CPU thread counts, other rows sharing the batch can move a heavily padded row too. Results reproduce to the bit at a fixed batch size, row order and thread count. | [running.md](../usage/running.md#batch-size-and-reproducibility) |
+| `clab table out a b` prints nothing, while each alone prints rows | A table joins its values on the keys they share, and two reads of one input at different positions share no `pos`, so no row agrees on every key. Table them one at a time. | [output.md](../usage/output.md#clab-table), [sweeps.md](../usage/sweeps.md#pitfalls) |
+| The last bits of a value differ between two runs | Batch shape: another `--batch-size`, or a trailing partial batch, is another matrix (about 1e-7 in float32); at 4 CPU threads or fewer, other rows sharing the batch can move a row by about 1e-8 too (at 8, 12 and 24 they do not). Results reproduce to the bit at a fixed batch size and thread count. | [running.md](../usage/running.md#batch-size-and-reproducibility) |
 | An apply document's numbers differ from its fit's eval in the last bits | A fit's body runs in batches of the fit's `batch_size`, the apply document in batches of `--batch-size`. Run the apply document at the fit's `batch_size` to compare to the bit; on a GPU a loaded bundle's numbers can differ in the last bits even then, so compare at a tolerance. | [bundles.md](../usage/bundles.md#reproducing-a-fits-numbers-in-the-apply-document) |
-| A run died with torch's out-of-memory error and wrote nothing | Every value a step binds stays on the model's device until the run ends, and an op step over two saved full-vocabulary reads builds temporaries their size. Score inside the later forward's head entry, with the reference as `against`. | [ops.md](../usage/ops.md#a-step-or-an-entry) |
 
 ## A window between rows of equal length
 
@@ -100,4 +96,4 @@ pairs.a: <s> ▁If ▁today ▁is [▁Th urs day] , ▁tom orrow ▁is
 pairs.b: <s> ▁If ▁today ▁is [▁Monday , ▁so] ▁then ▁tom orrow ▁is
 ```
 
-The run swaps the three pieces of ` Thursday` onto ` Monday`, a comma and ` so`. Scope each side to its own text, as `documents/entity_patch.json` does, and check `run.positions` for both entries.
+The run swaps the three pieces of ` Thursday` onto ` Monday`, a comma and ` so`. Scope each side to its own text, as `documents/entity_patch.json` does, and check both entries' positions in `clab show`.

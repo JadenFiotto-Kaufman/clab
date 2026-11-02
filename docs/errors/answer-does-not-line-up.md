@@ -40,15 +40,15 @@ The answer is several tokens and the read is one position (`pos: -1`). Teacher-f
 One ending names a whitespace-only token as the difference:
 
 ```text
-nll: days.base_answer row 0: ' 42' is 3 tokens; the read has 2 positions on that row; …; its token 0, ' ', is whitespace only, which an answer keeps and a scope under strip does not cover: scope the column without strip
+nll: days.base_answer row 0: ' 42' is 3 tokens; the read has 2 positions on that row; …; the input says it as '42', 2 tokens (['4', '2']), where ' 42' alone is [' ', '4', '2']: …
 ```
 
-Some tokenizers write a number's space as its own token, which the answer keeps. A `strip` flag on the scope's column drops it from the scope, so the read is a position short; scope the column without `strip`.
+Some tokenizers write a number's space as its own token (the corpus Llama writes ` 42` as `▁`, `4`, `2`), which the answer keeps. A `strip` flag on the scope's column drops that token from the scope, so the read is a position short. Scope the column without `strip`: the scope then covers all three tokens, and the answer scores at each.
 
 ## `… a position each, and the value has no pos axis`
 
 ```text
-tp: pairs.input row 0: 'If today is Thursday, tomorrow is' is 10 tokens, a position each, and the value has no pos axis (['rows', 'vocab_size'])
+tp: pairs.entity row 0: 'Thursday' is 3 tokens, a position each, and the value has no pos axis (['rows', 'vocab_size'])
 ```
 
 The metric's `of` was reduced over `pos` before scoring. Score first, then reduce the scores, as `seq_nll` does.
@@ -80,10 +80,10 @@ Under `strip` an answer's whitespace-only tokens at its end are dropped, and an 
 ## `position p predicts '…' in the input, which is not token i of …`
 
 ```text
-nll: days.base_answer row 0: position 11 predicts 'Ġ3' in the input, which is not token 0 of '3' as it tokenizes alone (['3']); the answer is scored as it tokenizes, so the input says it the same way
+nll: days.base_answer row 0: position 7 predicts ' 3' in the input, which is not token 0 of '3' as it tokenizes alone (['3']); the answer is scored as it tokenizes, so the input says it the same way
 ```
 
-Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. A byte-level BPE tokenizer merges a space into the token after it: on GPT-2's, the prompt `next is ` followed by `3` tokenizes as `Ġ3`, a space and `3` in one token (`Ġ` is how GPT-2's tokenizer writes a leading space), while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
+Teacher forcing reads where the input predicts each answer token, and the input must say the answer with the same tokens it has alone. A byte-level BPE tokenizer merges a space into the token after it: on GPT-2's, the prompt `one, two, next is ` followed by `3` tokenizes the end as ` 3`, a space and `3` in one token, while `3` alone is `3`. Write the space on the answer (` 3`) and not at the end of the prompt.
 
 ## A probe's classes
 

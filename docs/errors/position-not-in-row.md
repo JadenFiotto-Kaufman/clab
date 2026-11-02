@@ -8,7 +8,7 @@ sources: [clab/compile/positions.py, clab/compile/preflight.py]
 
 # A Position Does Not Fit a Row
 
-In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a `pos` that names nothing on some row, naming the entry and the row (`clab/compile/positions.py` `indices`). Beyond the prefill the same miss is not a refusal: the row is `alignment_missing`, as [alignment-missing.md](alignment-missing.md) explains.
+In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `indices`). An index with an open end that picks none of a short row's tokens is not refused, nor is any miss beyond the prefill: the row is `alignment_missing`, as [alignment-missing.md](alignment-missing.md) explains, and only a write there is refused.
 
 ## See the row's tokens
 
@@ -35,7 +35,7 @@ print(compiled.run.tokens["pairs.input"][1])        # ['<s>', '▁If', '▁today
 patched.patch: row 1: text 'Thursday' is not in its input
 ```
 
-A `text` or `column` scope is found on token and word boundaries, as written. `Sara` is not in `Sarah`. Case and surrounding whitespace compare exactly unless the scope sets `lower` or `strip` (on a column, on its reference). The BOS a tokenizer adds covers no text, so `{"text": "<s>"}` is never found; `pos: 0` is the BOS. The usual cause is a `text` that is the same on every row while the rows differ, as here: row 1 says Friday. A `column` scope searches each row for its own value; a list of texts finds any of them.
+A `text` or `column` scope is found on token and word boundaries, as written. `Sara` is not in `Sarah`, and a text found only inside a word says so: `row 0: text 'toda' is not in its input; it occurs only inside 'today', cutting a word, and an occurrence lies on word boundaries`. A `column` scope's message quotes the row's value: `row 0: column 'pairs.cf_answer' (' Sunday') is not in its input`. Case and surrounding whitespace compare exactly unless the scope sets `lower` or `strip` (on a column, on its reference). The BOS a tokenizer adds covers no text, so `{"text": "<s>"}` is never found; `pos: 0` is the BOS. The usual cause is a `text` that is the same on every row while the rows differ, as here: row 1 says Friday. A `column` scope searches each row for its own value; a list of texts finds any of them.
 
 ## `… occurs N times …; it has no occurrence K`
 
@@ -67,7 +67,7 @@ Read the logits of earlier prompt positions in a `forward` step on the same inpu
 patched.patch: row 0: the write's positions hold no token of this row; a write needs one to write
 ```
 
-An index with an open end (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: it holds nothing on those rows, its values are NaN and `clab table` leaves the rows out ([symptom-index.md](symptom-index.md#positions-and-selections)).
+An index with an open end (`"10:"`) has no static width, so on a row too short for it the write resolves to no position at all, and a write is refused. A read at the same index is not refused: those rows are `alignment_missing`, its values there are NaN, and `clab table` gives each of them one line with `alignment_missing` true ([symptom-index.md](symptom-index.md#positions-and-selections)).
 
 ## `… begins the row, at position 0, which no position comes before`
 
@@ -87,4 +87,4 @@ A `turn` scope names a role of the chat in that row; check the role's spelling a
 
 ## Skipping a row instead
 
-In the prefill a row cannot be skipped: the data decided, so change the data (a `split`, `take`, or a dataset of only the rows that fit). Beyond the prefill (decode frames of a `generate` step) a row the `pos` does not reach is `alignment_missing`: its values are NaN and reductions leave it out, as [alignment-missing.md](alignment-missing.md) explains.
+A refused row cannot be skipped: the data decided, so change the data (a `split`, `take`, or a dataset of only the rows that fit). A read whose index has an open end, and any read beyond the prefill (decode frames of a `generate` step), leaves a row it does not reach `alignment_missing`: its values are NaN and reductions leave it out, as [alignment-missing.md](alignment-missing.md) explains.

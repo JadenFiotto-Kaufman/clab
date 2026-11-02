@@ -1,22 +1,18 @@
 ---
 title: An Operand Does Not Fit
-one_liner: "Why a swap, add or metric refuses the value it is given: an operand meets the value position for position, head for head and layer for layer, and each message says which of those failed and how to fix it."
+one_liner: "Why a swap, add or metric refuses the value it is given: an operand's axes are among the value's, matched by label position for position, head for head and layer for layer, and each message says which of those failed and how to fix it."
 tags: [errors, operands, interventions, layout, refusals]
 related: [docs/usage/interventions.md, docs/usage/ops.md, docs/concepts/values-and-layout.md, docs/usage/positions.md, docs/errors/index.md, docs/errors/symptom-index.md]
-sources: [clab/compile/interventions.py, clab/compile/arguments.py]
+sources: [clab/compile/arguments.py, clab/compile/interventions.py, clab/compile/schedule.py]
 ---
 
 # An Operand Does Not Fit
 
-An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`operands` in `clab/compile/interventions.py` and `paired` in `clab/compile/arguments.py`), and at preflight where the model's sizes and the tokenized rows do (`check_operands`, `check_labels` and `check_layers` in `clab/compile/interventions.py`).
+An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`clab/compile/arguments.py` `mismatch`, and for an operand from the write's own forward `clab/compile/interventions.py` `entry`), and at preflight where the model's order and the tokenized rows do (`unreached` in `clab/compile/schedule.py`, and `check_operands` and `windowed` in `clab/compile/interventions.py`).
 
 ## What an operand may be
 
-Inside a write (the ops up to the entry's last edit), and for a metric, an operand is one of:
-
-- a number, or a named value of one number, which broadcasts everywhere;
-- one vector of the value's features (`[hidden_size]`, `[num_heads, head_dim]`), the same on every row and position, as a `mean` step over a read gives;
-- the value's own layout: rows of the same dataset, the same static number of positions, the same `select` indices in the same order, in the same coordinates (inside the same `encode`s).
+One rule, stated in [FORMAT.md](../../FORMAT.md#ops): an operand may leave out any axis of the value it meets, and broadcasts over the axes it leaves out; every axis it has is one of the value's, in the value's order, with the same label. So a number fits anywhere, a `mean` step's one vector fits every row and position, and a value of the same layout fits element for element. Each message below names the label that differs.
 
 A `layers` axis aligns by label: at layer L the op takes the operand's slice labelled L, in whatever order either lists its layers, and an operand without a `layers` axis is the same at every layer. [interventions.md](../usage/interventions.md) covers operands in use and [values-and-layout.md](../concepts/values-and-layout.md) covers layouts.
 
@@ -26,52 +22,56 @@ A `layers` axis aligns by label: at layer L the op takes the operand's slice lab
 {"ablate": {"site": "target", "pos": -1, "ops": [{"op": "swap", "with": "mean"}]}}
 ```
 
-## `… so an operand is …`
+## `… an operand's axes are among the value's …`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' is laid out ['rows', 'pos', 'hidden_size']; this write's value is ['rows', 'pos', 'hidden_size'] here, so an operand is ['hidden_size']
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' is laid out ['rows', 'pos', 'vocab_size']; 'swap' acts on a value laid out ['rows', 'pos', 'hidden_size'], and an operand's axes are among the value's, in its order (those it leaves out it broadcasts over)
 ```
 
-The list after "so an operand is" is what this write accepts. When it is the features alone, as here, although the two layouts match, the write is ragged: it holds a different number of positions on each row, so a per-position value from another forward has nothing to pair with. A scope with the default index `":"` is ragged (`{"scope": {"text": " is"}}` covers however many tokens the text has on each row), and so are an open slice (`"2:"`) and a frame of every decode call. Give the write and the read a static width (`"index": -1`, or `"index": "-3:"` beside the scope), or reduce the operand to one vector first. The same message names a metric's operand of another layout (`'iia' is laid out ['rows', 'pos']; 'kl' scores a value laid out ['rows', 'pos', 'vocab_size'] …`).
+The operand has an axis the value does not: here it was read at the head and is written into the residual stream. Read it at a site of the value's layout, or remove the extra axis with an op first.
 
 ## `… holds a different number of positions on each row`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no static width's; read it at a static index (pos -1, {'index': '-3:'}), or reduce it to one vector
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index (pos -1, or {'index': '-3:'}), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
+steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on holds a different number of positions on each row, …
 ```
 
-The operand is the ragged one. The fix is the same; for a metric both sides need a static width. [positions.md](../usage/positions.md) says which `pos` forms are static.
+In the first the operand is ragged, in the second the write is: a per-position value from another forward has nothing to pair with on a row whose count differs. A scope with the default index `":"` is ragged (`{"scope": {"text": " is"}}` covers however many tokens the text has on each row), and so are an open slice (`"2:"`) and a frame of every decode call. Give the write and the read a static width (`"index": -1`, or `"index": "-3:"` beside the scope), or reduce the operand to one vector first: a `mean` step's vector, which has no `pos` axis, broadcasts over a ragged write. [positions.md](../usage/positions.md) says which `pos` forms are static.
 
-## `… token(s) wide, narrowed to …`
+A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width: `kl` or `js` with it on either side, against another decode read or a prefill read, is refused with the first message. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
 
-```text
-patched.patch: operand 'counterfactual.v_cf' is 3 token(s) wide, narrowed to {}; this write's selection is 1 wide, narrowed to {}
-```
-
-Preflight compares the number of positions and the size of every `select`. Here the read was `{"index": "-3:"}` and the write `pos: -1`. A one-head read written into a two-head selection fails the same way (`narrowed to {'num_heads': 1}` against `{'num_heads': 2}`): a vector broadcasts over rows and positions, never over heads. So does a read of every head written into a one-head write (`narrowed to {}` against `{'num_heads': 1}`): read the operand at the same named site as the write, whose `num_heads` sweep then zips with the write's, one head per point, as `documents/head_patching.json` does. Between two reads a metric step says it at compile:
+## `… holds N position(s) per row and the value … holds M`
 
 ```text
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds 10 position(s) per row and the value 'swap' acts on holds 1; position i meets position i, so both are read at as many (a pos axis does not broadcast)
 steps.k.against: 'counterfactual.logits' holds 2 position(s) per row and the value 'kl' scores holds 1; position i scores against position i, so both are read at as many (a pos axis does not broadcast)
 ```
 
-A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width, and `kl` or `js` with it on either side is refused: against another decode read with `'g.at3' holds a different number of positions on each row …`, and against a prefill read with `'g.at0' holds 1 position(s) per row and the value 'kl' scores holds None …`. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
+Both have a static width, and the widths differ: here the read was `{"index": "0:10"}` (or `"-2:"`) and the write or the scored read `pos: -1`. Read both at as many positions.
 
 ## `a select list is positional`
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' holds num_heads [1, 3], and this write's selection holds [3, 1]; a select list is positional, so they would trade places: select num_heads [3, 1] at the read
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds num_heads [1, 3], and this write's selection holds [3, 1]; a select list is positional, so they would trade places: select num_heads [3, 1] at the read
 ```
 
-A `select` list keeps the indices in the order written, so the operand's first head meets the write's first head. Write one list at both sites; a named site that both entries use guarantees it. With other indices the message ends `an operand holds the same ones`, and for an op step over two reads `select one num_heads list at both reads`. [sites.md](../usage/sites.md) covers `select`.
+A `select` list keeps the indices in the order written, so the operand's first head meets the write's first head. Write one list at both sites; a named site that both entries use guarantees it. The same message names the other mismatches of a selected axis:
+
+- other indices: `… holds num_heads [0, 2], and this write's selection holds [1, 3]; an operand holds the same ones: select num_heads [1, 3] at the read`;
+- one head against several: `… holds num_heads [1], and this write's selection holds [1, 3]; an operand broadcasts over rows and positions only: …`, since one head does not stand for several;
+- every head against some: `… holds every num_heads, and this write's selection holds [3, 1]; an operand holds the same ones: …`. Read the operand at the same named site as the write, whose `num_heads` sweep then zips with the write's, one head per point, as `documents/head_patching.json` does.
+
+For an op step over two reads the message ends `select one num_heads list at both reads`. [sites.md](../usage/sites.md) covers `select`.
 
 ## Layers
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' holds layers [1], and this op acts at layers [0, 1]; at each layer it takes the operand's slice of that layer, and it holds none of [0]: read it at those layers too
-k: operand 'lens.l' has a layers axis, and this op acts at no layer (on a model's own value, or one reduced over its layers); read the operand at one layer, or reduce it over layers
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds layers [1], and this op acts at layers [0, 1]; at each layer it takes the operand's slice of that layer, and it holds none of [0]: read it at those layers too
+steps.k.against: 'lens.logits' has a layers axis, and this op acts at no layer (on a model's own value, or one reduced over its layers); read the operand at one layer, or reduce it over layers
 ```
 
-The operand needs a slice for every layer the op acts at. A value at no layer (`lm_head_output`, `logits`, or a reduction over `layers`) takes no operand with a `layers` axis; inside an entry compile says so: `… an op takes an operand's slice of each layer it acts at, and lm_head_output is the model's own value, at no layer …`.
+The operand needs a slice for every layer the op acts at. A value at no layer (`lm_head_output`, `logits`, or a reduction over `layers`) takes no operand with a `layers` axis, inside an entry as in an op step.
 
 ## Coordinates
 
@@ -81,6 +81,14 @@ steps.patched.interventions.patch.ops[1].with: 'counterfactual.v_cf' is in the s
 
 Between an `encode` and its `decode`, an operand is in the same coordinates: encode it at its read with the same featurizer and `select`, as `documents/das_apply.json` does with `v_cf`. [featurizers.md](../usage/featurizers.md) covers brackets.
 
+## Rows of another dataset
+
+```text
+steps.patched.interventions.patch.ops[0].with: 'pairs.input' has a row per example of 'pairs' and 'counterfactual.v_cf' of 'other'; an op takes one dataset's rows
+```
+
+An op takes one dataset's rows, its operands' and columns' alike. Two datasets that read the same file are two; read both inputs from one dataset.
+
 ## An operand from the same forward
 
 ```text
@@ -89,16 +97,16 @@ steps.patched.interventions.patch.ops[0].with: 'patched.read' runs 'readout' onc
 patched.patch: operand 'patched.read' is read at layer_output layer 1, which the nnterp engine's forward reaches no earlier than this write's layer_output layer 0; an operand from the write's own forward is an earlier entry at this site, or at a site the forward reaches first
 ```
 
-An entry may use an earlier entry of its own forward, live, as the forward reaches it. So that entry comes earlier in the step, does nothing after its last edit, and sits at this site or at one the model computes earlier. Inside a `generate` step an entry of the same step is not an operand at all (`… is an entry of this generation …`); read it in a `forward`.
+An entry may use an earlier entry of its own forward, live, as the forward reaches it. So that entry comes earlier in the step, does nothing after its last edit, and sits at this site or at one the model computes earlier. The third message comes from preflight, which writes the forward's schedule in the engine's order. Inside a `generate` step an entry of the same step is not an operand at all (`… is an entry of this generation; an operand from an entry of its own step is served in a forward, not inside a generate`); read it in a `forward`.
 
 ## Two inputs of different lengths
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so position 0 pairs '▁is' with 'urs'; use a scope to name the token in each row
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
+patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so position 0 pairs ',' with 'urs'; use a scope to name the token in each row
+patched.look_there: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-A read and a write at the same unscoped `pos` on two inputs pair position i with position i. On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end, the first token past either counted in (`clab/compile/interventions.py` `windowed`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
+A read and a write at the same unscoped `pos` on two inputs pair position i with position i (the first message is `pos: 5` on both). On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end, the first token past either counted in (`clab/compile/interventions.py` `windowed`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
 
 ```json
 {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}
