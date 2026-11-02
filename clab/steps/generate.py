@@ -15,7 +15,7 @@ from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import projected, put
-from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, serving, writes
+from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, held_rows, writes
 from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, stacked, stops, with_ops
 
 if TYPE_CHECKING:
@@ -25,11 +25,11 @@ if TYPE_CHECKING:
 
 
 def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int, found: Found,
-             cost: dict[str, Any], reading: dict | None = None) -> None:
+             cost: dict[str, Any], served: list[Forward], reading: dict | None = None) -> None:
     """The step's input in batches of dataset row ids (`chunked`), each through `engine.generate` with the point's
     schedule bound to it (`bind`) and the step's own keys as its options; each value the generation reads
-    (`reading`, `gathered`, as a forward's) joined along rows from its own reads, and the new ids, one
-    generation's, put as the step's value.
+    (`reading`, `gathered` over the points it serves, `served`, as a forward's) joined along rows from its own
+    reads, and the new ids, one generation's, put as the step's value.
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`read`); one beyond it is bound in parts (a part over
     the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the generation
@@ -43,8 +43,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     padding is not) or the generation's last, which no call is fed."""
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
-    served = next(s for p, s in serving(plan, name) if p is step)
-    reading = gathered(plan, name, step) if reading is None else reading
+    reading = gathered(served) if reading is None else reading
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
     # coordinates on the entry's axes, with the record it is at the first such point.
     landing: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}

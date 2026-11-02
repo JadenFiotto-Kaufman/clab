@@ -297,8 +297,8 @@ def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monk
     the read at block 3 the forward never reached is refused by name, the same on each; `stop` means one thing."""
     from clab.compile import preflight, schedule
 
-    def early(engine, plan, name, step, trained):
-        schedule.scheduled(engine, plan, name, step, trained)
+    def early(engine, plan, name, step, served, trained):
+        schedule.scheduled(engine, plan, name, step, served, trained)
         step.schedule["stop"] = ["layer_output", 0]
     monkeypatch.setattr(preflight, "scheduled", early)
 

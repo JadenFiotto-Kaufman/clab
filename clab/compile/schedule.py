@@ -11,7 +11,7 @@ from clab import ops
 from clab.compile import positions
 from clab.format import address
 from clab.format.sweeps import agreeing, labelled, points, projected
-from clab.plan import Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, serving, writes
+from clab.plan import Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, writes
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -33,21 +33,22 @@ def shared(plan: Plan) -> None:
                     first[key] = step
 
 
-def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dict[str, dict[str, int]]) -> None:
-    """What the forward of `step` (a serving point of step `name`, every point's records completed) does, written
-    into its `schedule`: `sites`, each `(component, layer)` the forward visits in the engine's forward order
-    (`engine.rank`), holding the records done there in order, entry by entry: the write (the serving point's: the
-    points it serves write alike) with its ops up to its last edit, each operand `resolved`, then a read for each
-    value the entry is at the served points (`gathered`: once per distinct point on the entry's axes, `at`), with
-    the name it feeds (`<entry>@<layer>`, the serving point's own; another value's with its coordinates after it;
-    `#0` on the part over the prompt); `stop`, the last site, where a forward ends (null for a generation, which
-    runs whole); and for a generation each record's part (`parts`), the `loop` of calls the engine iterates (null:
-    every one) and whether a write is found `online`. A write whose operand is an entry of the same forward read at
-    another site is refused by name unless the engine ranks that site strictly before the write's (two sites the
-    engine ranks alike are refused, whichever the order lists first); one read at the write's own site is done
-    first, in entry order. `trained` is each featurizer the enclosing fit trains, by both its names, with the fit's
-    point."""
-    reading = gathered(plan, name, step)
+def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list[Forward],
+              trained: dict[str, dict[str, int]]) -> None:
+    """What the forward of `step` (a serving point of step `name`, with the points it serves, `served`, as
+    `plan.serving` lists them, every point's records completed) does, written into its `schedule`: `sites`, each
+    `(component, layer)` the forward visits in the engine's forward order (`engine.rank`), holding the records done
+    there in order, entry by entry: the write (the serving point's: the points it serves write alike) with its ops
+    up to its last edit, each operand `resolved`, then a read for each value the entry is at the served points
+    (`gathered`: once per distinct point on the entry's axes, `at`), with the name it feeds (`<entry>@<layer>`, the
+    serving point's own; another value's with its coordinates after it; `#0` on the part over the prompt); `stop`,
+    the last site, where a forward ends (null for a generation, which runs whole); and for a generation each
+    record's part (`parts`), the `loop` of calls the engine iterates (null: every one) and whether a write is found
+    `online`. A write whose operand is an entry of the same forward read at another site is refused by name unless
+    the engine ranks that site strictly before the write's (two sites the engine ranks alike are refused, whichever
+    the order lists first); one read at the write's own site is done first, in entry order. `trained` is each
+    featurizer the enclosing fit trains, by both its names, with the fit's point."""
+    reading = gathered(served)
     sites: dict[tuple[str, int | None], list[dict]] = {}
     names: dict[str, dict[int | None, str]] = {}        # the serving point's reads by `<step>.<entry>`, per layer
     for key, record in entries(step).items():
@@ -84,13 +85,13 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, trained: dic
                              online=any(r.get("online") for site in sites.values() for r in site))
 
 
-def gathered(plan: Plan, name: str, step: Forward) -> dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]:
-    """The values the forward of `step` (a serving point of step `name`) reads, by entry and the value's
-    coordinates on the entry's own axes: each gathered entry of each point the forward serves (`plan.serving`),
-    once per distinct point on its axes, with the record it is at the first such point (its positions, its `kept`,
-    its ops), those coordinates, and that point."""
+def gathered(served: list[Forward]) -> dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]:
+    """The values a forward reads, by entry and the value's coordinates on the entry's own axes: each gathered
+    entry of each point it serves (`served`, as `plan.serving` lists them), once per distinct point on its axes,
+    with the record it is at the first such point (its positions, its `kept`, its ops), those coordinates, and that
+    point."""
     out: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}
-    for p in next(served for q, served in serving(plan, name) if q is step):
+    for p in served:
         for key, record in entries(p).items():
             if record.gathered:
                 own = projected(p.at, record.axes)

@@ -21,6 +21,7 @@ from clab.format.selectors import Selector, picked, selected
 from clab.format.sweeps import put
 from clab.plan import (
     Fit,
+    Forward,
     Labelled,
     Plan,
     Site,
@@ -33,6 +34,7 @@ from clab.plan import (
     kind_of,
     points,
     record_of,
+    serving,
 )
 
 if TYPE_CHECKING:
@@ -203,9 +205,9 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                     if i < edits:
                         check_operands(engine, plan, where, o, step, record, found)
                     dims = o.dims or dims
-        for step in points(entry):
-            if step.kind in ("forward", "generate") and "serving" not in step.schedule:
-                scheduled(engine, plan, name, step, trained or {})
+        if points(entry)[0].kind in ("forward", "generate"):
+            for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
+                scheduled(engine, plan, name, step, served, trained or {})
     return found
 
 

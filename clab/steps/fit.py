@@ -37,8 +37,9 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
-    # What each body forward reads, once for every run of the body: its records are the same under every eval.
-    reading = {n: gathered(sources["train"][0], n, s) for n, s in step.steps.items() if isinstance(s, Forward)}
+    # What each body forward reads, once for every run of the body: its records are the same under every eval, and
+    # a body step is one point, which serves itself.
+    reading = {n: gathered([s]) for n, s in step.steps.items() if isinstance(s, Forward)}
     n = len(held_rows(sources["train"][0], datasets(step)[0]))
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
@@ -104,9 +105,10 @@ def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
              reading: dict[str, dict]) -> ChainMap:
     """A fit's body over every row `source` holds (its training rows or eval's), or the minibatch of dataset row ids
     `ids`, in a scope of its own that falls back to `state` and carries those ids (`batches.ROWS`: what its values'
-    rows are), each trained featurizer under its declared name and `<fit>.<name>`, each body forward given what it
-    reads (`reading`, by name). With a minibatch it trains: gradients on, gates soft; otherwise it scores. Returns
-    the body's namespace; the model calls its steps made and the tokens they fed add to the fit's `cost`."""
+    rows are), each trained featurizer under its declared name and `<fit>.<name>`, each body forward given the one
+    point it serves, itself, and what it reads (`reading`, by name). With a minibatch it trains: gradients on, gates
+    soft; otherwise it scores. Returns the body's namespace; the model calls its steps made and the tokens they fed
+    add to the fit's `cost`."""
     plan, found = source
     body = state.new_child({ROWS: ids} if ids is not None else {})
     for f, inst in trained.items():
@@ -118,7 +120,7 @@ def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
     with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
             KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found, cost,
-                                      *([reading[n]] if n in reading else []))
+                                      *([[s], reading[n]] if n in reading else []))
     return body
 
 

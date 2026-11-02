@@ -123,8 +123,16 @@ def points(entry: Any) -> list:
 
 
 def agreeing(entry: Any, at: dict[str, int]) -> Any:
-    """The point of `entry` that agrees with the point `at` on the entry's own axes."""
-    return next(p for p in points(entry) if all(at.get(k) == i for k, i in p.at.items()))
+    """The point of `entry` that agrees with the point `at` on the entry's own axes. A swept entry's points are
+    the product of its axes in axis order, the last fastest (`compile.expand`), so that point is the one at `at`'s
+    index on each axis, each axis as long as the last point's index on it plus one: found without a scan of the
+    points, which a list in another order falls back to."""
+    listed, i = points(entry), 0
+    for label, last in listed[-1].at.items():
+        i = i * (last + 1) + at.get(label, 0)
+    if i < len(listed) and all(at.get(k) == v for k, v in listed[i].at.items()):
+        return listed[i]
+    return next(p for p in listed if all(at.get(k) == v for k, v in p.at.items()))
 
 
 def coordinate(plan: Plan, at: dict[str, int]) -> Any:
@@ -151,8 +159,15 @@ def put(state: MutableMapping, name: str, at: dict[str, int], value: Any) -> Non
 
 
 def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
-    """The value `name` at the producer's point that agrees with `at` on the producer's axes."""
-    for coords, value in state[name].items():
+    """The value `name` at the producer's point that agrees with `at` on the producer's axes: keyed by `at` on the
+    axes of the value's first key, which its points share (`put`), found without a scan of its points; a value
+    whose points differ in their axes (an op's, where a swept name picks operands on different axes) is scanned for
+    the first that agrees."""
+    by_point = state[name]
+    key = tuple((k, at.get(k)) for k, _ in next(iter(by_point), ()))
+    if key in by_point:
+        return by_point[key]
+    for coords, value in by_point.items():
         if all(at.get(k) == i for k, i in coords):
             return value
     raise KeyError(f"{name} at {at}")

@@ -13,7 +13,7 @@ from huggingface_hub import try_to_load_from_cache
 from clab import Plan
 from clab.compile import dataset, positions
 from clab.format import data, selectors
-from clab.format.sweeps import points
+from clab.format.sweeps import agreeing, lookup, points
 from clab.plan import Data, PlanError
 
 
@@ -180,6 +180,41 @@ def test_a_reference_carries_its_producers_axes():
         accuracy={"kind": "op", "op": "mean", "of": "fit.train.iia"})).compile()
     assert [p.at for p in points(plan.steps["accuracy"])] == [{"mask.mask": i} for i in range(4)]
     assert [p.objective["mask.mask"] for p in points(plan.steps["fit"])] == [0.0001, 0.002, 0.01, 0.05]
+
+
+class Unscanned(list):
+    """A step's points that refuse to be scanned: indexed, they are found; iterated, the test fails."""
+
+    def __iter__(self):
+        raise AssertionError("the points were scanned")
+
+
+class Unscannable(dict):
+    """A value's points by coordinate that refuse to be scanned, as `Unscanned` does."""
+
+    def items(self):
+        raise AssertionError("the points were scanned")
+
+
+def test_a_point_is_found_by_its_index_on_each_axis_not_by_a_scan():
+    """A swept step's points are the product of its axes in axis order, the last fastest, so the point agreeing
+    with a consumer's coordinates (its own, or a later step's on more axes) is found by its index on each axis,
+    without a scan; points in another order are scanned, to the same point."""
+    plan = edited("pos_sweep", lambda d: d["sites"]["target"].update(layers={"sweep": [0, 1], "label": "src"}))
+    plan = plan.compile()
+    patched, counterfactual = points(plan.steps["patched"]), points(plan.steps["counterfactual"])
+    assert [p.at for p in patched] == [{"src": s, "pos": i} for s in range(2) for i in range(3)]
+    for p in patched:
+        assert agreeing(Unscanned(patched), p.at) is p and agreeing(patched[::-1], p.at) is p
+        assert agreeing(Unscanned(counterfactual), p.at) is counterfactual[p.at["src"]]
+
+
+def test_a_value_is_found_by_the_consumers_coordinates_on_its_axes_not_by_a_scan():
+    """A value's points share its axes, so the one agreeing with a consumer's coordinates, on more axes than its
+    own, is keyed by them on the value's, without a scan."""
+    state = {"v": Unscannable({(("src", s), ("pos", i)): (s, i) for s in range(2) for i in range(3)})}
+    assert [lookup(state, "v", {"src": s, "other": 0, "pos": i}) for s in range(2) for i in range(3)] == \
+        [(s, i) for s in range(2) for i in range(3)]
 
 
 def test_every_value_knows_its_dataset_and_layout():
