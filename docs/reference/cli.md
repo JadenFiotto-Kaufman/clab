@@ -76,7 +76,7 @@ Prints output directory `OUT`'s run in four parts:
 
 - the run record: engine, device and options, batch size, start time and duration, the served dtype and devices, the versions, and a `stopped:` line with the refusal when a step ran out of CUDA memory;
 - what each run of a step cost, one row per run at the point that ran it: `serves` the points it served (`—` itself alone, `all 3 points`, or each one), its seconds, its peak memory on each CUDA device, the model calls it made (`forwards`) and the tokens they fed;
-- where each entry resolved, one row per entry and distinct positions per row (`[10], [8], [8], [8]`; one list and `on all 4 rows` where every row agrees; `—` for a row it did not reach), with the point it is at or how many points share it;
+- where each entry resolved, one row per entry and distinct positions per row (`[10], [8], [8], [8]`; one list and `on all 4 rows` where every row agrees; `—` for a row it did not reach; past twelve rows the first three, `…`, the last and the row count, and a row past twelve positions its first three and last), with the point it is at or how many points share it;
 - per saved value, the step that made it, its dims, the sweep axes the value depends on and its shape (`3 points, each [4,1]` when swept).
 
 ```text

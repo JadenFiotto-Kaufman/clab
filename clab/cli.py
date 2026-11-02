@@ -99,20 +99,21 @@ def served(filled: Plan, entry: Any, points_: list) -> str:
 
 def resolved(filled: Plan) -> list[list[str]]:
     """Where each read and write resolved, as table rows: one per entry and distinct `positions` per row
-    (`compact`) under its step's dataset, with the point it is at, or how many of the step's points share it
-    (a grid's positions vary along one axis, or none); a fit body's entries under each eval, as
+    (printed by `compact`) under its step's dataset, with the point it is at, or how many of the step's points
+    share it (a grid's positions vary along one axis, or none); a fit body's entries under each eval, as
     `<fit>.<eval>.<step>.<entry>`."""
     rows = [["entry", "at", "positions"]]
     for step, entry in filled.steps.items():
         listed = points(entry)
-        found: dict[tuple[str, str], list[str]] = {}            # (entry, its positions) -> the points' coordinates
+        # Each entry's distinct positions per row, by entry and their JSON, with the points that share them.
+        found: dict[tuple[str, str], tuple[list | None, list[str]]] = {}
         for p in listed:
             for key, per_row in placed(step, p):
-                found.setdefault((key, compact(per_row)), []).append(labelled(filled, p.at))
-        for (key, cell_), ats in found.items():
+                found.setdefault((key, json.dumps(per_row)), (per_row, []))[1].append(labelled(filled, p.at))
+        for (key, _), (per_row, ats) in found.items():
             shared = ats[0] or "—" if len(ats) == 1 else f"all {len(ats)} points" if len(ats) == len(listed) else \
                 f"{len(ats)} of {len(listed)} points"
-            rows.append([key, shared, cell_])
+            rows.append([key, shared, compact(per_row)])
     return rows
 
 
@@ -125,15 +126,34 @@ def placed(step: str, p: Any) -> list[tuple[str, list | None]]:
             for label, swap in p.eval.items() for n, s in p.steps.items() for k, e in entries(s).items()]
 
 
+# The most rows, and the most positions in a row, that `show` prints one by one; past it, the first three and the
+# last, so that one entry's cell stays within a line or two however many rows the dataset has.
+SHOWN = 12
+
+
 def compact(per_row: list | None) -> str:
     """An entry's positions per row as one cell: the one list when every row resolved to the same (`[10] on all
-    4 rows`), else each row's in row order, `—` for a row the entry did not reach (`alignment_missing`)."""
+    4 rows`), else each row's in row order, `—` for a row the entry did not reach (`alignment_missing`). Past
+    `SHOWN` rows, the first three rows', `…`, the last row's and the count (`50,000 rows; clab table shows each`);
+    a row of more than `SHOWN` positions is cut the same way (`[0,1,2,…,511]`)."""
     if not per_row:
         return "—"
-    cells = ["—" if r == positions.MISSING else cell(r) for r in per_row]
-    if len(cells) > 1 and len(set(cells)) == 1:
-        return f"{cells[0]} on all {len(cells)} rows"
-    return ", ".join(cells)
+    if len(per_row) > 1 and all(r == per_row[0] for r in per_row):
+        return f"{row_cell(per_row[0])} on all {len(per_row):,} rows"
+    if len(per_row) <= SHOWN:
+        return ", ".join(map(row_cell, per_row))
+    return (", ".join(map(row_cell, per_row[:3])) + f", …, {row_cell(per_row[-1])} "
+            f"({len(per_row):,} rows; clab table shows each)")
+
+
+def row_cell(positions_: Any) -> str:
+    """One row's positions as `compact` prints them: the list, cut to its first three, `…` and its last past
+    `SHOWN`; `—` for a row the entry did not reach."""
+    if positions_ == positions.MISSING:
+        return "—"
+    if isinstance(positions_, list) and len(positions_) > SHOWN:
+        return "[" + ",".join(map(str, positions_[:3])) + f",…,{positions_[-1]}]"
+    return cell(positions_)
 
 
 def shaped(shape: Any, swept: bool) -> str:

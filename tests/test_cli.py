@@ -7,7 +7,8 @@ import sys
 import pytest
 from conftest import BATCH_SIZE, ROOT, document, edited, plan_of
 
-from clab.cli import main, shaped
+from clab import cli
+from clab.cli import compact, main, shaped
 
 
 @pytest.fixture(scope="module")
@@ -169,3 +170,30 @@ def test_show_prints_one_row_per_entry_and_distinct_positions_on_a_grid(engines,
         ["patched.logits", "3 of 6 points  [9], [7], [7], [7]"],
         ["patched.patch", "2 of 6 points  [9], [7], [7], [7]"],
         ["patched.patch", "2 of 6 points  [8], [6], [6], [6]"]]
+
+
+def test_show_prints_an_entry_of_more_than_twelve_rows_as_its_first_three_and_last():
+    """Up to twelve rows `show` prints each row's positions; past twelve, where rows differ, the first three rows',
+    `…`, the last row's and the row count, and a row of more than twelve positions its first three and last, so
+    one entry stays within a line or two at any number of rows."""
+    assert compact([[i] for i in range(12)]) == ", ".join(f"[{i}]" for i in range(12))
+    assert compact([[i] for i in range(50_000)]) == "[0], [1], [2], …, [49999] (50,000 rows; clab table shows each)"
+    assert compact([[3]] * 50_000) == "[3] on all 50,000 rows"
+    assert compact([list(range(12)), "alignment_missing"]) == "[0,1,2,3,4,5,6,7,8,9,10,11], —"
+    assert compact([list(range(512)), list(range(3, 9))]) == "[0,1,2,…,511], [3,4,5,6,7,8]"
+
+
+def test_show_keeps_apart_points_whose_positions_differ_only_in_rows_it_does_not_print(monkeypatch):
+    """Two points of an entry are one row of `show` only where every row's positions agree, not where the cells
+    printed for them do: pos_sweep's write at three points, whose 50 rows differ only at row 25, is three rows."""
+    plan = plan_of("pos_sweep")
+    at = {"pos=-1": 0, "pos=-2": 1, "pos=-3": 2}
+
+    def placed(step, p):
+        return [(f"{step}.patch", [[7]] * 25 + [[at[cli.labelled(plan, p.at)]]] + [[7]] * 24)] \
+            if step == "patched" else []
+    monkeypatch.setattr(cli, "placed", placed)
+    rows = cli.resolved(plan)
+    assert [r[:2] for r in rows[1:]] == [["patched.patch", "pos=-1"], ["patched.patch", "pos=-2"],
+                                         ["patched.patch", "pos=-3"]]
+    assert {r[2] for r in rows[1:]} == {"[7], [7], [7], …, [7] (50 rows; clab table shows each)"}
