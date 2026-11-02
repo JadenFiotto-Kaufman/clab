@@ -25,11 +25,11 @@ if TYPE_CHECKING:
 
 
 def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int, found: Found,
-             cost: dict[str, Any]) -> None:
+             cost: dict[str, Any], reading: dict | None = None) -> None:
     """The step's input in batches of dataset row ids (`chunked`), each through `engine.generate` with the point's
     schedule bound to it (`bind`) and the step's own keys as its options; each value the generation reads
-    (`gathered`: each gathered entry at each distinct point on its axes among the points it serves) joined along
-    rows from its own reads, and the new ids, one generation's, put as the step's value.
+    (`reading`, `gathered`, as a forward's) joined along rows from its own reads, and the new ids, one
+    generation's, put as the step's value.
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`read`); one beyond it is bound in parts (a part over
     the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the generation
@@ -44,7 +44,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     eos, rows = set(stops(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = found.inputs[data.input_name(step.input)]["rows"]
     served = next(s for p, s in serving(plan, name) if p is step)
-    reading = gathered(plan, name, step)
+    reading = gathered(plan, name, step) if reading is None else reading
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
     # coordinates on the entry's axes, with the record it is at the first such point.
     landing: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}

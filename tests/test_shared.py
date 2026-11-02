@@ -631,10 +631,10 @@ def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
             seen.append((component, records[0]["layer"]))
         return visit(value, component, records, got)
 
-    def body(engine, name, step, state, trained, source, ids, cost):
+    def body(engine, name, step, state, trained, source, ids, cost, reading):
         bodies.append((name, step.at, None if ids is None else len(ids), source[0]))
         seen.append("body")
-        return body_run(engine, name, step, state, trained, source, ids, cost)
+        return body_run(engine, name, step, state, trained, source, ids, cost, reading)
     monkeypatch.setattr(batches, "visit", noted)
     monkeypatch.setattr(fit, "body_run", body)
     root = getattr(engine.model, "_module", engine.model)
