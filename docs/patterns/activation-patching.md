@@ -53,7 +53,7 @@ The two give the same logits to the bit: a window is its positions patched toget
 Counted positions pair the counterfactual's i-th with the base's i-th. When a pair's prompts tokenize to different lengths (" Thursday" is three tokens on this tokenizer, " Saturday" one), the same count can name different words, and the run refuses it before any forward:
 
 ```text
-patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so position 0 pairs '▁is' with 'urs'; use a scope to name the token in each row
+patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11, so position 0 pairs ' is' with 'urs'; use a scope to name the token in each row
 ```
 
 `documents/entity_patch.json` names the token by what it says, on each side its own entity:
@@ -95,7 +95,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
 }
 ```
 
-`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. Eight points, `clab table <out> mean_ld`:
+`data/weekdays_aligned/data.json` holds the pairs whose prompts tokenize to the same length, so every count names the same word on both sides. Eight points: `counterfactual` writes nothing, so its eight reads share one forward, and `patched` runs one forward per point ([sweeps](../usage/sweeps.md#what-a-sweep-costs)). `clab table <out> mean_ld`:
 
 ```text
 at                     value

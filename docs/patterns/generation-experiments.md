@@ -86,7 +86,7 @@ A list `input` joins the columns per row. Each of the answer's tokens is scored 
 Keep `occurrence: -1`, which picks the appended answer. The default, `occurrence: 0`, picks the first occurrence, and that is in the prompt whenever the prompt also contains the answer. For `"Sunday, then Monday. If today is Sunday, tomorrow is"` + `" Monday"`, occurrence 0 reads position 3, which predicts the prompt's own `▁Monday`, and the run gives no warning. clab does check that the scored column is what the input says at the read's positions. A row where it is not is refused before any forward:
 
 ```text
-clab: nll: days.other row 0: position 13 predicts '▁Monday' in the input, which is not token 0 of ' Friday' as it tokenizes alone (['▁Friday']); the answer is scored as it tokenizes, so the input says it the same way
+clab: nll: days.other row 0: position 13 predicts ' Monday' in the input, which is not token 0 of ' Friday' as it tokenizes alone ([' Friday']); the answer is scored as it tokenizes, so the input says it the same way
 ```
 
 The rules for list inputs are in [usage/data.md](../usage/data.md), and how answers line up with positions is in [usage/ops.md](../usage/ops.md).
@@ -114,7 +114,7 @@ On row 0 this lands at position 32, `▁is`, the question's own last token. The 
 
 ## Does a patch reach later tokens
 
-`documents/generate_probe.json` swaps the counterfactual's residual into the prompt's last position at the prefill, then reads the head at calls 0, 1 and 2. The patch is made once, so it reaches later tokens only through the cache. The document sweeps the frame, which runs the generation three times. `{"frame": "0:3"}` reads the same three distributions in one generation, bit for bit ([usage/sweeps.md](../usage/sweeps.md#widen-the-read-instead)). The patching itself is covered in [activation-patching.md](activation-patching.md).
+`documents/generate_probe.json` swaps the counterfactual's residual into the prompt's last position at the prefill, then reads the head at calls 0, 1 and 2. The patch is made once, so it reaches later tokens only through the cache. The document sweeps the frame of a read, and its three points differ only in what they read, so one generation serves them all and the generated ids (`patched`) are one tensor; `{"frame": "0:3"}` reads the same three distributions as one value, bit for bit ([usage/sweeps.md](../usage/sweeps.md#widen-the-read-instead)). The patching itself is covered in [activation-patching.md](activation-patching.md).
 
 ## Interpretation tips
 

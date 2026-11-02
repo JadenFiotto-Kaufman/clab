@@ -23,7 +23,7 @@ The value is `(rows, pos, num_heads, key)`, here `[4, 1, 4, 11]`. `key` is each 
 
 ### A key that moves by row
 
-A `key` selector picks the same indices on every row, so it cannot follow a word that sits at a different position on each. Read the whole `key` axis, and add a marker entry scoped on the word: a read with no ops, which nothing names, so it costs nothing, while `run.positions` records where it landed on each row. That position is the word's key index into the saved pattern. In the document above:
+A `key` selector picks the same indices on every row, so it cannot follow a word that sits at a different position on each. Read the whole `key` axis, and add a marker entry scoped on the word: a read with no ops, which nothing names, so it costs nothing, while its record holds where it landed on each row (`positions`). That position is the word's key index into the saved pattern. In the document above:
 
 ```json
 "clean": {"kind": "forward", "input": "pairs.input", "interventions": {
@@ -36,7 +36,7 @@ from clab import Plan
 
 plan = Plan.load("out/attention_knockout")
 pattern, tokens = plan.results["clean.pattern"], plan.run.tokens["pairs.input"]
-for row, (key,) in enumerate(plan.run.positions["clean.entity"]):
+for row, (key,) in enumerate(plan.steps["clean"].interventions["entity"].positions["pairs"]):
     print(row, key, tokens[row][key], pattern[row, 0, :, key])    # each head's weight on the word
 ```
 

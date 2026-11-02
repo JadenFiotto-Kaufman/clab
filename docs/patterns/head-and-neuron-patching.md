@@ -18,7 +18,7 @@ sources: [clab/compile/interventions.py, clab/steps/batches.py, clab/format/addr
 "target": {"component": "attention_premix", "layers": 0, "select": {"num_heads": {"sweep": [0, 1, 2, 3]}}}
 ```
 
-`attention_premix` is every head's result as the attention's output projection takes it, laid out `(rows, pos, num_heads, head_dim)`. A head's result is one index of `num_heads`, and the output projection is linear, so patching that index changes exactly that head's share of what attention adds to the stream. The read on the counterfactual prompt and the write on the base prompt use the same site, and the sweep makes one point per head, each with its own read and write, so the counterfactual forward runs once per head too ([sweeps](../usage/sweeps.md#what-a-sweep-costs)):
+`attention_premix` is every head's result as the attention's output projection takes it, laid out `(rows, pos, num_heads, head_dim)`. A head's result is one index of `num_heads`, and the output projection is linear, so patching that index changes exactly that head's share of what attention adds to the stream. The read on the counterfactual prompt and the write on the base prompt use the same site, and the sweep makes one point per head, each with its own read and write. The counterfactual forward writes nothing, so its four points differ only in what they read and one forward serves them all; the patched forward runs once per head ([sweeps](../usage/sweeps.md#what-a-sweep-costs)):
 
 ```text
 at               row  pos  pos_token  input                              cf_answer  base_answer  value
@@ -42,11 +42,11 @@ The [null control](../usage/interventions.md#the-null-control) writes back what 
 "null_ld": {"kind": "op", "op": "logit_diff", "of": "null.logits", "a": "pairs.cf_answer", "b": "pairs.base_answer"}
 ```
 
-Every point's `null_ld` equals the clean forward's `logit_diff` to the bit. Keep `clean` free of the swept site so it runs once: a self-read in `clean`, as the unswept null of interventions.md has, makes `clean` a swept step that runs once per head, and the null forward needs nothing from it.
+Every point's `null_ld` equals the clean forward's `logit_diff` to the bit. `clean` needs no read at the swept site, since the null forward reads its own head: a self-read there, as the unswept null of interventions.md has, makes `clean` a swept step whose four points one forward serves.
 
 ## Layers crossed with heads
 
-Sweep `layers` on the patched site. Each sweep is labelled by its field (`layers`, `num_heads`), different labels cross, and the step gets a point per pair. The counterfactual need not run once per pair: read it at every layer with the heads sweep alone, and each point of the patch takes the slice labelled with its layer, as any operand with a `layers` axis does ([values and layout](../concepts/values-and-layout.md#the-layers-axis)):
+Sweep `layers` on the patched site. Each sweep is labelled by its field (`layers`, `num_heads`), different labels cross, and the step gets a point per pair. The counterfactual may read the patched site itself: it writes nothing, so its eight points differ only in what they read and one forward serves them all. Or it reads every layer with the heads sweep alone, and each point of the patch takes the slice labelled with its layer, as any operand with a `layers` axis does ([values and layout](../concepts/values-and-layout.md#the-layers-axis)):
 
 ```json
 "sites": {
@@ -57,9 +57,9 @@ Sweep `layers` on the patched site. Each sweep is labelled by its field (`layers
 }
 ```
 
-The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual runs once per head, 4 forwards where reading at `target` runs 8, and the patched logits are byte-identical either way. On GPT-2 small that is 12 counterfactual forwards instead of 144.
+The counterfactual reads `every_layer` and the patch writes `target`. The two `num_heads` sweeps share a label and zip, so the counterfactual holds one value per head, `[layers, rows, pos, num_heads, head_dim]`, where reading at `target` holds one per layer and head; either way it is one forward, and the patched logits are byte-identical.
 
-The corpus Llama has 2 layers (`plan.run.num_layers`) of 4 heads, each `head_dim` 4; a sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them). Eight points, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`; a `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`. `layers` on the patch is a sweep, not a selector: `"layers": ":"` there would patch head h at every layer in one forward ([interventions](../usage/interventions.md#writes-across-layers)). `documents/real/head_patching.json` is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points; it reads its counterfactual at the patched site, 96 forwards where `"layers": "10:13"` would take 32. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`) so no row of logits outlives its batch, and averages each point in a step. It needs a GPU and a gated checkpoint: read it, do not expect to run it on CPU.
+The corpus Llama has 2 layers (`plan.run.sizes["num_layers"]`) of 4 heads, each `head_dim` 4; a sweep lists its values, so every head of a layer is `[0, 1, 2, 3]` here, and on another model as many as its config's `num_attention_heads` (preflight refuses a head past them). Eight points, keyed `layers=0,num_heads=0` to `layers=1,num_heads=3`; a `mean` step over `logit_diff` gives one number per point, which `clab table` lists with its `at`. `layers` on the patch is a sweep, not a selector: `"layers": ":"` there would patch head h at every layer in one forward ([interventions](../usage/interventions.md#writes-across-layers)). `documents/real/head_patching.json` is the same grid on Llama-3.2-1B, three layers by 32 heads, 96 points; it reads its counterfactual at every layer with the heads sweep alone (`every_layer`), one forward for its 32 points, and runs one patched forward per point. It scores the head inside the entry (`match` and `logit_diff` in the head's `ops`) so no row of logits outlives its batch, and averages each point in a step. It needs a GPU and a gated checkpoint: read it, do not expect to run it on CPU.
 
 ## Head sets
 
@@ -149,7 +149,7 @@ A narrowed axis keeps its indices in the order the list writes them, so `{"num_h
 
 ## Check where a head write landed
 
-`run.positions` gives the token a write landed on ([positions](../usage/positions.md#check-where-it-landed)). The layer and head it hit are the compiled entry's `site` at each point, in the manifest:
+The write's record gives the token it landed on, its `positions` ([positions](../usage/positions.md#check-where-it-landed)). The layer and head it hit are the compiled entry's `site` at each point, in the manifest:
 
 ```python
 from clab import Plan

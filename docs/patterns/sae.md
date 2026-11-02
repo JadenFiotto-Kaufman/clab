@@ -72,22 +72,23 @@ gives 31, 19 and 24 on every row, and `{"op": "encode", "featurizer": "dictionar
 
 ## Train a dictionary
 
-`documents/sae_train.json` draws a 32-latent dictionary at layer 0's output (`{"kind": "sae", "latents": 32}`) and trains it on every token of the prompts after BOS:
+`documents/sae_train.json` draws a 32-latent dictionary at layer 0's output (`{"kind": "sae", "latents": 32}`) and trains it on every token of the prompts after BOS. The tokens are harvested once, before the fit, and the body is the dictionary's `encode` of each minibatch's rows of the harvest, so the model runs once in all:
+
+```json
+"harvest": {"kind": "forward", "input": "prompts.input",
+            "interventions": {"acts": {"site": "target", "pos": {"index": "1:"}}}},
+```
+
+and in the fit:
 
 ```json
 "objective": {"dictionary.reconstruction": 1.0, "dictionary.l1": 0.01},
 "steps": {
-  "harvest": {
-    "kind": "forward",
-    "input": "prompts.input",
-    "interventions": {
-      "latents": {"site": "target", "pos": {"index": "1:"}, "ops": [{"op": "encode", "featurizer": "fit.dictionary"}]}
-    }
-  }
+  "latents": {"kind": "op", "op": "encode", "featurizer": "fit.dictionary", "of": "harvest.acts"}
 }
 ```
 
-The objective is the dictionary's own scalars: `reconstruction`, the mean squared error between each vector read and its decoding, and `l1`, the mean absolute latent. They are computed over the vectors the body's open `encode` read, positions past a row's own left out, so the body reads the dictionary with an entry that stops after `encode` ([fit.md](../usage/fit.md#the-objective)). After each optimizer step the decoder rows are put back to unit norm. `fit.history.dictionary.reconstruction` and `fit.history.dictionary.l1` hold one value per epoch; on the fixture, reconstruction falls about sevenfold over the 20 epochs while `l1` rises.
+The objective is the dictionary's own scalars: `reconstruction`, the mean squared error between each vector read and its decoding, and `l1`, the mean absolute latent. They are computed over the vectors the body's open `encode` saw, positions past a row's own left out, so the body reads the dictionary with an `encode` no `decode` closes: an `encode` step, as here, or an entry whose ops end in `encode` ([fit.md](../usage/fit.md#the-objective)). After each optimizer step the decoder rows are put back to unit norm. `fit.history.dictionary.reconstruction` and `fit.history.dictionary.l1` hold one value per epoch; on the fixture, reconstruction falls about sevenfold over the 20 epochs while `l1` rises.
 
 `"activation": "topk", "k": 4` beside `latents` trains a TopK dictionary instead; `jumprelu` is refused for a drawn dictionary, since its threshold comes only from a published file.
 
@@ -97,5 +98,5 @@ The objective is the dictionary's own scalars: `reconstruction`, the mean square
 
 - **`apply` is the splice, the bracket is the edit.** An effect measured through `apply` against the clean forward includes dropping the error term. Edit latents inside `encode` and `decode`, which keep it, and the difference from the clean forward is the edit's alone.
 - **State the release's layer inline** in `site`, not the name of the site you use, so the check has something to check ([featurizers.md](../usage/featurizers.md#loading-a-published-sparse-autoencoder)).
-- **An `sae` objective term needs an open `encode`.** A body whose only use of the dictionary is a closed bracket has no vectors for `reconstruction` or `l1`, and the run stops.
+- **An `sae` objective term needs an open `encode`.** A body whose only use of the dictionary is a closed bracket has no vectors for `reconstruction` or `l1`, and compile refuses the term by name (`steps.fit.objective.dictionary.reconstruction: 'reconstruction' is over the coordinates the body reads of 'dictionary', an encode no decode closes ...`).
 - **One dictionary per layer.** A published file is trained at one layer, and every use is checked against it: a site whose `layers` picks any other layer is refused before any forward.

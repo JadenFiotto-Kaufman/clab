@@ -27,13 +27,15 @@ The logit lens decodes a layer's residual stream through the model's own final n
 }
 ```
 
-`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, one forward per layer; the numbers are equal to the bit ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
+`lens.logits` is laid out `layers, rows, pos, vocab_size`, and each metric of it keeps the `layers` axis: `p_answer` is the answer's probability at every layer, row and position. `clab table out/logit_lens_all p_answer top1` prints one line per layer and row, with the model's layer in the `layer` column. `documents/logit_lens.json` is the same lens as a sweep, a point per layer; its points differ only in what they read, so one forward serves both, and the numbers are equal to the bit ([sweeps.md](../usage/sweeps.md#widen-the-read-instead)).
 
 `readout` takes a residual-stream component whole ([ops.md](../usage/ops.md#transforms) lists them). Another component, or a site that selects part of `hidden_size`, is refused inside an entry:
 
 ```text
-clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one
+clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one: read one of token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output
 ```
+
+As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers to the bit, and a read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
 
 ## Check the wiring, then trust the lens
 
@@ -70,7 +72,7 @@ At the last layer, `layer_output` through `readout` is what the model itself com
 }
 ```
 
-On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value there means the engine's `readout` is not the model's own last computation, as where a model applies a logit softcap after its head: read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer. `readout` is the one op each engine computes itself, and [engines.md](../usage/engines.md#cross-checking-with-hooks) says what each applies after the last layer.
+On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every row, and positive at layer 0. A nonzero value there means the engine's `readout` is not the model's own last computation. `readout` is the one op each engine computes itself ([engines.md](../usage/engines.md#cross-checking-with-hooks)): on nnterp it is the model's own, so `to_final` is 0.0 at the last layer of the softcapped tiny Gemma-2 too; on hooks it is the final norm, the head and the config's softcap, and on a model that does more after its head it is not the model's: on the tiny Cohere, which scales its logits, the hooks lens at the last layer matches `lm_head_output` and not `logits`. Read `lm_head_output` beside `logits` to see which one the lens matches before reading any other layer.
 
 `lens.final` has no `layers` axis, so `kl` compares every layer with the same final distribution ([values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis)).
 
@@ -80,10 +82,10 @@ On the corpus model `to_final` is exactly `0.0` at layer 1, the last, on every r
 
 ```text
 layer,row,pos,pos_token,input,value
-0,0,10,▁is,"If today is Thursday, tomorrow is","{""ids"":[4598,17972,18312],""probs"":[4.240043926984072e-05,4.216024171910249e-05,4.213841384625994e-05],""tokens"":[""Handler"",""Fed"",""Finland""]}"
+0,0,10,▁is,"If today is Thursday, tomorrow is","{""ids"":[4598,17972,18312],""probs"":[4.240043926984072e-05,4.216024171910249e-05,4.213841384625994e-05],""tokens"":[""Handler"",""▁Fed"",""▁Finland""]}"
 ```
 
-At the last layer it lists the same ids as `top_k` on the model's `logits` (`documents/readout.json`). `top_k` inside the entry, after `readout`, gives ids and `probs` without tokens. Each token is decoded alone and loses its word-start `▁`: `Fed` above is `▁Fed`, so read `ids` to tell a word from a word piece ([ops.md](../usage/ops.md#transforms)).
+At the last layer it lists the same ids as `top_k` on the model's `logits` (`documents/readout.json`). `top_k` inside the entry, after `readout`, gives ids and `probs` without tokens. Each token is the tokenizer's piece, spelled as `pos_token` is, so `▁Fed` above starts a word and `Handler` continues one ([ops.md](../usage/ops.md#transforms)).
 
 ## Comparing two lenses: `kl` by layer label
 
@@ -109,4 +111,3 @@ With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift
 ## Pitfalls
 
 - **An early layer's lens is not its information content.** The final norm and head were trained on the last layer's stream; a low probability at layer 2 can mean the answer is there in another basis. Compare layers with each other and with `to_final`, not against an absolute threshold.
-- **`readout` as a step checks less.** `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers to the bit, but it runs on any value with a `hidden_size` axis, `mlp_norm_output` included, which then goes through the final norm a second time. Keep `readout` in the entry, where the site is checked.
