@@ -7,8 +7,8 @@ position is that position's alone to the bit whatever else the value holds (`pos
 it at each decode call. `OPS` lists them, in the order at the end of this file. An op whose axes depend on what it is
 given declares them as a function instead (`layout`), as `encode` does for its featurizer's kind. Compile reads the axes
 to lay out every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`, `Featurizer`, or a
-literal); `engine`, `original` and `dims` are filled by the run, never by a document; a trailing underscore is dropped
-from a parameter's document spelling (`with_` is `"with"`).
+literal); `engine`, `original`, `dims` and the rest of `SUPPLIED` are filled by the run, never by a document; a trailing
+underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
 """
 
 import functools
@@ -142,10 +142,13 @@ stays missing: NaN.
 
 # `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-# `eos`: the ids the generation `of` came from stops on. `rows`: the dataset row
-# of each of `of`'s rows; `positions`: the token position of each of its
-# positions (`[rows, pos]`, -1 past a row's own), where the run knows them.
-SUPPLIED = ("engine", "original", "dims", "eos", "rows", "positions")
+# `layers`: the layers it acts at, as `steps.batches.bound` aligns an operand to
+# them (inside an entry the one it is made at; as a step the labels of `of`'s
+# `layers` axis, or its one layer; None at no layer). `eos`: the ids the
+# generation `of` came from stops on. `rows`: the dataset row of each of `of`'s
+# rows; `positions`: the token position of each of its positions (`[rows, pos]`,
+# -1 past a row's own), where the run knows them.
+SUPPLIED = ("engine", "original", "dims", "layers", "eos", "rows", "positions")
 # A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
 VOCABULARY = ("vocab_size", "classes")
 

@@ -30,7 +30,7 @@ from clab.compile.arguments import called, carried, layout, mismatch, narrowed_r
 from clab.compile.interventions import entry, items
 from clab.compile.schedule import shared
 from clab.compile.state import Compiling
-from clab.compile.uses import bundled_sites
+from clab.compile.uses import bundled_sites, over_axes
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import find_sweeps, spelled
@@ -100,6 +100,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
+    over_axes(done)
     shared(done)
     return done
 

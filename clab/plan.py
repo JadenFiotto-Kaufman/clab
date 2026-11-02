@@ -922,7 +922,12 @@ class Featurizer(Record):
                                                   "checks the model's width against")
     width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
                                       "of them, which preflight finds among the model's sizes (null for one used "
-                                      "nowhere); a saved bundle's header records it")
+                                      "nowhere; a gate over axes, how many units it has: the product of `kept`'s "
+                                      "lengths); a saved bundle's header records it")
+    kept: dict[str, list[int]] = derived({}, "a gate over axes: the indices its units keep on each axis it is over, "
+                                             "in `over`'s order (`layers` by model layer), as the sites it is used at "
+                                             "select them or its bundle's header records them, which preflight "
+                                             "finds; empty for any other featurizer")
 
     @model_validator(mode="after")
     def _fields(self) -> "Featurizer":

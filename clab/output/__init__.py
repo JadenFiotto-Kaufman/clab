@@ -236,20 +236,20 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         read = record_of(plan.steps, value.read or "", step.at)
         site = at_layers(read)
         width = len(value.kept["hidden_size"]) if "hidden_size" in value.kept else plan.run.sizes["hidden_size"]
-        reads = None
+        reads, kept = None, None
     elif step.kind == "fit" and member in step.train:
         trained = agreeing(plan.featurizers[member], step.at)
         kind, fields = kind_of(plan, member), trained.model_extra or {}
         used = uses(plan)[member]
         where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
         given = arguments(o).get("with")
-        site, width = at_layers(read), trained.width
+        site, width, kept = at_layers(read), trained.width, trained.kept
         reads = at_layers(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:
         return None
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
     classes = labels({dataset: materialized(plan, dataset)}, fields["classes"]) if dataset else None
-    return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads)
+    return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept)
 
 
 def at_layers(read: Labelled) -> Site:

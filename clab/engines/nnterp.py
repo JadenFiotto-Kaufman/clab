@@ -93,7 +93,7 @@ class NnterpEngine:
         plan.results, plan.run, plan.steps = home["results"], home["run"], home["steps"]
         for name, completed in home["featurizers"].items():      # its width; the client keeps its own bundle
             for mine, theirs in zip(points(plan.featurizers[name]), completed):
-                mine.width = theirs.width
+                mine.width, mine.kept = theirs.width, theirs.kept
         assert plan.run is not None
         if ranks > 1:
             every: list[Any] = [None] * ranks

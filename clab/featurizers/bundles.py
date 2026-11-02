@@ -21,12 +21,14 @@ OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "laye
 
 
 def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None, site: Site | None = None,
-           width: int | None = None, document: str | None = None, reads: Site | None = None) -> dict[str, str]:
+           width: int | None = None, document: str | None = None, reads: Site | None = None,
+           kept: dict[str, list[int]] | None = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults, and what the kind takes an unstated
     one to be, `unstated`; a probe's classes as its class list), the model, and, when written, the site it was
     used at (its `layer` the one int, or the list, of the layers it was made at, counted from the first), its
-    width and the document's name, and the site it read its input at when that was another (`reads`, a
-    cross-site adapter's `with`: `with.component`, `with.layer`)."""
+    width and the document's name, the site it read its input at when that was another (`reads`, a
+    cross-site adapter's `with`: `with.component`, `with.layer`), and for a gate over axes the indices it keeps on
+    each of them but `layers`, which `layer` records (`kept`: `kept.<axis>`, a JSON list)."""
     params = registry.signature(KINDS[kind]).parameters
     given = {**{k: p.default for k, p in params.items()}, **KINDS[kind].unstated, **fields, "classes": labels}
     # A field a loading document leaves out is the header's to say, so it is not checked; 8 and 8.0 are one value.
@@ -39,6 +41,7 @@ def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None,
                       "document": str(document)})
     if reads is not None:
         found.update({"with.component": reads.component, "with.layer": str(reads.layers)})
+    found.update({f"kept.{axis}": json.dumps(v) for axis, v in (kept or {}).items() if axis != "layers"})
     return found
 
 

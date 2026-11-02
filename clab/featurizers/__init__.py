@@ -2,11 +2,12 @@
 
 A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
-and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
-`labels` (its class list). An instance holds plain tensors, never an `nn.Module`, made where the model is: a
-declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
-`seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
-the plan and checks key by key against the document; a loaded one is fixed. Three ops reach it: `encode` gives
+and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, for a probe
+`labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
+An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
+run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
+trains it, else 0), or loaded from its bundle, which compile reads into the plan and checks key by key against the
+document; a loaded one is fixed. Three ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
@@ -21,13 +22,15 @@ featurizer's float32 math alone.
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
 `layer`: the one layer, or the list of them, it was made at, counted from the first), its `width` and the
-document's name. Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
+document's name, and for a gate over named axes the indices it keeps on each of them but `layers`
+(`kept.<axis>`). Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
 one is checked against it key by key: the tensors and the kind, its fields and the model when the plan compiles,
-the site at every use (each layer it picks one that `layer` names), and `width` against the model's size before
-any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header keys under
-another format is refused. Any other file is a published one, its kind's to read or refuse: an `sae` reads one
-(SAELens, Gemma Scope), whose shapes are checked against each other and the site's width: nothing in it says what
-model or site it was made at, so the document states the layer, which every use is checked against.
+the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
+the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
+header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
+file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are
+checked against each other and the site's width: nothing in it says what model or site it was made at, so the
+document states the layer, which every use is checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
@@ -51,7 +54,7 @@ from torch import Tensor
 
 from clab.format import registry
 
-SUPPLIED = ("width", "bundle", "header", "labels")
+SUPPLIED = ("width", "bundle", "header", "labels", "kept")
 FORMAT = "clab/1"
 KINDS: dict[str, type["Kind"]] = {}
 
@@ -218,11 +221,12 @@ def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:
 
 
 def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor] | None, seed: int | None,
-         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu") -> Kind:
+         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu",
+         kept: dict[str, list[int]] | None = None) -> Kind:
     """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`, its tensors on `device`.
     It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
     what a fit trains, its optimizer's state and its math live where the model is."""
-    supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels}
+    supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels, "kept": kept}
     taken = registry.signature(KINDS[kind]).parameters
     given = {**fields, "seed": seed if fields.get("seed") is None else fields["seed"]} if "seed" in taken else fields
     instance = KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})

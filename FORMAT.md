@@ -437,7 +437,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills. C
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
 - `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over)
-- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere); a saved bundle's header records it)
+- `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere; a gate over axes, how many units it has: the product of `kept`'s lengths); a saved bundle's header records it), `kept` (a gate over axes: the indices its units keep on each axis it is over, in `over`'s order (`layers` by model layer), as the sites it is used at select them or its bundle's header records them, which preflight finds; empty for any other featurizer)
 
 ## Ops
 
@@ -684,11 +684,12 @@ Featurizer kinds: the fields each kind takes, what an instance is, and how a val
 
 A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
-and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
-`labels` (its class list). An instance holds plain tensors, never an `nn.Module`, made where the model is: a
-declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
-`seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
-the plan and checks key by key against the document; a loaded one is fixed. Three ops reach it: `encode` gives
+and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, for a probe
+`labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
+An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
+run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
+trains it, else 0), or loaded from its bundle, which compile reads into the plan and checks key by key against the
+document; a loaded one is fixed. Three ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
@@ -703,13 +704,15 @@ featurizer's float32 math alone.
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
 `layer`: the one layer, or the list of them, it was made at, counted from the first), its `width` and the
-document's name. Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
+document's name, and for a gate over named axes the indices it keeps on each of them but `layers`
+(`kept.<axis>`). Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
 one is checked against it key by key: the tensors and the kind, its fields and the model when the plan compiles,
-the site at every use (each layer it picks one that `layer` names), and `width` against the model's size before
-any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header keys under
-another format is refused. Any other file is a published one, its kind's to read or refuse: an `sae` reads one
-(SAELens, Gemma Scope), whose shapes are checked against each other and the site's width: nothing in it says what
-model or site it was made at, so the document states the layer, which every use is checked against.
+the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
+the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
+header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
+file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are
+checked against each other and the site's width: nothing in it says what model or site it was made at, so the
+document states the layer, which every use is checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
@@ -739,12 +742,18 @@ Ops: `encode` gives its coordinates, the last axis becoming features; `decode` w
 
 ### `gate`
 
+- `over: list of str or null = null`
 - `temperature: {start: float, end: float} or null = null`
 - `file_path: str or null = null`
 
 A mask over units, `theta` starting at +1 on every one: soft (σ(θ/T)) while a fit trains it, hard
 (θ > 0) whenever it is scored. `temperature: {"start", "end"}` sets T, linearly over the fit's epochs
-(default 1).
+(default 1). The units are the last axis of its site's selection, or with `over` the axes of the selection it
+names (`layers` among them where the site picks several), in the selection's order: `theta` is laid out on
+them, as many on each as the selection keeps, so `["layers", "num_heads"]` at `attention_premix` over every
+layer is one unit per head. That mask meets the value as an operand does under Ops' one rule, broadcast over
+the axes it leaves out, its slice of each layer the value is at taken by that layer's id. A gate over axes
+serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates.
 
 Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply` gives its version of the value, in the value's own layout: `h` times the mask: soft while a fit trains it, hard when scored.
 
