@@ -25,6 +25,7 @@ from clab.plan import (
     Site,
     Step,
     Unbracketed,
+    adapts,
     arguments,
     bracketed,
     edits,
@@ -207,7 +208,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                 fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
                      "is off the model, batch by batch, where an operand is a value made before this step; an "
                      "operand from the same forward is a write's: take the two in an op step after the forward")
-            why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live)
+            why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
+                           adapts(plan, o))
             if why:
                 fail(f"{here}.{key}", why)
         if i in closes:
@@ -289,7 +291,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
     flattened, and from the same forward read at the write's own positions; on a `key` axis, inputs that line up
     token for token, and an unscoped operand on another input `windowed`."""
     args, sizes, site = arguments(o), engine.sizes(), cast(Site, record.site)
-    adapts = o.op == "apply"
+    adapter = adapts(plan, o)
     for key, p in ops.parameters(o.op).items():
         value = args.get(key)
         if p.annotation != ops.Value or not isinstance(value, str):
@@ -300,16 +302,16 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         producer, read = entry_of(plan.steps, value, step.at)
         theirs_site = cast(Site, read.site)
         same = value.partition(".")[0] == where.partition(".")[0]
-        if adapts and key == "with":
+        if adapter and key == "with":
             per, own = (math.prod(len(kept[a]) if a in kept else sizes[a] for a in address.dims(s.component)[2:])
                         for s, kept in ((theirs_site, theirs.kept), (site, record.kept)))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
-        if same and (adapts and key == "with" or None in (theirs.width, record.width)):
+        if same and (adapter and key == "with" or None in (theirs.width, record.width)):
             ours, at = (resolved(plan.steps, n, step.at, found.swap) or [] for n in (where, value))
             for row, (a, b) in enumerate(zip(at, ours)):
-                if adapts and key == "with" and a != b:
+                if adapter and key == "with" and a != b:
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")

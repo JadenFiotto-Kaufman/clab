@@ -110,8 +110,9 @@ other read's, but an earlier entry of its own forward, row by row), an axis a si
 by the indices kept, in order (one head does not broadcast over several, and `[1, 4]` would trade places with
 `[4, 1]`), `features` by the encodes it is in (the same featurizers and `select`s: an operand inside a bracket
 is encoded as the bracket is). A number, or a named value of one number (a `mean` over every axis), broadcasts
-in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
-are the adapter's width.
+in any coordinates. An adapter's input (a lora `apply`'s `with`) is held to its rows and positions alone: its
+features are the adapter's width; a gate `apply`'s `with`, the value it interpolates toward, is an operand as
+`swap`'s is.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own

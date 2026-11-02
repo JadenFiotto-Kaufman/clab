@@ -36,7 +36,7 @@ import torch
 from safetensors.torch import load_file, save
 from torch import Tensor
 
-from clab import ops
+from clab import featurizers, ops
 from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
@@ -242,7 +242,7 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         kind, fields = kind_of(plan, member), trained.model_extra or {}
         used = uses(plan)[member]
         where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
-        given = arguments(o).get("with")
+        given = arguments(o).get("with") if featurizers.KINDS[kind].adapts else None    # an adapter's input site
         site, width, kept = at_layers(read), trained.width, trained.kept
         reads = at_layers(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:

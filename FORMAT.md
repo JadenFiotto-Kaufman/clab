@@ -530,8 +530,9 @@ other read's, but an earlier entry of its own forward, row by row), an axis a si
 by the indices kept, in order (one head does not broadcast over several, and `[1, 4]` would trade places with
 `[4, 1]`), `features` by the encodes it is in (the same featurizers and `select`s: an operand inside a bracket
 is encoded as the bracket is). A number, or a named value of one number (a `mean` over every axis), broadcasts
-in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
-are the adapter's width.
+in any coordinates. An adapter's input (a lora `apply`'s `with`) is held to its rows and positions alone: its
+features are the adapter's width; a gate `apply`'s `with`, the value it interpolates toward, is an operand as
+`swap`'s is.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
@@ -599,7 +600,7 @@ stays missing: NaN.
 | `normalize` | — | keeps the layout | Each vector divided by its norm, of the entries that are there (`present`); a vector whose norm is zero is left as it is, as `renormalize` leaves one. |
 | `project_out` | `direction: Value` | keeps the layout | Each vector less its component along `direction`, which is normalised first (its length does not matter), over the entries both have (`present`); a zero `direction` has no component to remove, and leaves each vector as it is. |
 | `decode` | `featurizer: Featurizer` | the layout its `encode` had | Closes the entry's most recent `encode` not yet closed, which is of `featurizer`: the value from before that `encode`, the change of its coordinates written back as a delta (`replace`), so an op between them that changes no coordinate changes nothing and a sparse autoencoder's error term survives. The pair runs as one, the ops between on the coordinates (`batches.edited`). |
-| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply` takes none refuses it. |
+| `apply` | `featurizer: Featurizer`, `with: Value = null` | keeps the layout | `featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an adapter's input where that is read at another site of the same forward (a lora's), or the value a gate interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is off); a kind whose `apply` takes none refuses it. |
 | `noise` | `scale: Value`, `seed: int = 0` | keeps the layout | `of + scale * noise`, `scale` a number or a named value broadcast as `add`'s `with` is, the noise standard normal and drawn per example: the noise at a row's position is one draw of the value's other axes from a CPU generator seeded by `seed`, the row's place in its dataset and the token's position alone (in a step over a value that holds no positions, its index along `pos`), then moved to the value's device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws the same bits on any device. A value with no rows is one draw from `seed`. |
 | `clamp` | `min: float or null = null`, `max: float or null = null` | keeps the layout | Each element clamped to `[min, max]`; at least one of them given. |
 
@@ -694,12 +695,12 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value, an adapter's adapted value). A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over the coordinates the body read of it in that run of the body, its
-`encode`s no `decode` closes, which the instance keeps while a fit trains it). Its math runs on
-the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a float32
-featurizer's float32 math alone.
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit trains an
+instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
+it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
+float32 featurizer's float32 math alone.
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
@@ -721,7 +722,8 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
 published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
 body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`); its constructor makes an
+fields that count directions of the value, so are at most its width (`counts`), and whether its `apply`'s
+`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's); its constructor makes an
 instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -753,9 +755,11 @@ names (`layers` among them where the site picks several), in the selection's ord
 them, as many on each as the selection keeps, so `["layers", "num_heads"]` at `attention_premix` over every
 layer is one unit per head. That mask meets the value as an operand does under Ops' one rule, broadcast over
 the axes it leaves out, its slice of each layer the value is at taken by that layer's id. A gate over axes
-serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates.
+serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates. `apply` with
+`with` (a value at the same selection, or a number, as `swap`'s) is the interpolation toward it, exact at either
+end of the mask.
 
-Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply` gives its version of the value, in the value's own layout: `h` times the mask: soft while a fit trains it, hard when scored.
+Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply`(with: Value or null = null) gives its version of the value, in the value's own layout: `h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, `h·m + with·(1−m)`, the interpolation toward it: where a unit is on, `h` to the bit, and where it is off, `with` to the bit.
 
 ### `pca`
 

@@ -46,6 +46,7 @@ from clab.plan import (
     Plan,
     PlanError,
     Site,
+    adapts,
     arguments,
     corpus_root,
     entries,
@@ -450,7 +451,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     assert of.dims is not None
     found = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in found.items():
-        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False)
+        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec))
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "readout" and of.read is not None:        # the one stream check, an entry's readout's too

@@ -106,7 +106,8 @@ def over_axes(plan: Plan) -> None:
             path, site, laid = f"featurizers.{name}.over", cast(Site, read.site), selection(read, o)
             if o.op != "apply":
                 fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
-                     "are not the last axis, which an encode makes its coordinates")
+                     "are not the last axis, which an encode makes its coordinates; an interchange through it is "
+                     f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
             if around:
                 fail(path, f"{over}: {where} applies {name!r} inside the encode of "
                      f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
@@ -240,8 +241,9 @@ def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, l
     `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
     `with` that stacks is read there at that layer), and one made without reads none: the width check alone would
     pass an o_proj adapter fed its own output, whose width can equal the premix's. A featurizer with no clab
-    header (drawn, or a published file) records neither."""
-    if f.header is None:
+    header (drawn, or a published file) records neither, and a kind whose `with` is no input (`Kind.adapts`: a
+    gate's) reads none."""
+    if f.header is None or not KINDS[f.kind].adapts:
         return
     given, recorded, recorded_layer = arguments(o).get("with"), f.header.get("with.component"), \
         f.header.get("with.layer")

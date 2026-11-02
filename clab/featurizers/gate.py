@@ -7,6 +7,7 @@ import torch
 from torch import Tensor
 
 from clab.featurizers import Kind
+from clab.format.registry import Value
 
 
 class Temperature(TypedDict):
@@ -22,7 +23,9 @@ class Gate(Kind):
     them, as many on each as the selection keeps, so `["layers", "num_heads"]` at `attention_premix` over every
     layer is one unit per head. That mask meets the value as an operand does under Ops' one rule, broadcast over
     the axes it leaves out, its slice of each layer the value is at taken by that layer's id. A gate over axes
-    serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates."""
+    serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates. `apply` with
+    `with` (a value at the same selection, or a number, as `swap`'s) is the interpolation toward it, exact at either
+    end of the mask."""
     saves = trains = ("theta",)
     header = ("over",)
     scalars = ("mask",)
@@ -71,9 +74,14 @@ class Gate(Kind):
     def encode(self, h: Tensor) -> Tensor:
         return h
 
-    def apply(self, h: Tensor, dims: list[str] | None = None, layers: int | list[int] | None = None) -> Tensor:
-        """`h` times the mask: soft while a fit trains it, hard when scored."""
-        return h * self.mask(dims, layers).to(h)
+    def apply(self, h: Tensor, with_: Value | None = None, dims: list[str] | None = None,
+              layers: int | list[int] | None = None) -> Tensor:
+        """`h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, `h·m + with·(1−m)`,
+        the interpolation toward it: where a unit is on, `h` to the bit, and where it is off, `with` to the bit."""
+        m = self.mask(dims, layers).to(h)
+        if with_ is None:
+            return h * m
+        return h * m + torch.as_tensor(with_, dtype=h.dtype, device=h.device) * (1 - m)
 
     def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
         return h + self.mask().to(h) * (new - h)

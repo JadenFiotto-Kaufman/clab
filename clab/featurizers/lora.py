@@ -14,6 +14,7 @@ class Lora(Kind):
     no coordinates, so its one op is `apply`, and nothing encodes into it."""
     saves = trains = ("A", "B")
     header = drawn = ("rank", "alpha")
+    adapts = True
 
     def __init__(self, width: int, rank: int | None = None, alpha: float | None = None, seed: int | None = None,
                  file_path: str | None = None, bundle: dict[str, Tensor] | None = None,

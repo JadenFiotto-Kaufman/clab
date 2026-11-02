@@ -49,8 +49,9 @@ def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str |
              f"{', '.join(serves)}" + ("; it has no way back into the value" if name == "decode" else ""))
     if name == "apply" and args.get("with") is not None:
         if "with_" not in registry.signature(featurizers.KINDS[kind].method("apply")).parameters:
-            fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's)")
-        if not isinstance(args["with"], str):
+            fail(f"{path}.with", f"a {kind}'s apply takes no 'with', an adapter's input read at another site (a lora's), "
+                 "or the value a gate interpolates toward")
+        if featurizers.KINDS[kind].adapts and not isinstance(args["with"], str):
             fail(f"{path}.with", f"{args['with']!r} is not a name; 'with' names a value read at the positions the op "
                  "acts on")
     return kind
@@ -179,14 +180,15 @@ def narrowed(ours: Labelled, name: str, key: str, written: str) -> str | None:
 
 
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
-             forward: bool) -> str | None:
+             forward: bool, adapter: bool = False) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
     in the value's order, with the same label (`layers` by model layer, `rows` by dataset, `pos` by the read whose
     positions both hold or by `width`, a selected axis by the indices kept in order, `features` by the encodes it is
     in); a `layers` axis it has covers the layers the op acts at and is aligned by id. A number broadcasts in any
-    coordinates; an adapter's `with` is compared on its rows and positions alone. `write` says the op is one of an
+    coordinates; an adapter's `with` (`adapter`: the op is an `apply` of one, `plan.adapts`) is compared on its rows
+    and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
@@ -197,7 +199,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     group = ops.DECLARED[name]["group"]
     verb = "scores" if group == "metrics" else "acts on"
     whose = "this write's selection" if write else "the value it acts on"
-    adapts = name == "apply" and key == "with"
+    adapts = adapter and key == "with"
     own_axes, their_axes = ours.dims or [], theirs.dims or []
     if adapts:                  # an adapter's input: on the value's rows and positions, its features its own
         own_axes = [a for a in own_axes if a in address.EXAMPLE_AXES]

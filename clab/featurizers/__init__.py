@@ -12,12 +12,12 @@ its coordinates of a value `h` (the last axis becomes the kind's axis: `features
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value, an adapter's adapted value). A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over the coordinates the body read of it in that run of the body, its
-`encode`s no `decode` closes, which the instance keeps while a fit trains it). Its math runs on
-the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a float32
-featurizer's float32 math alone.
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit trains an
+instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
+it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
+float32 featurizer's float32 math alone.
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
@@ -39,7 +39,8 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
 published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
 body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`); its constructor makes an
+fields that count directions of the value, so are at most its width (`counts`), and whether its `apply`'s
+`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's); its constructor makes an
 instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -96,6 +97,10 @@ class Kind:
     scalars: ClassVar[tuple[str, ...]] = ()
     over_encodes: ClassVar[tuple[str, ...]] = ()   # the scalars over what the body's encodes saw (`seen`)
     counts: ClassVar[tuple[str, ...]] = ()     # fields that count directions of the value: at most its width
+    # Whether `apply`'s `with` is the kind's input, which may be read at another site of the same forward (an
+    # adapter's): held to the value's rows and positions alone, and recorded in its bundle's header. Otherwise a
+    # `with` is an operand of the value under Ops' one rule, as `swap`'s is (a gate's, which it interpolates toward).
+    adapts: ClassVar[bool] = False
     kind: ClassVar[str]
     # Set by the fit that trains the instance: whether this run of its body trains it (a gate is soft then),
     # and every value the body's encodes of it saw, beside its coordinates, for its scalars.

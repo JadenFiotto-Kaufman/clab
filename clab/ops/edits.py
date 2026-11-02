@@ -42,8 +42,9 @@ def apply(of: Tensor, featurizer: Featurizer, with_: Value | None = None, dims: 
           layers: int | list[int] | None = None) -> Tensor:
     """`featurizer`'s own version of the value, in its layout: a subspace's projection, a dictionary's
     reconstruction without its error term, a gate's masked value, an adapter's adapted value. `with` is an
-    adapter's input where that is read at another site of the same forward (a lora's); a kind whose `apply`
-    takes none refuses it."""
+    adapter's input where that is read at another site of the same forward (a lora's), or the value a gate
+    interpolates toward, `h·m + with·(1−m)` (an operand as `swap`'s is, exact where a unit is on and where it is
+    off); a kind whose `apply` takes none refuses it."""
     taken = registry.signature(featurizer.method("apply")).parameters
     given = {"with_": with_, "dims": dims, "layers": layers}
     return featurizer.call("apply", of, {k: v for k, v in given.items() if k in taken})

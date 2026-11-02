@@ -25,6 +25,7 @@ from clab.plan import (
     Labelled,
     Plan,
     Site,
+    adapts,
     arguments,
     body_view,
     entries,
@@ -123,7 +124,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 assert step.dims is not None and of.dims is not None
                 step.layers, step.kept, step.width = carried(of, step.dims)     # completed from its producer's
                 for key, (written, theirs) in references(step.op, args, resolving(plan, step.at)).items():
-                    why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False)
+                    why = mismatch(of, theirs, step.op, key, written, repr(step.of), False, False, adapts(plan, step))
                     if why:
                         raise ValueError(f"{name}: operand {why}")
                 if "classes" in of.dims:
@@ -205,7 +206,8 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                                     kept={a: v for a, v in record.kept.items() if a in dims})
                     for k, (written, theirs) in references(o.op, arguments(o), resolving(plan, step.at)).items():
                         forward = written.partition(".")[0] == name
-                        why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward)
+                        why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
+                                       adapts(plan, o))
                         if why:
                             raise ValueError(f"{where}: operand {why}")
                     if i < edits:

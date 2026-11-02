@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Iterator, cast
 import torch
 from torch import Tensor
 
-from clab import ops
+from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
 from clab.compile.positions import head, texts
@@ -19,7 +19,7 @@ from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
 from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
-                        held_rows, record_of)
+                        held_rows, kind_of, record_of)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -337,6 +337,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
     operand leaves out (Ops' one rule lets it leave out rows, pos and layers)."""
     params, out = ops.parameters(name), {}
     resolved = resolved or {}
+    adapter = name == "apply" and featurizers.KINDS[kind_of(plan, args["featurizer"])].adapts      # an adapter's input
     for key, value in args.items():
         annotation = params[key].annotation
         if annotation == ops.Value and isinstance(value, str):
@@ -352,7 +353,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
                         value, axes = value[labels.index(layers)], axes[1:]
                     elif layers != labels:
                         value = value[[labels.index(layer) for layer in layers]]
-                if dims is not None and axes and isinstance(value, Tensor) and not (name == "apply" and key == "with"):
+                if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
             value = (indexed(plan, value, vocabulary, ids)[:, None] if vocabulary is not None else

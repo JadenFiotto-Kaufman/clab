@@ -1180,6 +1180,13 @@ def kind_of(plan: Plan, ref: str) -> str:
     return points(plan.featurizers[declared(plan, ref)])[0].kind
 
 
+def adapts(plan: Plan, o: "Op | OpStep") -> bool:
+    """Whether op `o` is an `apply` of a featurizer whose `with` is its input, which may be read at another site
+    (an adapter's: `Kind.adapts`), rather than an operand of the value (a gate's, which it interpolates toward)."""
+    ref = arguments(o).get("featurizer")
+    return o.op == "apply" and ref is not None and featurizers.KINDS[kind_of(plan, ref)].adapts
+
+
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
     """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, in
     that fit's body), at the step's point that agrees with `at`: the one place a reference to an entry resolves,
