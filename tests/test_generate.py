@@ -1269,3 +1269,48 @@ def test_an_until_scope_is_a_reads_beyond_the_prefill_and_starts_at_the_frames_f
     with pytest.raises(ValueError, match=message):
         plan = edited("generated_answer", change).compile()
         engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+def cut(d):
+    """generated_contains.json's text after each row's `said` word (rows 0 and 1 say theirs, `substr` and
+    `energcalc`; rows 2 and 3 never do), after a literal every row says, after the first of a set compared
+    lowercased, and `contains` of the word in what follows it."""
+    d["steps"].update({
+        "after_said": {"kind": "op", "op": "detokenize", "of": "answer", "after": "prompts.said"},
+        "after_lit": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": "energ"}},
+        "after_set": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": ["TOSS", "CALC"], "lower": True}},
+        "after_none": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": " Tuesday", "strip": True}},
+        "again": {"kind": "op", "op": "contains", "of": "after_said", "text": "prompts.said"}})
+    d["saves"] = ["text", "after_said", "after_lit", "after_set", "after_none", "said", "again"]
+
+
+def test_detokenize_after_keeps_each_rows_text_after_the_first_occurrence(engines):
+    """`detokenize` with `after` is each row's text after the first occurrence of the column's text or a literal (of
+    a set, the occurrence that ends first), the whole text on a row that never says it; so `contains` scores what
+    follows alone. Both engines and `remote="local"` give the same texts."""
+    plan = edited("generated_contains", cut).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("generated_contains", cut).compile(),
+                                                                batch_size=BATCH_SIZE).results
+            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    v = runs["nnterp"]
+    said = [row["said"] for row in plan.data["prompts"].rows or []]
+    assert v["text"] == ["Handler substr energcalc tossorter"] * 4
+    assert v["after_said"] == [t.partition(w)[2] if w in t else t for t, w in zip(v["text"], said)] == \
+        [" energcalc tossorter", " tossorter", v["text"][2], v["text"][3]]
+    assert v["after_lit"] == ["calc tossorter"] * 4 and v["after_set"] == [" tossorter"] * 4
+    assert v["after_none"] == v["text"]
+    assert v["said"].tolist() == [1.0, 1.0, 0.0, 0.0] and v["again"].tolist() == [0.0, 0.0, 0.0, 0.0]
+    for kind, results in runs.items():
+        assert same(results, v), kind
+
+
+@pytest.mark.parametrize("step, message", [
+    ({"tokens": True, "after": {"text": "substr"}}, r"steps\.cut: after keeps each row's text after an occurrence, "
+                                                    r"and with tokens a row is its token strings"),
+    ({"after": "pairs.said"}, r"steps\.cut\.after: 'pairs\.said' is not <dataset>\.<column> over a dataset"),
+    ({"after": {"text": "substr", "before": True}}, r"steps\.cut\.after: a literal takes no 'before'"),
+])
+def test_detokenize_after_is_a_text_of_the_rows_and_cuts_text_alone(step, message):
+    with pytest.raises(PlanError, match=message):
+        edited("generated_contains", lambda d: d["steps"].update(
+            cut={"kind": "op", "op": "detokenize", "of": "answer", **step})).compile()

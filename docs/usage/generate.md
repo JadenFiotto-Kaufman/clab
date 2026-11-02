@@ -23,6 +23,17 @@ From `documents/generated_contains.json`:
 
 `detokenize` turns each row's ids into text and stops before the row's first EOS. `contains` scores 1 where that text contains the row's answer. Both are covered in [usage/ops.md](ops.md).
 
+### Score what follows a text: `after`
+
+`contains` searches the whole text, so a thinking model's answer is found in its reasoning too. `after` cuts each row's text at the first occurrence of a column's text or a literal and keeps what follows it, the whole text on a row that never says it:
+
+```json
+"answer_text": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": "</think>"}},
+"correct": {"kind": "op", "op": "contains", "of": "answer_text", "text": "test.gold"}
+```
+
+`after` compares as `contains` does, text on text, under the reference's `strip` and `lower`; of a set it is the occurrence that ends first. On `documents/generated_contains.json` every row's text is `Handler substr energcalc tossorter`: `"after": "prompts.said"` gives ` energcalc tossorter` and ` tossorter` on the two rows that say their word and the whole text on the two that do not, and a `contains` of the word in that is 0 on every row. To tell a row that never said the text from one that did, score `contains` of it on the uncut text as well. With `tokens: true` a row is its token strings, which `after` does not cut, and the two together are refused.
+
 ### The first generated token's leading space
 
 On a SentencePiece tokenizer such as the corpus Llama's, decoding drops the leading space of a row's first generated token: a row that generates `▁Finland ony` reads `Finlandony`. `detokenize` decodes this way, and so does the search for a scope over generated text. So an answer written with its leading space, as [data.md](data.md#answer-columns) asks, is not found when it is generated token 0, the token a write at the prompt's last position changes first: on a row that says ` Finland` there and never again, `contains` scores 0, and a scope over the decode calls finds a later occurrence or none. Give the column `strip: true` wherever it searches generated text (a `text` scope takes `"strip": true` beside its text):

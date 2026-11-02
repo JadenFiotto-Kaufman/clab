@@ -271,7 +271,7 @@ def test_describe_shows_the_ops_and_each_kinds_ops():
     text = describe()
     assert "encode(featurizer: Featurizer, select: {features: selector} = null)  [the last axis becomes" in text
     assert "decode(featurizer: Featurizer)  [the layout its `encode` had]" in text
-    assert "detokenize(tokens: bool = false)  [needs new; removes new]" in text
+    assert "detokenize(tokens: bool = false, after: Text = null)  [needs new; removes new]" in text
     assert "apply(featurizer: Featurizer, with: Value = null)  [keeps the layout]" in text
     assert "ops: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "ops: apply(with: Value or null = null) gives its version of the value" in text
