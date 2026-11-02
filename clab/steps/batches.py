@@ -1,9 +1,9 @@
-"""A step's input in batches, and an entry bound to one batch: its site in the padded batch, the ops it writes
-with, its value with the ops after its last edit applied."""
+"""A step's input in batches, and a forward's schedule bound to one batch: each record's site in the padded batch,
+the ops a write runs there, and a read's value with the ops after its last edit applied."""
 
 from __future__ import annotations
 
-from collections import ChainMap, Counter
+from collections import ChainMap
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import torch
@@ -12,12 +12,13 @@ from torch import Tensor
 from clab import ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
-from clab.compile.positions import head
+from clab.compile.positions import head, texts
+from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
-from clab.plan import Forward, Intervention, Plan, Site, arguments, bracketed, entries, gathers, record_of, writes
+from clab.plan import Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, held_rows, record_of
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -73,13 +74,13 @@ def selection(record: Intervention, picks: dict) -> dict[int, Tensor]:
 
 
 def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[int], found: Found,
-         layer: int | None, live: dict | None = None) -> list[dict]:
+         layer: int | None, live: dict[str, str] | None = None) -> list[dict]:
     """An entry's ops up to its last edit at one of the layers it is made at (`layer`), bound to one batch, as
     `visit` runs them: each with the layout of the value it meets there (`dims`: the op before it left it, as its
     record says; the site's selection before the first), the batch's dataset row ids (`ids`), and its arguments
     bound at that layer (`bound`), an operand that names an earlier entry of the same forward (`live`: by name,
-    the engine's name for its read at each layer) to that name, for the forward to fill. An `encode` holds the ops
-    its `decode` closes over, bound the same way (`inner`), and the features its `select` keeps."""
+    the name of its read the schedule resolved it to) to that name, for the forward to fill. An `encode` holds the
+    ops its `decode` closes over, bound the same way (`inner`), and the features its `select` keeps."""
     last = len(record.ops) - len(gathers(record))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
 
@@ -123,41 +124,67 @@ def chunked(engine: Engine, step: Forward, state: ChainMap, found: Found, batch_
         yield ids, data.pad(engine.tokenizer, tokens, encoded["width"]), [encoded["width"] - len(x) for x in tokens]
 
 
-def fed(batch: dict[str, Tensor], pads: list[int], calls: int = 1, decoded: int = 0) -> Counter:
-    """What one batch through the model costs in calls and tokens: `calls` model calls (a forward's one, or a
-    generation's prefill and decode calls), the prompt tokens of each row (the batch's width less the row's
-    padding) and the `decoded` tokens its decode calls fed."""
-    width = batch["input_ids"].shape[1]
-    return Counter(forwards=calls, tokens=sum(width - pad for pad in pads) + decoded)
-
-
-def read_name(key: str, layer: int | None, prefill: bool = False) -> str:
-    """The engine's name for a read of entry `key` made at `layer` (None for a model's own value): `<key>@<layer>`,
-    with `#0` after it for the prefill part of an entry that also reads at decode calls."""
-    return f"{key}@{layer}" + ("#0" if prefill else "")
+def stops(engine: Engine, step: Generate) -> list[int]:
+    """The ids a generate step's rows stop on: its own `eos_token_id` when it gives one, else the engine's."""
+    given = (step.model_extra or {}).get("eos_token_id")
+    return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
 def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, found: Found, ids: list[int],
-         pads: list[int], among: set[str] | None = None) -> tuple[dict[str, dict], list[dict]]:
-    """The step's prefill entries (those `among`, default every one) bound to one batch: each one's site, and
-    the records the engine does in their order: an entry that writes as a write with its ops at each layer it
-    is made at, then, when it is gathered, its reads, one per layer. An entry that does neither is left out."""
-    chosen = {k: r for k, r in entries(step).items() if (writes(r) or r.gathered) and (among is None or k in among)}
-    width = found.inputs[data.input_name(step.input)]["width"]
-    sites = {key: site(record, record.kept, data.by_id(record.positions[read_over(step, found)], ids), pads, width,
-                       head(step, record))
-             for key, record in chosen.items()}
-    live = {f"{name}.{key}": {layer: read_name(key, layer) for layer in layers(engine, record)}
-            for key, record in chosen.items() if record.gathered}
-    records = []
-    for key, record in chosen.items():
-        if writes(record):
-            records += [{**sites[key], "layer": layer,
-                         "ops": edit(plan, record, state, step.at, ids, found, layer, live)}
-                        for layer in layers(engine, record)]
-        if record.gathered:
-            records += [{**sites[key], "name": read_name(key, layer), "layer": layer} for layer in layers(engine, record)]
-    return sites, records
+         pads: list[int]) -> dict[str, Any]:
+    """The schedule of `step` (a serving point of step `name`) bound to one batch of dataset row `ids`, as the
+    engine executes it: its sites in order, each record with what reaches its selection in the padded batch
+    (`site`; at a decode call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt
+    position), a write with its ops bound (`edit`), its decode `calls` and, found `online`, each row's texts to find
+    it by, a read with its name; the `stop` site; and a generation's `loop` and whether any write is `online`. A
+    read is bound at the record of the value it is (`schedule.gathered`)."""
+    schedule, width = step.schedule, found.inputs[data.input_name(step.input)]["width"]
+    prompts = [len(e["ids"]) for e in data.by_id(found.inputs[data.input_name(step.input)]["rows"], ids)]
+    rows = data.by_id(held_rows(plan, cast(str, step.dataset)), ids) if schedule.get("online") else []
+    reading = gathered(plan, name, step)
+    sites = []
+    for s in schedule["sites"]:
+        records = []
+        for r in s["records"]:
+            key = r["write"] if "write" in r else r["read"]
+            record = entries(step)[key] if "write" in r else reading[key, tuple(r["at"].items())][0]
+            head_only = head(step, record)
+            if "calls" in r:
+                bound = decoding(record, record.kept, prompts)
+            elif r.get("prompt"):
+                where = [positions.prompted(p, head_only and "write" in r) for p in prompts]
+                bound = site(record, record.kept, where, pads, width, head_only)
+            else:
+                bound = site(record, record.kept, data.by_id(record.positions[read_over(step, found)], ids), pads,
+                             width, head_only)
+            bound["layer"] = s["layer"]
+            if "write" in r:
+                live = {v["name"]: v["live"] for o in r["ops"] for v in o.values() if isinstance(v, dict) and "live" in v}
+                bound["ops"] = edit(plan, record, state, step.at, ids, found, s["layer"], live)
+                if r.get("online"):
+                    pos = positions.parse(record.pos)
+                    bound["online"] = {"pos": pos, "texts": [texts(pos, row) for row in rows],
+                                       "eos": sorted(stops(engine, cast(Generate, step)))}
+            else:
+                bound["name"] = r["name"]
+            if "calls" in r:
+                bound["calls"] = r["calls"]
+            records.append(bound)
+        sites.append({"component": s["component"], "layer": s["layer"], "records": records})
+    return {"sites": sites, "stop": schedule["stop"], "loop": schedule.get("loop"), "online": schedule.get("online", False)}
+
+
+def reads(schedule: dict[str, Any], bound: dict[str, Any], key: str, at: dict[str, int]) -> dict[int | None, list[dict]]:
+    """The bound records of the reads of entry `key`'s value at `at` (its coordinates on its own axes), by layer,
+    each in the order its parts are done (a forward's one record; beyond a generation's prefill the part over the
+    prompt, where there is one, then the part at its decode calls): the `schedule` says which record is whose,
+    `bound` (its sites and records in the same order) holds them bound."""
+    found: dict[int | None, list[dict]] = {}
+    for site, here in zip(schedule["sites"], bound["sites"]):
+        for r, b in zip(site["records"], here["records"]):
+            if r.get("read") == key and r["at"] == at:
+                found.setdefault(site["layer"], []).append(b)
+    return found
 
 
 def read_over(step: Forward, found: Found) -> str:
@@ -183,23 +210,20 @@ def stacked(record: Intervention, values: list) -> Any:
     return {k: torch.stack([v[k].to(values[0][k].device) for v in values]) for k in values[0]}
 
 
-def joined(state: ChainMap, name: str, step: Forward, parts: list[dict]) -> None:
-    """Each gathered entry's per-batch values joined along rows, on the first batch's device, as `stacked`
+def joined(state: ChainMap, name: str, record: Intervention, at: dict[str, int], values: list) -> None:
+    """A gathered entry's per-batch `values` joined along rows, on the first batch's device, as `stacked`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
     under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`padded`)."""
-    for key, record in entries(step).items():
-        if not record.gathered:
-            continue
-        dims = record.dims or []
-        values = [p[key] for p in parts]
+    to it first (`padded`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
+    axes."""
+    dims = record.dims or []
 
-        def cat(parts: list[Tensor]) -> Tensor:
-            if "pos" in dims:
-                parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
-            return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
-        put(state, f"{name}.{key}", step.at, cat(values) if isinstance(values[0], Tensor) else
-            {k: cat([v[k] for v in values]) for k in values[0]})
+    def cat(parts: list[Tensor]) -> Tensor:
+        if "pos" in dims:
+            parts = [padded(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts)) for v in parts]
+        return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
+    put(state, name, at, cat(values) if isinstance(values[0], Tensor) else
+        {k: cat([v[k] for v in values]) for k in values[0]})
 
 
 def padded(value: Tensor, dim: int, n: int) -> Tensor:
@@ -240,10 +264,10 @@ def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, st
 
 
 def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: list[int] | None, found: Found,
-          of: Any = None, vocabulary: list | None = None, live: dict | None = None,
+          of: Any = None, vocabulary: list | None = None, live: dict[str, str] | None = None,
           dims: list[str] | None = None, layers: int | list[int] | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
-    forward, in `live`, to `{"live": <the engine's name for its read>}`), columns resolved against the value's own
+    forward, in `live`, to `{"live": <the name of its read>}`), columns resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `found.answers` and `answered` lays them against
     the value `of` laid out `dims`; or a probe's class list) or read as text, at the dataset row `ids` (`value_at`;
     None: every row). The op acts at `layers` (inside an entry one of its layers, in a step `of`'s labels or its one
@@ -259,7 +283,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
             record = record_of(plan.steps, value, at)
             axes, stacked = list(record.dims or []), "layers" in (record.dims or [])
             if live and value in live:
-                value = {"live": live[value][layers] if stacked and layers is not None else next(iter(live[value].values()))}
+                value = {"live": live[value]}
             else:
                 value = value_at(plan, state, value, at, ids)
                 if stacked and layers is not None:
@@ -360,7 +384,7 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     for w in records:
         if "ops" not in w:
             if "calls" in w:
-                got[w["name"]].append(taken(x, w))
+                got.setdefault(w["name"], []).append(taken(x, w))
             else:
                 got[w["name"]] = taken(x, w)
             continue

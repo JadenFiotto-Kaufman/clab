@@ -1,7 +1,6 @@
 """What the engines share: how nnterp reaches clab's components (the envoy, its dotted name there, the sizes) and where
 not, whether its key reads inside a forward, how a model block becomes a loader call (its dtype as the loader's
-arguments), where a batch's inputs go, where a HuggingFace generation stops, and a forward's or a generation's
-records grouped by site."""
+arguments), where a batch's inputs go, and where a HuggingFace generation stops."""
 
 from __future__ import annotations
 
@@ -219,11 +218,3 @@ def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[
     found = getattr(config, "eos_token_id", None)
     found = cast("int | list[int]", tokenizer.eos_token_id if found is None else found)
     return [found] if isinstance(found, int) else list(found)
-
-
-def by_site(records: list[dict]) -> dict[tuple[str, int | None], list[dict]]:
-    """A forward's records by `(component, layer)`, each site's in listed order."""
-    sites: dict[tuple[str, int | None], list[dict]] = {}
-    for record in records:
-        sites.setdefault((record["component"], record["layer"]), []).append(record)
-    return sites

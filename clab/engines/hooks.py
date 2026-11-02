@@ -24,7 +24,7 @@ from transformers import AutoModelForCausalLM
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.standard import COMPUTED, SIZES, build, by_site, envoy, inputs, loading, stops
+from clab.engines.standard import COMPUTED, SIZES, build, envoy, inputs, loading, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
@@ -35,6 +35,7 @@ from clab.steps.batches import landed, now
 class HooksEngine:
     name: str
     remote: bool | str = False          # it runs in this process
+    stops: bool = True                  # a forward ends right after the schedule's stop site (`_Stopped`)
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` in its dtype (`loading`) placed by `device`
@@ -87,38 +88,37 @@ class HooksEngine:
     def sizes(self) -> dict[str, int]:
         return self.config["sizes"]
 
-    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One call of the model, under the records' hooks (`hooked`), ended right after its deepest site, whose
-        hook raises `_Stopped`."""
+    def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
+        """One call of the model, under the bound schedule's hooks (`hooked`), ended right after its stop site,
+        whose hook raises `_Stopped`."""
         got: dict[str, Tensor] = {}
-        with self.hooked(records, got, stop=True):
+        with self.hooked(bound["sites"], got, bound["stop"] if self.stops else None):
             try:
                 self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
             except _Stopped:
                 pass
         return got
 
-    def generate(self, batch: dict[str, Tensor], records: list[dict],
+    def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],
                  options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]:
-        """`generate` over the batch, with `options` as its keyword arguments, under the records' hooks
+        """`generate` over the batch, with `options` as its keyword arguments, under the bound schedule's hooks
         (`hooked`): the new ids, and each read."""
-        got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
-        with self.hooked(records, got):
+        got: dict[str, Any] = {}
+        with self.hooked(bound["sites"], got, None):
             ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.home(self)), **options)
         return ids[:, batch["input_ids"].shape[1]:], got
 
     @contextmanager
-    def hooked(self, records: list[dict], got: dict[str, Any], stop: bool = False) -> Iterator[None]:
-        """A hook at every site the records name, in `rank` order, removed after. A pre-hook on the model keeps
+    def hooked(self, sites: list[dict[str, Any]], got: dict[str, Any], stop: list | None) -> Iterator[None]:
+        """A hook at every site of the bound schedule, in its order, removed after. A pre-hook on the model keeps
         each forward call's `input_ids` (call 0 is a forward's one call, or a generation's prompt), and each site's
-        hook does what `now` (and, at a decode call, `landed`) says there; with `stop`, the deepest site's hook
-        then raises `_Stopped`, hooked last so that the sites sharing its module boundary are done first."""
+        hook does what `now` (and, at a decode call, `landed`) says there; the hook of the `stop` site (the last,
+        hooked last so that the sites sharing its module boundary are done first) then raises `_Stopped`."""
         calls: list[Tensor] = []
         handles = [self.model.register_forward_pre_hook(lambda module, args, kwargs: calls.append(kwargs["input_ids"]),
                                                         with_kwargs=True)]
-        sites = sorted(by_site(records).items(), key=lambda site: self.rank(*site[0]))
-        handles += [hook(self, component, layer, here, got, calls, stop and i == len(sites) - 1)
-                    for i, ((component, layer), here) in enumerate(sites)]
+        handles += [hook(self, s["component"], s["layer"], s["records"], got, calls,
+                         [s["component"], s["layer"]] == stop) for s in sites]
         try:
             yield
         finally:
