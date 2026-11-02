@@ -40,9 +40,14 @@ def show(filled: Plan) -> str:
     """A filled plan as text: how it ran (of what was installed, clab's and python's versions; where it stopped,
     if it did), what each step cost (`costs`), where each entry resolved (`resolved`), then each result with the
     step that made it, its dims (per coordinate when swept and its points differ), its sweep axes and its shape
-    (`shaped`: counted over its points when swept)."""
+    (`shaped`: counted over its points when swept). A compiled plan that has not run: its name, and which points
+    each run of a step will serve (`served`)."""
     run = filled.run
-    assert run is not None
+    if run is None:
+        rows = [[step, labelled(filled, p.at) or "—", served(filled, entry, points_)]
+                for step, entry in filled.steps.items() for p, points_ in serving(entry)]
+        return "\n".join([f"{name(filled)}: compiled, not run"]
+                         + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
@@ -71,10 +76,9 @@ def costs(filled: Plan) -> list[list[str]]:
     assert run is not None
     rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
-        for p, served in serving(entry) if step in run.costs else []:
+        for p, points_ in serving(entry) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
-            serves = ("—" if len(served) == 1 else f"all {len(served)} points" if len(served) == len(points(entry))
-                      else ", ".join(labelled(filled, at) for at in served))
+            serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
                 rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—"])
                 continue
@@ -82,6 +86,15 @@ def costs(filled: Plan) -> list[list[str]]:
             rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
+
+
+def served(filled: Plan, entry: Any, points_: list[dict]) -> str:
+    """The points one run of a step serves, as a cell: `—` for itself alone, `all N points`, else each one."""
+    if len(points_) == 1:
+        return "—"
+    if len(points_) == len(points(entry)):
+        return f"all {len(points_)} points"
+    return ", ".join(labelled(filled, at) for at in points_)
 
 
 def resolved(filled: Plan) -> list[list[str]]:

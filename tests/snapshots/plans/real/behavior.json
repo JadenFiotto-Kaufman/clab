@@ -81,7 +81,12 @@
    "of": "answer.correct",
    "dims": [],
    "dataset": "days",
-   "read": "answer.correct"
+   "read": "answer.correct",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "p_answer": {
    "kind": "op",
@@ -89,7 +94,12 @@
    "of": "answer.p",
    "dims": [],
    "dataset": "days",
-   "read": "answer.p"
+   "read": "answer.p",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

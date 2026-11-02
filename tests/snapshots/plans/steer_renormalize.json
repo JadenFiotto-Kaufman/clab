@@ -57,7 +57,12 @@
    "layers": [
     0
    ],
-   "read": "harvest.resid"
+   "read": "harvest.resid",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "base": {
    "kind": "forward",
@@ -255,7 +260,12 @@
    ],
    "dataset": "pairs",
    "read": "steered_renormed.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "p_answer": {
    "kind": "op",
@@ -268,7 +278,12 @@
    ],
    "dataset": "pairs",
    "read": "steered_renormed.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "steered_ld": {
    "kind": "op",
@@ -282,7 +297,12 @@
    ],
    "dataset": "pairs",
    "read": "steered.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

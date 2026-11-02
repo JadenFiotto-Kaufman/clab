@@ -212,7 +212,12 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "logit_diff": {
    "kind": "op",
@@ -226,7 +231,12 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

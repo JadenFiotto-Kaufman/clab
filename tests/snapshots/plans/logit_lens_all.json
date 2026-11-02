@@ -68,7 +68,12 @@
    "dataset": "prompts",
    "layers": [],
    "read": "lens.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "top1": {
    "kind": "op",
@@ -83,7 +88,12 @@
    "dataset": "prompts",
    "layers": [],
    "read": "lens.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

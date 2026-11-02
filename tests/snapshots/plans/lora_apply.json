@@ -134,7 +134,12 @@
    ],
    "dataset": "test",
    "read": "clean.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "adapted_ld": {
    "kind": "op",
@@ -148,7 +153,12 @@
    ],
    "dataset": "test",
    "read": "adapted.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "answer": {
    "kind": "generate",
@@ -204,7 +214,12 @@
    "dims": [
     "rows"
    ],
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

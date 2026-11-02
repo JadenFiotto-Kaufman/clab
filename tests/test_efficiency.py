@@ -290,6 +290,32 @@ def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_o
     assert same(filled.results["early.read"], filled.results["whole.read"])
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monkeypatch):
+    """A schedule whose stop is the first of two sites (written so by hand, since preflight writes the last):
+    both engines run block 0 alone (the first batch's; the refusal ends the step) and read nothing past it, and
+    the read at block 3 the forward never reached is refused by name, the same on each; `stop` means one thing."""
+    from clab.compile import preflight, schedule
+
+    def early(engine, plan, name, step, trained):
+        schedule.scheduled(engine, plan, name, step, trained)
+        step.schedule["stop"] = ["layer_output", 0]
+    monkeypatch.setattr(preflight, "scheduled", early)
+
+    def change(d):
+        d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input",
+                               "interventions": {"a": at("layer_output", 0), "b": at("layer_output", 3)}}}
+        d["saves"] = ["lens.a", "lens.b"]
+    plan = edited("gpt2_reach", change).compile()
+    engine = engines(kind, plan.model)
+    engine.execute(plan_of("gpt2_reach"), batch_size=BATCH_SIZE)
+    with counting(engine) as ran, pytest.raises(RuntimeError, match=rf"^lens: the {kind} engine ended the forward at "
+                                                                     r"\['layer_output', 0\] without reading b@3; the "
+                                                                     r"schedule's stop site comes after its last read$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
+    assert ran == through(1)            # block 0 and its MLP, the stop site's; nothing after
+
+
 def test_the_write_before_the_stop_changes_the_read_after_it(engines):
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
     clean = gpt2({"read": at("layer_output", 3)})

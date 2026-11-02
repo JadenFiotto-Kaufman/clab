@@ -117,7 +117,12 @@
    ],
    "dataset": "pairs",
    "read": "patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

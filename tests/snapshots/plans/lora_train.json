@@ -110,7 +110,12 @@
      ],
      "dataset": "train",
      "read": "adapted.logits",
-     "width": 1
+     "width": 1,
+     "schedule": {
+      "serves": [
+       {}
+      ]
+     }
     }
    },
    "eval": {

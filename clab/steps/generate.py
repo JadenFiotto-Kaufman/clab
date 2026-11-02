@@ -16,7 +16,7 @@ from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import agreeing, projected, put
 from clab.plan import Generate, Intervention, Plan, Site, entries, held_rows, writes
-from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, reads, stacked, stops, with_ops
+from clab.steps.batches import bind, chunked, joined, layers, over, read, read_over, stacked, stops, with_ops
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -56,7 +56,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     landed: dict[tuple[str, tuple], list] = {k: [] for k in landing}
     new = []
     for ids, batch, pads in chunked(engine, step, state, found, batch_size):
-        bound = bind(engine, plan, name, step, state, found, ids, pads)
+        bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         tokens, got = generated(engine, name, batch, bound, dict(step.model_extra or {}))
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]
@@ -65,15 +65,14 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         for k, (record, own, p) in landing.items():
             landed[k] += landed_at(record, examples, inputs, said, eos, engine.tokenizer, head(step, record))
         for k, (record, own, p) in reading.items():
-            key, mine = k[0], reads(step.schedule, bound, k[0], own)
             if k in landing:
                 where = landed[k][-len(ids):]
-                parts[k].append(stacked(record, [at_calls(engine, plan, record, got, mine[layer], where, inputs, ids,
-                                                          state, p.at, head(step, record), found, layer)
+                parts[k].append(stacked(record, [at_calls(engine, plan, record, got, binds[k + (layer,)], where, inputs,
+                                                          ids, state, p.at, head(step, record), found, layer)
                                                  for layer in layers(engine, record)]))
             else:
-                parts[k].append(stacked(record, [read(engine, plan, record, got[mine[layer][0]["name"]], mine[layer][0],
-                                                      ids, state, p.at, found, layer)
+                parts[k].append(stacked(record, [read(engine, plan, record, got[binds[k + (layer,)][0]["name"]],
+                                                      binds[k + (layer,)][0], ids, state, p.at, found, layer)
                                                  for layer in layers(engine, record)]))
         new.append(tokens)
     width = max(x.shape[1] for x in new)

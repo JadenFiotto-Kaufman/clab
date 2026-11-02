@@ -61,7 +61,12 @@
     "pos"
    ],
    "dataset": "days",
-   "read": "forced.logits"
+   "read": "forced.logits",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "seq_nll": {
    "kind": "op",
@@ -74,7 +79,12 @@
     "rows"
    ],
    "dataset": "days",
-   "read": "forced.logits"
+   "read": "forced.logits",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "hit": {
    "kind": "op",
@@ -86,7 +96,12 @@
     "pos"
    ],
    "dataset": "days",
-   "read": "forced.logits"
+   "read": "forced.logits",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "exact": {
    "kind": "op",
@@ -99,7 +114,12 @@
     "rows"
    ],
    "dataset": "days",
-   "read": "forced.logits"
+   "read": "forced.logits",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "per_tok": {
    "kind": "op",
@@ -112,7 +132,12 @@
     "rows"
    ],
    "dataset": "days",
-   "read": "forced.logits"
+   "read": "forced.logits",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

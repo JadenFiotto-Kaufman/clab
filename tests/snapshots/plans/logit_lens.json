@@ -137,6 +137,13 @@
     ],
     "at": {
      "layers": 0
+    },
+    "schedule": {
+     "serves": [
+      {
+       "layers": 0
+      }
+     ]
     }
    },
    {
@@ -159,6 +166,13 @@
     ],
     "at": {
      "layers": 1
+    },
+    "schedule": {
+     "serves": [
+      {
+       "layers": 1
+      }
+     ]
     }
    }
   ],
@@ -183,6 +197,13 @@
     ],
     "at": {
      "layers": 0
+    },
+    "schedule": {
+     "serves": [
+      {
+       "layers": 0
+      }
+     ]
     }
    },
    {
@@ -205,6 +226,13 @@
     ],
     "at": {
      "layers": 1
+    },
+    "schedule": {
+     "serves": [
+      {
+       "layers": 1
+      }
+     ]
     }
    }
   ]

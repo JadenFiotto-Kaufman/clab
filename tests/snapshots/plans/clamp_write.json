@@ -73,7 +73,12 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "clamped": {
    "kind": "forward",
@@ -164,7 +169,12 @@
    ],
    "dataset": "prompts",
    "read": "clamped.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

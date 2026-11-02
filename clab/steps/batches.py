@@ -13,7 +13,6 @@ from clab import ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
 from clab.compile.positions import head, texts
-from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
@@ -74,13 +73,13 @@ def selection(record: Intervention, picks: dict) -> dict[int, Tensor]:
 
 
 def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[int], found: Found,
-         layer: int | None, live: dict[str, str] | None = None) -> list[dict]:
+         layer: int | None, resolved: dict[str, dict] | None = None) -> list[dict]:
     """An entry's ops up to its last edit at one of the layers it is made at (`layer`), bound to one batch, as
     `visit` runs them: each with the layout of the value it meets there (`dims`: the op before it left it, as its
     record says; the site's selection before the first), the batch's dataset row ids (`ids`), and its arguments
-    bound at that layer (`bound`), an operand that names an earlier entry of the same forward (`live`: by name,
-    the name of its read the schedule resolved it to) to that name, for the forward to fill. An `encode` holds the
-    ops its `decode` closes over, bound the same way (`inner`), and the features its `select` keeps."""
+    bound at that layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or
+    the name of a read of the same forward, for the forward to fill). An `encode` holds the ops its `decode` closes
+    over, bound the same way (`inner`), and the features its `select` keeps."""
     last = len(record.ops) - len(gathers(record))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
 
@@ -88,7 +87,7 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
         out = []
         for node in nodes:
             o, dims = node["op"], laid[node["at"]]
-            args = bound(plan, o.op, arguments(o), state, at, ids, found, live=live, dims=dims, layers=layer)
+            args = bound(plan, o.op, arguments(o), state, at, ids, found, resolved=resolved, dims=dims, layers=layer)
             out.append({"op": o.op, "args": args, "rows": torch.tensor(ids), "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -130,19 +129,21 @@ def stops(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, found: Found, ids: list[int],
-         pads: list[int]) -> dict[str, Any]:
-    """The schedule of `step` (a serving point of step `name`) bound to one batch of dataset row `ids`, as the
-    engine executes it: its sites in order, each record with what reaches its selection in the padded batch
-    (`site`; at a decode call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt
-    position), a write with its ops bound (`edit`), its decode `calls` and, found `online`, each row's texts to find
-    it by, a read with its name; the `stop` site; and a generation's `loop` and whether any write is `online`. A
-    read is bound at the record of the value it is (`schedule.gathered`)."""
+def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Found, ids: list[int], pads: list[int],
+         reading: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]
+         ) -> tuple[dict[str, Any], dict[tuple[str, tuple, int | None], list[dict]]]:
+    """The schedule of `step` (a serving point) bound to one batch of dataset row `ids`, as the engine executes
+    it: its sites in order, each record with what reaches its selection in the padded batch (`site`; at a decode
+    call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position), a write with
+    its ops bound (`edit`), its decode `calls` and, found `online`, each row's texts to find it by, a read with its
+    name; the `stop` site; and a generation's `loop` and whether any write is `online`. A read is bound at the
+    record of the value it is (`reading`, `schedule.gathered`), and the bound reads are also returned by entry,
+    the value's coordinates and layer, each in the order its parts are done (a forward's one record; beyond a
+    generation's prefill the part over the prompt, where there is one, then the part at its decode calls)."""
     schedule, width = step.schedule, found.inputs[data.input_name(step.input)]["width"]
     prompts = [len(e["ids"]) for e in data.by_id(found.inputs[data.input_name(step.input)]["rows"], ids)]
     rows = data.by_id(held_rows(plan, cast(str, step.dataset)), ids) if schedule.get("online") else []
-    reading = gathered(plan, name, step)
-    sites = []
+    sites, binds = [], {}
     for s in schedule["sites"]:
         records = []
         for r in s["records"]:
@@ -159,32 +160,21 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, 
                              width, head_only)
             bound["layer"] = s["layer"]
             if "write" in r:
-                live = {v["name"]: v["live"] for o in r["ops"] for v in o.values() if isinstance(v, dict) and "live" in v}
-                bound["ops"] = edit(plan, record, state, step.at, ids, found, s["layer"], live)
+                resolved = {v["name"]: v for o in r["ops"] for v in o.values() if isinstance(v, dict) and "name" in v}
+                bound["ops"] = edit(plan, record, state, step.at, ids, found, s["layer"], resolved)
                 if r.get("online"):
                     pos = positions.parse(record.pos)
                     bound["online"] = {"pos": pos, "texts": [texts(pos, row) for row in rows],
                                        "eos": sorted(stops(engine, cast(Generate, step)))}
             else:
                 bound["name"] = r["name"]
+                binds.setdefault((key, tuple(r["at"].items()), s["layer"]), []).append(bound)
             if "calls" in r:
                 bound["calls"] = r["calls"]
             records.append(bound)
         sites.append({"component": s["component"], "layer": s["layer"], "records": records})
-    return {"sites": sites, "stop": schedule["stop"], "loop": schedule.get("loop"), "online": schedule.get("online", False)}
-
-
-def reads(schedule: dict[str, Any], bound: dict[str, Any], key: str, at: dict[str, int]) -> dict[int | None, list[dict]]:
-    """The bound records of the reads of entry `key`'s value at `at` (its coordinates on its own axes), by layer,
-    each in the order its parts are done (a forward's one record; beyond a generation's prefill the part over the
-    prompt, where there is one, then the part at its decode calls): the `schedule` says which record is whose,
-    `bound` (its sites and records in the same order) holds them bound."""
-    found: dict[int | None, list[dict]] = {}
-    for site, here in zip(schedule["sites"], bound["sites"]):
-        for r, b in zip(site["records"], here["records"]):
-            if r.get("read") == key and r["at"] == at:
-                found.setdefault(site["layer"], []).append(b)
-    return found
+    return {"sites": sites, "stop": schedule["stop"], "loop": schedule.get("loop"),
+            "online": schedule.get("online", False)}, binds
 
 
 def read_over(step: Forward, found: Found) -> str:
@@ -264,10 +254,12 @@ def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, st
 
 
 def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: list[int] | None, found: Found,
-          of: Any = None, vocabulary: list | None = None, live: dict[str, str] | None = None,
+          of: Any = None, vocabulary: list | None = None, resolved: dict[str, dict] | None = None,
           dims: list[str] | None = None, layers: int | list[int] | None = None) -> dict:
-    """An op's arguments bound to tensors: names looked up (a featurizer to its instance; an entry of the same
-    forward, in `live`, to `{"live": <the name of its read>}`), columns resolved against the value's own
+    """An op's arguments bound to tensors: names looked up at the point the schedule `resolved` them to for a
+    write's ops (by name: a value or a featurizer at its own point, `at`, or an entry of the same forward as
+    `{"live": <the name of its read>}`), else at the consumer's point `at` (a featurizer to its instance), columns
+    resolved against the value's own
     vocabulary (the tokenizer's, as preflight resolved them into `found.answers` and `answered` lays them against
     the value `of` laid out `dims`; or a probe's class list) or read as text, at the dataset row `ids` (`value_at`;
     None: every row). The op acts at `layers` (inside an entry one of its layers, in a step `of`'s labels or its one
@@ -277,15 +269,16 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
     name: it is reshaped to the value's layout `dims`, a singleton axis standing where the value has an axis the
     operand leaves out (Ops' one rule lets it leave out rows, pos and layers)."""
     params, out = ops.parameters(name), {}
+    resolved = resolved or {}
     for key, value in args.items():
         annotation = params[key].annotation
         if annotation == ops.Value and isinstance(value, str):
             record = record_of(plan.steps, value, at)
             axes, stacked = list(record.dims or []), "layers" in (record.dims or [])
-            if live and value in live:
-                value = {"live": live[value]}
+            if "live" in resolved.get(value, {}):
+                value = {"live": resolved[value]["live"]}
             else:
-                value = value_at(plan, state, value, at, ids)
+                value = value_at(plan, state, value, resolved[value]["at"] if value in resolved else at, ids)
                 if stacked and layers is not None:
                     labels = cast(list, record.layers)
                     if isinstance(layers, int):
@@ -302,7 +295,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
             column, strip, lower = data.column_of(value) or ("", False, False)
             value = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, ids)]
         elif annotation == ops.Featurizer:
-            value = lookup(state, value, at)
+            value = lookup(state, value, resolved[value]["at"] if value in resolved else at)
         out[key] = value
     return out
 

@@ -468,6 +468,13 @@
     ],
     "at": {
      "intermediate_size": 0
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 0
+      }
+     ]
     }
    },
    {
@@ -487,6 +494,13 @@
     ],
     "at": {
      "intermediate_size": 1
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 1
+      }
+     ]
     }
    },
    {
@@ -506,6 +520,13 @@
     ],
     "at": {
      "intermediate_size": 2
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 2
+      }
+     ]
     }
    }
   ],
@@ -528,6 +549,13 @@
     ],
     "at": {
      "intermediate_size": 0
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 0
+      }
+     ]
     }
    },
    {
@@ -548,6 +576,13 @@
     ],
     "at": {
      "intermediate_size": 1
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 1
+      }
+     ]
     }
    },
    {
@@ -568,6 +603,13 @@
     ],
     "at": {
      "intermediate_size": 2
+    },
+    "schedule": {
+     "serves": [
+      {
+       "intermediate_size": 2
+      }
+     ]
     }
    }
   ]

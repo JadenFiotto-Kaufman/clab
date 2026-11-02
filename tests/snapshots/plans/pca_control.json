@@ -186,7 +186,12 @@
    ],
    "dataset": "test",
    "read": "patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "ce": {
    "kind": "op",
@@ -199,7 +204,12 @@
    ],
    "dataset": "test",
    "read": "patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

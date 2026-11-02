@@ -11,33 +11,36 @@ from clab import ops
 from clab.compile import positions
 from clab.format import address
 from clab.format.sweeps import agreeing, labelled, points, projected
-from clab.plan import Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, writes
+from clab.plan import Forward, Intervention, OpStep, Plan, Site, arguments, entries, entry_of, gathers, horizon, record_of, writes
 
 if TYPE_CHECKING:
     from clab.engines import Engine
 
 
 def shared(plan: Plan) -> None:
-    """Each forward's and generation's `schedule` as compile decides it: the points of a step that agree on the
-    forward's axes (`axes`, which `compile.forward` wrote) are served by the first of them, which lists them in
-    `serves`, itself first; each other names it in `serving`. A fit body's step is one point per fit point, which
-    serves itself."""
+    """Each step's `schedule` as compile decides who serves whom: the points of a forward or generate step that
+    agree on the forward's axes (`axes`, which `compile.forward` wrote), or of an op step on its value's axes, are
+    served by the first of them, which lists them in `serves`, itself first; each other names it in `serving`. A
+    fit body's step is one point per fit point, which serves itself."""
     for entry in plan.steps.values():
-        first: dict[tuple, Forward] = {}
+        first: dict[tuple, Forward | OpStep] = {}
         for step in points(entry):
             if step.kind == "fit":
                 for body in step.steps.values():
-                    if isinstance(body, Forward):
-                        body.schedule = {**body.schedule, "serves": [body.at], "sites": [], "stop": None}
+                    body.schedule = {**body.schedule, "serves": [body.at], "sites": [], "stop": None} \
+                        if isinstance(body, Forward) else {"serves": [body.at]}
                 continue
-            if not isinstance(step, Forward):
+            if not isinstance(step, (Forward, OpStep)):
                 continue
-            key = tuple(projected(step.at, step.schedule["axes"]).items())
+            key = tuple(projected(step.at, step.schedule["axes"] if isinstance(step, Forward) else step.axes).items())
             if key in first:
                 first[key].schedule["serves"].append(step.at)
                 step.schedule = {"serving": first[key].at}
-            else:
+            elif isinstance(step, Forward):
                 step.schedule = {**step.schedule, "serves": [step.at], "sites": [], "stop": None}
+                first[key] = step
+            else:
+                step.schedule = {"serves": [step.at]}
                 first[key] = step
 
 

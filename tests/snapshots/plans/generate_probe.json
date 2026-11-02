@@ -283,6 +283,13 @@
     ],
     "at": {
      "frame": 0
+    },
+    "schedule": {
+     "serves": [
+      {
+       "frame": 0
+      }
+     ]
     }
    },
    {
@@ -302,6 +309,13 @@
     ],
     "at": {
      "frame": 1
+    },
+    "schedule": {
+     "serves": [
+      {
+       "frame": 1
+      }
+     ]
     }
    },
    {
@@ -321,6 +335,13 @@
     ],
     "at": {
      "frame": 2
+    },
+    "schedule": {
+     "serves": [
+      {
+       "frame": 2
+      }
+     ]
     }
    }
   ]

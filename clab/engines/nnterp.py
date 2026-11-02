@@ -25,7 +25,7 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 import os
 import time
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import nnsight
 import torch
@@ -145,9 +145,7 @@ class NnterpEngine:
         got: dict[str, Tensor] = {}
         with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
                                      batches.home(self))) as tracer:
-            self.visited(bound["sites"], 0, [], got)
-            if self.stops and bound["stop"] is not None:
-                tracer.stop()
+            self.visited(bound["sites"], 0, [], got, bound["stop"] if self.stops else None, tracer.stop)
         return got
 
     def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],
@@ -177,10 +175,12 @@ class NnterpEngine:
                     result["ids"] = tracer.result
         return result["ids"][:, batch["input_ids"].shape[1]:], got
 
-    def visited(self, sites: list[dict[str, Any]], call: int, seen: list[Tensor], got: dict[str, Any]) -> None:
+    def visited(self, sites: list[dict[str, Any]], call: int, seen: list[Tensor], got: dict[str, Any],
+                stop: list | None = None, ended: Callable[[], Any] | None = None) -> None:
         """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site of the bound
         schedule in its order, doing there what `now` says and, at a decode call, `landed`, from the inputs `seen`
-        so far."""
+        so far; right after the `stop` site, where one is given, the forward is `ended` (the trace's stop) and the
+        sites after it are not visited, as the hooks engine's are not."""
         for site in sites:
             component, layer = site["component"], site["layer"]
             here = now(site["records"], call)
@@ -190,6 +190,9 @@ class NnterpEngine:
                 value, wrote = batches.visit(getattr(host, component), component, here, got)
                 if wrote:
                     setattr(host, component, value)
+            if stop is not None and ended is not None and [component, layer] == stop:
+                ended()
+                return
 
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""

@@ -54,7 +54,12 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "zeroed": {
    "kind": "forward",
@@ -127,7 +132,12 @@
    ],
    "dataset": "prompts",
    "read": "zeroed.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "p_answer": {
    "kind": "op",
@@ -140,7 +150,12 @@
    ],
    "dataset": "prompts",
    "read": "zeroed.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

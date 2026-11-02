@@ -511,23 +511,29 @@ def test_the_manifest_keys_each_result_by_its_own_axes_and_each_cost_by_the_forw
     assert same(back.results, plan.results)
 
 
-def schedules(plan: Plan) -> list[tuple[str, list[tuple[str, int | None]]]]:
-    """Every forward's schedule in the plan, a fit body's included: its kind and its sites in order."""
+def schedules(plan: Plan) -> list[list[tuple[str, int | None]]]:
+    """Every forward call a schedule of the plan makes, a fit body's included, as the sites it visits in order: a
+    forward's every site; each call of a generation (up to its `max_new_tokens`) the sites with a record at that
+    call (`batches.now`)."""
     out = []
     for entry in plan.steps.values():
         for p in points(entry):
             steps = p.steps.values() if p.kind == "fit" else [p]
             for s in steps:
-                if isinstance(s, Forward) and "sites" in s.schedule:
-                    out.append((s.kind, [(site["component"], site["layer"]) for site in s.schedule["sites"]]))
+                if not (isinstance(s, Forward) and "sites" in s.schedule):
+                    continue
+                calls = range((s.model_extra or {}).get("max_new_tokens", 0) + 1) if s.kind == "generate" else [0]
+                for call in calls:
+                    out.append([(site["component"], site["layer"]) for site in s.schedule["sites"]
+                                if batches.now(site["records"], call)])
     return out
 
 
 @pytest.mark.parametrize("name", NAMES)
 def test_the_schedule_is_what_ran(engines, corpus, name, monkeypatch):
     """On every corpus document, the forwards the model made (a pre-hook on its root module) are those the run
-    recorded, and the sites each visited (`batches.visit`), in order, are a schedule's: a forward's every site,
-    a generation's call the sites with a record at that call, in the schedule's order."""
+    recorded, and the sites each visited (`batches.visit`), in order, are exactly those a schedule lists for that
+    call: a forward's every site, a generation's call the sites with a record at that call."""
     plan, _ = corpus_plan(corpus, name)
     engine: Any = engines("nnterp", plan.model)
     engine.execute(plan, batch_size=BATCH_SIZE)                 # what the model does once is done
@@ -553,6 +559,4 @@ def test_the_schedule_is_what_ran(engines, corpus, name, monkeypatch):
         else:
             segments[-1].append(tag)
     for segment in segments:
-        assert any(segment == sites if kind == "forward" else
-                   segment == [s for s in sites if s in segment] and set(segment) <= set(sites)
-                   for kind, sites in listed), (name, segment)
+        assert segment in listed, (name, segment)

@@ -57,7 +57,12 @@
    "layers": [
     0
    ],
-   "read": "harvest.acts"
+   "read": "harvest.acts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "clean": {
    "kind": "forward",
@@ -101,7 +106,12 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "ablated": {
    "kind": "forward",
@@ -174,7 +184,12 @@
    ],
    "dataset": "prompts",
    "read": "ablated.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

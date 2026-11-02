@@ -40,6 +40,20 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
     assert shown[17].split() == ["patched", "patched", "rows,", "new", "—", "[4,3]"]   # the ids depend on no axis
 
 
+def test_show_on_a_compiled_plan_that_has_not_run_prints_who_serves_whom():
+    """A compiled plan has its schedule before any run: `show` prints which points each run of a step serves
+    (generate_probe's one generation its three frames, `p_answer` one point each), and nothing it would need a
+    run for."""
+    from clab.cli import show
+
+    shown = show(plan_of("generate_probe")).splitlines()
+    assert shown[0] == "generate_probe: compiled, not run"
+    assert shown[1].split() == ["step", "at", "serves"]
+    assert [line.split(maxsplit=2) for line in shown[2:]] == [
+        ["counterfactual", "—", "—"], ["patched", "frame=0", "all 3 points"],
+        ["p_answer", "frame=0", "—"], ["p_answer", "frame=1", "—"], ["p_answer", "frame=2", "—"]]
+
+
 @pytest.mark.parametrize("name", ["generated_contains", "das"])
 def test_show_prints_a_value_with_no_axes_and_the_manifest_keeps_its_dims(engines, tmp_path, capsys, name):
     """A `mean` over everything (generated_contains's `acc`) and a trained featurizer (das's `fit.rot`) have no

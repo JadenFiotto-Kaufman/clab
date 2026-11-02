@@ -73,7 +73,12 @@
    ],
    "dataset": "prompts",
    "read": "clean.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "noisy": {
    "kind": "forward",
@@ -149,7 +154,12 @@
    ],
    "dataset": "prompts",
    "read": "noisy.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "jitter": {
    "kind": "op",
@@ -167,7 +177,12 @@
     0
    ],
    "read": "clean.resid",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

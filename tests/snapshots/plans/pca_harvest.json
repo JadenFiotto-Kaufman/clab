@@ -60,7 +60,12 @@
    "layers": [
     0
    ],
-   "read": "harvest.acts"
+   "read": "harvest.acts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

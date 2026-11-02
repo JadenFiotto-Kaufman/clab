@@ -96,7 +96,12 @@
       {
        "featurizer": "fit.rot"
       }
-     ]
+     ],
+     "schedule": {
+      "serves": [
+       {}
+      ]
+     }
     },
     "patched": {
      "kind": "forward",
@@ -197,7 +202,12 @@
      ],
      "dataset": "train",
      "read": "patched.logits",
-     "width": 1
+     "width": 1,
+     "schedule": {
+      "serves": [
+       {}
+      ]
+     }
     },
     "ce": {
      "kind": "op",
@@ -210,7 +220,12 @@
      ],
      "dataset": "train",
      "read": "patched.logits",
-     "width": 1
+     "width": 1,
+     "schedule": {
+      "serves": [
+       {}
+      ]
+     }
     }
    },
    "early_stop": {
@@ -376,7 +391,12 @@
    ],
    "dataset": "test",
    "read": "held_patched.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

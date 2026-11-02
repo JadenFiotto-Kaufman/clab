@@ -75,7 +75,12 @@
     "pos"
    ],
    "dataset": "prompts",
-   "read": "answer.at_said"
+   "read": "answer.at_said",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

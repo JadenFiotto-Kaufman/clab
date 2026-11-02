@@ -55,7 +55,12 @@
    ],
    "dataset": "pairs",
    "layers": [],
-   "read": "harvest.acts"
+   "read": "harvest.acts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "ablated": {
    "kind": "forward",
@@ -133,7 +138,12 @@
    ],
    "dataset": "pairs",
    "read": "ablated.logits",
-   "width": 1
+   "width": 1,
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

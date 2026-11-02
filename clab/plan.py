@@ -749,6 +749,10 @@ class OpStep(Labelled):
     op: str
     of: str
     at: dict[str, int] = derived({}, AT)
+    schedule: dict[str, Any] = derived({}, "the points this point's run serves (`serves`, itself first: those that "
+                                           "agree with it on the value's `axes`, where the value is one), or the "
+                                           "point whose run serves it (`serving`), as a forward's `schedule` has "
+                                           "them")
 
     @model_validator(mode="after")
     def _arguments(self) -> "OpStep":
@@ -1160,24 +1164,11 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
 
 
 def serving(entry: Entry) -> list[tuple[Step, list[dict[str, int]]]]:
-    """The points of a step that run, in order, each with the points it serves: a forward's or generation's those
-    its `schedule` says (the first of the points that agree on the forward's axes, serving them all), an op's the
-    first point of each distinct point on its value's `axes` (the value is one there), a fit's each itself."""
-    out: list[tuple[Step, list[dict[str, int]]]] = []
-    seen: dict[tuple, list[dict[str, int]]] = {}
-    for step in points(entry):
-        if isinstance(step, Forward):
-            if "serves" in step.schedule:
-                out.append((step, step.schedule["serves"]))
-        elif isinstance(step, OpStep):
-            key = tuple(projected(step.at, step.axes).items())
-            if key not in seen:
-                seen[key] = []
-                out.append((step, seen[key]))
-            seen[key].append(step.at)
-        else:
-            out.append((step, [step.at]))
-    return out
+    """The points of a step that run, in order, each with the points it serves, as its `schedule` says (a
+    forward's, a generation's and an op's: the first of the points that agree on the forward's axes, or on the
+    value's, serving them all); a fit's each itself."""
+    return [(step, step.schedule["serves"] if step.kind != "fit" else [step.at]) for step in points(entry)
+            if step.kind == "fit" or "serves" in step.schedule]
 
 
 def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:

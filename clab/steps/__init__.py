@@ -36,7 +36,7 @@ from clab.compile.uses import instance
 from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put
 from clab.plan import Forward, OpStep, Plan, Run, arguments, points, projections, record_of, serving
 from clab.steps import fit, generate
-from clab.steps.batches import bind, bound, chunked, home, joined, layers, over, read, reads, stacked, stops, value_at
+from clab.steps.batches import bind, bound, chunked, home, joined, layers, over, read, stacked, stops, value_at
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -255,17 +255,20 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     reading = gathered(plan, name, step)
     parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
     for ids, batch, pads in chunked(engine, step, state, found, batch_size):
-        bound = bind(engine, plan, name, step, state, found, ids, pads)
+        bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
         got = engine.forward(batch, bound)
+        missing = [r["name"] for s in bound["sites"] for r in s["records"] if "name" in r and r["name"] not in got]
+        if missing:
+            raise RuntimeError(f"{name}: the {engine.name} engine ended the forward at {bound['stop']} without "
+                               f"reading {', '.join(missing)}; the schedule's stop site comes after its last read")
         cost["forwards"] += 1
         cost["tokens"] += batch["input_ids"].shape[1] * len(pads) - sum(pads)
-        for (key, _), (record, own, p) in reading.items():
-            mine = reads(step.schedule, bound, key, own)
-            parts[key, tuple(own.items())].append(stacked(record, [
-                read(engine, plan, record, got[mine[layer][0]["name"]], mine[layer][0], ids, state, p.at, found, layer)
-                for layer in layers(engine, record)]))
-    for (key, _), (record, own, _) in reading.items():
-        joined(state, f"{name}.{key}", record, own, parts[key, tuple(own.items())])
+        for k, (record, own, p) in reading.items():
+            parts[k].append(stacked(record, [read(engine, plan, record, got[binds[k + (layer,)][0]["name"]],
+                                                  binds[k + (layer,)][0], ids, state, p.at, found, layer)
+                                             for layer in layers(engine, record)]))
+    for k, (record, own, _) in reading.items():
+        joined(state, f"{name}.{k[0]}", record, own, parts[k])
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found,

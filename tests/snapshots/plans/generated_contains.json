@@ -35,7 +35,12 @@
    "dims": [
     "rows"
    ],
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "said": {
    "kind": "op",
@@ -45,14 +50,24 @@
    "dims": [
     "rows"
    ],
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   },
   "acc": {
    "kind": "op",
    "op": "mean",
    "of": "said",
    "dims": [],
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "serves": [
+     {}
+    ]
+   }
   }
  },
  "saves": [

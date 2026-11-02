@@ -89,7 +89,12 @@
       {
        "featurizer": "fit.dictionary"
       }
-     ]
+     ],
+     "schedule": {
+      "serves": [
+       {}
+      ]
+     }
     }
    },
    "eval": {
