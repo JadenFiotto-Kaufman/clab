@@ -1,0 +1,35 @@
+{
+  "description": "Attribution patching on Llama-3.2-1B: every head of every layer at once, at the last position, where head_patching.json patches layers 10 to 12 one head at a time. The base run reads each head's result (`attention_premix`, the output projection's input) and its gradient (`grad`) of the logit difference at the head, in one forward and one backward; the counterfactual run reads the results alone. The counterfactual's result less the base's, times the gradient, summed over the head's dimensions, is each head's first-order estimate of what patching it would do, per pair; `attribution` is its mean over the 42 pairs, `[16 layers, 32 heads]`. Layer 12's head 28 comes first of the 512, at about +2.20, where patching it lifts the logit difference by about +2.46 from the base run's -2.40 (`logit_diff`). Two forwards and one backward, against head_patching.json's 291 forwards for 96 heads.",
+  "model": {
+    "key": "meta-llama/Llama-3.2-1B",
+    "revision": "4e20de362430cd3b72f300e6b0f18e50e7166e08",
+    "dtype": "float32"
+  },
+  "data": {"days": {"path": "weekdays_full/data"}},
+  "sites": {
+    "heads": {"component": "attention_premix", "layers": ":"},
+    "head": {"component": "lm_head_output"}
+  },
+  "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "days.counterfactual_inputs[0]",
+      "interventions": {"z": {"site": "heads", "pos": -1}}
+    },
+    "base": {
+      "kind": "forward",
+      "input": "days.input",
+      "interventions": {
+        "z": {"site": "heads", "pos": -1},
+        "dz": {"site": "heads", "pos": -1, "ops": [{"op": "grad", "of": "diff"}]},
+        "diff": {"site": "head", "pos": -1, "ops": [{"op": "logit_diff", "a": "days.cf_answer", "b": "days.base_answer"}]}
+      }
+    },
+    "delta": {"kind": "op", "op": "sub", "of": "counterfactual.z", "with": "base.z"},
+    "term": {"kind": "op", "op": "scale", "of": "delta", "factor": "base.dz"},
+    "per_pair": {"kind": "op", "op": "sum", "of": "term", "over": ["pos", "head_dim"]},
+    "attribution": {"kind": "op", "op": "mean", "of": "per_pair", "over": ["rows"]},
+    "logit_diff": {"kind": "op", "op": "mean", "of": "base.diff"}
+  },
+  "saves": ["attribution", "logit_diff"]
+}

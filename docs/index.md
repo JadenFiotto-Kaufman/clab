@@ -11,7 +11,7 @@ Find the section that answers your question, then the one page inside it. Read t
 ## Sections
 
 - [usage/](usage/index.md) — How do I write and run a document? One page per part of the format and per stage of a run: data, sites, positions, interventions, ops, sweeps, generation, featurizers, running, engines, output.
-- [patterns/](patterns/index.md) — How do I run a technique? One page per technique, each built on a corpus document: patching, ablation, attention, logit lens, steering, generation, trained subspaces, SAEs, probes, LoRA.
+- [patterns/](patterns/index.md) — How do I run a technique? One page per technique, each built on a corpus document: patching, attribution patching, ablation, attention, logit lens, steering, generation, trained subspaces, SAEs, probes, LoRA.
 - [concepts/](concepts/index.md) — Why does it behave this way? The plan's lifecycle, one session per run, the position model, values and layout, names and sweeps.
 - [errors/](errors/index.md) — Something broke, or ran and lied. The index is keyed by the refusal's message, with a page each for the refusals a line cannot explain: an operand that does not fit, a position not in a row, an answer that does not line up. [symptom-index.md](errors/symptom-index.md) covers wrong numbers that nothing refused, and [alignment-missing.md](errors/alignment-missing.md) the rows a generation did not reach.
 - [reference/](reference/index.md) — What is the exact name? [FORMAT.md](../FORMAT.md), the spec generated from the code, by section; the CLI; the Python API; the glossary.

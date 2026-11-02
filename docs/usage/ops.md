@@ -1,6 +1,6 @@
 ---
 title: Ops
-one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over, transforms like readout, argmax, top_k and detokenize, op steps versus ops inside an entry, and the float32 rule."
+one_liner: "Scoring and reducing values: metrics on logits or probe scores, reductions and over, transforms like readout, argmax, top_k, detokenize and grad, op steps versus ops inside an entry, and the float32 rule."
 tags: [usage, ops]
 related: [docs/usage/interventions.md, docs/usage/data.md, docs/usage/output.md, docs/concepts/values-and-layout.md, docs/errors/alignment-missing.md, docs/patterns/logit-lens.md, docs/patterns/probing.md, docs/patterns/steering.md]
 sources: [clab/ops/__init__.py, clab/ops/metrics.py, clab/ops/reductions.py, clab/ops/transforms.py, clab/ops/edits.py, clab/compile/arguments.py, clab/steps/__init__.py, clab/steps/batches.py]
@@ -76,6 +76,7 @@ The ops are the table in [FORMAT.md#ops](../../FORMAT.md#ops) and nothing else. 
 - `argmax` and `top_k` rank along `over`, by default the vocabulary: `argmax` gives the top id, `top_k` the `k` best `ids` with their `probs` (a float32 softmax). Over another axis (`key` on an attention pattern, `features` after an `encode`), `top_k` gives `values` instead of `probs`. As a step over logits, `top_k` also holds the decoded `tokens`; `clab table --csv` prints them whole. Each id is spelled as the tokenizer's piece, as `pos_token` spells it, a SentencePiece word-start `▁` kept: the corpus Llama's 17972 is `▁Fed`, and 4598 is `Handler`. A later step cannot name a `top_k` step's `ids`, `probs` or `tokens` (`'top3.probs' names no value produced before this step`): save it and read the fields from `plan.results` ([output](output.md#in-python)).
 - `detokenize` turns a `generate` step's ids into text, stopped before each row's first EOS ([generate](generate.md)).
 - `encode` turns a value into a featurizer's coordinates ([featurizers](featurizers.md)).
+- `grad` puts the gradient of a later entry of the same forward in the value's place, in its layout; it is the first op of an entry, and the ops after it act on the gradient ([interventions](interventions.md#a-gradient-at-a-site)).
 
 ## The float32 rule
 
