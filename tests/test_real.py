@@ -244,3 +244,28 @@ def test_a_gradient_holds_less_than_a_fit_and_frozen_weights_less_than_thawed(en
     assert same(results, thawed.results) and peak < thawed.run.costs["fit"]["memory"]["cuda:0"]
     gradient_peak = engine.execute(taken, batch_size=10).run.costs["taken"]["memory"]["cuda:0"]
     assert gradient_peak < peak
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_per_call_metric_holds_a_number_a_call_where_the_logits_hold_the_vocabulary(engines, kind):
+    """64 greedy tokens after each of the 42 weekday prompts, with the answer's probability at every call: run at each
+    call, `token_prob` holds one number a call and equals to the bit the same metric of the whole logits, which a
+    read holds until the generation ends (`[16, 64, 128256]` in float32 a batch, 501 MiB, then arranged by position);
+    the generation peaks at least one batch's logits lower, within half of one of what the device held before it."""
+    def generation(interventions: dict, steps: dict, saves: list[str]):
+        def change(d):
+            d["steps"] = {"gen": {"kind": "generate", "input": "days.input", "max_new_tokens": 64,
+                                  "min_new_tokens": 64, "do_sample": False, "interventions": interventions}, **steps}
+            d["saves"] = saves
+        return edited("real/behavior", change).compile()
+    each = generation({"p": {"site": "head", "pos": {"frame": ":"},
+                             "ops": [{"op": "token_prob", "token": "days.base_answer"}]}}, {}, ["gen.p"])
+    whole = generation({"l": {"site": "head", "pos": {"frame": ":"}}},
+                       {"p": {"kind": "op", "op": "token_prob", "of": "gen.l", "token": "days.base_answer"}}, ["p"])
+    engine = engines(kind, each.model, device="cuda")
+    resident = torch.cuda.memory_allocated("cuda:0")        # the weights, and those of any engine loaded before
+    a, b = (engine.execute(plan, batch_size=BATCH_SIZE) for plan in (each, whole))
+    assert a.results["gen.p"].shape == (42, 64) and same(a.results["gen.p"], b.results["p"])
+    logits = BATCH_SIZE * 64 * 128256 * 4
+    peak, held = (run.run.costs["gen"]["memory"]["cuda:0"] for run in (a, b))
+    assert held - peak > logits and peak - resident < logits / 2

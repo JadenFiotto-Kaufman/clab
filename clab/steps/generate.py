@@ -15,8 +15,9 @@ from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import projected, put
-from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, held_rows, writes
-from clab.steps.batches import bind, chunked, joined, layers, ordered, over, read, read_over, stacked, stops, with_ops
+from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
+from clab.steps.batches import (bind, chunked, edited, joined, layers, ordered, over, read, read_over, stacked, stops,
+                                with_ops)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -143,32 +144,46 @@ def at_calls(engine: Engine, plan: Plan, record: Intervention, got: dict, parts:
     whole value (the read's part over the prompt, `[rows, width, ...]`, column `p` the row's token `p`; its one
     column under `head_only`), a generated input's from its decode call (the read's decode part: one `[rows, 1,
     ...]` per call it asked for that the batch made, `parts` holding the bound records, the decode part last with
-    its `calls`); then the ops after its last edit. The value is `[rows, width, ...]`, `width` the record's, or the
-    most positions a row resolved to, NaN past a row's own and on a row it does not reach; `layer` is the layer
-    this is the value at."""
+    its `calls`), each already through the ops the read runs at each call (`per_call`, which `visit` applied as it
+    read them); then the ops after those. The value is `[rows, width, ...]`, `width` the record's, or the most
+    positions a row resolved to, missing past a row's own and on a row it does not reach: there it holds what the
+    ops run at each call give a missing vector (NaN, -1 in ids), computed once on one. `layer` is the layer this is
+    the value at."""
     pos, decode = positions.parse(record.pos), parts[-1]
-    whole: Tensor | None = got.get(parts[0]["name"]) if len(parts) > 1 else None
-    values: list[Tensor] = got.get(decode["name"], [])
+    whole: Any = got.get(parts[0]["name"]) if len(parts) > 1 else None
+    values: list = got.get(decode["name"], [])
     asked = decode["calls"]
     by_call = dict(zip(asked if asked is not None else range(1, len(values) + 1), values))
+    each = decode.get("per_call", [])
     sizes, picks = engine.sizes(), record.kept
     rest = [len(picks[a]) if a in picks else sizes[a] for a in address.dims(cast(Site, record.site).component)[2:]]
     some = whole if whole is not None else values[0] if values else None
-    dtype = some.dtype if some is not None else getattr(torch, plan.model.computes)
-    device = some.device if some is not None else None
-
-    def at_position(i: int, p: int) -> Tensor:
-        call = positions.call_of(p, len(encoded[i]["ids"]))
-        if call == 0:
-            assert whole is not None
-            return whole[i, 0 if head_only else p]
-        return by_call[call][i, 0]
-
+    shown = next(iter(some.values())) if isinstance(some, dict) else some     # a top_k's is a dict of tensors
+    dtype = some.dtype if isinstance(some, Tensor) and not each else getattr(torch, plan.model.computes)
+    device = shown.device if shown is not None else None
+    blank = torch.full((len(where), 1, *rest), float("nan"), dtype=dtype, device=device)
+    missing = edited(blank, blank, each, got, None)
     hit = [got_ if isinstance(got_, list) else [] for got_ in where]      # a marker is a row with none
     width = positions.width(pos) or max(map(len, hit), default=0)
-    value = torch.full((len(where), width, *rest), float("nan"), dtype=dtype, device=device)
-    for i, got_ in enumerate(hit):
-        for j, p in enumerate(got_):
-            value[i, j] = at_position(i, p)
+
+    def arranged(missing: Tensor, whole: Tensor | None, by_call: dict[int, Tensor], like: Tensor | None) -> Tensor:
+        missing = missing if like is None else missing.to(dtype=like.dtype, device=like.device)
+        value = missing.expand(missing.shape[0], width, *missing.shape[2:]).contiguous()
+        for i, got_ in enumerate(hit):
+            for j, p in enumerate(got_):
+                call = positions.call_of(p, len(encoded[i]["ids"]))
+                if call == 0:
+                    assert whole is not None
+                    value[i, j] = whole[i, 0 if head_only else p]
+                else:
+                    value[i, j] = by_call[call][i, 0]
+        return value
+    if isinstance(missing, dict):
+        value: Any = {k: arranged(missing[k], whole[k] if whole is not None else None,
+                                  {c: v[k] for c, v in by_call.items()}, some[k] if some is not None else None)
+                      for k in missing}
+    else:
+        value = arranged(missing, whole, by_call, shown)
     places = torch.tensor([got_ + [-1] * (width - len(got_)) for got_ in hit], dtype=torch.long).reshape(len(where), width)
-    return with_ops(engine, plan, record, value, state, at, ids, places, found, layer)
+    return with_ops(engine, plan, record, value, state, at, ids, places, found, layer,
+                    len(record.ops) - len(gathers(record)) + len(each))

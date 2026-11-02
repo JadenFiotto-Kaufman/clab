@@ -22,7 +22,8 @@ from transformers import AutoTokenizer, LogitsProcessor, LogitsProcessorList
 
 from clab import Plan
 from clab.compile import positions
-from clab.plan import PlanError
+from clab.format.sweeps import points
+from clab.plan import PlanError, entries
 
 PROMPT = [11, 9, 9, 9]                  # each weekday prompt's tokens, BOS included
 # Two words the model says on every row, ending on tokens 0 and 3 (`Handler`; `▁energ calc`): a scope's two
@@ -1034,3 +1035,174 @@ def test_a_list_of_generated_texts_lands_on_whichever_completes_first(engines):
         assert where["swapped.w"] == where["clean.found"], kind
         assert torch.equal(v["swapped"][3], v["clean"][3])
         assert torch.equal(v["swapped"][:, :1], v["clean"][:, :1]) and not torch.equal(v["swapped"], v["clean"])
+
+
+# -- ops at each decode call ----------------------------------------------------------------------------------------
+
+QWEN3 = {"key": "trl-internal-testing/tiny-Qwen3ForCausalLM", "revision": "25bb9b8963688237e94750f6f3e48f1947d3c7a3",
+         "dtype": "float32"}
+
+
+def per_call(plan: Plan, step: str) -> dict[str, int]:
+    """Each entry's `per_call` at the step's first point, as its record holds it."""
+    return {k: e.per_call for k, e in entries(points(plan.steps[step])[0]).items()}
+
+
+def head_read(ops: list[dict], pos: dict | None = None) -> dict:
+    """A read of the head at every call (`{"frame": ":"}`, or `pos`) with `ops`."""
+    return {"site": "head", "pos": pos or {"frame": ":"}, "ops": ops}
+
+
+def test_generated_steer_scores_each_call_as_its_whole_logits_score_after(filled):
+    """generated_steer.json: `p` and `ld` run at each of the six calls, the prefill's last position included, and
+    equal to the bit the same metrics of `l`, the whole logits, scored after the generation, at the null and at the
+    dose, which moves every row from its third token on, on both engines; the schedule's read parts of `p` and `ld`
+    carry the one op each runs at each call, the part over the prompt too."""
+    for kind in ("nnterp", "hooks"):
+        plan = filled["generated_steer", kind]
+        v = plan.results
+        assert per_call(plan, "steered") == {"steer_prefill": 0, "steer_decode": 0, "p": 1, "ld": 1, "l": 0}
+        for scale in (0.0, 4.0):
+            assert v["steered.p"][scale].shape == v["steered.ld"][scale].shape == (4, 6)
+            assert same(v["steered.p"][scale], v["p_of_l"][scale]) and same(v["steered.ld"][scale], v["ld_of_l"][scale])
+        assert torch.equal(v["steered"][4.0][:, :2], v["steered"][0.0][:, :2])
+        assert (v["steered"][4.0][:, 2:] != v["steered"][0.0][:, 2:]).all()
+        reads = [r for s in points(plan.steps["steered"])[0].schedule["sites"] for r in s["records"] if "read" in r]
+        assert {(r["read"], bool(r.get("prompt")), r.get("per_call")) for r in reads} == \
+            {("p", True, 1), ("p", False, 1), ("ld", True, 1), ("ld", False, 1), ("l", True, None), ("l", False, None)}
+
+
+def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
+    """What the engine hands back for `p` is the metric at each call, `[rows, 1]` (its part over the prompt the
+    prefill's last position's, `[rows, 1]`), where `l`'s is each call's logits, `[rows, 1, vocab_size]`."""
+    import clab.steps.generate as generation
+    held: dict[str, set] = {}
+    real = generation.generated
+
+    def spy(*args):
+        ids, got = real(*args)
+        for name, value in got.items():
+            for v in value if isinstance(value, list) else [value]:
+                held.setdefault(name.partition("@")[0] + ("#0" if "#0" in name else ""), set()).add(tuple(v.shape))
+        return ids, got
+    monkeypatch.setattr(generation, "generated", spy)
+    plan = plan_of("generated_steer")
+    engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert held["p"] == held["p#0"] == held["ld"] == {(2, 1)}
+    assert held["l"] == held["l#0"] == {(2, 1, 32000)}
+
+
+def test_a_per_call_metric_over_151936_tokens_is_the_whole_logits_metric(engines):
+    """generated_steer.json on the tiny Qwen3, whose vocabulary is Qwen3-8B's: the per-call `token_prob` and
+    `logit_diff` equal the same metrics of the whole logits to the bit, on both engines and under `remote="local"`,
+    which agree to the bit."""
+    plan = edited("generated_steer", lambda d: d.update(model=QWEN3)).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("generated_steer", lambda d: d.update(
+        model=QWEN3)).compile(), batch_size=BATCH_SIZE).results
+        for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    for kind, v in runs.items():
+        assert same(v["steered.p"], v["p_of_l"]) and same(v["steered.ld"], v["ld_of_l"]), kind
+        assert same(v, runs["nnterp"]), kind
+
+
+@pytest.mark.parametrize("ops, n", [
+    ([{"op": "token_prob", "token": "pairs.base_answer"}, {"op": "mean", "over": ["pos"]}], 1),
+    ([{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}, {"op": "abs"}, {"op": "gt", "with": 0.1},
+      {"op": "count", "over": ["pos"]}], 3),
+    ([{"op": "top_k", "k": 3}], 1),
+    ([{"op": "argmax"}, {"op": "eq", "with": 4598}], 2),
+    ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "log"}], 3),
+    ([{"op": "max", "over": ["vocab_size"]}, {"op": "div", "with": 2.0}, {"op": "pow", "exponent": 1.7}], 2),
+    ([{"op": "mean", "over": ["pos"]}], 0),
+    ([{"op": "count"}], 0),
+    ([{"op": "kl", "against": "ref"}], 0),
+    ([{"op": "mean", "over": ["vocab_size"]}], 0),
+    ([{"op": "token_prob", "token": "pairs.base_answer"}, {"op": "div", "with": "unsteered.ps"}], 1),
+])
+def test_the_ops_a_read_runs_at_each_call_are_the_leading_positionwise_ones_that_keep_pos(engines, ops, n):
+    """An entry beyond the prefill runs at each call the ops after its last edit up to the first that removes `pos`
+    (`mean` or `count` over it), that is not positionwise (a sum over the vocabulary, `kl`'s or `mean`'s, and `pow`,
+    whose bits torch computes two ways), or that takes an operand with a `pos` axis (another generation's
+    probabilities, which pair position by position); the rest run after the generation, and the value is the same to
+    the bit as the same ops as steps over the whole logits (a `top_k` step's `tokens` aside, which only a step
+    decodes)."""
+    pos = {"frame": "1:4", "index": ":3"}           # a static width, which an operand with a `pos` axis pairs with
+
+    def change(d):
+        unsteered = {k: v for k, v in d["steps"]["steered"].items() if k != "interventions"}
+        d["steps"] = {
+            "ref_logits": {"kind": "forward", "input": "pairs.input",
+                           "interventions": {"z": {"site": "head", "pos": -1}}},
+            "ref": {"kind": "op", "op": "mean", "of": "ref_logits.z"},
+            "unsteered": {**unsteered, "interventions": {
+                "ps": head_read([{"op": "token_prob", "token": "pairs.base_answer"}], pos)}},
+            "steered": {**unsteered, "interventions": {"x": head_read(ops, pos), "l": {"site": "head", "pos": pos}}},
+            **{f"step{i}": {"kind": "op", **o, "of": "steered.l" if i == 0 else f"step{i - 1}"}
+               for i, o in enumerate(ops)}}
+        d["saves"] = ["steered.x", f"step{len(ops) - 1}"]
+    plan = edited("generated_steer", change).compile()
+    assert per_call(plan, "steered")["x"] == n
+    v = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    assert same(v["steered.x"], stepped(v[f"step{len(ops) - 1}"]))
+
+
+def stepped(value: Any) -> Any:
+    """An op step's value as the same op inside an entry gives it: a `top_k` step's without its `tokens`, which only a
+    step decodes."""
+    return {k: w for k, w in value.items() if k != "tokens"} if isinstance(value, dict) else value
+
+
+def test_a_metric_of_an_answer_of_several_tokens_waits_for_the_generation(engines):
+    """generated_confidence.json's `said` is several tokens on some rows, token i scoring the read's position i, which
+    a generation knows once a row's positions are: the `token_prob` written inside the read runs after the
+    generation (preflight cuts the read's `per_call` to none) and equals the step's to the bit."""
+    def change(d):
+        d["steps"]["answer"]["interventions"]["inside"] = {**d["steps"]["answer"]["interventions"]["logits"],
+                                                            "ops": [{"op": "token_prob", "token": "prompts.said"}]}
+        d["saves"] = ["answer.inside", "p"]
+    plan = edited("generated_confidence", change).compile()
+    assert per_call(plan, "answer")["inside"] == 1
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert per_call(filled, "answer")["inside"] == 0 and same(filled.results["answer.inside"], filled.results["p"])
+
+
+def test_a_per_call_read_is_missing_where_a_row_stopped_as_its_whole_logits_are(engines):
+    """Steered rows stop after 1, 5, 3 and 5 tokens: past a row's last call every per-call metric is missing as the
+    same metric of the whole logits is (NaN, -1 from `argmax` and in `top_k`'s ids), on both engines and at batch
+    sizes 1, 2 and 4, to the bit, and every read lands where it did without its ops."""
+    ops = {"p": [{"op": "token_prob", "token": "prompts.cf_answer"}], "am": [{"op": "argmax"}],
+           "top": [{"op": "top_k", "k": 2}], "hit": [{"op": "match", "expected": "prompts.cf_answer"}]}
+
+    def change(d):
+        d["steps"]["answer"]["interventions"].update(
+            {k: head_read(o) for k, o in ops.items()}, whole={"site": "head", "pos": {"frame": ":"}})
+        d["steps"].update({f"{k}_of_whole": {"kind": "op", **o[0], "of": "answer.whole"} for k, o in ops.items()})
+        d["saves"] += [f"answer.{k}" for k in ops] + [f"{k}_of_whole" for k in ops]
+    bare = steered(engines, "nnterp", BATCH_SIZE, held=False)
+    for kind in ("nnterp", "hooks"):
+        for size in (1, 2, 4):
+            plan = steered(engines, kind, size, held=False, change=change)
+            v = plan.results
+            assert v["answer.p"][0, 2:].isnan().all() and (v["answer.am"][0, 2:] == -1).all(), (kind, size)
+            for k in ops:
+                assert same(v[f"answer.{k}"], stepped(v[f"{k}_of_whole"])), (kind, size, k)
+            assert {k: w for k, w in placed(plan).items() if k in placed(bare)} == placed(bare)
+
+
+@pytest.mark.parametrize("site, against", [("head", {"component": "lm_head_output"}),
+                                           ({"component": "lm_head_output"}, "head")])
+def test_a_kl_against_a_read_of_its_own_generation_is_refused_at_an_earlier_site_and_a_later(site, against):
+    """`kl` sums over the vocabulary, in an order torch takes from the value's shape, so it is not positionwise and
+    runs after the generation, where no entry of the generation is an operand: the logits' `kl` against
+    `lm_head_output`, which each call reads before them, and `lm_head_output`'s against the logits, which it reads
+    after, are refused by name alike."""
+    def change(d):
+        d["steps"]["steered"]["interventions"] = {
+            "y": {"site": against, "pos": {"frame": "1:"}},
+            "x": {"site": site, "pos": {"frame": "1:"}, "ops": [{"op": "kl", "against": "steered.y"}]}}
+        d["steps"] = {k: v for k, v in d["steps"].items() if k == "steered"}
+        d["saves"] = ["steered.x"]
+    with pytest.raises(PlanError, match=r"^steps\.steered\.interventions\.x\.ops\[0\]\.against: 'steered\.y' is "
+                                        r"an entry of this generation; an operand from an entry of its own step is "
+                                        r"served in a forward, not inside a generate$"):
+        edited("generated_steer", change).compile()

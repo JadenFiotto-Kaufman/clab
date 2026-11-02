@@ -130,7 +130,7 @@ def picked(x: Tensor, k: int) -> tuple[Tensor, Tensor]:
     return ids, x.gather(-1, ids).isnan()
 
 
-@op("transforms", layout=ranking_k)
+@op("transforms", layout=ranking_k, positionwise=True)
 def top_k(of: Tensor, k: int, dims: list[str], over: str = RANKED) -> dict[str, Tensor]:
     """The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a
     vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis
@@ -147,7 +147,7 @@ def top_k(of: Tensor, k: int, dims: list[str], over: str = RANKED) -> dict[str, 
     return {"ids": ids.masked_fill(gone, -1), **{k: v.masked_fill(gone, float("nan")) for k, v in second.items()}}
 
 
-@op("transforms", layout=ranking)
+@op("transforms", layout=ranking, positionwise=True)
 def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
     """The index of the largest along the axis `over` names: by default the id of the most likely token, ranked
     by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing
@@ -166,57 +166,57 @@ def operand(x: Value, like: Tensor) -> Tensor:
     return x.float() if x.is_floating_point() else x
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def abs(of: Tensor) -> Tensor:
     """`|of|`, each entry's absolute value, in float32."""
     return of.float().abs()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def exp(of: Tensor) -> Tensor:
     """`e ** of`, each entry's exponential, in float32 (`inf` past about 88.7)."""
     return of.float().exp()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def log(of: Tensor) -> Tensor:
     """`ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it."""
     return of.float().log()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def sign(of: Tensor) -> Tensor:
     """Each entry's sign, -1, 0 or 1, in float32; a missing (NaN) entry stays missing."""
     x = of.float()
     return x.sign().masked_fill(x.isnan(), math.nan)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def sqrt(of: Tensor) -> Tensor:
     """`of ** 0.5`, each entry's square root, in float32: NaN below 0."""
     return of.float().sqrt()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def square(of: Tensor) -> Tensor:
     """`of * of`, each entry squared, in float32."""
     return of.float().square()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def neg(of: Tensor) -> Tensor:
     """`-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back."""
     return -of.float()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def mul(of: Tensor, with_: Value) -> Tensor:
     """`of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product,
     where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask)."""
     return of.float() * operand(with_, of).float()
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def div(of: Tensor, with_: Value) -> Tensor:
     """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
     `with` is 0, so a division by zero is a missing entry, never an infinite one."""
@@ -250,7 +250,7 @@ def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]
     return holds(a, b).to(of.dtype if of.is_floating_point() else torch.float32).masked_fill(gone, math.nan)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def eq(of: Tensor, with_: Value) -> Tensor:
     """1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
@@ -258,7 +258,7 @@ def eq(of: Tensor, with_: Value) -> Tensor:
     return compared(of, with_, torch.eq)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def ne(of: Tensor, with_: Value) -> Tensor:
     """1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
@@ -266,7 +266,7 @@ def ne(of: Tensor, with_: Value) -> Tensor:
     return compared(of, with_, torch.ne)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def gt(of: Tensor, with_: Value) -> Tensor:
     """1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
@@ -274,7 +274,7 @@ def gt(of: Tensor, with_: Value) -> Tensor:
     return compared(of, with_, torch.gt)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def ge(of: Tensor, with_: Value) -> Tensor:
     """1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
@@ -282,7 +282,7 @@ def ge(of: Tensor, with_: Value) -> Tensor:
     return compared(of, with_, torch.ge)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def lt(of: Tensor, with_: Value) -> Tensor:
     """1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
@@ -290,7 +290,7 @@ def lt(of: Tensor, with_: Value) -> Tensor:
     return compared(of, with_, torch.lt)
 
 
-@op("transforms")
+@op("transforms", positionwise=True)
 def le(of: Tensor, with_: Value) -> Tensor:
     """1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
     float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or

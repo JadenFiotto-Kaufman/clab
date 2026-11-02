@@ -42,12 +42,14 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
     there in order, entry by entry: the write (the serving point's: the points it serves write alike) with its ops
     up to its last edit, each operand `resolved`, then a read for each value the entry is at the served points
     (`gathered`: once per distinct point on the entry's axes, `at`), with the name it feeds (`<entry>@<layer>`, the
-    serving point's own; another value's with its coordinates after it; `#0` on the part over the prompt); `stop`,
-    the last site, where a forward ends (null for a generation, which runs whole); and for a generation each
-    record's part (`parts`), the `loop` of calls the engine iterates (null: every one) and whether a write is found
-    `online`. A write whose operand is an entry of the same forward read at another site is refused by name unless
-    the engine ranks that site strictly before the write's (two sites the engine ranks alike are refused, whichever
-    the order lists first); one read at the write's own site is done first, in entry order. A forward with `grad`
+    serving point's own; another value's with its coordinates after it; `#0` on the part over the prompt; beyond a
+    generation's prefill, each part with `per_call`, how many of the ops after the entry's last edit run at each call
+    it reads, where its record runs any); `stop`, the last site, where a forward ends (null for a generation, which
+    runs whole); and for a generation each record's part (`parts`), the `loop` of calls the engine iterates (null:
+    every one) and whether a write is found `online`. A write whose operand is an entry of the same forward read at
+    another site is refused by name unless the engine ranks that site strictly before the write's (two sites the
+    engine ranks alike are refused, whichever the order lists first); one read at the write's own site is done
+    first, in entry order. A forward with `grad`
     entries also holds `grad`: for each distinct value its gathered `grad` reads differentiate (the `of` entry at
     the point each serves), the names of that value's reads (`of`, one per layer) and of the `grad` reads it serves
     (`wrt`), each `grad` read refused by name unless the engine ranks every site its `of` is read at strictly after
@@ -70,7 +72,9 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
                 for part in parts(step, theirs)[1]:
                     read = f"{key}@{layer}" + ("#0" if part.get("prompt") else "") + \
                         ("" if p is step else f"@{labelled(plan, own)}")
-                    sites.setdefault((component, layer), []).append({"read": key, "at": own, "name": read, **part})
+                    each = {"per_call": theirs.per_call} if theirs.per_call else {}
+                    sites.setdefault((component, layer), []).append({"read": key, "at": own, "name": read, **part,
+                                                                     **each})
                     made.setdefault((key, tuple(own.items())), []).append((read, (component, layer)))
                     if p is step and not part.get("prompt"):
                         names.setdefault(f"{name}.{key}", {})[layer] = read

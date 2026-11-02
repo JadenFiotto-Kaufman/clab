@@ -95,15 +95,17 @@ def placed(values: Any, device: str | torch.device) -> Tensor:
 
 
 def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[int], found: Found,
-         layer: int | None, resolved: dict[str, dict] | None = None, device: str = "cpu") -> list[dict]:
-    """An entry's ops up to its last edit at one of the layers it is made at (`layer`), bound to one batch, as
-    `visit` runs them: each with the layout of the value it meets there (`dims`: the op before it left it, as its
-    record says; the site's selection before the first), the batch's dataset row ids (`ids`, and as one host tensor
-    every op shares, `rows`), and its arguments bound at that layer (`bound`), each named operand as the schedule
-    `resolved` it (by name: a producer's point, or the name of a read of the same forward, for the forward to fill).
-    An `encode` holds the ops its `decode` closes over, bound the same way (`inner`), and the features its `select`
-    keeps, on `device`, where the model and its featurizers are."""
-    last = len(record.ops) - len(gathers(record))
+         layer: int | None, resolved: dict[str, dict] | None = None, device: str = "cpu",
+         span: tuple[int, int] | None = None) -> list[dict]:
+    """An entry's ops up to its last edit (or those `span` names, by index: a read's `per_call` ops) at one of the
+    layers it is made at (`layer`), bound to one batch, as `visit` runs them: each with the layout of the value it
+    meets there (`dims`: the op before it left it, as its record says; the site's selection before the first), the
+    batch's dataset row ids (`ids`, and as one host tensor every op shares, `rows`), and its arguments bound at that
+    layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or the name of a
+    read of the same forward, for the forward to fill), a column's ids on `device`. An `encode` holds the ops its
+    `decode` closes over, bound the same way (`inner`), and the features its `select` keeps, on `device`, where the
+    model and its featurizers are."""
+    first, last = span or (0, len(record.ops) - len(gathers(record)))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
     rows = torch.tensor(ids)
 
@@ -112,6 +114,9 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
         for node in nodes:
             o, dims = node["op"], laid[node["at"]]
             args = bound(plan, o.op, arguments(o), state, at, ids, found, resolved=resolved, dims=dims, layers=layer)
+            params = ops.parameters(o.op)
+            args = {k: cast(Any, placed(v, device)) if params[k].annotation == ops.Tokens else v
+                    for k, v in args.items()}
             out.append({"op": o.op, "args": args, "rows": rows, "dims": dims})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -119,7 +124,7 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
                     out[-1]["features"] = placed(selectors.select(select["features"], f.size()), device)
                 out[-1]["inner"] = bind(node["inner"])
         return out
-    edits = bind([n for n in bracketed(record.ops) if n["at"] < last])
+    edits = bind([n for n in bracketed(record.ops) if first <= n["at"] < last])
     del bind            # it refers to itself, a cycle that would hold `state` until the collector ran
     return edits
 
@@ -171,17 +176,18 @@ def stops(engine: Engine, step: Generate) -> list[int]:
 def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Found, ids: list[int], pads: list[int],
          reading: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]
          ) -> tuple[dict[str, Any], dict[tuple[str, tuple, int | None], list[dict]]]:
-    """The schedule of `step` (a serving point) bound to one batch of dataset row `ids`, as the engine executes
-    it: its sites in order, each record with what reaches its selection in the padded batch (`site`; at a decode
-    call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position), a write with
-    its ops bound (`edit`), its decode `calls` and, found `online`, each row's texts to find it by, a read with its
-    name (a `grad` entry's marked `capture`); the `stop` site; what the forward differentiates (`grad`, one item
-    per distinct value: `of`, each of its reads' names with the `read` that makes the value from it, and `wrt`, the
-    bound `grad` reads it serves; empty where it takes no gradient); and a generation's `loop` and whether any
-    write is `online`. A read is bound at the record of the value it is (`reading`, `schedule.gathered`), and the
-    bound reads are also returned by entry, the value's coordinates and layer, each in the order its parts are
-    done (a forward's one record; beyond a generation's prefill the part over the prompt, where there is one, then
-    the part at its decode calls)."""
+    """The schedule of `step` (a serving point) bound to one batch of dataset row `ids`, as the engine executes it: its
+    sites in order, each record with what reaches its selection in the padded batch (`site`; at a decode call
+    `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position, the head's at the last,
+    the one the prefill computes), a write with its ops bound (`edit`), its decode `calls` and, found `online`, each
+    row's texts to find it by, a read with its name (a `grad` entry's marked `capture`) and the ops it runs at each call
+    bound (`per_call`, by `edit`, at the point the read is for); the `stop` site; what the forward differentiates
+    (`grad`, one item per distinct value: `of`, each of its reads' names with the `read` that makes the value from it,
+    and `wrt`, the bound `grad` reads it serves; empty where it takes no gradient); and a generation's `loop` and
+    whether any write is `online`. A read is bound at the record of the value it is (`reading`, `schedule.gathered`),
+    and the bound reads are also returned by entry, the value's coordinates and layer, each in the order its parts are
+    done (a forward's one record; beyond a generation's prefill the part over the prompt, where there is one, then the
+    part at its decode calls)."""
     schedule, span = step.schedule, found.inputs[data.input_name(step.input)]["width"]
     device = home(engine)
     prompts = [len(e["ids"]) for e in data.by_id(found.inputs[data.input_name(step.input)]["rows"], ids)]
@@ -197,7 +203,7 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
             if "calls" in r:
                 bound = decoding(record, record.kept, prompts, device)
             elif r.get("prompt"):
-                where = [positions.prompted(p, head_only and "write" in r) for p in prompts]
+                where = [positions.prompted(p, head_only) for p in prompts]
                 bound = site(record, record.kept, where, pads, width, head_only, device, span)
             else:
                 bound = site(record, record.kept, data.by_id(record.positions[read_over(step, found)], ids), pads,
@@ -214,6 +220,10 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
                 bound["name"] = r["name"]
                 if gradient_of(record) is not None:
                     bound["capture"] = True
+                if r.get("per_call"):           # bound at the point it is read for, as `with_ops` binds the rest
+                    first = len(record.ops) - len(gathers(record))
+                    bound["per_call"] = edit(plan, record, state, reading[key, tuple(r["at"].items())][2].at, ids,
+                                             found, s["layer"], device=device, span=(first, first + r["per_call"]))
                 binds.setdefault((key, tuple(r["at"].items()), s["layer"]), []).append(bound)
                 named[r["name"]] = (bound, record, reading[key, tuple(r["at"].items())][2])
             if "calls" in r:
@@ -289,16 +299,18 @@ def read(engine: Engine, plan: Plan, record: Intervention, value: Tensor, site: 
     return with_ops(engine, plan, record, value, state, at, ids, site["tok"], found, layer)
 
 
-def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Tensor, state: ChainMap, at: dict,
-             ids: list[int], places: Tensor | None, found: Found, layer: int | None) -> Any:
+def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Any, state: ChainMap, at: dict,
+             ids: list[int], places: Tensor | None, found: Found, layer: int | None, start: int | None = None) -> Any:
     """An entry's value at one of its layers (`layer`) taken off the model with the ops after its last edit
-    applied in turn, each on the layout its record says the op before it left, their operands bound at that
-    layer (`bound`). Past a probe's `encode` a column names its classes. An op is given each row's dataset row
-    (`ids`) and each position's token position (`places`, `[rows, width]`, -1 past a row's own)."""
+    applied in turn (from op `start` on, where a generation ran those before it at each call), each on the layout
+    its record says the op before it left, their operands bound at that layer (`bound`). Past a probe's `encode` a
+    column names its classes. An op is given each row's dataset row (`ids`) and each position's token position
+    (`places`, `[rows, width]`, -1 past a row's own)."""
     dims, last = address.dims(cast(Site, record.site).component), len(record.ops) - len(gathers(record))
+    first = last if start is None else start
     vocabulary = None
     for i, o in enumerate(record.ops):
-        if i >= last:
+        if i >= first:
             args = bound(plan, o.op, arguments(o), state, at, ids, found, value, vocabulary, dims=dims, layers=layer)
             value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.tensor(ids), positions=places)
             if o.op == "encode":
@@ -415,12 +427,13 @@ def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
 
 def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]:
     """`value` with a site's records done in listed order, and whether the engine sets it back (a record wrote, or
-    captured it): a write's ops run on its selection of the current value, out of place, and the result lands
-    there; a read takes its selection of the current value into `got` under its name (at a decode call, appended:
-    one per call it reads). A `grad` read (`capture`) puts there the current value whole instead, the tensor the
-    forward goes on with, made a leaf that requires grad where it requires none, so that the graph starts at the
-    shallowest such site; `differentiate` takes its gradient after the forward, and a later write here works on a
-    copy of it, so that its gradient passes through the write.
+    captured it): a write's ops run on its selection of the current value, out of place, and the result lands there; a
+    read takes its selection of the current value into `got` under its name (at a decode call, appended: one per call it
+    reads), with the ops it runs at each call applied to it (`per_call`, a generation's beyond its prefill, which the
+    part over the prompt runs at the prefill), so that what it holds per call is their value. A `grad` read (`capture`)
+    puts there the current value whole instead, the tensor the forward goes on with, made a leaf that requires grad
+    where it requires none, so that the graph starts at the shallowest such site; `differentiate` takes its gradient
+    after the forward, and a later write here works on a copy of it, so that its gradient passes through the write.
 
     `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
     the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
@@ -444,10 +457,14 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
                     leaf = x.detach().requires_grad_()
                     before, x = (leaf if before is x else before), leaf
                 got[w["name"]], wrote, copied = x, True, False
-            elif "calls" in w:
-                got.setdefault(w["name"], []).append(taken(x, w))
             else:
-                got[w["name"]] = taken(x, w)
+                read = taken(x, w)
+                if "per_call" in w:
+                    read = edited(read, read, w["per_call"], got, w["tok"] + w.get("call", 0))
+                if "calls" in w:
+                    got.setdefault(w["name"], []).append(read)
+                else:
+                    got[w["name"]] = read
             continue
         if not copied:
             x, wrote, copied = x.clone(), True, True
@@ -545,13 +562,13 @@ def now(records: list[dict], call: int) -> list[dict]:
 
 
 def landed(records: list[dict], seen: list[Tensor], tokenizer: PreTrainedTokenizerBase, call: int) -> list[dict]:
-    """The records at decode call `call`, each write stamped with it (`call`, which positions its ops at the
-    call's own token), a write with an `online` scope narrowed to the rows it lands on there (`keep`), as
-    `positions.landing` decides from the inputs `seen` so far (one `[rows, 1]` per decode call); one that lands
-    on no row is left out. A read is as it was."""
+    """The records at decode call `call`, each write and each read with `per_call` ops stamped with it (`call`,
+    which positions their ops at the call's own token), a write with an `online` scope narrowed to the rows it lands
+    on there (`keep`), as `positions.landing` decides from the inputs `seen` so far (one `[rows, 1]` per decode
+    call); one that lands on no row is left out. Any other read is as it was."""
     out = []
     for w in records:
-        w = {**w, "call": call} if "ops" in w else w
+        w = {**w, "call": call} if "ops" in w or "per_call" in w else w
         online = w.get("online")
         if online is None:
             out.append(w)

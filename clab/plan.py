@@ -591,6 +591,11 @@ class Intervention(Labelled):
     ops: list[Op] = []
     gathered: bool = derived(False, "whether the run takes the entry's value off the model: `saves` names it, "
                                     "a later entry or step uses it, or a gathered `grad` entry is its gradient")
+    per_call: int = derived(0, "how many of the ops after the entry's last edit a generation runs at each call it "
+                               "reads the entry beyond its prefill, on that call's own value, the rest running once "
+                               "the calls are arranged by position: the leading ones that are positionwise (Ops), "
+                               "keep the `pos` axis and take no operand that has one, up to the first that scores "
+                               "an answer of several tokens, which preflight finds; 0 in a forward and in the prefill")
     positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
                                              "index into the row's prompt tokens, BOS first, then its generated ones; "
                                              "`alignment_missing` for a row it does not reach), under the dataset whose "
@@ -748,6 +753,17 @@ class Generate(Forward, Labelled):
     are refused before anything runs; any other option is the engine's `generate`'s to accept, and one it rejects
     fails when the step runs, naming the step.
 
+    A read beyond the prefill runs the ops after its last edit at each call it reads, on that call's value, up
+    to the first that is not positionwise (<the per-call ops> are), removes `pos`, takes an operand with a `pos`
+    axis or scores an answer of several tokens; those from there on run once the batch's generation ends, on its
+    calls arranged by position (its record's `per_call` counts those it runs at each call). So a metric of the head at
+    `{"frame": ":"}` holds one number a call, `[rows, calls]`, where a read with no op, or whose first op waits,
+    holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
+    arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
+    `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
+    ways), as a call's value and the whole one's differ in shape. Either way a value is the same
+    to the bit.
+
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
     batch sizes 4 and 2 already differ by about 1e-7 at call 0."""
@@ -764,6 +780,10 @@ class Generate(Forward, Labelled):
             if key in FIXED and value != FIXED[key][0]:
                 raise ValueError(f"{key} {value!r}; it stays {FIXED[key][0]!r}: {FIXED[key][1]}")
         return self
+
+
+# The positionwise ops as `ops` declares them, written into the docstring where `<the per-call ops>` stands.
+Generate.__doc__ = (Generate.__doc__ or "").replace("<the per-call ops>", ops.positionwise())
 
 
 class OpStep(Labelled):
