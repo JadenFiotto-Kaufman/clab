@@ -110,6 +110,7 @@ Each technique has a page with documents that run:
 
 - [Activation patching](docs/patterns/activation-patching.md): swap a position, a window or an entity's tokens from a counterfactual run, and map layer by position.
 - [Head and neuron patching](docs/patterns/head-and-neuron-patching.md): patch one attention head or a few MLP neurons at a time.
+- [Attribution patching](docs/patterns/attribution-patching.md): estimate every component's patching effect from one backward, with `grad`.
 - [Ablation](docs/patterns/ablation.md): zero, mean, resample, noise and direction ablation.
 - [Attention](docs/patterns/attention.md): knock out a head or keys, patch a head's pattern, read queries and keys after RoPE.
 - [Logit lens](docs/patterns/logit-lens.md): decode every layer's residual stream in one forward.
@@ -138,8 +139,8 @@ uv sync
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (45 in all) runs on CPU
-on tiny random-weight checkpoints, and the five under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
+`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (46 in all) runs on CPU
+on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.
 

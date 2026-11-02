@@ -52,6 +52,7 @@ from clab.plan import (
     entry_of,
     fail,
     gathers,
+    gradient_of,
     kind_of,
     points,
     produced,
@@ -263,9 +264,10 @@ def footprint(cx: Compiling, where: tuple) -> list[tuple]:
 
 
 def referenced(cx: Compiling, spec: Any) -> set[str]:
-    """The names a document entry references, read off its text before it compiles: an op step's `of`, an op's
-    arguments that name a value or a featurizer (by its signature), a fit's `train`, and those of the bundles a
-    step's `interventions` pull in; a sweep standing for one, each of its values."""
+    """The names a document entry references, read off its text before it compiles: an op step's `of` (not a
+    `grad`'s, an entry of its own forward), an op's arguments that name a value or a featurizer (by its signature),
+    a fit's `train`, and those of the bundles a step's `interventions` pull in; a sweep standing for one, each of
+    its values."""
     found: set[str] = set()
 
     def names(value: Any) -> list[str]:
@@ -278,7 +280,8 @@ def referenced(cx: Compiling, spec: Any) -> set[str]:
             op = value.get("op")
             params = ops.parameters(op) if isinstance(op, str) and op in ops.OPS else {}
             for k, v in value.items():
-                if k in ("of", "train") or k in params and params[k].annotation in (ops.Value, ops.Featurizer):
+                if k == "train" or k == "of" and op != "grad" or \
+                        k in params and params[k].annotation in (ops.Value, ops.Featurizer):
                     found.update(names(v))
                 if k == "interventions":
                     for n in names(v):
@@ -358,6 +361,22 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         # a generation's land call by call, so they may not yet.
         if spec.kind == "forward":
             live[f"{name}.{k}"] = records[k]
+    for p, k, e in given:               # a gradient's `of`, which may be listed after it
+        of = gradient_of(records[k])
+        if of is None:
+            continue
+        where = f"{p}.ops[0].of" + (f" in {path}" if p.startswith("interventions.") else "")
+        if of not in records:
+            fail(where, f"{of!r} names no entry of this forward; grad's of is an entry of its own forward, by its "
+                 f"bare name: {', '.join(keys)}")
+        if gradient_of(records[of]) is not None:
+            fail(where, f"{of!r} is a grad entry, whose value is a gradient the forward never computes; of names an "
+                 "entry whose value the forward makes")
+        held = next((o.op for o in records[of].ops if o.op in ops.transforms.NO_GRADIENT), None)
+        if held is not None:
+            fail(where, f"{of!r} runs {held!r}, which gives {ops.transforms.NO_GRADIENT[held]}, and no gradient passes "
+                 "through it; of names an entry whose value is a differentiable number: a read, or a metric such "
+                 "as logit_diff")
     # The dependency rule (`sweeps.find_sweeps`): the forward's axes are the step's options' and each write's
     # before the forward (`pre`: its site, its positions and its ops up to its last edit, with their operands); an
     # entry's are its own sweeps, its operands' and the forward's.
@@ -378,6 +397,10 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         site = under(cx, ("sites", e.site)) if isinstance(e.site, str) else set()
         axes[f"{name}.{k}"] = under(cx, pathed(p)) | site | operand_axes(cx, records[k].ops, at, axes) | forward_axes
         records[k].axes = ordered(cx, axes[f"{name}.{k}"])
+    for p, k, e in given:               # a gradient depends on what it differentiates too
+        if (of := gradient_of(records[k])) is not None:
+            axes[f"{name}.{k}"] |= axes[f"{name}.{of}"]
+            records[k].axes = ordered(cx, axes[f"{name}.{k}"])
     fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                   dataset=dataset, at=at, schedule={"axes": ordered(cx, forward_axes)})
     if spec.kind == "generate":
@@ -451,9 +474,9 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
 
 def gathered(steps: dict, used: set[str]) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`): one `used` names (a value something
-    references, a save, or the entries a fit's objective scalar is over), and in a fit's body one a
-    `<fit>.<eval>.<step>.<entry>` member names. Any other entry only writes, and an entry that neither writes
-    nor is gathered does nothing."""
+    references, a save, or the entries a fit's objective scalar is over), in a fit's body one a
+    `<fit>.<eval>.<step>.<entry>` member names, and the entry a gathered `grad` entry differentiates. Any other entry
+    only writes, and an entry that neither writes nor is gathered does nothing."""
     for name, entry in steps.items():
         for point in points(entry):
             if point.kind == "fit":
@@ -463,6 +486,9 @@ def gathered(steps: dict, used: set[str]) -> None:
                 gathered(point.steps, used | inner)
             for k, e in entries(point).items():
                 e.gathered = f"{name}.{k}" in used
+            for e in list(entries(point).values()):
+                if e.gathered and (of := gradient_of(e)) is not None:
+                    entries(point)[of].gathered = True
 
 
 def featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int]) -> Featurizer:
@@ -526,6 +552,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
                  "a root's")
         assert not isinstance(s, list), "a point holds one step under each name"
+        for p, k, e in items(plan, f"{path}.steps.{n}", n, s) if isinstance(s, Forward) else []:
+            for i in [i for i, o in enumerate(e.ops) if o.op == "grad"][:1]:
+                fail(f"{p}.ops[{i}]" + (f" in {path}.steps.{n}" if p.startswith("interventions.") else ""),
+                     "grad inside a fit's body is not served: the fit differentiates its objective for the "
+                     "featurizers it trains; take the gradient in a forward before or after the fit")
         body[n] = within.steps[n] = step(within, f"{path}.steps.{n}", n, s, plan, at)
         refs = referenced(cx, s.model_dump(exclude_defaults=True))
         for r in refs:

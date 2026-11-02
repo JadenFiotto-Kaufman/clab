@@ -1,6 +1,7 @@
-"""Transforms: ops that turn each example's value into another of a different layout. The model's own readout,
-`encode`, which turns a value into a featurizer's coordinates, the ranks along an axis (`top_k`, `argmax`, by
-default over logits), and `detokenize`, which turns generated ids into text."""
+"""Transforms: ops that turn each example's value into another of a different layout, or another value. The model's
+own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient in the value's place,
+the ranks along an axis (`top_k`, `argmax`, by default over logits), and `detokenize`, which turns generated ids into
+text."""
 
 import json
 import math
@@ -78,6 +79,23 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
         ids = next((ids[:i] for i, t in enumerate(ids) if t in stops), ids)
         out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
     return out
+
+
+@op("transforms")
+def grad(of: Tensor, of_: str) -> Tensor:
+    """The gradient, at the entry's selection, of the sum of `of`'s value over every axis it has (a missing row adds
+    nothing) with respect to the value at this entry's site as the forward goes on with it there, after the writes
+    listed before this entry at that site: `of` names, bare, an entry of the same forward at a site the forward
+    reaches after this one, whose ops a gradient passes through. The first op of an entry of a `forward` (see
+    above); what it meets is that gradient already, which it gives back as it is."""
+    return of
+
+
+# The ops whose value no gradient passes through, with what each gives: compile refuses a `grad` whose `of` runs one,
+# by name. The registry cannot tell them apart: `match`, `contains` and `argmax` return a tensor, as `logit_diff`
+# does, and remove an axis, as it does.
+NO_GRADIENT = {"top_k": "ids with their probabilities or values as a dict", "argmax": "an index", "match": "0 or 1",
+               "contains": "0 or 1", "detokenize": "text"}
 
 
 # What `argmax` and `top_k` rank unless `over` names another axis: a vocabulary's tokens.

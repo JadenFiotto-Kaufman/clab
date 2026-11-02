@@ -1,0 +1,36 @@
+{
+  "description": "Attribution patching at one site: the gradient of the logit difference at the head with respect to layer 0's residual stream at the base prompt's last token, times the counterfactual's value there less the base's, summed over the hidden axis, is a first-order estimate, per row, of what swapping that one vector in would do to the logit difference. The gradient is a read of the base run, taken in one backward after the forward; three forwards in all.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+    "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "weekdays/train"}},
+  "sites": {"target": {"component": "layer_output", "layers": 0}},
+  "steps": {
+    "counterfactual": {
+      "kind": "forward",
+      "input": "pairs.counterfactual_inputs[0]",
+      "interventions": {"v_cf": {"site": "target", "pos": -1}}
+    },
+    "base": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {"v": {"site": "target", "pos": -1}}
+    },
+    "difference": {"kind": "op", "op": "sub", "of": "counterfactual.v_cf", "with": "base.v"},
+    "patched": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {
+        "h": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"},
+                                                  {"op": "scale", "factor": "difference"},
+                                                  {"op": "sum", "over": ["hidden_size"]}]},
+        "metric": {"site": {"component": "lm_head_output"}, "pos": -1,
+                   "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}
+      }
+    },
+    "estimate": {"kind": "op", "op": "mean", "of": "patched.h"}
+  },
+  "saves": ["patched.h", "patched.metric", "estimate"]
+}

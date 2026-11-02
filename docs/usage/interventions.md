@@ -1,6 +1,6 @@
 ---
 title: Interventions
-one_liner: "Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, writes across layers, named bundles of entries, and the null control every document should carry."
+one_liner: "Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, a gradient read with grad, writes across layers, named bundles of entries, and the null control every document should carry."
 tags: [usage, interventions]
 related: [docs/usage/ops.md, docs/usage/sites.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/featurizers.md, docs/patterns/activation-patching.md, docs/patterns/head-and-neuron-patching.md]
 sources: [clab/compile/interventions.py, clab/compile/arguments.py, clab/steps/batches.py, clab/ops/edits.py]
@@ -81,7 +81,21 @@ An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a name
 }
 ```
 
-In a step named `samefwd` this gives the same logits, to the bit, as reading `src` in a separate forward first, and saves that forward. Such an operand may be ragged, since each row pairs with itself: a self-swap at a whole-entity scope (`{"scope": {"column": "pairs.entity"}}`, three tokens on one row of `weekdays/train` and one on the others) leaves the logits bit-identical to the clean run, where the same read from another forward is refused. Compile refuses an operand naming a later entry, or an entry with ops after its edits (those run only once the forward is over); preflight refuses one read at a site the forward reaches later (layer 1 into layer 0). Inside a `generate` step an operand cannot name an entry of the same step: read it in an earlier step.
+In a step named `samefwd` this gives the same logits, to the bit, as reading `src` in a separate forward first, and saves that forward. Such an operand may be ragged, since each row pairs with itself: a self-swap at a whole-entity scope (`{"scope": {"column": "pairs.entity"}}`, three tokens on one row of `weekdays/train` and one on the others) leaves the logits bit-identical to the clean run, where the same read from another forward is refused. Compile refuses an operand naming a later entry, or an entry with ops after its edits (those run only once the forward is over), and an operand of the same forward given to an op after an entry's last edit, which runs once the value is off the model (take the two in an op step after the forward); preflight refuses one read at a site the forward reaches later (layer 1 into layer 0). Inside a `generate` step an operand cannot name an entry of the same step: read it in an earlier step.
+
+## A gradient at a site
+
+An entry whose first op is `grad` reads a gradient: of a later entry of its own forward, named bare in `of`, summed over every axis, with respect to the value at the entry's site, selected and positioned as the entry's `pos` and `select` say ([FORMAT.md#transforms](../../FORMAT.md#transforms)). It writes nothing: the ops after `grad`, edits too, act on the gradient once it is off the model, as the ops after a read's last edit do. The last forward of `documents/attribution_patching.json`:
+
+```json
+"h": {"site": "target", "pos": -1, "ops": [{"op": "grad", "of": "metric"},
+                                          {"op": "scale", "factor": "difference"},
+                                          {"op": "sum", "over": ["hidden_size"]}]},
+"metric": {"site": {"component": "lm_head_output"}, "pos": -1,
+           "ops": [{"op": "logit_diff", "a": "pairs.cf_answer", "b": "pairs.base_answer"}]}
+```
+
+`patched.h` is each row's gradient of its own `metric` (rows do not mix in a forward, so the sum over rows leaves each row its own) at layer 0's last token, times `difference`, summed over `hidden_size`. The forward runs with gradients on and takes one backward per distinct `of` once it has reached its last site, and no gradient reaches the model's weights. At one site the order is a read's: a `grad` listed after a write differentiates the written value, and one listed before it the value the write acted on, so a write of `scale 2` between two makes the first exactly twice the second. The `of` is read at a site the forward reaches after the entry's, or preflight refuses it with the engine's ranks of both; `grad` is refused in a `generate`, in a fit's body and under `tp`, and so is an `of` that runs an op no gradient passes through (`top_k`, `argmax`, `match`, `contains`, `detokenize`). A null for it is an `of` whose ops end in `{"op": "scale", "factor": 0}`, whose gradient is exactly zero. The technique, and the check that the gradient is right, are [attribution patching](../patterns/attribution-patching.md).
 
 ## Writes across layers
 

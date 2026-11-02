@@ -23,8 +23,8 @@ Find the part of the document you are writing or the stage of the run you are at
 
 ## Reading and writing
 
-- [interventions](interventions.md) — Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, writes across layers, named bundles of entries, and the null control every document should carry.
-- [ops](ops.md) — Scoring and reducing values: metrics on logits or probe scores, reductions and over, transforms like readout, argmax, top_k and detokenize, op steps versus ops inside an entry, and the float32 rule.
+- [interventions](interventions.md) — Reading and writing at a site: entries, reads versus writes, the order ops run in, operands from earlier steps or the same forward, a gradient read with grad, writes across layers, named bundles of entries, and the null control every document should carry.
+- [ops](ops.md) — Scoring and reducing values: metrics on logits or probe scores, reductions and over, transforms like readout, argmax, top_k, detokenize and grad, op steps versus ops inside an entry, and the float32 rule.
 
 ## Repeating
 

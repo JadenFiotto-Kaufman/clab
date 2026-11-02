@@ -45,8 +45,18 @@ Ops come in four groups: **metrics** score each example (one number per row and 
 **reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
 over `pos`, one value per row); **edits** (<the edits group>) keep the value's layout and change its contents, and inside
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
-a residual stream, coordinates from a value, tokens from logits, text from ids). An edit comes before any
-transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that closes it.
+a residual stream, coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient. An
+edit comes before any transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that
+closes it.
+
+`grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
+acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
+"grad", "of": "metric"}, {"op": "scale", "factor": "difference"}, {"op": "sum", "over": ["hidden_size"]}]` is
+attribution patching's estimate at each row and position; after `grad` no `decode` closes an `encode` and no op
+restores the site's value (`renormalize`). The forward takes one backward after its last site for each value its
+`grad` entries differentiate, and the model's weights take none. A `grad` in a `generate`, in a fit's body or
+under `tp` is refused by name, and so is one whose `of` runs an op no gradient passes through:
+<no gradient>.
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
 float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
@@ -224,9 +234,10 @@ from clab.ops import edits, metrics, reductions, transforms  # noqa: E402
 
 OPS.update((fn.__name__, fn) for fn in [
     edits.swap, edits.add, edits.sub, edits.scale, edits.renormalize, edits.normalize, edits.project_out,
-    edits.decode, edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, reductions.mean,
-    reductions.sum, reductions.min, reductions.pca, metrics.match, metrics.logit_diff, metrics.token_prob,
-    metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js, transforms.top_k,
-    transforms.argmax, transforms.detokenize, metrics.cosine])
+    edits.decode, edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad,
+    reductions.mean, reductions.sum, reductions.min, reductions.pca, metrics.match, metrics.logit_diff,
+    metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js,
+    transforms.top_k, transforms.argmax, transforms.detokenize, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
-ABOUT = ABOUT.replace("<the edits group>", listed("edits"))
+ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
+    "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))

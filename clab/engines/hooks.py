@@ -12,7 +12,7 @@ model's first parameter is, and transformers moves them on from there.
 """
 
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any, Callable, Iterator
 
 import nnterp  # noqa: F401  (before any transformers.models import, which otherwise segfaults)
@@ -56,6 +56,7 @@ class HooksEngine:
         self.config = {"sizes": {k: getattr(shell, k) for k in SIZES}, "sites": sites}
         self.model: Any = build(model, "hooks", lambda extra: AutoModelForCausalLM.from_pretrained(
             model.key, revision=model.revision, **loaded, device_map=device if mapped else None, **extra).eval())
+        self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         if not mapped:
             self.model.to(device)
         self.config["order"] = order(self.model, sites, batches.home(self))
@@ -90,13 +91,17 @@ class HooksEngine:
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
         """One call of the model, under the bound schedule's hooks (`hooked`), ended right after its stop site,
-        whose hook raises `_Stopped`."""
+        whose hook raises `_Stopped`, then its gradients taken from the values its hooks captured, which keep their
+        graph (`batches.differentiate`, under `torch.enable_grad()` with the call where the bound schedule has
+        any)."""
         got: dict[str, Tensor] = {}
-        with self.hooked(bound["sites"], got, bound["stop"] if self.stops else None):
-            try:
-                self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
-            except _Stopped:
-                pass
+        with torch.enable_grad() if bound["grad"] else nullcontext():
+            with self.hooked(bound["sites"], got, bound["stop"] if self.stops else None):
+                try:
+                    self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+                except _Stopped:
+                    pass
+            batches.differentiate(got, bound["grad"])
         return got
 
     def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],

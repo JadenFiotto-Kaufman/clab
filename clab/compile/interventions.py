@@ -13,7 +13,7 @@ from clab.compile.answers import text_ref, vocabulary
 from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, resolver, space_of
 from clab.compile.positions import decided
 from clab.compile.state import Compiling, Found
-from clab.format import address, data, selectors
+from clab.format import address, data, registry, selectors
 from clab.format.selectors import Selector, keyed, keys, picked
 from clab.plan import (
     Forward,
@@ -106,6 +106,18 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     else:
         fail(f"{path}.site", f"no site {spec.site!r}; declared: {', '.join(plan.sites) or 'none'}")
     write = writes(spec)
+    differentiates = [i for i, o in enumerate(spec.ops) if o.op == "grad"]
+    if differentiates and step.kind == "generate":
+        fail(f"{path}.ops[{differentiates[0]}]", "grad is taken in a forward, not a generate, whose calls feed it "
+             "the tokens it chose, which no gradient passes through: take it in a forward over the prompt with the "
+             "generated text appended (a list input)")
+    for i in [i for i in differentiates if i > 0]:
+        edit = next((o.op for o in spec.ops[:i] if edits(o)), None)
+        fail(f"{path}.ops[{i}]", f"grad follows {edit!r}, an edit, and an entry that takes a gradient writes "
+             "nothing: write in an entry of its own listed before this one at this site, and grad here "
+             "differentiates what it wrote" if edit else
+             f"grad is ops[{i}] here, and it is the first op of its entry: the entry's value is the gradient at "
+             "its site, and the ops after grad act on that gradient")
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"an entry that writes selects on one axis; this one selects "
              f"{', '.join(site.select or {})}")
@@ -147,6 +159,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
+        if differentiates and i > 0 and o.op == "decode":
+            fail(here, "decode closes an encode whose edits write back, and after grad nothing writes back: an "
+                 "encode after grad reads the gradient's coordinates, and no decode closes it")
+        if differentiates and i > 0 and "original" in registry.signature(ops.OPS[o.op]).parameters:
+            fail(here, f"{o.op!r} restores the value the site had before its writes, and after grad the value is "
+                 "a gradient off the model, which writes nothing back")
         if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
             fail(here, why)
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
@@ -165,7 +183,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             fail(f"{here}.over", f"{o.op!r} over 'layers': inside an entry an op acts at each layer the entry is made "
                  "at, so it meets no layers axis; reduce over layers in a step after the forward, {'kind': 'op', "
                  f"'op': {o.op!r}, 'of': '<step>.<entry>', 'over': ['layers']}}")
-        for key, value in args.items():
+        for key, value in args.items() if o.op != "grad" else ():       # grad's `of` is checked by its forward
             if isinstance(value, str) and value in own and value not in live:
                 fail(f"{here}.{key}", f"{value!r} is an entry of this generation; an operand from an entry of its own "
                      "step is served in a forward, not inside a generate" if step.kind == "generate" else
@@ -179,6 +197,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             if written in live and gathers(live[written]):
                 fail(f"{here}.{key}", f"{written!r} runs {gathers(live[written])[0].op!r} once it is off the model, "
                      "after this forward; an operand from the same forward is an entry with no op after its edits")
+            if written in live and i > last:
+                fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
+                     "is off the model, batch by batch, where an operand is a value made before this step; an "
+                     "operand from the same forward is a write's: take the two in an op step after the forward")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live)
             if why:
                 fail(f"{here}.{key}", why)

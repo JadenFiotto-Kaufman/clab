@@ -1,6 +1,6 @@
 ---
 title: Patterns Index
-one_liner: "One interpretability technique per page, each built on a corpus document: patching, ablation, attention, logit lens, steering, generation, trained subspaces, SAEs, probes and LoRA."
+one_liner: "One interpretability technique per page, each built on a corpus document: patching, attribution patching, ablation, attention, logit lens, steering, generation, trained subspaces, SAEs, probes and LoRA."
 tags: [patterns, index]
 related: [docs/index.md, docs/usage/index.md]
 ---
@@ -16,6 +16,7 @@ One technique per page, each built on a document under `documents/`; the usage p
 - [activation-patching](activation-patching.md) — Interchange interventions: swap one position, a window or an entity's token from a counterfactual run into a base run, score with match and logit_diff, map layer by position with paired sweeps, and corrupt and restore with noise.
 - [head-and-neuron-patching](head-and-neuron-patching.md) — Patching one head or a few neurons at a time: select on attention_premix, mlp_activation versus mlp_neurons, cross a layers sweep with a heads sweep, head sets, path patching, and the positional meaning of select lists.
 - [ablation](ablation.md) — Zero, mean, resample, noise and direction ablation: a mean as an operand across datasets, a ragged mean over an entity's tokens, a direction ablated at every layer, and the hydra effect.
+- [attribution-patching](attribution-patching.md) — Attribution patching with grad: the gradient of a metric at a site times the counterfactual's difference there, every component of a model in two or three forwards and one backward, checked against a central difference, and where it misleads.
 - [attention](attention.md) — Experiments inside attention: knocking out a head or keys through the scores or the pattern renormalized by sum, patching a head's pattern while keeping its values, and reading queries and keys after RoPE.
 
 ## Reading, steering and generation
