@@ -422,3 +422,18 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
         gc.garbage.clear()
         gc.enable()
     assert left == []
+
+
+def test_clabs_version_is_worked_out_once_per_process(monkeypatch):
+    """Every run records clab's version with its commit (`steps.versions`), which a checkout's `git describe`
+    gives: a process asks for it once, whatever number of runs it makes."""
+    import subprocess
+
+    from clab import steps
+
+    asked: list = []
+    run = subprocess.run
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: asked.append(a) or run(*a, **k))
+    steps.version.cache_clear()
+    said = {steps.versions()["clab"] for _ in range(3)}
+    assert len(said) == 1 and len(asked) <= 1
