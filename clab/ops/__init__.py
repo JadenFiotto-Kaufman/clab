@@ -45,9 +45,12 @@ Ops come in four groups: **metrics** score each example (one number per row and 
 **reductions** remove axes, by default the rows and positions, a `layers` axis kept (`over` names them;
 over `pos`, one value per row); **edits** (<the edits group>) keep the value's layout and change its contents, and inside
 an entry are what writes back; **transforms** turn each example's value into another of a different layout (logits from
-a residual stream, coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient. An
-edit comes before any transform, metric or reduction of its entry, or, after an `encode`, before the `decode` that
-closes it.
+a residual stream, coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of
+the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `div`, `pow`), which, unlike an
+edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a transform that does, a
+metric, a reduction), or, after an `encode`, before the `decode` that closes it; an elementwise transform may come
+before an edit, and acts on the live value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]`
+writes a tenth of each entry's sign).
 
 `grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
 acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
@@ -58,13 +61,13 @@ restores the site's value (`renormalize`). The forward takes one backward after 
 under `tp` is refused by name, and so is one whose `of` runs an op no gradient passes through:
 <no gradient>.
 
-Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
-float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
-rounded to its few bits. An edit computes in float32 too, the value and every operand upcast, and rounds once,
-to the value's dtype, since an edit writes back; a value read from the model keeps the model's dtype. A rank
-(`match`'s most likely token, `argmax`, `top_k`) is the same either way: bfloat16 to float32 is exact. `top_k`
-over a vocabulary (`vocab_size`, a probe's `classes`) gives `probs`, a float32 softmax, and over another axis
-`values`, the ranked values in the value's own dtype.
+Metrics, the reductions `mean`, `sum` and `min` and the elementwise transforms compute in float32 whatever the
+model's dtype, and return float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16
+model's mean, a cosine near 1 or a probability near 1 is not rounded to its few bits. An edit computes in float32
+too, the value and every operand upcast, and rounds once, to the value's dtype, since an edit writes back; a value
+read from the model keeps the model's dtype. A rank (`match`'s most likely token, `argmax`, `top_k`) is the same
+either way: bfloat16 to float32 is exact. `top_k` over a vocabulary (`vocab_size`, a probe's `classes`) gives
+`probs`, a float32 softmax, and over another axis `values`, the ranked values in the value's own dtype.
 
 A featurizer is reached by three ops. `encode` turns the value into its coordinates in the featurizer's space
 (`select: {"features": <selector>}` keeps some of them), `decode` (naming the same featurizer) turns them
@@ -237,7 +240,8 @@ OPS.update((fn.__name__, fn) for fn in [
     edits.decode, edits.apply, edits.noise, edits.clamp, transforms.readout, transforms.encode, transforms.grad,
     reductions.mean, reductions.sum, reductions.min, reductions.pca, metrics.match, metrics.logit_diff,
     metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js,
-    transforms.top_k, transforms.argmax, transforms.detokenize, metrics.cosine])
+    transforms.top_k, transforms.argmax, transforms.detokenize, transforms.abs, transforms.exp, transforms.log,
+    transforms.sign, transforms.sqrt, transforms.square, transforms.neg, transforms.div, transforms.pow, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
 ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
     "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))

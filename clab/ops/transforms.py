@@ -1,7 +1,9 @@
-"""Transforms: ops that turn each example's value into another of a different layout, or another value. The model's
-own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient in the value's place,
-the ranks along an axis (`top_k`, `argmax`, by default over logits), and `detokenize`, which turns generated ids into
-text."""
+"""Transforms: ops that turn each example's value into another, of a different layout or of the same one, or a
+gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
+in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
+generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
+to `pow`). Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the
+live value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
 
 import json
 import math
@@ -12,7 +14,7 @@ from torch import Tensor
 
 from clab import featurizers
 from clab.format import address, selectors
-from clab.format.registry import Featurizer
+from clab.format.registry import Featurizer, Value
 from clab.ops import VOCABULARY, op
 from clab.ops.metrics import ranked
 
@@ -149,3 +151,71 @@ def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
     value). An exact tie goes to the lower index, as in `top_k`."""
     ids, gone = picked(of.movedim(dims.index(over), -1), 1)
     return ids[..., 0].masked_fill(gone[..., 0], -1)
+
+
+# -- elementwise: each entry on its own, the layout kept -------------------------------------------------------------
+
+
+def operand(x: Value, like: Tensor) -> Tensor:
+    """An operand (a number, or a named value laid out as the value is) on `like`'s device, in float32 where it is
+    floating."""
+    x = torch.as_tensor(x, device=like.device)
+    return x.float() if x.is_floating_point() else x
+
+
+@op("transforms")
+def abs(of: Tensor) -> Tensor:
+    """`|of|`, each entry's absolute value, in float32."""
+    return of.float().abs()
+
+
+@op("transforms")
+def exp(of: Tensor) -> Tensor:
+    """`e ** of`, each entry's exponential, in float32 (`inf` past about 88.7)."""
+    return of.float().exp()
+
+
+@op("transforms")
+def log(of: Tensor) -> Tensor:
+    """`ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it."""
+    return of.float().log()
+
+
+@op("transforms")
+def sign(of: Tensor) -> Tensor:
+    """Each entry's sign, -1, 0 or 1, in float32; a missing (NaN) entry stays missing."""
+    x = of.float()
+    return x.sign().masked_fill(x.isnan(), math.nan)
+
+
+@op("transforms")
+def sqrt(of: Tensor) -> Tensor:
+    """`of ** 0.5`, each entry's square root, in float32: NaN below 0."""
+    return of.float().sqrt()
+
+
+@op("transforms")
+def square(of: Tensor) -> Tensor:
+    """`of * of`, each entry squared, in float32."""
+    return of.float().square()
+
+
+@op("transforms")
+def neg(of: Tensor) -> Tensor:
+    """`-of`, each entry negated, in float32: a read's negation, where `scale` by -1 would write it back."""
+    return -of.float()
+
+
+@op("transforms")
+def div(of: Tensor, with_: Value) -> Tensor:
+    """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
+    `with` is 0, so a division by zero is a missing entry, never an infinite one."""
+    by = operand(with_, of).float()
+    return torch.where(by == 0, math.nan, of.float() / by)
+
+
+@op("transforms")
+def pow(of: Tensor, exponent: Value) -> Tensor:
+    """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
+    where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one."""
+    return of.float().pow(exponent if not isinstance(exponent, Tensor) else operand(exponent, of).float())
