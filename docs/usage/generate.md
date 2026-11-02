@@ -38,15 +38,17 @@ Under `strip` that row scores 1, and a scope finds a word said at token 0. A byt
 
 Every key other than `kind`, `input` and `interventions` goes to the engine's `generate` unchanged.
 
-- **`do_sample`.** An option you leave out comes from the checkpoint's generation config, and some checkpoints sample by default. Nothing seeds sampling, so two runs with `do_sample: true` give different ids. `do_sample: false` decodes greedily and gives the same ids on every run. Write it on every generate step.
+- **`do_sample`.** An option you leave out comes from the checkpoint's generation config, and some checkpoints sample by default. Nothing seeds sampling, so two runs with `do_sample: true` give different ids. `do_sample: false` decodes greedily and gives the same ids on every run. Write it on every generate step. Within one run, points of a step that differ only in what they read share one generation, so they read one sample ([sweeps.md](sweeps.md#what-a-sweep-costs)).
 - **`max_new_tokens`** is the most new tokens a row gets. A write whose frame runs to the end of the row (`"2:"`, `"1::2"`) needs it, because it fixes how many calls the write lands at.
 - **`min_new_tokens`** holds EOS off until a row has that many tokens. Setting it equal to `max_new_tokens` makes every row make the same calls.
 - **`eos_token_id`** is the id, or list of ids, that a row stops on. Without it, rows stop on the id from the engine's generation config.
 
-The step refuses four options before the model loads: `num_return_sequences`, `num_beams`, `return_dict_in_generate` and `use_cache`. Any other option is left for the engine to accept, and one it rejects fails when the step runs, with the step's name; an option of the wrong type (`"max_new_tokens": "6"`) can instead fail inside the model's `generate` as a Python `TypeError`. There is no `seed` option:
+The step refuses five options before the model loads, since each would change the rows, the value or the calls: `num_return_sequences`, `num_beams`, `return_dict_in_generate`, `use_cache` and `prefill_chunk_size`. Compile also refuses a parameter of `generate` itself (`generation_config`, `logits_processor`), which takes what a document cannot write, and a value of a type transformers' `GenerationConfig` refuses (`"max_new_tokens": "6"`). Any other option is left for the engine to accept, and one it rejects fails when the step runs, with the step's name. There is no `seed` option:
 
 ```text
 clab: steps.g: num_beams 2; it stays 1: beams change the rows each forward call sees, so a read's row is no longer the input's
+clab: steps.g.generation_config: 'generation_config' is a parameter of generate itself, taking GenerationConfig, not a field of a generation config; a step's options are the config's fields (max_new_tokens, do_sample, ...)
+clab: steps.g.max_new_tokens: '6' is not a value generate takes: '<=' not supported between instances of 'str' and 'int'
 clab: g: generate rejected 'seed': The following `model_kwargs` are not used by the model: ['seed'] (note: typos in the generate arguments will also show up in this list)
 ```
 
@@ -104,7 +106,7 @@ A write lands as its call runs.
 }
 ```
 
-`plan.run.positions` records where each write landed. `damped.prompt` is `[[10], [8], [8], [8]]` and `damped.decode` is `[[11, 12, 13, 14, 15], [9, ...], ...]`: every generated input except the last token, which is never fed.
+Each entry's record holds where it landed (`positions`, by dataset). `damped.prompt` is `[[10], [8], [8], [8]]` and `damped.decode` is `[[11, 12, 13, 14, 15], [9, ...], ...]`: every generated input except the last token, which is never fed. `clab show` prints both, one line per entry.
 
 To write at every position, the whole prompt included, use `{"frame": ":"}`. A root bundle written at `{"frame": ":"}` covers every call of whichever step pulls it in: every token of a forward, and every prompt token and generated input of a generation.
 
@@ -126,7 +128,7 @@ A write with a `column` or `text` scope over the decode calls is resolved while 
 "zero": {"site": "l0", "pos": {"frame": "1:", "scope": {"column": "prompts.said"}, "index": -1}, "ops": [{"op": "scale", "factor": 0.0}]}
 ```
 
-Row 0 says `substr` as generated token 1, so the write lands at position 12, the call fed `▁substr`, and the row's text changes from token 2 on. Rows 2 and 3 never say their word. They are `alignment_missing` in `plan.run.positions`, and their text is unchanged. Such a write takes index `-1`, counts `occurrence` from the first, and takes no `before`. Each of these is refused by name:
+Row 0 says `substr` as generated token 1, so the write lands at position 12, the call fed `▁substr`, and the row's text changes from token 2 on. Rows 2 and 3 never say their word. They are `alignment_missing` in the write's `positions` (`[[12], [12], 'alignment_missing', 'alignment_missing']`), and their text is unchanged. Such a write takes index `-1`, counts `occurrence` from the first, and takes no `before`. Each of these is refused by name:
 
 ```text
 clab: steps.answer.interventions.zero.pos.index: index 0: a scoped write lands at the call fed its text's last token, the first call that can know the text is there; earlier tokens were already fed, so its index is -1
@@ -157,5 +159,5 @@ How missing rows pass through ops and tables is covered in [errors/alignment-mis
 
 - **Leaving out `do_sample`.** The checkpoint decides whether to sample, and a sampled run does not repeat.
 - **An answer with its leading space, searched in generated text.** It is not found at token 0; give the column `strip: true` ([above](#the-first-generated-tokens-leading-space)).
-- **Sweeping a read's frame.** Each point re-runs the whole generation. Read `{"frame": "0:3"}` once instead ([usage/sweeps.md](sweeps.md#widen-the-read-instead)).
+- **Sweeping a write's frame or a generate option.** Each point runs its own generation. A sweep of a read's frame shares one, and `{"frame": "0:3"}` reads the same calls as one value ([usage/sweeps.md](sweeps.md#widen-the-read-instead)).
 - **A word that ends on the row's last generated token.** No call is fed that token, so a read scoped to the word without `before` is `alignment_missing`. With `max_new_tokens: 2`, a word said as token 1 is missing at the word itself, and found with `before`. Leave room after the answer.

@@ -12,14 +12,15 @@ An entry's `pos` says which token positions of each row it reads or writes at it
 
 ## Check where it landed
 
-Every read and write records the positions it resolved to on every row, saved or not, in `plan.run.positions` (the manifest's `run.positions`). Look before you trust a number:
+Every read and write records the positions it resolved to on every row, saved or not, on its own record: `positions`, under the dataset whose rows they are (in the manifest, on each entry of `steps`). `clab show` prints them one line per entry; look before you trust a number:
 
 ```python
 from clab import Plan
 
 plan = Plan.load("out/entity_patch")
 tokens = plan.run.tokens["pairs.input"]
-for row, where in enumerate(plan.run.positions["patched.patch"]):
+patch = plan.steps["patched"].interventions["patch"]
+for row, where in enumerate(patch.positions["pairs"]):
     print(row, where, [tokens[row][p] for p in where])
 ```
 
@@ -34,7 +35,7 @@ For a saved value, `clab table OUT NAME` prints the same thing as its `pos` and 
 
 ## Recipes
 
-Each recipe was checked against `run.positions` on row 0 of the corpus document named. Row 0's prompt in these documents is `<s> ▁If ▁today ▁is ▁Th urs day , ▁tom orrow ▁is`, positions 0 to 10 (in `documents/chat_turn.json`, the chat around it).
+Each recipe was checked against the entry's `positions` on row 0 of the corpus document named. Row 0's prompt in these documents is `<s> ▁If ▁today ▁is ▁Th urs day , ▁tom orrow ▁is`, positions 0 to 10 (in `documents/chat_turn.json`, the chat around it).
 
 | you mean | `pos` | lands on row 0 (document) |
 |---|---|---|
@@ -85,6 +86,6 @@ In a `generate` step, `frame` picks forward calls: 0 is the prefill, decode call
 
 A read has a **static width**, the same number of positions on every row, when its frame names a fixed number of calls (a forward's one call, an int, picks, `"1:3"`), its index a fixed number of positions (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`, `"-3:"`, `":2"`), and a text scope, if it has one, is one occurrence in the prefill. Anything else is **ragged**: an index of `":"` or `"2:"`, a whole scope (an entity of one token on one row and three on another), several occurrences, `"frame": "1:"`.
 
-- In the prefill, a static index that does not fit a row is refused before any forward: `{"index": "0:10"}` on a 9-token row gives `row 1: tokens 0:10 do not fit its 9 scope tokens`. Beyond the prefill the row is `alignment_missing`. A ragged index takes what the row has, which can be nothing: on a row too short for `{"index": "10:"}` a read holds no position, its value is NaN there and `clab table` leaves the row out, while a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
+- In the prefill, a static index that does not fit a row is refused before any forward: `{"index": "0:10"}` on a 9-token row gives `row 1: tokens 0:10 do not fit its 9 scope tokens`. Beyond the prefill the row is `alignment_missing`. A ragged index takes what the row has, which can be nothing: on a row too short for `{"index": "10:"}` a read holds no position, the row is `alignment_missing` (NaN all the way, and one `clab table` line flagged `alignment_missing`), while a write is refused ([position-not-in-row.md](../errors/position-not-in-row.md#the-writes-positions-hold-no-token-of-this-row)).
 - A ragged value is as wide as its widest row. Row r's j-th position sits at index j, and past a row's own positions the value is NaN; `clab table` leaves those out. So index j of `{"index": ":"}` is token j on every row, while index 0 of `{"index": "-4:-1"}` is a different absolute position on rows of different lengths.
 - A ragged read cannot be another forward's operand, since its rows do not pair position by position. Read the operand at a static index (`documents/entity_patch.json`, `"index": -1`) or reduce it to one vector first (`documents/entity_mean_ablation.json`, a `mean` over every entity token). How an operand pairs with a write on prompts of different lengths is [interventions.md](interventions.md).

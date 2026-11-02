@@ -15,7 +15,7 @@ A bundle is a safetensors file holding one featurizer's tensors and a header tha
 The training document saves the trained featurizer as a member of its fit. `documents/das.json`:
 
 ```json
-"saves": ["fit.held_out.iia", "fit.train.iia", "fit.train.ce", "fit.rot"]
+"saves": ["held_iia", "fit.train.iia", "fit.train.ce", "fit.rot"]
 ```
 
 Run it with `--out` inside the corpus, so the bundle lands under the corpus root. One file per save, named after it, so `fit.rot` becomes `fit.rot.safetensors`:
@@ -23,7 +23,7 @@ Run it with `--out` inside the corpus, so the bundle lands under the corpus root
 ```text
 clab run documents/das.json --out documents/artifacts
   ...
-  fit.rot.safetensors          fit              {"basis": [16, 8]}
+  fit.rot.safetensors          fit              {"basis":[16,8]}
 clab run documents/das_apply.json
 ```
 
@@ -33,7 +33,7 @@ The loading document declares the featurizer with `file_path` and uses it by its
 "rot": {"kind": "subspace", "k": 8, "parametrization": "cayley", "file_path": "documents/artifacts/fit.rot.safetensors"}
 ```
 
-`das_apply.json`'s `iia` is bit-identical to `das.json`'s `fit.held_out.iia`: the same test rows through the same rotation. The corpus has three more pairs written the same way: `documents/pca_harvest.json` and `documents/pca_control.json` (`basis`), `documents/sae_train.json` and `documents/sae_train_ablation.json` (`fit.dictionary`), `documents/lora_train.json` and `documents/lora_apply.json` (`fit.lora`).
+`das_apply.json`'s `iia` is bit-identical to `das.json`'s `held_iia`, which `das.json` scores after its fit through `fit.rot`: the same test rows through the same rotation. The corpus has three more pairs written the same way: `documents/pca_harvest.json` and `documents/pca_control.json` (`basis`), `documents/sae_train.json` and `documents/sae_train_ablation.json` (`fit.dictionary`), `documents/lora_train.json` and `documents/lora_apply.json` (`fit.lora`).
 
 `--out` writes the training run's whole output directory there, `manifest.json` included, and a second training run into the same directory replaces the manifest but leaves the other bundles.
 
@@ -94,7 +94,7 @@ Run the training document again with the sweep replaced by the value you want to
 
 ## Reproducing a fit's numbers in the apply document
 
-A fit's body runs in batches of the fit's `batch_size`; the apply document runs in batches of `--batch-size` (default 8). A row's numbers are guaranteed to the bit only at one batch shape ([running.md](running.md)). On the CPU, the apply document run at the fit's `batch_size` reproduces the fit's held-out numbers to the bit: a probe fitted with `batch_size` 10 gives held-out scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default, and `das_apply.json`'s two test rows match `das.json`'s at any batch size that holds both in one batch, as the fit does, and can differ in the last bits at `--batch-size 1`. Pass the fit's `batch_size` as `--batch-size` when you compare the two bit for bit.
+A fit's body, its evals included, runs in batches of the fit's `batch_size`; the apply document, and a training document's own steps after its fit, run in batches of `--batch-size` (default 8). A row's numbers are guaranteed to the bit only at one batch shape ([running.md](running.md)). On the CPU, the apply document run at the batch size the held-out numbers were made at reproduces them to the bit: a probe fitted with `batch_size` 10 gives eval scores that its apply document reproduces to the bit at `--batch-size 10` and to about 2e-7 at the default, and `das_apply.json`'s `iia` equals `das.json`'s `held_iia`, scored by steps after the fit, at `--batch-size` 1, 2 and 8. Compare the two at the batch size each was made at.
 
 On a GPU the loaded featurizer can give numbers that differ from the trained one's in the last bits even at the fit's batch size: on Llama-3.2-1B, a rank-1 subspace at batch size 50 gave logit differences up to 2.1e-5 apart on 63 of 200 rows, with identical `match`. Compare at a tolerance there.
 

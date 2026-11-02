@@ -58,6 +58,15 @@ An entry uses a featurizer in one of three shapes:
 
 `[encode f, decode f]` leaves the logits bit-identical to a clean forward for every kind that decodes (a drawn subspace and gate, a loaded `pca`, three loaded `sae`s, one of them a published JumpReLU, at every position of the prompt), and so does an `sae` bracket holding `{"op": "scale", "factor": 1.0}`.
 
+## As a step
+
+`encode` and `apply` run as op steps too, over a read: an entry's value, at its one site. The step's value is in the featurizer's coordinates (`encode`) or its own version of the value (`apply`), and it counts as a use of the featurizer at the site of that read, whose width it is checked against. `documents/das.json`'s fit body encodes a harvest made before the fit this way, `{"kind": "op", "op": "encode", "featurizer": "fit.rot", "of": "counterfactual.h"}`, so the counterfactual forward runs once ([fit.md](fit.md#the-canonical-fit)). An op's value has no one site, and `decode` closes an `encode` of its own entry, so both are refused as steps:
+
+```text
+clab: steps.x.of: 'm' is an op's value, which no one site made, and a featurizer's encode acts on a value at its site: encode a read (an entry's value), or encode inside the entry that reads
+clab: steps.x: decode closes an encode of its own entry, so it runs inside the entry that encodes, after the encode and the edits of its coordinates; as a step there is none to close (detokenize turns a generation's ids into text)
+```
+
 ## Selecting features
 
 `select` on the `encode` keeps some coordinates; the ops between the pair act on those alone, and `decode` scatters them back, every other coordinate changing by exactly zero. The selector is an int, a slice string or a list, as in [`pos`](../../FORMAT.md#pos), and it may be a sweep. `documents/sae_feature_ablation.json` zeroes one latent per sweep point:

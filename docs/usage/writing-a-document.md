@@ -68,9 +68,9 @@ The steps and the saves:
 
 ```text
 $ clab run documents/patching.json
-patching on nnterp (batch size 8, device cpu) -> out/patching
-  iia.safetensors              iia              [4, 1]
-  logit_diff.safetensors       logit_diff       [4, 1]
+patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
+  iia.safetensors              iia              [4,1]
+  logit_diff.safetensors       logit_diff       [4,1]
   out/patching/manifest.json
 $ clab table out/patching iia logit_diff
 row  pos  pos_token  input                              cf_answer  iia  base_answer  logit_diff
@@ -91,7 +91,7 @@ A reference is a thing, then a member, split at the first dot:
 | `<step>` | an `op` step's value, or a `generate` step's new token ids | `iia` |
 | `<dataset>.<column>` | a column, read row by row | `pairs.cf_answer` |
 | `<featurizer>` | a declared featurizer | `rot` |
-| `<fit>.<member>` | a fit's trained featurizer, an eval's value, or its history | `fit.rot`, `fit.held_out.iia` (`documents/das.json`) |
+| `<fit>.<member>` | a fit's trained featurizer, an eval's value, or its history | `fit.rot` (`documents/das.json`), `fit.held_out.ce` (`documents/lora_train.json`) |
 
 - **Steps run in the order written, and a value is named only after the step that makes it.** An op step placed before the forward it reads is refused: `steps.iia.of: 'patched.logits' names no value produced before this step; known: counterfactual.v_cf`.
 - **Names are one flat namespace per scope.** A step name has no dot and is not also a dataset or featurizer name. Entry names belong to their step, so two steps may each have a `logits`.
@@ -113,7 +113,7 @@ Most mistakes are refused before anything runs, each by the document path of wha
 - **Reading the document** checks each record's shape: `steps.patched.interventions.logits: unknown field 'position'; valid: site, pos, ops`.
 - **Compile** checks it against the data files and bundle headers: every reference, column, save and sweep. `steps.iia.expected: dataset 'pairs' has no column 'cf' on every row; columns: answer, base_answer, ...`
 
-Both run without a model, so a document can be checked without loading one ([running.md](running.md#check-before-you-run) has the one-line check). What needs the tokenizer or the model's sizes is checked after the model loads, before any forward: a position a row does not have (`counterfactual.v_cf: row 0: tokens 10 do not fit its 9 scope tokens`), a component the engine does not serve. A few things fail only when their step runs, such as a `generate` option the model's `generate` rejects. Any refusal leaves no output directory. Which stage refuses what is [plan-lifecycle.md](../concepts/plan-lifecycle.md); messages and their fixes are in [errors/index.md](../errors/index.md).
+Both run without a model, so a document can be checked without loading one ([running.md](running.md#check-before-you-run) has the one-line check). What needs the tokenizer or the model's sizes is checked after the model loads, before any forward: a position a row does not have (`counterfactual.v_cf: row 0: tokens 10 do not fit its 9 scope tokens`), a component the engine does not serve. A few things fail only when their step runs, such as a `generate` option the model's `generate` rejects. Any refusal leaves no output directory, except a step that runs out of CUDA memory, which saves the steps before it ([running.md](running.md#when-a-step-runs-out-of-memory)). Which stage refuses what is [plan-lifecycle.md](../concepts/plan-lifecycle.md); messages and their fixes are in [errors/index.md](../errors/index.md).
 
 ## Pitfalls
 

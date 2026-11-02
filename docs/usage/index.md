@@ -39,6 +39,6 @@ Find the part of the document you are writing or the stage of the run you are at
 
 ## Running
 
-- [running](running.md) — Running a document from the command line or Python: clab run and its options, choosing batch size, bit reproducibility, where output goes and the corpus root, and the four calls behind clab.run.
-- [engines](engines.md) — Choosing an engine: nnterp, hooks and ndif, what each can serve, device and device maps, engine options, running on an NDIF server or its local simulation, and what the server must have installed.
-- [output](output.md) — Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest, and the run record with where every read and write landed.
+- [running](running.md) — Running a document from the command line or Python: clab run and its options, what is refused before the model loads, a step that runs out of memory, choosing batch size, bit reproducibility, where output goes and the corpus root, sharding with tp, and the four calls behind clab.run.
+- [engines](engines.md) — Choosing an engine: nnterp, hooks and ndif, what each can serve, device and device maps, engine options, quantized and sharded models, running on an NDIF server or its local simulation, and what the server must have installed.
+- [output](output.md) — Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest with each record's layout, positions and schedule, and the run record with what each step cost.

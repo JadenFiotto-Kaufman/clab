@@ -65,7 +65,7 @@ The signatures are in [FORMAT.md#edits](../../FORMAT.md#edits); this is which ed
 
 ## Operands
 
-An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a named value. A number broadcasts everywhere, and so does a named value with no axes (a `mean` of a metric). A named value from an earlier step is otherwise laid out like the write's selection (the same rows and positions) or is one vector of its features, which broadcasts over rows and positions. A metric's `[rows, pos]` value is neither, so it is refused as an operand, a per-row `factor` for `scale` included: `'p' is laid out ['rows', 'pos']; this write's value is ['rows', 'pos', 'hidden_size'] here, so an operand is ['hidden_size'] or ['rows', 'pos', 'hidden_size']`. Three consequences:
+An edit's operand (`with`, `direction`, `scale`, `factor`) is a number or a named value. A number broadcasts everywhere, and so does a named value with no axes (a `mean` of a metric). A named value may leave out any axis of the write's selection and broadcasts over it; every axis it has is the selection's, in its order, with the same label ([FORMAT.md](../../FORMAT.md#ops) states the rule). So one vector of features broadcasts over rows and positions, and a metric's `[rows, pos]` value as `scale`'s `factor` scales each position's vector by its own number. Three consequences:
 
 - A value with a rows axis belongs to its dataset, not to its file: two datasets that read the same `path` are two. Written on another dataset's rows, or met with one in an op step (a `kl` and its `against`), it is refused: `'other.input' has a row per example of 'other' and 'harvest.acts' of 'pairs'; an op takes one dataset's rows`. A `mean` step removes the rows, so a mean harvested on one dataset can be written into any other.
 - A read whose rows hold different numbers of positions (an `{"index": ":"}` over prompts of different lengths, a whole-entity scope) pairs with nothing in another forward; read it at a static index (`-1`, `{"index": "-6:"}`) or reduce it first.
@@ -98,7 +98,7 @@ The root `interventions` holds named dicts of entries; a step pulls one in by na
                      "interventions": ["steer", "restore", {"logits": {"site": "head", "pos": -1}}]}
 ```
 
-That is from `documents/steer_renormalize.json`; `documents/two_observes.json` runs two experiments from two bundles against one baseline. A bundle is a template: its entries bind names in the step that pulls it in, and an operand that names one of the bundle's own entries bare (`"with": "src"`) means that entry in whichever step pulls it. Naming it as `<step>.src` is refused, and so are two entries of one name in one step. An operand that names another step's value (`"with": "counterfactual.v_cf"`) is looked up by that step name wherever the bundle is pulled in: `documents/das.json`'s `das` bundle, pulled in again after its fit, needs a root step named `counterfactual`, or compile refuses `'counterfactual.v_cf' names no value produced before this step`.
+That is from `documents/steer_renormalize.json`; `documents/two_observes.json` runs two experiments from two bundles against one baseline. A bundle is a template: its entries bind names in the step that pulls it in, and an operand that names one of the bundle's own entries bare (`"with": "src"`) means that entry in whichever step pulls it. Naming it as `<step>.src` is refused, and so are two entries of one name in one step. An operand that names another step's value (`"with": "counterfactual.v_cf"`) is looked up by that step name wherever the bundle is pulled in: `documents/two_observes.json`'s `patching` bundle needs a step named `counterfactual` before the step that pulls it in, or compile refuses `interventions.patching.patch.ops[0].with in steps.patched: 'counterfactual.v_cf' names no value produced before this step; known: ...`.
 
 ## The null control
 
@@ -140,5 +140,5 @@ If `null_ld` differs from `clean_ld`, the read and the write are not the same se
 ## Pitfalls
 
 - A write's `pos` swept alone moves where the counterfactual's value lands, not where it was read; sweep the read's `pos` with it ([activation patching](../patterns/activation-patching.md#a-layer-by-position-map)).
-- `normalize` of a zero vector is NaN everywhere it is added, a dose of 0 included; check a direction's norm before normalizing it ([steering](../patterns/steering.md)).
+- `normalize` leaves a zero vector as it is, so a direction that is zero (two harvests that agree) steers nothing at any dose and the sweep looks flat; check a direction's norm before reading a dose curve ([steering](../patterns/steering.md)).
 - A write selects on one axis: `{"num_heads": [1], "head_dim": [0, 1]}` on a write is refused.

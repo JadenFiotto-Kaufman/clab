@@ -45,7 +45,7 @@ A block's component needs `layers`; the model's own values (`token_embeddings`, 
 
 - **An int** is that layer, negative counting from the last: `-1` is the last block. The value has no layers axis.
 - **A slice or a list** reads every layer it picks in one forward and stacks them, a `layers` axis first, labelled with the layers picked, in that order: `":"` is every layer, `"-2:"` the last two, `[1, 0]` layer 1 then layer 0. `clab table` prints the model's layer number in its `layer` column.
-- **A sweep** (`{"sweep": [0, 1]}`) is one point, and one forward, per layer. Use it when each layer is a different intervention; to read many layers, a selector gives the same numbers in one forward ([sweeps.md](sweeps.md#widen-the-read-instead)).
+- **A sweep** (`{"sweep": [0, 1]}`) is one point per layer. A write's points run one forward each; a read's share one forward, as a selector does, and give the same numbers one point per layer. Sweep when each layer is a different intervention; to reduce or compare across layers, read them with a selector ([sweeps.md](sweeps.md#widen-the-read-instead)).
 
 `0` and `[0]` read the same numbers, but `[0]` keeps a `layers` axis of size 1: an extra leading axis in the saved tensor and a `layer` column in the table. As an operand either meets a write at layer 0 alike, since operands align by layer label. A layer the model does not have is refused before any forward: `clab: f.x: layer 5; the model has 2 layers`. A write across several layers runs its ops at each, as [interventions.md](interventions.md) describes.
 
@@ -58,16 +58,16 @@ A block's component needs `layers`; the model's own values (`token_embeddings`, 
 - **A write selects on one axis.** A read may select heads and dimensions together; a write is refused with `an entry that writes selects on one axis; this one selects num_heads, head_dim`.
 - **`key` counts from the start.** A key selector picks the same keys of every row (`0` for BOS, `[0, 2]`, `"0:3"`); `-1` is refused, since rows differ in length. The `key` axis is each row's own tokens, as positions count them.
 - **`readout` needs the whole stream.** Selecting `hidden_size` and then `readout` is refused, since the final norm needs every dimension; read the site whole, `readout`, then narrow the logits. Which components `readout` takes is in [ops.md](ops.md#transforms).
-- **A metric needs the whole vocabulary.** `match`, `logit_diff` and `token_prob` look an answer up by token id, so a head narrowed on `vocab_size` gives them the wrong axis; score the full head ([ops.md](ops.md#metrics)).
+- **A metric needs the whole vocabulary.** `match`, `logit_diff` and `token_prob` look an answer up by token id, so a head narrowed on `vocab_size` is refused under one: `the value 'match' scores keeps 3 of its vocab_size (select), and it scores 'pairs.cf_answer' by its id over the whole vocabulary, where index i of the selection is not id i: ...`. Score the full head and narrow what the metric gives ([ops.md](ops.md#metrics)).
 
 A pick outside the axis is refused: `select num_heads [4] outside the model's 4`. A `select` may be swept, as in the canonical example.
 
 ## Attention needs eager
 
-Six components are read inside the attention's forward: `attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities` and `attention_head_outputs`. Fused attention (`sdpa`, which the corpus model loads by default) computes them inside one call, and both engines refuse them before any forward with the same reason:
+Six components are read inside the attention's forward: `attention_queries`, `attention_keys`, `attention_values`, `attention_scores`, `attention_probabilities` and `attention_head_outputs`. Fused attention (`sdpa`, which the corpus model loads by default) computes them inside one call, and the nnterp engine refuses them before any forward with a reason that asks for eager:
 
 ```text
-clab: f.x: the nnterp engine does not serve attention_probabilities: read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'
+clab: clean.pattern: the nnterp engine does not serve attention_probabilities: read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'
 ```
 
 Load the model with eager attention, in the `model` block, as `documents/attention_knockout.json` does:

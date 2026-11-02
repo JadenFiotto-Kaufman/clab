@@ -103,11 +103,17 @@ Without a template the prompt ends with the template's close of the last message
 
 clab renders a chat only from a column that already holds `{"role", "content"}` messages; nothing in a document turns a text column into one. To run a text dataset as user turns, write the messages outside clab as inline `rows` (or a file), and record the hub source and its revision in `description`.
 
-**A template can read the clock.** Llama-3.2's Instruct template adds a system header when the chat has none and writes `Today Date: <today>` in it, so the same document renders other tokens on another day, unrefused: a dataset's digest covers its rows, not how they render. Pin the date through `template` and check `run.tokens`:
+**A template can read the clock.** Llama-3.2's template adds a system header when the chat has none and writes `Today Date: <today>` in it (`strftime_now`), so the same document would render other tokens on another day, which a dataset's digest cannot say: it covers the rows, not how they render. A chat of such a template is refused before any forward unless the dataset's `template` pins the date, and the refusal gives the pin:
+
+```text
+clab: blanked: chats.chat: the checkpoint's chat template calls strftime_now, which writes today's date into the prompt, so these rows render to other tokens on another day and nothing in the run record says so; pin it in data.chats.template, {"date_string": "26 Jul 2024"}
+```
 
 ```json
 "chats": {"path": "weekdays/chat", "template": {"add_generation_prompt": true, "date_string": "26 Jul 2024"}}
 ```
+
+With the pin, the prompt carries that date; check it in `run.tokens`.
 
 Llama-3.1's template writes a fixed default date and reads no clock.
 

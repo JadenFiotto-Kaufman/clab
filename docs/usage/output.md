@@ -1,6 +1,6 @@
 ---
 title: Output
-one_liner: "Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest, and the run record with where every read and write landed."
+one_liner: "Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest with each record's layout, positions and schedule, and the run record with what each step cost."
 tags: [usage, output, table, manifest]
 related: [docs/usage/running.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/bundles.md, docs/errors/alignment-missing.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
 sources: [clab/output/__init__.py, clab/output/table.py, clab/plan.py, clab/cli.py]
@@ -20,9 +20,9 @@ out/patching/
 ```
 
 - **One file per name in `saves`**, named after it: `<name>.safetensors` for a tensor or a dict of tensors, `<name>.json` for anything else. A value that holds text is JSON: `top_k` as a step holds its decoded `tokens`, so `documents/readout.json` writes `top3.json`.
-- **A swept value is one file** holding every point, keyed by coordinate: `pos=-1`, `pos=-2`, or `layers=0,pos=-1` over two axes ([sweeps.md](sweeps.md)).
+- **A swept value is one file** holding one entry per point of the sweep axes the value depends on (its `axes`), keyed by coordinate: `pos=-1`, `pos=-2`, or `layers=0,pos=-1` over two axes. A value that depends on none of its step's sweeps is one tensor: `documents/generate_probe.json` sweeps its reads over three frames, and its generated ids, `patched`, are one `[4, 3]` tensor ([sweeps.md](sweeps.md)).
 - **A saved featurizer is a bundle** whose file carries the header a loading document checks ([bundles.md](bundles.md)).
-- **`manifest.json`** is the compiled plan, with sites inlined, sweeps expanded and each entry's layout (`dims`) filled in, plus `run`, plus `results`: for each save its `file`, the `step` that made it, `dims`, sweep `axes`, `shape` and `dtype`. It holds no values, and no rows from a file or the hub. Inline rows stay in it.
+- **`manifest.json`** is the compiled plan as the run completed it: sites inlined, sweeps expanded, each record's layout and labels filled in (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), each read's and write's `positions` per row, and each forward's and generation's `schedule`; plus `run`, plus `results`: for each save its `file`, the `step` that made it, its layout and labels, the sweep `axes` it depends on, `shape` and `dtype`. It holds no values, and no rows from a file or the hub. Inline rows stay in it.
 
 Where the directory goes and what happens when you reuse one is [running.md](running.md#where-output-goes).
 
@@ -30,15 +30,42 @@ Where the directory goes and what happens when you reuse one is [running.md](run
 
 ```text
 $ clab show out/patching
-patching: run on nnterp, device cpu, batch size 8, started 2026-10-26T13:48:04, 0.169 s
+patching: run on nnterp, device cpu, tp 1, batch size 8, started 2026-11-02T12:57:20, 0.22 s
   served: float32 on cpu
-  versions: clab 0.0.1+e2499ea, nnsight 0.8.1, nnterp ..., torch ..., transformers ..., python ...
+  versions: clab 0.0.1+..., nnsight 0.8.1, nnterp ..., torch ..., transformers ..., python ...
+  step            at  serves  seconds  memory  forwards  tokens
+  counterfactual  —   —       0.017    —       1         38
+  patched         —   —       0.007    —       1         38
+  iia             —   —       0.005    —       0         0
+  logit_diff      —   —       0.000    —       0         0
+  entry                at  positions
+  counterfactual.v_cf  —   [8], [8], [10], [8]
+  patched.patch        —   [10], [8], [8], [8]
+  patched.logits       —   [10], [8], [8], [8]
   result      step        dims       axes  shape
   iia         iia         rows, pos  —     [4,1]
   logit_diff  logit_diff  rows, pos  —     [4,1]
 ```
 
-The first lines are the run record: the engine, its device and options, the batch size, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. Then each saved value with the step that made it, its axes (`dims`), the sweep labels it varies over (`axes`) and its shape, per coordinate when swept. `clab show` and `clab run` give a value that holds text its outer length alone: a `top_k` step's `tokens` read `[2]` beside `"ids": [2,4,3,3]`, laid out like the ids. `served:` is what the model actually ran in, which is the line to check when a device map or a server places the model; after a run on an NDIF server the first line says `device placed by the server`, and `versions:` are the server's.
+The first lines are the run record: the engine, its device and options, the batch size, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
+
+- **What each step cost**, one row per run of a step, at the point that ran it: `serves` lists the points that run served (`—` for itself alone, `all 3 points` for every point of the step), then its seconds, its peak memory on each CUDA device (`—` off CUDA), the model calls it made and the tokens they fed. A forward or generation runs once for every set of points that differ only in what they read, so a read-only sweep is one row.
+- **Where each entry resolved**, one row per entry and distinct positions, each row's positions in row order (`[10] on all 4 rows` where every row agrees, `—` for a row the entry did not reach), with the point it is at or how many points share it.
+- **Each saved value**: the step that made it, its layout (`dims`), the sweep axes it depends on (`axes`) and its shape, counted over its points when swept (`3 points, each [4,1]`; the manifest holds each point's).
+
+From `documents/generate_probe.json`, whose reads sweep three frames of one generation:
+
+```text
+  step            at       serves        seconds  memory  forwards  tokens
+  counterfactual  —        —             0.011    —       3         46
+  patched         frame=0  all 3 points  0.008    —       3         46
+  ...
+  result    step      dims       axes   shape
+  p_answer  p_answer  rows, pos  frame  3 points, each [4,1]
+  patched   patched   rows, new  —      [4,3]
+```
+
+A value that holds text prints its whole layout, laid out like the ids: a `top_k` step's `tokens` read `[4,1,3]` beside `"ids":[4,1,3]`. `served:` is what the model actually ran in, which is the line to check when a device map, a quantized `dtype` or a server places the model (`bfloat16, uint8 on cpu` under `nf4`); after a run on an NDIF server the first line says `device placed by the server`, and `versions:` are the server's.
 
 ## `clab table`
 
@@ -67,10 +94,11 @@ Saturday    3                          If today is Sunday, tomorrow is     Satur
 | `value` | one name | the element, or the remaining axes as nested lists; with several names, one column per name |
 | `alignment_missing` | some row was not reached | `true` on a row a read beyond the prefill never reached, with no value ([alignment-missing.md](../errors/alignment-missing.md)) |
 
-- **Several names join on their shared axes.** A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Names with rows of two different datasets are refused. Names that share no value of an axis, such as two reads at different positions, or values swept over different axes, join to no rows: the table prints nothing and exits 0. Table them one at a time. Two `fit.history` values do not pair by epoch: `clab table out fit.history.a fit.history.b` prints every pair of epochs, 2,500 rows for two 50-epoch histories, so table one history at a time.
+- **Several names join on the keys they share** (the sweep coordinates, `row`, `layer`, `pos`, `key`) and broadcast over the rest, as [FORMAT.md](../../FORMAT.md#saves-and-the-output) states. A value with fewer axes repeats beside every row it agrees with: a per-layer `mean` beside a per-row metric repeats on every row of its layer. Values swept over different axes cross: `iia` over `pos` beside a match over `layers` gives a row per example at every pair of points. Two `fit.history` values pair by epoch. Two reads of one input at different positions share no `pos`, so they join to no rows: the table prints nothing and exits 0; table them one at a time.
+- **Some joins are refused by name.** Names with rows of two datasets (`'held_iia' has a row per example of 'test' and 'fit.train.iia' of 'train'; a table joins the values of one dataset`), and names whose `pos` counts the positions of different inputs (`'iia' has a pos column counting positions of pairs.input, and 'counterfactual.v_cf' one counting positions of pairs.counterfactual_inputs[0]: the column does not mean one thing for both, so they do not join; table them one at a time`).
 - **A value without rows** gives one row per element, labelled with its axis indices; a scalar is one row holding `value`.
 - **Positions past a row's own are left out.** A ragged read on a short row has fewer table rows, not NaN rows.
-- **Only saved names can be tabled**, and a bundle cannot be: read it from `plan.results`. A `top_k` value with no rows (a `top_k` of a `mean`) is refused with the bundle's message, `a bundle has no rows to table`; read it as `Plan.load(OUT).results[name]`.
+- **Only saved names can be tabled**, and a bundle cannot be: `'fit.rot' is a trained featurizer's bundle, which has no rows to table; read it from plan.results`. A `top_k` value with no rows (a `top_k` of a `mean`) is refused the same way (`'topm' has no rows to table: it is laid out ['k'], a top_k over a value with no rows axis, ...`); read it as `Plan.load(OUT).results[name]`. A save the run stopped before has no result: `clab table` refuses it naming the stop.
 
 ## In Python
 
@@ -81,7 +109,8 @@ plan = Plan.load("out/patching")
 plan.results["logit_diff"]                # tensor [4, 1]
 plan.table("iia", "logit_diff")           # the rows clab table prints, as dicts
 plan.table("iia", columns=["entity"])     # choose the dataset columns; [] for none
-plan.run.positions["patched.logits"]      # [[10], [8], [8], [8]]
+plan.steps["patched"].interventions["logits"].positions   # {'pairs': [[10], [8], [8], [8]]}
+plan.run.costs["patched"]                 # {'seconds': 0.007, 'memory': None, 'forwards': 1, 'tokens': 38}
 ```
 
 `plan.table` takes the same names and returns a list of dicts; `columns=` replaces the default dataset columns, which the command line cannot do. A swept result is a dict keyed by coordinate; the key's form in each place is in [sweeps.md](sweeps.md#reading-swept-results). A value loaded from JSON is a tensor again where it was one. `Plan.load` needs no data files, but it rebuilds the plan, so a run that loaded a bundle loads only where that bundle's `file_path` resolves ([bundles.md](bundles.md#reading-back-a-run-that-loads-a-bundle)).
@@ -99,7 +128,7 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 
 ## The run record
 
-`plan.run`, saved as `run` in the manifest, says how the plan ran and where everything landed:
+`plan.run`, saved as `run` in the manifest, says how the plan ran and what each step cost:
 
 | field | holds |
 |---|---|
@@ -107,18 +136,25 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 | `dtype`, `devices` | the distinct dtypes and devices of the model's parameters where it ran |
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
 | `started`, `seconds` | when the run began and how long it took |
-| `num_layers` | the model's layer count, which a site's `layers` counts against |
+| `sizes` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which a site's `layers` and `select` count among |
 | `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name |
-| `positions` | each read and write's resolved positions per row, under `<step>.<entry>` (in a fit's eval, `<fit>.<eval>.<step>.<entry>`); `"alignment_missing"` for a row it did not reach |
+| `costs` | each step's runs by name: `seconds`, the peak `memory` on each CUDA device in bytes (null off CUDA and on a server), the model calls in `forwards` and the input `tokens` they fed; a swept step's keyed by the coordinate of the point that ran, with the points it served in `serves` |
+| `stopped` | the refusal of the step that ran out of CUDA memory, when one did; null otherwise |
 
-A swept step's `tokens` and `positions` are keyed by coordinate. From `documents/patching.json`:
+A swept step's `tokens` are keyed by coordinate. From `documents/patching.json`:
 
 ```json
 "tokens": {"pairs.input": [["<s>", "▁If", "▁today", "▁is", "▁Th", "urs", "day", ",", "▁tom", "orrow", "▁is"], ...]},
-"positions": {"counterfactual.v_cf": [[8], [8], [10], [8]], "patched.patch": [[10], [8], [8], [8]], ...}
+"costs": {"counterfactual": {"seconds": 0.017, "memory": null, "forwards": 1, "tokens": 38}, ...}
 ```
 
+## Where each read and write landed
+
+Each read's and write's record in the manifest's `steps` holds `positions`: its resolved positions per row, under the dataset whose rows they are (a fit body's entry under each dataset an eval reads it over); `"alignment_missing"` for a row it did not reach. A swept step is a list of its points, each with its own records. From `documents/patching.json`, `steps.patched.interventions.logits.positions` is `{"pairs": [[10], [8], [8], [8]]}`, which `clab show` prints as `patched.logits  —  [10], [8], [8], [8]`.
+
 `positions` is how you check that a `pos` landed on the token you meant before trusting a number; [positions.md](positions.md) has the recipes. Generated rows that stopped early show up here as `alignment_missing`.
+
+Each forward's and generation's record holds its `schedule`: at a point another point's forward served, that point's coordinates (`serving`); at a point that ran its forward, the sites it visited in the engine's order with the reads and writes done at each, and the site it stopped after (`stop`). [FORMAT.md](../../FORMAT.md#derived-fields) lists every field.
 
 ## Pitfalls
 

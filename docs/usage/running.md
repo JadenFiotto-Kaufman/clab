@@ -1,6 +1,6 @@
 ---
 title: Running a Document
-one_liner: "Running a document from the command line or Python: clab run and its options, choosing batch size, bit reproducibility, where output goes and the corpus root, and the four calls behind clab.run."
+one_liner: "Running a document from the command line or Python: clab run and its options, what is refused before the model loads, a step that runs out of memory, choosing batch size, bit reproducibility, where output goes and the corpus root, sharding with tp, and the four calls behind clab.run."
 tags: [usage, running, cli, python, batch-size, reproducibility]
 related: [docs/usage/engines.md, docs/usage/output.md, docs/usage/writing-a-document.md, docs/usage/bundles.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
 sources: [clab/cli.py, clab/__init__.py, clab/plan.py, clab/engines/__init__.py, clab/format/data.py]
@@ -14,15 +14,15 @@ sources: [clab/cli.py, clab/__init__.py, clab/plan.py, clab/engines/__init__.py,
 
 ```text
 $ uv run clab run documents/patching.json
-patching on nnterp (batch size 8, device cpu) -> out/patching
-  iia.safetensors              iia              [4, 1]
-  logit_diff.safetensors       logit_diff       [4, 1]
+patching on nnterp (batch size 8, device cpu, tp 1) -> out/patching
+  iia.safetensors              iia              [4,1]
+  logit_diff.safetensors       logit_diff       [4,1]
   out/patching/manifest.json
 ```
 
-It prints each file it wrote with the step that made it and the value's shape, then the manifest's path. Read the results with `clab show` and `clab table` ([output.md](output.md)). A refusal prints `clab: <where>: <what>`, exits with status 1, and writes nothing.
+It prints each file it wrote with the step that made it and the value's shape (a swept value's counted over its points, `3 points, each [4,1]`), then the manifest's path. Read the results with `clab show` and `clab table` ([output.md](output.md)). A refusal prints `clab: <where>: <what>`, exits with status 1, and writes nothing; a step that runs out of CUDA memory is the one exception ([below](#when-a-step-runs-out-of-memory)).
 
-Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says its config's `pad_token_id` is -1, outside the vocabulary. It can be ignored: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
+Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says the generation flag `pad_token_id` is not valid and may be ignored. It can be: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
 
 `--engine`, `--device` and `-o key=value` choose where and how the model runs: `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
@@ -36,7 +36,28 @@ uv run python -c "from clab import Plan; Plan('my_experiment.json').compile()"
 
 A refusal raises `clab.plan.PlanError`, a `ValueError`, and the traceback's last line is the message `clab run` would print.
 
+`clab run` also refuses what it can tell is wrong before it loads the checkpoint, each by name:
+
+```text
+clab: no document at 'documents/nope.json'
+clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)
+clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')
+clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
+clab: steps.answer.max_new_tokens: '6' is not a value generate takes: '<=' not supported between instances of 'str' and 'int'
+clab: model.key 'hf-internal-testing/tiny-random-LlamaForCausalLM' at revision '0000000000000000000000000000000000000000': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first (...)
+```
+
 What needs the tokenizer or the model's sizes (positions, layers, answer tokens) is checked after the model loads, before any forward ([writing-a-document.md](writing-a-document.md#what-is-checked-before-the-model-loads)). For a first run on a large dataset, add `"take": 8` to the dataset ([data.md](data.md)).
+
+## When a step runs out of memory
+
+A step that runs out of CUDA memory stops the run. The refusal names the step (and its point, when swept), the batch size, torch's own first sentences and every value the run holds, with its shape, dtype and device, then what to do:
+
+```text
+clab: steps.logit_diff: out of CUDA memory at batch size 8 (CUDA out of memory. Tried to allocate 20.00 MiB. ...); the run holds counterfactual.v_cf [4, 1, 16] float32 on cpu, patched.logits [4, 1, 32000] float32 on cpu, iia [4, 1] float32 on cpu, each on the model's device until the run ends; run with a smaller --batch-size, or name and save fewer values; the steps before it are saved in out/patching
+```
+
+The steps that finished are written as if the run had ended there: their saves, their `costs`, and the refusal as `run.stopped`, which `clab show` prints on its `stopped:` line. A save of a step the run did not finish has no file, and `clab table` refuses it naming the stop. From Python, `clab.run` writes the same directory and then raises the refusal as a `ValueError`. Every value a step binds stays on the model's device until the run ends, so saving fewer values, or naming fewer (an entry nothing names is never taken off the model), frees memory as a smaller batch does.
 
 ## Where output goes
 
@@ -62,9 +83,9 @@ Reading a run back resolves against the working directory too: `clab table` read
 
 `--batch-size N` (default 8) is how many rows go through the model in one forward or generation call. Each batch is padded on the left to the longest row of the step's whole input, not of the batch, so memory and compute grow with the batch size times that longest row: one long row makes every batch as wide as it is (on Pythia-2.8B in float32, two forwards over the 5,153 rows of LAMBADA take about 930 s).
 
-**Results reproduce to the bit at a fixed batch size.** Two runs of one document at one batch size write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
+**Results reproduce to the bit at a fixed batch size and thread count.** Two runs of one document at one batch size and one thread count write byte-identical value files. A different batch size can change the last bits, because a row's numbers depend on the batch's shape: at 12 threads, `documents/patching.json` at `--batch-size 3` (a batch of 3, then 1) differs from `--batch-size 4` (one batch of 4) by 3e-8 in `logit_diff`, and a generation differs at its first call. Compare runs at one batch size. With N rows, every batch size of N or more is the same single batch.
 
-The CPU thread count can move the last bits too: at some thread counts a row padded well past its own length moves (about 1e-8 on prompts of 1 to 12 tokens) with which rows share its batch, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. Compare runs at one batch size, one row order and one thread count; [engines.md](engines.md#comparing-two-runs-to-the-bit) has the byte-for-byte check.
+The CPU thread count moves the last bits too, since the BLAS splits a matmul's reduction by thread. At 8, 12 or 24 threads a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8 with its batch companions, so a reordered or reshuffled dataset compares row for row to the bit only at the thread count it was run at. torch's thread count is `OMP_NUM_THREADS`, or the host's core count without it; the suite pins 12 (`tests/conftest.py`). Compare runs at one batch size, one row order and one thread count; [engines.md](engines.md#comparing-two-runs-to-the-bit) has the byte-for-byte check.
 
 In float16 the padding moves a row's numbers far past the last bits: on Pythia-2.8B, per-row log-likelihoods differ from an unpadded evaluation by up to 0.5 nats, and 32 of 5,153 exact-match rows change. Compare with published numbers in float32.
 
@@ -79,7 +100,7 @@ plan = clab.run("documents/patching.json", out="out/patching", batch_size=8)
 plan.results["iia"]          # tensor [4, 1]
 ```
 
-`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, and the engine's own options as keywords (`remote="local"`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
+`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, and the engine's own options as keywords (`remote="local"`, `tp=2`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
 
 ### One model, many documents
 
@@ -95,7 +116,7 @@ for name in ["patching", "zero_ablation", "pos_sweep"]:
     clab.run(f"documents/{name}.json", engine=engine, out=f"out/{name}")
 ```
 
-Every document must pin the same `model` block as the one the engine loaded; another is refused (`this engine loaded hf-internal-testing/tiny-random-LlamaForCausalLM@9fb1...; the plan pins hf-internal-testing/tiny-random-gpt2@7103...`). The engine keeps the device and options it loaded with, so `clab.run(..., engine=engine, device="cuda:0")` is refused.
+Every document must pin the same `model` block as the one the engine loaded; another is refused, naming each field that differs (`the plan's model is not the one this engine loaded: key 'hf-internal-testing/tiny-random-gpt2' where the engine's is 'hf-internal-testing/tiny-random-LlamaForCausalLM', revision '71034c5d...' where the engine's is '9fb19125...'`). The engine keeps the device and options it loaded with, so `clab.run(..., engine=engine, device="cuda:0")` is refused (`the loaded nnterp engine runs on cpu with {'tp': 1}; device and options are given when an engine loads`).
 
 ### The four calls behind `clab.run`
 
@@ -110,6 +131,20 @@ filled.dump("out/patching")                            # the output directory
 ```
 
 Call them yourself to stop between stages: compile a batch of documents before loading anything, inspect a compiled plan (its sweep points, each entry's `dims`), or keep results in memory without writing a directory. `execute` fills the plan you pass and returns it, and refuses one that is not compiled. What each stage checks is [plan-lifecycle.md](../concepts/plan-lifecycle.md).
+
+## Sharding a model: `-o tp`
+
+`-o tp=N` shards the model over N ranks by transformers' tensor parallelism, on the nnterp engine, under `torchrun --nproc-per-node=N`, each rank on its own GPU (`--device cuda`; `--device cpu` where none is visible):
+
+```text
+uv run torchrun --nproc-per-node=2 --no-python clab run documents/real/behavior.json --device cuda -o tp=2 --batch-size 16
+```
+
+Every rank runs the whole plan, and rank 0 alone writes the output directory and prints; `clab show` reads `tp 2`. What `tp` refuses (a value the ranks hold in pieces, a bitsandbytes `dtype`, torchrun around an engine without `tp`) and how close its numbers are to unsharded ones is [engines.md](engines.md#quantized-and-sharded-models). Outside torchrun `-o tp=2` is refused before anything loads:
+
+```text
+clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts: `torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; this process is not one of them (WORLD_SIZE is unset)
+```
 
 ## Real models
 
