@@ -85,14 +85,14 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
     found = preflight(engine, plan)
     state = made(plan, home(engine))
-    costs: dict = {}
+    devices, costs = engine.cuda, {}
     with torch.no_grad():
         for name in plan.steps:
             for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0,
                                         **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
                 try:
-                    measured(engine, cost, lambda: KINDS[step.kind](
+                    measured(devices, cost, lambda: KINDS[step.kind](
                         engine, plan, name, step, state, batch_size, found, cost,
                         *([served] if isinstance(step, Forward) else [])))
                     put(costs, name, step.at, cost)
@@ -142,13 +142,13 @@ def sized(value: Any) -> str | None:
     return None
 
 
-def measured(engine: Engine, cost: dict[str, Any], call: Callable[[], None]) -> None:
+def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None]) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
-    which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA devices
-    (`gpus`) synchronized at both ends, and the peak memory allocated on each of them while it ran, weights
-    included, in bytes by device (`memory`, None where the model is not on CUDA). The engine says which devices it
-    measures (`engine.cuda`): a remote engine's run makes no CUDA call and its `memory` is None."""
-    devices = engine.cuda
+    which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
+    synchronized at both ends, and the peak memory allocated on each of them while it ran, weights included, in
+    bytes by device (`memory`, None where the model is not on CUDA). The engine says which devices it measures
+    (`engine.cuda`, read once per run by `run`, after preflight, where the model is placed: a walk of its
+    parameters): a remote engine's run makes no CUDA call and its `memory` is None."""
     for device in devices:
         torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)

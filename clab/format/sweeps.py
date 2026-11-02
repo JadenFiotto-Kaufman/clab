@@ -161,8 +161,9 @@ def put(state: MutableMapping, name: str, at: dict[str, int], value: Any) -> Non
 def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
     """The value `name` at the producer's point that agrees with `at` on the producer's axes: keyed by `at` on the
     axes of the value's first key, which its points share (`put`), found without a scan of its points; a value
-    whose points differ in their axes (an op's, where a swept name picks operands on different axes) is scanned for
-    the first that agrees."""
+    whose points differ in their axes (an op's, where a swept name picks operands on different axes; a featurizer a
+    swept fit trains, whose live instance sits under the empty key beside the earlier points' keys inside the
+    body) is scanned for the first that agrees."""
     by_point = state[name]
     key = tuple((k, at.get(k)) for k, _ in next(iter(by_point), ()))
     if key in by_point:

@@ -220,10 +220,10 @@ def test_a_value_is_found_by_the_consumers_coordinates_on_its_axes_not_by_a_scan
 
 def test_a_functions_signature_is_taken_once_however_many_points_are_checked_against_it(monkeypatch):
     """Compile checks every op at every point of a sweep against its function's signature and spells its
-    parameters by it (`registry.signature`, `ops.parameters`): each function's is taken once, so a compile from cold
-    takes none twice and the next compile none at all."""
+    parameters by it (`registry.signature`, `ops._parameters`): each function's is taken once, so a compile from
+    cold takes none twice and the next compile none at all."""
     registry.signature.cache_clear()
-    ops.parameters.cache_clear()
+    ops._parameters.cache_clear()
     taken, signature = [], inspect.signature
     monkeypatch.setattr(inspect, "signature", lambda fn, *args, **kwargs: taken.append(fn) or signature(fn, *args,
                                                                                                         **kwargs))

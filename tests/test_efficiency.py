@@ -137,10 +137,12 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     seen: list[Any] = []
     compute = order.compute
     monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
-    monkeypatch.setattr("clab.steps.measured", lambda engine, cost, call: seen.append(("step", engine.model.dispatched))
-                        or measured(engine, cost, call))
     plan = plan_of("logit_lens")
-    load("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
+    engine = load("ndif", plan.model, remote="local")
+    shell: Any = engine.model
+    monkeypatch.setattr("clab.steps.measured", lambda devices, cost, call: seen.append(("step", shell.dispatched))
+                        or measured(devices, cost, call))
+    engine.execute(plan, batch_size=BATCH_SIZE)
     assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
 
 

@@ -158,12 +158,17 @@ def listed(group: str) -> str:
     return ", ".join(f"`{name}`" for name in OPS if DECLARED[name]["group"] == group)
 
 
-@functools.cache
 def parameters(name: str) -> dict[str, inspect.Parameter]:
     """An op's parameters by document spelling, without `of` and the supplied ones, an optional thing (`Value |
-    None`) as the thing: worked out once per op, and only read."""
+    None`) as the thing: worked out once per op function (`_parameters`, so an op replaced under its name is read
+    afresh), and only read."""
+    return _parameters(OPS[name])
+
+
+@functools.cache
+def _parameters(op: Callable) -> dict[str, inspect.Parameter]:
     return {k: p.replace(annotation=registry.thing(p.annotation))
-            for k, p in registry.spelled(OPS[name], SUPPLIED + ("of",)).items()}
+            for k, p in registry.spelled(op, SUPPLIED + ("of",)).items()}
 
 
 def check(name: str, args: dict) -> None:
