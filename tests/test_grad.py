@@ -99,6 +99,28 @@ def test_the_gradient_of_a_constant_is_exactly_zero(engines, kind):
     assert g.shape == (4, 1, 16) and torch.equal(g, torch.zeros_like(g))
 
 
+def test_the_gradient_of_a_value_the_site_does_not_feed_is_exactly_zero(engines, monkeypatch):
+    """A layer's attention scores are made from its queries and keys, not its values, so under eager attention their
+    sum carries no graph from `attention_values` of the same layer: its gradient there is exactly zero, and no
+    backward runs for it, as on a parallel block (Cohere) a layer's MLP output of its attention's."""
+    def change(d):
+        d["model"]["attn_implementation"] = "eager"
+        d["steps"] = {"patched": {**d["steps"]["patched"], "interventions": {
+            "g": grad("scores", site={"component": "attention_values", "layers": 0}),
+            "scores": {"site": {"component": "attention_scores", "layers": 0}, "pos": -1}}}}
+        d["saves"] = ["patched.g"]
+    plan = edited(NAME, change).compile()
+    engine = engines("nnterp", plan.model)
+    backward, taken = torch.autograd.grad, []
+
+    def counted(*args, **kwargs):
+        taken.append(args)
+        return backward(*args, **kwargs)
+    monkeypatch.setattr(torch.autograd, "grad", counted)
+    g = results(engine, plan)["patched.g"]
+    assert not taken and g.shape[0] == 4 and torch.equal(g, torch.zeros_like(g))
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_gradient_after_a_write_is_of_what_it_wrote(engines, kind):
     """At one site, a `grad` listed before a write of `scale 2` is twice the `grad` listed after it, to the bit in
@@ -211,6 +233,37 @@ def test_a_misplaced_gradient_is_refused_at_compile(entries, message):
     def change(d):
         d["featurizers"] = {"rot": {"kind": "subspace", "k": 2, "seed": 0}}
         d["steps"] = {"patched": {**d["steps"]["patched"], "interventions": {**entries, "metric": METRIC}}}
+        d["saves"] = ["patched.g"]
+    with pytest.raises(PlanError, match=f"^{message}"):
+        edited(NAME, change).compile()
+
+
+NO_GRADIENT = r"and no gradient passes through it; of names an entry whose value is a differentiable number: a read, or " \
+    r"a metric such as logit_diff$"
+
+
+@pytest.mark.parametrize("ops, message", [
+    ([{"op": "top_k", "k": 2}],
+     rf"{ENTRY}\[0\]\.of: 'm' runs 'top_k', which gives ids with their probabilities or values as a dict, {NO_GRADIENT}"),
+    ([{"op": "argmax"}], rf"{ENTRY}\[0\]\.of: 'm' runs 'argmax', which gives an index, {NO_GRADIENT}"),
+    ([{"op": "argmax"}, {"op": "mean", "over": ["pos"]}],
+     rf"{ENTRY}\[0\]\.of: 'm' runs 'argmax', which gives an index, {NO_GRADIENT}"),
+    ([{"op": "match", "expected": "pairs.base_answer"}],
+     rf"{ENTRY}\[0\]\.of: 'm' runs 'match', which gives 0 or 1, {NO_GRADIENT}"),
+    ([{"op": "contains", "text": "pairs.base_answer"}],
+     rf"{ENTRY}\[0\]\.of: 'm' runs 'contains', which gives 0 or 1, {NO_GRADIENT}"),
+    ([{"op": "detokenize"}],
+     r"steps\.patched\.interventions\.m\.ops\[0\]: 'detokenize' needs a value with a 'new' axis; this one is "
+     r"\['rows', 'pos', 'vocab_size'\]$"),
+])
+def test_an_of_no_gradient_passes_through_is_refused_at_compile(ops, message):
+    """An `of` that runs an op whose value no gradient passes through is refused by name at compile, before any model
+    loads, wherever the op is among its ops: `top_k`'s ids and probabilities, a dict, crashed the backward on it
+    once the model had run, and `argmax`'s index and `match`'s 0 or 1 gave an all-zero gradient. `detokenize` takes
+    a generation's ids, which no forward's value has, so its own layout refuses it first."""
+    def change(d):
+        d["steps"] = {"patched": {**d["steps"]["patched"], "interventions": {
+            "g": grad("m"), "m": {"site": {"component": "lm_head_output"}, "pos": -1, "ops": ops}}}}
         d["saves"] = ["patched.g"]
     with pytest.raises(PlanError, match=f"^{message}"):
         edited(NAME, change).compile()

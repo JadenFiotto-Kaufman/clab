@@ -494,17 +494,21 @@ def differentiate(got: dict[str, Any], grad: list[dict]) -> None:
     of the bound schedule's `grad` (`bind`), the sum of its value over every axis, made by `read` from the reads
     `got` holds (a missing entry, NaN, adds nothing), and one `torch.autograd.grad` of it for the values `visit`
     captured for the `grad` reads it serves, each read's gradient (zero where the sum does not depend on the value)
-    selected and positioned as its record says (`taken`) under its name. Every value `got` holds is then detached,
-    so that no graph outlives the call. A forward that takes no gradient is left as it is."""
+    selected and positioned as its record says (`taken`) under its name. The value is a number a gradient passes
+    through, since compile refuses an `of` that runs an op none does (`transforms.NO_GRADIENT`); one that depends on
+    no captured value has no graph, and every gradient of it is zero (a layer's attention scores of its values, a
+    parallel block's MLP output of its attention's). Every value `got` holds is then detached, so that no graph
+    outlives the call. A forward that takes no gradient is left as it is."""
     if not grad:
         return
     captured = {r["name"]: got[r["name"]] for g in grad for r in g["wrt"]}
     with torch.enable_grad():
         for i, g in enumerate(grad):
             scalar = sum(made(got[name]).float().nansum() for name, made in g["of"])
+            assert isinstance(scalar, Tensor), "every value differentiated is read at least once"
             values = list({id(v): v for v in (captured[r["name"]] for r in g["wrt"])}.values())
             computed = torch.autograd.grad(scalar, values, retain_graph=i + 1 < len(grad), allow_unused=True) \
-                if isinstance(scalar, Tensor) and scalar.requires_grad else [None] * len(values)
+                if scalar.requires_grad else [None] * len(values)
             of_value = {id(v): torch.zeros_like(v) if d is None else d for v, d in zip(values, computed)}
             for r in g["wrt"]:
                 got[r["name"]] = taken(of_value[id(captured[r["name"]])], r)

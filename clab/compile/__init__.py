@@ -372,6 +372,11 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         if gradient_of(records[of]) is not None:
             fail(where, f"{of!r} is a grad entry, whose value is a gradient the forward never computes; of names an "
                  "entry whose value the forward makes")
+        held = next((o.op for o in records[of].ops if o.op in ops.transforms.NO_GRADIENT), None)
+        if held is not None:
+            fail(where, f"{of!r} runs {held!r}, which gives {ops.transforms.NO_GRADIENT[held]}, and no gradient passes "
+                 "through it; of names an entry whose value is a differentiable number: a read, or a metric such "
+                 "as logit_diff")
     # The dependency rule (`sweeps.find_sweeps`): the forward's axes are the step's options' and each write's
     # before the forward (`pre`: its site, its positions and its ops up to its last edit, with their operands); an
     # entry's are its own sweeps, its operands' and the forward's.

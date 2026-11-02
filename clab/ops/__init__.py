@@ -55,7 +55,8 @@ acts on the gradient once it is off the model, as the ops after a read's last ed
 attribution patching's estimate at each row and position; after `grad` no `decode` closes an `encode` and no op
 restores the site's value (`renormalize`). The forward takes one backward after its last site for each value its
 `grad` entries differentiate, and the model's weights take none. A `grad` in a `generate`, in a fit's body or
-under `tp` is refused by name.
+under `tp` is refused by name, and so is one whose `of` runs an op no gradient passes through:
+<no gradient>.
 
 Metrics and the reductions `mean`, `sum` and `min` compute in float32 whatever the model's dtype, and return
 float32 (`pca` works in double and returns float32 too, a bundle's dtype), so a bfloat16 model's mean, a cosine near 1 or a probability near 1 is not
@@ -238,4 +239,5 @@ OPS.update((fn.__name__, fn) for fn in [
     metrics.token_prob, metrics.token_logit, metrics.cross_entropy, metrics.contains, metrics.kl, metrics.js,
     transforms.top_k, transforms.argmax, transforms.detokenize, metrics.cosine])
 assert OPS.keys() == DECLARED.keys(), "every declared op is listed once"
-ABOUT = ABOUT.replace("<the edits group>", listed("edits"))
+ABOUT = ABOUT.replace("<the edits group>", listed("edits")).replace(
+    "<no gradient>", ", ".join(f"`{name}`" for name in transforms.NO_GRADIENT))
