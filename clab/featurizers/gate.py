@@ -25,10 +25,12 @@ class Gate(Kind):
     the axes it leaves out, its slice of each layer the value is at taken by that layer's id. A gate over axes
     serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates. `apply` with
     `with` (a value at the same selection, or a number, as `swap`'s) is the interpolation toward it, exact at either
-    end of the mask."""
+    end of the mask. Its `apply` is elementwise, so a missing element of the value stays missing and the rest are
+    gated (a head gate at `attention_probabilities` on rows of different lengths)."""
     saves = trains = ("theta",)
     header = ("over",)
     scalars = ("mask",)
+    elementwise = True
 
     @classmethod
     def check(cls, fields: dict) -> None:
@@ -76,12 +78,14 @@ class Gate(Kind):
 
     def apply(self, h: Tensor, with_: Value | None = None, dims: list[str] | None = None,
               layers: int | list[int] | None = None) -> Tensor:
-        """`h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, `h·m + with·(1−m)`,
-        the interpolation toward it: where a unit is on, `h` to the bit, and where it is off, `with` to the bit."""
+        """`h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, the interpolation
+        toward it, `h·m + with·(1−m)` while a fit trains it, and when scored `h` where a unit is on and `with` where
+        it is off, each to the bit (a NaN or an infinity on the other side, and a zero's sign, included)."""
         m = self.mask(dims, layers).to(h)
         if with_ is None:
             return h * m
-        return h * m + torch.as_tensor(with_, dtype=h.dtype, device=h.device) * (1 - m)
+        other = torch.as_tensor(with_, dtype=h.dtype, device=h.device)
+        return h * m + other * (1 - m) if self.training else torch.where(m > 0, h, other)
 
     def replace(self, h: Tensor, z: Tensor, new: Tensor) -> Tensor:
         return h + self.mask().to(h) * (new - h)

@@ -39,8 +39,10 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
 published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
 body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`), and whether its `apply`'s
-`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's); its constructor makes an
+fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s
+`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is
+elementwise (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind
+loses its whole vector; its constructor makes an
 instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -101,6 +103,9 @@ class Kind:
     # adapter's): held to the value's rows and positions alone, and recorded in its bundle's header. Otherwise a
     # `with` is an operand of the value under Ops' one rule, as `swap`'s is (a gate's, which it interpolates toward).
     adapts: ClassVar[bool] = False
+    # Whether `apply` is elementwise, each element of its result made from that element of `h` (and of its
+    # operands) alone (a gate's), so that it keeps NaN exactly where `h` had it (`call`).
+    elementwise: ClassVar[bool] = False
     kind: ClassVar[str]
     # Set by the fit that trains the instance: whether this run of its body trains it (a gate is soft then),
     # and every value the body's encodes of it saw, beside its coordinates, for its scalars.
@@ -148,16 +153,25 @@ class Kind:
         """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
         parameter name). A missing vector of `h` (NaN), and the same vector of an option laid out on its
         rows and positions, goes in as zeros and comes out missing, so the math, and a fit's gradients through
-        it, see none of it. An encode is kept beside `h` while a fit watches the
-        instance (`seen`)."""
+        it, see none of it: a kind's math reduces over the last axis (a projection, a dictionary, a probe), where
+        one NaN would poison the whole vector. An `apply` that is elementwise (`elementwise`: a gate's) treats a
+        missing element so, with the same element of an option laid out on the value's axes, and keeps NaN
+        exactly where `h` had it: on a `key` axis, NaN past a shorter row's own keys, every vector of that row
+        holds one, and would otherwise go back into the model missing whole. An encode is kept beside `h` while a
+        fit watches the instance (`seen`)."""
         fn = self.method(op)
-        gone = h.isnan().any(-1, keepdim=True)
+        each = op == "apply" and self.elementwise
+        gone = h.isnan() if each else h.isnan().any(-1, keepdim=True)
         x = h
         if gone.any():
             x = h.masked_fill(gone, 0.0)
-            options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
-                       if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
-                       for k, v in options.items()}
+            if each:            # an operand on the value's axes, a singleton on each it leaves out
+                options = {k: v.where(~gone, 0.0) if isinstance(v, Tensor) and v.dim() == h.dim() else v
+                           for k, v in options.items()}
+            else:
+                options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
+                           if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
+                           for k, v in options.items()}
         out = fn(self, x, **options)
         out = out.masked_fill(gone, float("nan")) if gone.any() else out
         if op == "encode" and self.seen is not None:

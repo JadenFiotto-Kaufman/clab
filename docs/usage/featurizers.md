@@ -114,7 +114,9 @@ On the tiny GPT-2's 5 layers of 4 heads `theta` is `[5, 4]`. The mask meets the 
           "ops": [{"op": "apply", "featurizer": "fit.heads", "with": "corrupt.z"}]}
 ```
 
-Written as `[sub c, apply, add c]`, the same interpolation computes `(h − c)·1 + c`, which rounds, and the null is off in the last bits. Without `with`, `apply` is `h·m`.
+Written as `[sub c, apply, add c]`, the same interpolation computes `(h − c)·1 + c`, which rounds, and the null is off in the last bits. Scored, the hard mask selects rather than multiplies, so a NaN or an infinity in `with` at a unit that is on never reaches the result, and a zero keeps its sign on either side; while a fit trains the gate the soft mask interpolates. Without `with`, `apply` is `h·m`.
+
+A gate's `apply` is elementwise: a missing element of the value stays missing and the rest are gated. At `attention_probabilities` or `attention_scores` the `key` axis is NaN past a shorter row's own keys, so on rows of different lengths every vector of a short row holds a NaN; a gate `over: ["num_heads"]` there with one head off writes each row's own keys back gated, and gives the logits of a `swap` with 0 at that head, to the bit.
 
 A gate over axes serves `apply` alone: its units are not the last axis an `encode` makes its coordinates, so an `encode` of it is refused, and so is an `apply` inside another featurizer's `encode`. Every site it is used at selects the same indices on its axes; two that differ are refused before any forward. Its bundle's header records `over` and, for each axis but `layers` (which `layer` records), the indices kept, `kept.<axis>`; a loading document may leave `over` out, and every use is checked against the header ([bundles.md](bundles.md#what-is-checked-and-when)). The fit, the null and reading which heads were kept are [head-masking.md](../patterns/head-masking.md).
 

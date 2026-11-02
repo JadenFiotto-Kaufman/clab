@@ -110,6 +110,54 @@ def test_a_gates_apply_with_is_the_interpolation_exact_at_either_end():
     assert bool((grad[1] != 0).all()) and bool((grad[0] == 0).all())
 
 
+def bits(t: torch.Tensor) -> torch.Tensor:
+    """`t`'s float32 bits, so that two compare equal only with the same NaNs and the same signs of zero."""
+    return t.contiguous().view(torch.int32)
+
+
+def test_a_scored_gate_selects_so_neither_side_reaches_the_other():
+    """Scored, `apply` with `with` takes `h` where a unit is on and `with` where it is off, so a NaN or an infinity in
+    `with` at a unit that is on leaves `h` there to the bit, and a negative zero keeps its sign on either side; while
+    a fit trains it the soft mask interpolates, and `with`'s NaN reaches the result."""
+    gate = over_heads(torch.tensor([[1.0, -1.0, 1.0, -1.0]]), [0])
+    h, other = torch.randn(2, 3, 4, 5, generator=G), torch.randn(2, 3, 4, 5, generator=G)
+    on = torch.tensor([True, False, True, False])[None, None, :, None].expand_as(h)
+    other[:, :, 0] = float("nan")                           # head 0 is on
+    other[0, 0, 2] = torch.tensor([float("inf"), -float("inf"), 0.0, 1.0, 2.0])   # head 2 is on
+    h[1, 1, 0, 0], other[1, 1, 1, 0] = -0.0, -0.0           # a negative zero on each side: on at head 0, off at 1
+    got = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=0)
+    assert torch.equal(bits(got[on]), bits(h[on])) and torch.equal(bits(got[~on]), bits(other[~on]))
+    assert bool(torch.signbit(got[1, 1, 0, 0])) and bool(torch.signbit(got[1, 1, 1, 0]))
+    gate.training = True
+    assert bool(ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=0)[on].isnan().any())
+
+
+def test_a_gates_apply_keeps_a_missing_element_missing_where_other_kinds_lose_the_vector():
+    """A `key` axis is NaN past a shorter row's own keys, so every vector of that row holds a NaN. A gate's `apply` is
+    elementwise: the result is NaN exactly where the value was and the rest are gated, without `with` or with it,
+    and a fit's gradient on `theta` through it, `with` missing at the same keys, has no NaN; a subspace's `apply`,
+    which reduces over the last axis, still makes every such vector missing whole."""
+    keys = ["rows", "pos", "num_heads", "key"]
+    gate = featurizers.make("gate", {"over": ["num_heads"]}, 4, {"theta": torch.tensor([1.0, -1.0, 1.0, 1.0])}, None,
+                            None, kept={"num_heads": [0, 1, 2, 3]})
+    assert isinstance(gate, Gate)
+    h, other = torch.rand(2, 1, 4, 6, generator=G), torch.rand(2, 1, 4, 6, generator=G)
+    h[1, :, :, 4:] = other[1, :, :, 4:] = float("nan")     # row 1 has 4 keys of the 6
+    on = torch.tensor([True, False, True, True])[None, None, :, None].expand_as(h)
+    masked = ops.call("apply", h, {"featurizer": gate}, dims=keys)
+    toward = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=keys)
+    for got in (masked, toward):
+        assert torch.equal(got.isnan(), h.isnan()) and torch.equal(got[on & ~h.isnan()], h[on & ~h.isnan()])
+    assert bool((masked[~on & ~h.isnan()] == 0).all())
+    assert torch.equal(toward[~on & ~h.isnan()], other[~on & ~h.isnan()])
+    gate.training, gate.theta = True, gate.theta.clone().requires_grad_()
+    (grad,) = torch.autograd.grad(ops.call("apply", h, {"featurizer": gate, "with": other}, dims=keys).nansum(),
+                                  gate.theta)
+    assert bool(grad.isfinite().all()) and bool((grad != 0).all())
+    subspace = featurizers.make("subspace", {"k": 2}, 6, None, 0, None)
+    assert bool(subspace.call("apply", h, {})[1].isnan().all())
+
+
 def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
     for kind in ("subspace", "pca", "sae", "gate"):
         f = made(kind)

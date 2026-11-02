@@ -1389,6 +1389,62 @@ def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
 
 
+def pattern_gates(root: str) -> Plan:
+    """The tiny Llama, eager, over weekdays/train (rows of 11, 9, 9 and 9 tokens) at the last position: the clean
+    pattern at layer 0 and the logits; head 1's pattern knocked out by a `swap` with 0; the same head knocked out
+    by a gate over `num_heads` loaded from a bundle with that head off, as a mask and as `apply` with `with` 0; and
+    a gate with every head on."""
+    pattern, last = {"component": "attention_probabilities", "layers": 0}, -1
+    files = {}
+    for name, theta in (("off", torch.tensor([1.0, -1.0, 1.0, 1.0])), ("on", torch.ones(4))):
+        files[name] = f"documents/artifacts/pattern_{name}.safetensors"
+        save_file({"theta": theta}, os.path.join(root, files[name]), metadata=bundle_header(
+            kind="gate", over='["num_heads"]', component="attention_probabilities", width="4",
+            **{"kept.num_heads": "[0, 1, 2, 3]"}))
+
+    def forward(**writes) -> dict:
+        return {"kind": "forward", "input": "days.input",
+                "interventions": {**writes, "logits": {"site": "head", "pos": last}}}
+
+    def gated(featurizer: str, toward: float | None = None) -> dict:
+        op = {"op": "apply", "featurizer": featurizer, **({} if toward is None else {"with": toward})}
+        return forward(w={"site": "pattern", "pos": last, "ops": [op]})
+    doc = {"model": {**TINY, "attn_implementation": "eager"}, "data": {"days": {"path": "weekdays/train"}},
+           "sites": {"pattern": pattern, "head": {"component": "lm_head_output"}},
+           "featurizers": {name: {"kind": "gate", "file_path": file} for name, file in files.items()},
+           "steps": {"clean": forward(p={"site": "pattern", "pos": last}),
+                     "knocked": forward(zero={"site": {**pattern, "select": {"num_heads": [1]}}, "pos": last,
+                                              "ops": [{"op": "swap", "with": 0.0}]}),
+                     "masked": gated("off"), "toward": gated("off", 0.0), "null": gated("on")},
+           "saves": ["clean.p", "clean.logits", "knocked.logits", "masked.w", "masked.logits", "toward.w",
+                     "toward.logits", "null.w", "null.logits"]}
+    with open(os.path.join(root, "documents", "pattern_gates.json"), "w") as f:
+        json.dump(doc, f)
+    return Plan(os.path.join(root, "documents", "pattern_gates.json")).compile()
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("ndif", {"remote": "local"})])
+def test_a_head_gate_at_a_key_axis_knocks_out_a_head_on_ragged_rows_as_swap_does(engines, tmp_path, kind, options):
+    """At `attention_probabilities` the `key` axis is NaN past a shorter row's own keys, so every vector of rows 1
+    to 3 holds a NaN. A gate over `num_heads` with head 1 off writes each row's own keys back gated, NaN where the
+    clean pattern is: the logits are those of a `swap` with 0 at head 1, to the bit, as a mask and with `with` 0;
+    with every head on the pattern and the logits are the clean run's, to the bit (the hooks engine refuses the site,
+    which it reads inside a module's forward)."""
+    plan = pattern_gates(corpus_copy(tmp_path))
+    values = engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE).results
+    clean, heads = values["clean.p"], dims(plan, "clean.p").index("num_heads")
+    assert not clean[0].isnan().any() and all(bool(clean[r].isnan().any(-1).all()) for r in (1, 2, 3))
+    assert not values["knocked.logits"].isnan().any() and not torch.equal(values["knocked.logits"],
+                                                                          values["clean.logits"])
+    rest = torch.tensor([0, 2, 3])
+    for name in ("masked", "toward"):
+        written, off = values[f"{name}.w"], values[f"{name}.w"].select(heads, 1)
+        assert torch.equal(written.isnan(), clean.isnan()) and bool((off[~off.isnan()] == 0).all())
+        assert same(written.index_select(heads, rest), clean.index_select(heads, rest))
+        assert torch.equal(values[f"{name}.logits"], values["knocked.logits"])
+    assert same(values["null.w"], clean) and torch.equal(values["null.logits"], values["clean.logits"])
+
+
 def test_a_loras_with_stays_its_input_and_a_gates_is_an_operand(engines):
     """The two kinds whose `apply` takes `with`: a gate's is an operand of the value, refused by Ops' one rule where
     it holds other heads than the write; a lora's is its input, compared on rows and positions alone, and a number

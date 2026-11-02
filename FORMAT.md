@@ -456,10 +456,11 @@ where rows hold different numbers of them: NaN, every metric, edit and elementwi
 `top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN, of a -1 id
 too: a comparison of a hole is a hole. Reductions skip it: `mean` is the mean over the rows and positions that have a
 value, `count` counts only them, and `pca` is fitted on them. A featurizer's math sees none of it: a missing vector
-goes in as zeros and comes out missing. An attention pattern's keys past a row's own are missing the same way, NaN,
-in a read and to a write's ops: an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`)
-takes the entries that are there, so a row's own keys are edited as the row has them, and its tail stays NaN;
-`argmax` and `top_k` over `key` rank a row's own keys, a vector missing only where it has none.
+goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a missing element). An attention
+pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops: an edit that mixes a
+vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are there, so a row's own keys
+are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax` and `top_k` over `key` rank a
+row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
@@ -722,8 +723,10 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
 published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
 body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`), and whether its `apply`'s
-`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's); its constructor makes an
+fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s
+`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is
+elementwise (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind
+loses its whole vector; its constructor makes an
 instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -757,9 +760,10 @@ layer is one unit per head. That mask meets the value as an operand does under O
 the axes it leaves out, its slice of each layer the value is at taken by that layer's id. A gate over axes
 serves `apply` alone, since its units are not the last axis an `encode` makes its coordinates. `apply` with
 `with` (a value at the same selection, or a number, as `swap`'s) is the interpolation toward it, exact at either
-end of the mask.
+end of the mask. Its `apply` is elementwise, so a missing element of the value stays missing and the rest are
+gated (a head gate at `attention_probabilities` on rows of different lengths).
 
-Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply`(with: Value or null = null) gives its version of the value, in the value's own layout: `h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, `h·m + with·(1−m)`, the interpolation toward it: where a unit is on, `h` to the bit, and where it is off, `with` to the bit.
+Ops: `encode` gives its coordinates, the last axis becoming features; `decode` writes a change of its coordinates back into the value; `apply`(with: Value or null = null) gives its version of the value, in the value's own layout: `h` times the mask `m`, soft while a fit trains it and hard when scored; with `with`, the interpolation toward it, `h·m + with·(1−m)` while a fit trains it, and when scored `h` where a unit is on and `with` where it is off, each to the bit (a NaN or an infinity on the other side, and a zero's sign, included).
 
 ### `pca`
 
