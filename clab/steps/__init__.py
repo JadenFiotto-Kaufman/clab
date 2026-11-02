@@ -302,7 +302,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
     value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, over(state), found, of,
-                                        vocabulary, dims=dims, layers=acts), engine=engine, dims=dims,
+                                        vocabulary, dims=dims, layers=acts), engine=engine, dims=dims, layers=acts,
                      eos=stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = decoded(engine.tokenizer, value["ids"])

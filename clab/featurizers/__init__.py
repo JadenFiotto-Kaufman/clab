@@ -2,32 +2,35 @@
 
 A featurizer is a space an entry's ops encode into, or a function on a value. Its kind's signature is its
 contract: the document fields it takes, with `width` (the feature width of the sites it is used at), `bundle`
-and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, and for a probe
-`labels` (its class list). An instance holds plain tensors, never an `nn.Module`, made where the model is: a
-declared featurizer before the run's first step, one a fit trains at the fit's start. It is drawn from its
-`seed` (else the seed of the fit that trains it, else 0), or loaded from its bundle, which compile reads into
-the plan and checks key by key against the document; a loaded one is fixed. Three ops reach it: `encode` gives
+and `header` (the tensors and header of the bundle its `file_path` names) supplied by the run, for a probe
+`labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
+An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
+run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
+trains it, else 0), or loaded from its bundle, which compile reads into the plan and checks key by key against the
+document; a loaded one is fixed. Three ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value, an adapter's adapted value). A fit trains an instance's `trains` tensors; its objective may name
-a featurizer's scalar as `<featurizer>.<scalar>` (a gate's `mask` is the mean of its soft mask; an sae's
-`reconstruction` and `l1` are over the coordinates the body read of it in that run of the body, its
-`encode`s no `decode` closes, which the instance keeps while a fit trains it). Its math runs on
-the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a float32
-featurizer's float32 math alone.
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit trains an
+instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+`mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
+it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
+math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
+float32 featurizer's float32 math alone.
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
 saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
 `layer`: the one layer, or the list of them, it was made at, counted from the first), its `width` and the
-document's name. Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
+document's name, and for a gate over named axes the indices it keeps on each of them but `layers`
+(`kept.<axis>`). Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
 one is checked against it key by key: the tensors and the kind, its fields and the model when the plan compiles,
-the site at every use (each layer it picks one that `layer` names), and `width` against the model's size before
-any forward. A file is clab's when its header's `format` is `clab/...`; one that carries clab's header keys under
-another format is refused. Any other file is a published one, its kind's to read or refuse: an `sae` reads one
-(SAELens, Gemma Scope), whose shapes are checked against each other and the site's width: nothing in it says what
-model or site it was made at, so the document states the layer, which every use is checked against.
+the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
+the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
+header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
+file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are
+checked against each other and the site's width: nothing in it says what model or site it was made at, so the
+document states the layer, which every use is checked against.
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
@@ -36,7 +39,10 @@ attributes what its bundle holds (`saves`), what a fit trains (`trains`), the ax
 (`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
 published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
 body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`); its constructor makes an
+fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s
+`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is
+elementwise (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind
+loses its whole vector; its constructor makes an
 instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
 `apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
 what a kind need not have.
@@ -51,7 +57,7 @@ from torch import Tensor
 
 from clab.format import registry
 
-SUPPLIED = ("width", "bundle", "header", "labels")
+SUPPLIED = ("width", "bundle", "header", "labels", "kept")
 FORMAT = "clab/1"
 KINDS: dict[str, type["Kind"]] = {}
 
@@ -93,6 +99,13 @@ class Kind:
     scalars: ClassVar[tuple[str, ...]] = ()
     over_encodes: ClassVar[tuple[str, ...]] = ()   # the scalars over what the body's encodes saw (`seen`)
     counts: ClassVar[tuple[str, ...]] = ()     # fields that count directions of the value: at most its width
+    # Whether `apply`'s `with` is the kind's input, which may be read at another site of the same forward (an
+    # adapter's): held to the value's rows and positions alone, and recorded in its bundle's header. Otherwise a
+    # `with` is an operand of the value under Ops' one rule, as `swap`'s is (a gate's, which it interpolates toward).
+    adapts: ClassVar[bool] = False
+    # Whether `apply` is elementwise, each element of its result made from that element of `h` (and of its
+    # operands) alone (a gate's), so that it keeps NaN exactly where `h` had it (`call`).
+    elementwise: ClassVar[bool] = False
     kind: ClassVar[str]
     # Set by the fit that trains the instance: whether this run of its body trains it (a gate is soft then),
     # and every value the body's encodes of it saw, beside its coordinates, for its scalars.
@@ -140,16 +153,25 @@ class Kind:
         """Op `op` (`encode` or `apply`) of the instance on `h`, with the method's own arguments (`options`, by
         parameter name). A missing vector of `h` (NaN), and the same vector of an option laid out on its
         rows and positions, goes in as zeros and comes out missing, so the math, and a fit's gradients through
-        it, see none of it. An encode is kept beside `h` while a fit watches the
-        instance (`seen`)."""
+        it, see none of it: a kind's math reduces over the last axis (a projection, a dictionary, a probe), where
+        one NaN would poison the whole vector. An `apply` that is elementwise (`elementwise`: a gate's) treats a
+        missing element so, with the same element of an option laid out on the value's axes, and keeps NaN
+        exactly where `h` had it: on a `key` axis, NaN past a shorter row's own keys, every vector of that row
+        holds one, and would otherwise go back into the model missing whole. An encode is kept beside `h` while a
+        fit watches the instance (`seen`)."""
         fn = self.method(op)
-        gone = h.isnan().any(-1, keepdim=True)
+        each = op == "apply" and self.elementwise
+        gone = h.isnan() if each else h.isnan().any(-1, keepdim=True)
         x = h
         if gone.any():
             x = h.masked_fill(gone, 0.0)
-            options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
-                       if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
-                       for k, v in options.items()}
+            if each:            # an operand on the value's axes, a singleton on each it leaves out
+                options = {k: v.where(~gone, 0.0) if isinstance(v, Tensor) and v.dim() == h.dim() else v
+                           for k, v in options.items()}
+            else:
+                options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
+                           if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
+                           for k, v in options.items()}
         out = fn(self, x, **options)
         out = out.masked_fill(gone, float("nan")) if gone.any() else out
         if op == "encode" and self.seen is not None:
@@ -218,11 +240,12 @@ def labels(rows: dict[str, list[dict[str, Any]]], column: str) -> list:
 
 
 def make(kind: str, fields: dict[str, Any], width: int, bundle: dict[str, Tensor] | None, seed: int | None,
-         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu") -> Kind:
+         labels: list | None, header: dict[str, str] | None = None, device: str = "cpu",
+         kept: dict[str, list[int]] | None = None) -> Kind:
     """An instance of `kind` from a document's `fields`, its seed defaulting to `seed`, its tensors on `device`.
     It is drawn or loaded on the CPU, so its bits do not depend on the device, and then moved there, so that
     what a fit trains, its optimizer's state and its math live where the model is."""
-    supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels}
+    supplied = {"width": width, "bundle": bundle, "header": header, "labels": labels, "kept": kept}
     taken = registry.signature(KINDS[kind]).parameters
     given = {**fields, "seed": seed if fields.get("seed") is None else fields["seed"]} if "seed" in taken else fields
     instance = KINDS[kind](**given, **{k: v for k, v in supplied.items() if k in taken})

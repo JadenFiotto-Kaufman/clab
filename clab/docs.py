@@ -100,7 +100,7 @@ def served(kind: str) -> list[str]:
     cls = featurizers.KINDS[kind]
     for name in cls.ops():
         fn = cls.method(name)
-        own = signature(registry.spelled(fn, ("self", "h", "z", "new")))
+        own = signature(registry.spelled(fn, ("self", "h", "z", "new") + ops.SUPPLIED))     # the run gives the rest
         produces = featurizers.OPS[name]["produces"].format(axis=cls.axis)
         out.append(f"`{name}`" + (f"({', '.join(own)})" if own else "") + f" {produces}"
                    + (f": {summary(fn)}" if doc(fn) else ""))

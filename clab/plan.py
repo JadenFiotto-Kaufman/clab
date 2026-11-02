@@ -922,7 +922,12 @@ class Featurizer(Record):
                                                   "checks the model's width against")
     width: int | None = derived(None, "the feature width the featurizer has at the sites it is used at, one for all "
                                       "of them, which preflight finds among the model's sizes (null for one used "
-                                      "nowhere); a saved bundle's header records it")
+                                      "nowhere; a gate over axes, how many units it has: the product of `kept`'s "
+                                      "lengths); a saved bundle's header records it")
+    kept: dict[str, list[int]] = derived({}, "a gate over axes: the indices its units keep on each axis it is over, "
+                                             "in `over`'s order (`layers` by model layer), as the sites it is used at "
+                                             "select them or its bundle's header records them, which preflight "
+                                             "finds; empty for any other featurizer")
 
     @model_validator(mode="after")
     def _fields(self) -> "Featurizer":
@@ -1173,6 +1178,13 @@ def declared(plan: Plan, ref: str) -> str:
 def kind_of(plan: Plan, ref: str) -> str:
     """The kind of the featurizer a reference names."""
     return points(plan.featurizers[declared(plan, ref)])[0].kind
+
+
+def adapts(plan: Plan, o: "Op | OpStep") -> bool:
+    """Whether op `o` is an `apply` of a featurizer whose `with` is its input, which may be read at another site
+    (an adapter's: `Kind.adapts`), rather than an operand of the value (a gate's, which it interpolates toward)."""
+    ref = arguments(o).get("featurizer")
+    return o.op == "apply" and ref is not None and featurizers.KINDS[kind_of(plan, ref)].adapts
 
 
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:

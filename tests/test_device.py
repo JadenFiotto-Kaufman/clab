@@ -9,7 +9,7 @@ can, with clab installed in it, runs it with one command from the repo root:
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, plan_of
+from conftest import BATCH_SIZE, edited, plan_of
 from test_ops import taken
 
 from clab import featurizers, ops
@@ -28,9 +28,11 @@ OTHER = torch.randn(3, 2, 8, generator=G)
 
 def writes() -> list[dict]:
     """Writes built as a batch binds them, on the CPU: a ragged swap with its `keep`, an add of a CPU operand
-    on the features a gate's encode keeps, a narrowing to two hidden units, each row's own key indices, and a
-    renormalize."""
+    on the features a gate's encode keeps, a narrowing to two hidden units, each row's own key indices, a
+    renormalize, and a gate over the hidden units interpolating toward a CPU operand."""
     gate = featurizers.make("gate", {}, 8, {"theta": torch.linspace(-1, 1, 8)}, None, None)
+    over = featurizers.make("gate", {"over": ["hidden_size"]}, 8, {"theta": torch.linspace(1, -1, 8)}, None, None,
+                            kept={"hidden_size": list(range(8))})
     return [
         {"positions": torch.tensor([[1, 2], [3, 3], [4, 5]]), "keep": torch.tensor([[1, 1], [1, 0], [1, 1]]).bool(),
          "select": {}, "ops": [{"op": "swap", "args": {"with": OTHER}, "dims": DIMS}]},
@@ -45,6 +47,8 @@ def writes() -> list[dict]:
          "ops": [{"op": "sub", "args": {"with": 1.0}, "dims": DIMS}]},
         {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3),
          "ops": [{"op": "renormalize", "args": {}, "dims": DIMS}]},
+        {"positions": torch.tensor([[4], [4], [4]]), "select": {},
+         "ops": [{"op": "apply", "args": {"featurizer": over, "with": OTHER[:, :1]}, "dims": DIMS, "layers": 0}]},
     ]
 
 
@@ -179,6 +183,22 @@ def test_one_torch_device_holds_the_model_beside_a_visible_gpu(capfd, kind, devi
     run = load(kind, plan.model, device).execute(plan, batch_size=BATCH_SIZE).run
     assert run is not None and (run.device, run.devices) == (device, [where])
     assert "device_map" not in capfd.readouterr().err
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_a_head_gate_is_a_null_on_the_device_and_comes_home_on_the_cpu(kind, options):
+    """head_gates on `cuda`: its untrained gate over every head with the corrupt value is the clean run to the bit
+    there too, and the trained gates come home on the CPU, laid out `[layers, num_heads]`."""
+    def untrained(d):
+        d["steps"]["fit"].update(epochs=0, objective={"sq": 1.0, "heads.mask": 0.0001})
+        d["saves"] = ["clean.logits", "fit.train.run.logits", "clean_ld", "fit.train.ld"]
+    null = edited("head_gates", untrained).compile()
+    engine = load(kind, null.model, "cuda", **options)
+    values = engine.execute(null, batch_size=BATCH_SIZE).results
+    assert torch.equal(values["fit.train.run.logits"], values["clean.logits"])
+    assert torch.equal(values["fit.train.ld"], values["clean_ld"])
+    trained = engine.execute(plan_of("head_gates"), batch_size=BATCH_SIZE).results["fit.heads"]
+    assert all(m["theta"].device.type == "cpu" and m["theta"].shape == (5, 4) for m in trained.values())
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

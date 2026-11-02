@@ -1,8 +1,8 @@
 ---
 title: Featurizers
-one_liner: "Declaring a featurizer and using it in an entry: the six kinds, encode, decode and apply, nested brackets, selecting features, and loading a published sparse autoencoder with the fields the file cannot state."
+one_liner: "Declaring a featurizer and using it in an entry: the six kinds, encode, decode and apply, nested brackets, selecting features, a gate over named axes (one unit per head), and loading a published sparse autoencoder with the fields the file cannot state."
 tags: [usage, featurizers, encode, decode, apply, sae, subspace]
-related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/patterns/trained-subspaces.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md]
+related: [docs/usage/fit.md, docs/usage/bundles.md, docs/usage/interventions.md, docs/patterns/trained-subspaces.md, docs/patterns/head-masking.md, docs/patterns/sae.md, docs/patterns/probing.md, docs/patterns/lora.md]
 sources: [clab/featurizers/__init__.py, clab/featurizers/subspace.py, clab/featurizers/gate.py, clab/featurizers/pca.py, clab/featurizers/sae.py, clab/featurizers/linear.py, clab/featurizers/lora.py, clab/compile/uses.py, clab/compile/__init__.py]
 ---
 
@@ -13,7 +13,7 @@ A featurizer is a space or a function you declare once under the root key `featu
 | kind | what it is | where it comes from | ops |
 |---|---|---|---|
 | [`subspace`](../../FORMAT.md#subspace) | a rank-`k` subspace, the first `k` columns of a rotation | drawn from `seed` (a uniformly random subspace), trained, or a bundle | `encode`, `decode`, `apply` |
-| [`gate`](../../FORMAT.md#gate) | a mask over the units of the last axis of its site's selection | drawn with every unit on, trained, or a bundle | `encode`, `decode`, `apply` |
+| [`gate`](../../FORMAT.md#gate) | a mask over the units of the last axis of its site's selection, or of the axes its `over` names | drawn with every unit on, trained, or a bundle | `encode`, `decode`, `apply`; over axes, `apply` |
 | [`pca`](../../FORMAT.md#pca) | the top-`k` principal directions and their mean | only the bundle a `pca` op wrote | `encode`, `decode`, `apply` |
 | [`sae`](../../FORMAT.md#sae) | a sparse autoencoder | drawn with `latents`, trained, a bundle, or a published file | `encode`, `decode`, `apply` |
 | [`linear`](../../FORMAT.md#linear) | a probe whose coordinates are its classes | drawn at zero and trained, or a bundle | `encode` |
@@ -54,7 +54,7 @@ An entry uses a featurizer in one of three shapes:
 
 - **`[encode f]` reads coordinates.** The entry's value is `[rows, pos, k]`, its last axis `features` (a probe's: `classes`). Nothing is written. `counterfactual.v_cf` above is one.
 - **`[encode f, <edits>, decode f]` edits coordinates and writes the change back.** The ops between the pair act on the coordinates; `decode` adds the change of coordinates to the original value as a delta. So `[encode f, decode f]` with nothing between is the identity to the bit, and what the space does not hold (a subspace's complement, a sparse autoencoder's error term) passes through untouched.
-- **`[apply f]` replaces the value with the featurizer's own version of it**: a subspace's projection, a gate's masked value, an adapter's adapted value, a dictionary's reconstruction without its error term. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all.
+- **`[apply f]` replaces the value with the featurizer's own version of it**: a subspace's projection, a gate's masked value, an adapter's adapted value, a dictionary's reconstruction without its error term. It is an edit, so it writes back. Splicing an `sae` in with `apply` moves the site's value by exactly its error term, and so the model's output, with no edit at all. A gate's `apply` with `with` interpolates toward that value instead ([below](#a-gate-over-named-axes)).
 
 `[encode f, decode f]` leaves the logits bit-identical to a clean forward for every kind that decodes (a drawn subspace and gate, a loaded `pca`, three loaded `sae`s, one of them a published JumpReLU, at every position of the prompt), and so does an `sae` bracket holding `{"op": "scale", "factor": 1.0}`.
 
@@ -96,6 +96,30 @@ An operand between a pair must be in the same coordinates: a value read through 
 
 Pairs nest: `[encode a, encode b, <edits>, decode b, decode a]` edits `b`'s coordinates of `a`'s coordinates, so `b`'s width is `a`'s `k`, and a `b` with a larger `k` is refused before any forward. A nested pair with nothing between is the identity to the bit, as a single one is. An op that changes the layout (`readout`, a metric) may follow the closing `decode`, since by then the value is the site's again.
 
+## A gate over named axes
+
+A `gate`'s units are the last axis of the value it meets unless its `over` names others: the axes of its site's selection the units lie on, `layers` among them where the site picks several, written in the selection's order. `theta` is laid out on those axes, as many on each as the selection keeps. At `attention_premix` (`rows, pos, num_heads, head_dim`) over every layer, `documents/head_gates.json` declares one unit per head:
+
+```json
+"featurizers": {"heads": {"kind": "gate", "over": ["layers", "num_heads"], "temperature": {"start": 1.0, "end": 0.05}}},
+"sites": {"premix": {"component": "attention_premix", "layers": ":"}}
+```
+
+On the tiny GPT-2's 5 layers of 4 heads `theta` is `[5, 4]`. The mask meets the value as an operand does under [Ops' one rule](../../FORMAT.md#ops): it broadcasts over the axes it leaves out (`head_dim`, the rows and positions), and at each layer the write is made at it takes that layer's slice, by the layer's id. `over: ["num_heads"]` at one layer is `[4]`; a `select` on `num_heads` keeps that many units, and `over` left out is the last axis, as `documents/dbm.json` has it.
+
+`apply` with `with` writes `h·m + with·(1−m)`, the interpolation toward `with`: a value at the same selection, laid out and labelled as `swap`'s operand would be, or a number. Where a unit is on the result is `h` to the bit and where it is off `with` to the bit, so an untrained gate (every θ +1) leaves the logits of a clean forward bit-identical:
+
+```json
+"gated": {"site": "premix", "pos": {"index": "0:12"},
+          "ops": [{"op": "apply", "featurizer": "fit.heads", "with": "corrupt.z"}]}
+```
+
+Written as `[sub c, apply, add c]`, the same interpolation computes `(h − c)·1 + c`, which rounds, and the null is off in the last bits. Scored, the hard mask selects rather than multiplies, so a NaN or an infinity in `with` at a unit that is on never reaches the result, and a zero keeps its sign on either side; while a fit trains the gate the soft mask interpolates. Without `with`, `apply` is `h·m`.
+
+A gate's `apply` is elementwise: a missing element of the value stays missing and the rest are gated. At `attention_probabilities` or `attention_scores` the `key` axis is NaN past a shorter row's own keys, so on rows of different lengths every vector of a short row holds a NaN; a gate `over: ["num_heads"]` there with one head off writes each row's own keys back gated, and gives the logits of a `swap` with 0 at that head, to the bit.
+
+A gate over axes serves `apply` alone: its units are not the last axis an `encode` makes its coordinates, so an `encode` of it is refused, and so is an `apply` inside another featurizer's `encode`. Every site it is used at selects the same indices on its axes; two that differ are refused before any forward, and `over` takes no sweep (declare one gate per layout). Its bundle's header records `over` and, for each axis but `layers` (which `layer` records), the indices kept, `kept.<axis>`; a loading document may leave `over` out, a `theta` not laid out as the header records is refused at compile, and every use is checked against the header ([bundles.md](bundles.md#what-is-checked-and-when)). The fit, the null and reading which heads were kept are [head-masking.md](../patterns/head-masking.md).
+
 ## Drawn, trained or loaded
 
 A declared featurizer with no `file_path` is drawn before the run's first step, from its `seed` (0 when unset) for the kinds that take one, and needs the fields its kind draws from: `k` for a subspace, `latents` for an sae, `rank` and `alpha` for a lora, `classes` for a probe. `documents/random_subspace.json` sweeps the seed to get three random rank-4 subspaces with no fit at all. A fit draws the featurizers it trains at its own start, from the fit's `seed` unless the featurizer has one; the names a fit gives them are in [fit.md](fit.md#members). With `file_path` the featurizer is loaded and fixed, and the fields the bundle's header records may be left out ([bundles.md](bundles.md)).
@@ -121,8 +145,7 @@ The `site` check compares your use with your claim; it cannot check the claim. W
 
 - **Serve another kind's ops.** A `linear` probe only encodes; a `lora` only applies; compile refuses the rest by name (`'probe' is a 'linear' featurizer, which has no decode`).
 - **Be drawn as a `pca`.** A `pca` featurizer exists only as the bundle a `pca` op wrote.
-- **Have two widths.** Its width is the last axis of every site it is used at (inside an `encode`, that one's `k`), and one featurizer used at sites of two widths is refused before any forward. `k` is at most that width.
-- **Mask whole heads.** A `gate`'s units are the last axis of the value it meets, its site's selection, and its mask broadcasts over every other axis. At `attention_premix` (`rows, pos, num_heads, head_dim`) its `theta` is `head_dim` wide, one mask over the units of a head that every head shares, and selecting one head (`select: {"num_heads": [h]}`) leaves it as wide. One number per head is not a gate; the nearest is a gate per head, each at a site that selects that head, masking its `head_dim` units apart.
-- **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).
+- **Have two widths.** Its width is the last axis of every site it is used at (inside an `encode`, that one's `k`), and one featurizer used at sites of two widths is refused before any forward. `k` is at most that width. A gate over axes has as many units as its axes keep, and every site it is used at selects the same ones.
+- **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each; only a gate with `layers` in its `over` has units of its own at each layer. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).
 - **Be trained once loaded.** A fit refuses to train a featurizer with a `file_path`.
 - **Read across sites in a generate.** A lora's `with` names an entry of the same forward, which only a `forward` step serves ([lora.md](../patterns/lora.md)).

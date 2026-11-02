@@ -7,8 +7,8 @@ position is that position's alone to the bit whatever else the value holds (`pos
 it at each decode call. `OPS` lists them, in the order at the end of this file. An op whose axes depend on what it is
 given declares them as a function instead (`layout`), as `encode` does for its featurizer's kind. Compile reads the axes
 to lay out every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`, `Featurizer`, or a
-literal); `engine`, `original` and `dims` are filled by the run, never by a document; a trailing underscore is dropped
-from a parameter's document spelling (`with_` is `"with"`).
+literal); `engine`, `original`, `dims` and the rest of `SUPPLIED` are filled by the run, never by a document; a trailing
+underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
 """
 
 import functools
@@ -36,10 +36,11 @@ where rows hold different numbers of them: NaN, every metric, edit and elementwi
 `top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN, of a -1 id
 too: a comparison of a hole is a hole. Reductions skip it: `mean` is the mean over the rows and positions that have a
 value, `count` counts only them, and `pca` is fitted on them. A featurizer's math sees none of it: a missing vector
-goes in as zeros and comes out missing. An attention pattern's keys past a row's own are missing the same way, NaN,
-in a read and to a write's ops: an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`)
-takes the entries that are there, so a row's own keys are edited as the row has them, and its tail stays NaN;
-`argmax` and `top_k` over `key` rank a row's own keys, a vector missing only where it has none.
+goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a missing element). An attention
+pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops: an edit that mixes a
+vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are there, so a row's own keys
+are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax` and `top_k` over `key` rank a
+row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
@@ -110,8 +111,9 @@ other read's, but an earlier entry of its own forward, row by row), an axis a si
 by the indices kept, in order (one head does not broadcast over several, and `[1, 4]` would trade places with
 `[4, 1]`), `features` by the encodes it is in (the same featurizers and `select`s: an operand inside a bracket
 is encoded as the bracket is). A number, or a named value of one number (a `mean` over every axis), broadcasts
-in any coordinates. An adapter's input (`apply`'s `with`) is held to its rows and positions alone: its features
-are the adapter's width.
+in any coordinates. An adapter's input (a lora `apply`'s `with`) is held to its rows and positions alone: its
+features are the adapter's width; a gate `apply`'s `with`, the value it interpolates toward, is an operand as
+`swap`'s is.
 
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
@@ -142,10 +144,13 @@ stays missing: NaN.
 
 # `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-# `eos`: the ids the generation `of` came from stops on. `rows`: the dataset row
-# of each of `of`'s rows; `positions`: the token position of each of its
-# positions (`[rows, pos]`, -1 past a row's own), where the run knows them.
-SUPPLIED = ("engine", "original", "dims", "eos", "rows", "positions")
+# `layers`: the layers it acts at, as `steps.batches.bound` aligns an operand to
+# them (inside an entry the one it is made at; as a step the labels of `of`'s
+# `layers` axis, or its one layer; None at no layer). `eos`: the ids the
+# generation `of` came from stops on. `rows`: the dataset row of each of `of`'s
+# rows; `positions`: the token position of each of its positions (`[rows, pos]`,
+# -1 past a row's own), where the run knows them.
+SUPPLIED = ("engine", "original", "dims", "layers", "eos", "rows", "positions")
 # A metric scores a vocabulary axis: the tokenizer's, or a probe's classes.
 VOCABULARY = ("vocab_size", "classes")
 

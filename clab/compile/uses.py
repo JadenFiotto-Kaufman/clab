@@ -1,9 +1,11 @@
-"""A featurizer's uses in a plan: every op that reaches it, the width it has at every site it is used at, the
-checks of a loaded bundle's header against those uses, the instance made for the run, and the header a saved
-bundle carries."""
+"""A featurizer's uses in a plan: every op that reaches it, the width it has at every site it is used at (a gate
+over axes, the indices it keeps on each of them), the checks of a loaded bundle's header against those uses, the
+instance made for the run, and the header a saved bundle carries."""
 
 from __future__ import annotations
 
+import json
+import math
 from typing import TYPE_CHECKING, cast
 
 from clab.featurizers import KINDS, Kind, bundles, labels, make
@@ -78,16 +80,121 @@ def bundled_sites(plan: Plan) -> None:
                          f"{site.layers} ({where})")
 
 
+def over_of(f: Featurizer) -> list[str] | None:
+    """The axes a gate's units lie on: its `over`, or, where a loading document leaves it out, its bundle's header's;
+    None for the last axis of its site's selection, and for any other featurizer."""
+    given = (f.model_extra or {}).get("over")
+    return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
+
+
+def selection(read: Intervention, o: Op | OpStep) -> list[str]:
+    """The layout of the value a featurizer's op meets at a use made before any encode: inside an entry its site's
+    selection, a `layers` axis first where the site picks several; as a step, its `of`'s."""
+    site = cast(Site, read.site)
+    return list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
+
+
+def over_axes(plan: Plan) -> None:
+    """A gate over axes is used by `apply` alone, on its site's own layout (inside no `encode`, whose coordinates
+    are no axes of the site's), whose selection has each axis it names, in the selection's order, `layers` only
+    where the site picks several. A refusal names the featurizer's `over` and the use. A loaded one's `theta` is
+    laid out as its header says, as many units on each axis as it records indices there (`layer`, `kept.<axis>`),
+    which a refusal names with its `file_path`."""
+    for name, spec in plan.featurizers.items():
+        for f in points(spec):
+            over = over_of(f)
+            if over is None or f.bundle is None or f.header is None:
+                continue
+            keys = {axis: "layer" if axis == "layers" else f"kept.{axis}" for axis in over}
+            recorded = [bundles.recorded(f.header.get("layer")) if axis == "layers" else
+                        json.loads(f.header.get(key) or "[]") for axis, key in keys.items()]
+            shape, laid_out = list(f.bundle["theta"].shape), [len(v) for v in recorded]
+            if shape != laid_out:
+                said = ", ".join(f"{key} {f.header.get(key)}" for key in keys.values())
+                fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: 'theta' is {shape}, and "
+                     f"its header lays a gate over {over} out on {said}: 'theta' is {laid_out}, one unit per index "
+                     "it keeps on each axis")
+    for name, records in uses(plan).items():
+        for where, read, at, o, around in records:
+            over = over_of(agreeing(plan.featurizers[name], at))
+            if over is None:
+                continue
+            path, site, laid = f"featurizers.{name}.over", cast(Site, read.site), selection(read, o)
+            if o.op != "apply":
+                fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
+                     "are not the last axis, which an encode makes its coordinates; an interchange through it is "
+                     f"{{'op': 'apply', 'featurizer': {arguments(o)['featurizer']!r}, 'with': <the other value>}}")
+            if around:
+                fail(path, f"{over}: {where} applies {name!r} inside the encode of "
+                     f"{arguments(around[-1])['featurizer']!r}, whose coordinates are no axes of its site's "
+                     "selection; apply it outside the encode")
+            for axis in over:
+                if axis == "layers" and axis not in laid:
+                    fail(path, f"{over}: {where} is at {site.component} layer {site.layers!r}, one layer, whose "
+                         f"selection {laid} has no layers axis; leave layers out of over, or pick the layers as a "
+                         "list or a slice")
+                if axis not in laid:
+                    fail(path, f"{over}: {where}'s selection at {site.component} is laid out {laid}, which has no "
+                         f"{axis!r}")
+            if [a for a in laid if a in over] != over:
+                fail(path, f"{over}: a gate's units are laid out on its axes in the selection's order, and "
+                     f"{where}'s is {laid}: write over as {[a for a in laid if a in over]}")
+
+
+def units(where: str, name: str, f: Featurizer, read: Intervention, over: list[str], sizes: dict[str, int]
+          ) -> dict[str, list]:
+    """The indices a gate over axes keeps on each of them at one use: the layers the use is made at, and on each
+    other axis those its selection keeps (every one of an axis it keeps whole). A loaded gate's are its header's
+    (`layer`, and `kept.<axis>` for each other axis), which each use's other axes are checked against; each layer
+    the use is made at is checked to be one `layer` names, as every loaded bundle's is."""
+    found = {}
+    for axis in over:
+        if axis == "layers":
+            found[axis] = list(read.layers or [])
+        elif axis in read.kept:
+            found[axis] = list(read.kept[axis])
+        elif sizes.get(axis) is None:
+            raise ValueError(f"{where}: {cast(Site, read.site).component}'s {axis} axis grows with the input; "
+                             f"gate {name!r} lays its units on axes of a fixed size")
+        else:
+            found[axis] = list(range(sizes[axis]))
+    if f.header is None:
+        return found
+    file = (f.model_extra or {})["file_path"]
+    recorded: dict[str, list] = {"layers": bundles.recorded(f.header.get("layer"))} if "layers" in over else {}
+    for axis in over:
+        if axis == "layers":
+            continue
+        written = f.header.get(f"kept.{axis}")
+        recorded[axis] = json.loads(written) if written is not None else []
+        if recorded[axis] != found[axis]:
+            raise ValueError(f"{where}: {file}: header 'kept.{axis}' is {written!r}; this document uses {name!r} "
+                             f"at {cast(Site, read.site).component}, whose selection keeps {axis} {found[axis]}")
+    return recorded
+
+
 def widths(engine: Engine, plan: Plan) -> None:
     """Each featurizer's width, written on its record (`Featurizer.width`, at every point): the size of the last
     axis of every site it is used at, which is one size, and the width its bundle's header says. A `select` on
-    its features stays within them, and a featurizer a fit trains is used somewhere."""
-    sizes, out = engine.sizes(), {}
+    its features stays within them, and a featurizer a fit trains is used somewhere. A gate over axes is as wide as
+    it has units, and keeps on each axis the indices every site it is used at selects, which are one selection,
+    or that its bundle's header records (`units`), written on its record too (`Featurizer.kept`)."""
+    sizes, out, laid = engine.sizes(), {}, {}
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
             site, kept = cast(Site, read.site), read.kept
+            f = agreeing(plan.featurizers[name], at)
+            over = over_of(f)
+            if over is not None:
+                found = units(where, name, f, read, over, sizes)
+                if laid.setdefault(name, found) != found:
+                    other = ", ".join(f"{a} {v}" for a, v in laid[name].items())
+                    raise ValueError(f"{where}: gate {name!r} is over {', '.join(f'{a} {v}' for a, v in found.items())} "
+                                     f"here and {other} elsewhere; its units lie on one selection of the axes it is "
+                                     "over, so every site it is used at selects the same ones")
             last = address.dims(site.component)[-1]
-            width = len(kept[last]) if last in kept else sizes.get(last)
+            width = math.prod(map(len, laid[name].values())) if over is not None else \
+                len(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
@@ -99,7 +206,6 @@ def widths(engine: Engine, plan: Plan) -> None:
             if out.setdefault(name, width) != width:
                 raise ValueError(f"{where}: featurizer {name!r} is used at width {width} here and {out[name]} "
                                  "elsewhere; a featurizer has one width")
-            f = agreeing(plan.featurizers[name], at)
             for field in KINDS[f.kind].counts:
                 count = (f.model_extra or {}).get(field)
                 if isinstance(count, int) and count > width:
@@ -138,7 +244,7 @@ def widths(engine: Engine, plan: Plan) -> None:
                 raise ValueError(f"{name}: {f!r} is trained but used at no site, so its width is unknown")
     for name, width in out.items():
         for f in points(plan.featurizers[name]):
-            f.width = width
+            f.width, f.kept = width, laid.get(name, {})
 
 
 def at_layer(layers: object, n: int) -> str:
@@ -151,8 +257,9 @@ def read_with(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, l
     `with.component` and `with.layer`) is used reading it there, at each layer the use is made at (`layer`; a
     `with` that stacks is read there at that layer), and one made without reads none: the width check alone would
     pass an o_proj adapter fed its own output, whose width can equal the premix's. A featurizer with no clab
-    header (drawn, or a published file) records neither."""
-    if f.header is None:
+    header (drawn, or a published file) records neither, and a kind whose `with` is no input (`Kind.adapts`: a
+    gate's) reads none."""
+    if f.header is None or not KINDS[f.kind].adapts:
         return
     given, recorded, recorded_layer = arguments(o).get("with"), f.header.get("with.component"), \
         f.header.get("with.layer")
@@ -180,4 +287,4 @@ def instance(plan: Plan, spec: Featurizer, width: int, seed: int | None, device:
     fields = spec.model_extra or {}
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
     classes = labels({dataset: held_rows(plan, dataset)}, fields["classes"]) if dataset else None
-    return make(spec.kind, fields, width, spec.bundle, seed, classes, spec.header, device)
+    return make(spec.kind, fields, width, spec.bundle, seed, classes, spec.header, device, spec.kept)

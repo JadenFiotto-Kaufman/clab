@@ -1,0 +1,69 @@
+{
+  "description": "Head-level desiderata-based masking on the tiny GPT-2 (5 layers of 4 heads): learn WHICH attention heads carry the clean run's logit difference, one unit per head of every layer rather than units of one value. The gate's `over: [\"layers\", \"num_heads\"]` at `attention_premix` over `layers: \":\"` lays `theta` out `[5, 4]`, broadcast over `head_dim` and taken at each layer the write is made at by that layer's id. A head that is off takes the counterfactual prompt's premix at all 12 positions: `apply` with `with` writes `h·m + with·(1−m)`, the clean value to the bit where a head is on and the counterfactual's to the bit where it is off, so the untrained gate (θ = +1) is a bit-exact null. The objective is each row's squared change of its logit difference from the clean run's, plus the swept L1 weight on the mean soft mask, so the document is a sparsity curve: measured 2026-11-02, 16, 5, 1 and 0 of the 20 heads kept. The weights are random: the heads kept show the mechanics, not a circuit.",
+  "model": {
+    "key": "hf-internal-testing/tiny-random-gpt2",
+    "revision": "71034c5d8bde858ff824298bdedc65515b97d2b9",
+    "dtype": "float32"
+  },
+  "data": {"pairs": {"path": "counting/train"}},
+  "sites": {
+    "premix": {"component": "attention_premix", "layers": ":"},
+    "head": {"component": "lm_head_output"}
+  },
+  "featurizers": {
+    "heads": {"kind": "gate", "over": ["layers", "num_heads"], "temperature": {"start": 1.0, "end": 0.05}}
+  },
+  "steps": {
+    "corrupt": {
+      "kind": "forward",
+      "input": "pairs.counterfactual_inputs[0]",
+      "interventions": {"z": {"site": "premix", "pos": {"index": "0:12"}}}
+    },
+    "clean": {
+      "kind": "forward",
+      "input": "pairs.input",
+      "interventions": {"logits": {"site": "head", "pos": -1}}
+    },
+    "clean_ld": {
+      "kind": "op",
+      "op": "logit_diff",
+      "of": "clean.logits",
+      "a": "pairs.base_answer",
+      "b": "pairs.cf_answer"
+    },
+    "fit": {
+      "kind": "fit",
+      "train": ["heads"],
+      "objective": {"sq": 1.0, "heads.mask": {"sweep": [0.00002, 0.0001, 0.0005, 0.003]}},
+      "epochs": 20,
+      "batch_size": 2,
+      "seed": 0,
+      "optimizer": {"name": "adam", "lr": 0.1},
+      "eval": {"train": {}},
+      "steps": {
+        "run": {
+          "kind": "forward",
+          "input": "pairs.input",
+          "interventions": {
+            "gated": {
+              "site": "premix",
+              "pos": {"index": "0:12"},
+              "ops": [{"op": "apply", "featurizer": "fit.heads", "with": "corrupt.z"}]
+            },
+            "logits": {"site": "head", "pos": -1}
+          }
+        },
+        "ld": {
+          "kind": "op",
+          "op": "logit_diff",
+          "of": "run.logits",
+          "a": "pairs.base_answer",
+          "b": "pairs.cf_answer"
+        },
+        "diff": {"kind": "op", "op": "sub", "of": "ld", "with": "clean_ld"},
+        "sq": {"kind": "op", "op": "square", "of": "diff"}
+      }
+    }
+  },
+  "saves": ["clean_ld", "fit.train.ld", "fit.history.sq", "fit.history.heads.mask", "fit.heads"]
+}

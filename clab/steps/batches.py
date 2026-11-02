@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Iterator, cast
 import torch
 from torch import Tensor
 
-from clab import ops
+from clab import featurizers, ops
 from clab.compile import positions
 from clab.compile.answers import answered, column_texts, indexed, refkey
 from clab.compile.positions import head, texts
@@ -19,7 +19,7 @@ from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
 from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
-                        held_rows, record_of)
+                        held_rows, kind_of, record_of)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -100,11 +100,11 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
     """An entry's ops up to its last edit (or those `span` names, by index: a read's `per_call` ops) at one of the
     layers it is made at (`layer`), bound to one batch, as `visit` runs them: each with the layout of the value it
     meets there (`dims`: the op before it left it, as its record says; the site's selection before the first), the
-    batch's dataset row ids (`ids`, and as one host tensor every op shares, `rows`), and its arguments bound at that
-    layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or the name of a
-    read of the same forward, for the forward to fill), a column's ids on `device`. An `encode` holds the ops its
-    `decode` closes over, bound the same way (`inner`), and the features its `select` keeps, on `device`, where the
-    model and its featurizers are."""
+    batch's dataset row ids (`ids`, and as one host tensor every op shares, `rows`), the layer, and its arguments
+    bound at that layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or
+    the name of a read of the same forward, for the forward to fill), a column's ids on `device`. An `encode` holds
+    the ops its `decode` closes over, bound the same way (`inner`), and the features its `select` keeps, on
+    `device`, where the model and its featurizers are."""
     first, last = span or (0, len(record.ops) - len(gathers(record)))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
     rows = torch.tensor(ids)
@@ -117,7 +117,7 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
             params = ops.parameters(o.op)
             args = {k: cast(Any, placed(v, device)) if params[k].annotation == ops.Tokens else v
                     for k, v in args.items()}
-            out.append({"op": o.op, "args": args, "rows": rows, "dims": dims})
+            out.append({"op": o.op, "args": args, "rows": rows, "dims": dims, "layers": layer})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
                 if select is not None:
@@ -312,7 +312,8 @@ def with_ops(engine: Engine, plan: Plan, record: Intervention, value: Any, state
     for i, o in enumerate(record.ops):
         if i >= first:
             args = bound(plan, o.op, arguments(o), state, at, ids, found, value, vocabulary, dims=dims, layers=layer)
-            value = ops.call(o.op, value, args, engine=engine, dims=dims, rows=torch.tensor(ids), positions=places)
+            value = ops.call(o.op, value, args, engine=engine, dims=dims, layers=layer, rows=torch.tensor(ids),
+                             positions=places)
             if o.op == "encode":
                 vocabulary = getattr(args["featurizer"], "classes", None)
         dims = o.dims or dims
@@ -336,6 +337,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
     operand leaves out (Ops' one rule lets it leave out rows, pos and layers)."""
     params, out = ops.parameters(name), {}
     resolved = resolved or {}
+    adapter = name == "apply" and featurizers.KINDS[kind_of(plan, args["featurizer"])].adapts      # an adapter's input
     for key, value in args.items():
         annotation = params[key].annotation
         if annotation == ops.Value and isinstance(value, str):
@@ -351,7 +353,7 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
                         value, axes = value[labels.index(layers)], axes[1:]
                     elif layers != labels:
                         value = value[[labels.index(layer) for layer in layers]]
-                if dims is not None and axes and isinstance(value, Tensor) and not (name == "apply" and key == "with"):
+                if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
             value = (indexed(plan, value, vocabulary, ids)[:, None] if vocabulary is not None else
@@ -496,7 +498,8 @@ def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict, places: 
     for o in bound:
         args = {k: live(got, v) if isinstance(v, dict) and "live" in v else v for k, v in o["args"].items()}
         if o["op"] != "encode":
-            new = ops.call(o["op"], new, args, original=original, dims=o["dims"], rows=o.get("rows"), positions=places)
+            new = ops.call(o["op"], new, args, original=original, dims=o["dims"], layers=o.get("layers"),
+                           rows=o.get("rows"), positions=places)
             continue
         f: Any = args["featurizer"]
         features = o.get("features")

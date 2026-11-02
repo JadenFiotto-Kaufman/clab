@@ -16,7 +16,7 @@ clab's vocabulary is read off the code: an op's signature is what a document may
 
 - A parameter's name is the argument's spelling, with a trailing underscore dropped (`with_` is `"with"`). An unknown key is refused naming the valid ones, and a parameter without a default is required.
 - A parameter's annotation is how a document fills it. `Value` (a named value or a number), `Tokens` (a column resolved through the value's vocabulary), `Text` (a column read as text) and `Featurizer` (a featurizer's name) are resolved by compile; any other annotation is a literal type, checked strictly.
-- Parameters the run supplies are never the document's: for an op, those in `clab/ops/__init__.py` `SUPPLIED` (`engine`, `original`, `dims`, `eos`, `rows`, `positions`); for a kind, `width`, `bundle`, `header` and `labels`. Name one in the signature to receive it.
+- Parameters the run supplies are never the document's: for an op, those in `clab/ops/__init__.py` `SUPPLIED` (`engine`, `original`, `dims`, `layers`, `eos`, `rows`, `positions`); for a kind, `width`, `bundle`, `header`, `labels` and `kept`, and to its `apply` the `dims` and `layers` of the value it meets. Name one in the signature to receive it.
 - The docstring's text is what `clab describe` and FORMAT.md print beside it.
 
 ## Adding an op
@@ -60,7 +60,7 @@ What the group gives it, with no code of its own: an edit runs in float32 and is
 1. One module under `clab/featurizers/` holding one class that subclasses `Kind` (`clab/featurizers/__init__.py` `Kind`). The class's name in lower case is the kind, and subclassing registers it in `KINDS`.
 2. Import the module in the line at the end of `clab/featurizers/__init__.py`. Until then the class never loads, and a document naming it (`"kind": "shift"` for the kind below) is refused: `unknown featurizer kind 'shift'; valid: subspace, gate, pca, sae, linear, lora`. That line's order is the tables' order.
 3. Its constructor is the document's fields. Its class attributes say what its bundle holds, what a fit trains, its coordinates' axis, its header fields, what a drawn one needs, its scalars and which fields count directions; their meanings are in [FORMAT.md](../../FORMAT.md#featurizer-kinds). Its methods `encode(h)`, `replace(h, z, new)` and `apply(h, ...)` serve `encode`, `decode` and `apply`; define only those it has, and it serves exactly those.
-4. Hold tensors as plain attributes and move them to the value where they meet it (`self.b.to(h)`). The three methods run with autocast off, and a missing (NaN) vector goes in as zeros and comes out missing, without code of the kind's own (`clab/featurizers/__init__.py` `exact`, `Kind.call`).
+4. Hold tensors as plain attributes and move them to the value where they meet it (`self.b.to(h)`). The three methods run with autocast off, and a missing (NaN) vector goes in as zeros and comes out missing, without code of the kind's own (`clab/featurizers/__init__.py` `exact`, `Kind.call`). An `apply` whose every element of the result is made from that element of the value alone declares `elementwise = True`, as a gate's does, and then a missing element, not its whole vector, goes in as zero and comes out missing: at a `key` axis, NaN past a short row's own keys, a vector-wise rule would write the whole row back missing.
 
 A minimal kind, which a fit trains and saves as a bundle with clab's header like any other:
 

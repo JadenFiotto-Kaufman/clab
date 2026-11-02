@@ -30,7 +30,7 @@ from clab.compile.arguments import called, carried, layout, mismatch, narrowed_r
 from clab.compile.interventions import entry, items
 from clab.compile.schedule import shared
 from clab.compile.state import Compiling
-from clab.compile.uses import bundled_sites
+from clab.compile.uses import bundled_sites, over_axes
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
 from clab.format.sweeps import find_sweeps, spelled
@@ -46,6 +46,7 @@ from clab.plan import (
     Plan,
     PlanError,
     Site,
+    adapts,
     arguments,
     corpus_root,
     entries,
@@ -100,6 +101,7 @@ def compile(plan: Plan) -> Plan:
                    "data": {n: {**doc["data"][n], **({} if plan.data[n].hf is not None else {"rows": rows[n]}),
                                 "sha256": data.digest(rows[n]), "n_rows": len(rows[n])} for n in rows}})
     bundled_sites(done)
+    over_axes(done)
     shared(done)
     return done
 
@@ -449,7 +451,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     assert of.dims is not None
     found = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in found.items():
-        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False)
+        why = mismatch(of, theirs, spec.op, key, written, repr(spec.of), False, False, adapts(plan, spec))
         if why:
             fail(f"{path}.{key}", why)
     if spec.op == "readout" and of.read is not None:        # the one stream check, an entry's readout's too

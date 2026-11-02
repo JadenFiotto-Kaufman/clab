@@ -39,7 +39,7 @@ The apply half, `documents/das_apply.json`, loads the saved `fit.rot` and runs t
 "objective": {"ce": 1.0, "mask.mask": {"sweep": [0.0001, 0.002, 0.01, 0.05]}}
 ```
 
-`mask.mask` is the mean of the soft mask. Swept, the document is a sparsity curve: the four fits keep 4, 2, 1 and 0 of the 16 units. The units a fit kept are where its saved `theta` is positive. Its bundle file holds one gate per point; to load one in another document, rerun at that one weight ([bundles.md](../usage/bundles.md#swept-training-runs)).
+`mask.mask` is the mean of the soft mask. Swept, the document is a sparsity curve: the four fits keep 4, 2, 1 and 0 of the 16 units. The units a fit kept are where its saved `theta` is positive. Its bundle file holds one gate per point; to load one in another document, rerun at that one weight ([bundles.md](../usage/bundles.md#swept-training-runs)). A gate whose units are whole attention heads, every layer's at once, is [head-masking.md](head-masking.md).
 
 ## Controls of matched rank
 

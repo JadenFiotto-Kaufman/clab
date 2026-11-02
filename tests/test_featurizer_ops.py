@@ -52,6 +52,112 @@ def test_apply_is_each_kinds_version_of_the_value():
     assert torch.equal(gate.call("apply", H, {}), H * torch.sigmoid(gate.theta))
 
 
+HEADS = ["rows", "pos", "num_heads", "head_dim"]
+
+
+def over_heads(theta: torch.Tensor, layers: list[int]) -> Gate:
+    """A gate over `["layers", "num_heads"]` holding `theta`, its layers labelled `layers`, as a fit makes one."""
+    gate = featurizers.make("gate", {"over": ["layers", "num_heads"]}, theta.numel(), {"theta": theta}, None, None,
+                            kept={"layers": layers, "num_heads": list(range(theta.shape[1]))})
+    assert isinstance(gate, Gate)
+    return gate
+
+
+def test_a_gate_over_axes_meets_the_value_as_an_operand_does():
+    """`theta` laid out `[layers, num_heads]` meets one layer's `[rows, pos, num_heads, head_dim]` as its row of that
+    layer, by the layer's label, broadcast over `head_dim`; a value with its own `layers` axis (a step over a read at
+    several layers) takes its rows in that value's order; `over: ["num_heads"]` is one mask for every layer; and
+    `over` naming the last axis is the gate without `over`, to the bit."""
+    theta = torch.tensor([[1.0, -1.0, 2.0, -0.5], [-1.0, 1.0, -1.0, 1.0], [0.5, 0.5, -2.0, -1.0]])
+    gate, h = over_heads(theta, [0, 2, 3]), torch.randn(2, 3, 4, 5, generator=G)
+    for layer, row in ((0, 0), (2, 1), (3, 2)):
+        assert torch.equal(ops.call("apply", h, {"featurizer": gate}, dims=HEADS, layers=layer),
+                           h * (theta[row] > 0).float()[:, None])
+    stacked = torch.randn(2, 2, 3, 4, 5, generator=G)
+    assert torch.equal(ops.call("apply", stacked, {"featurizer": gate}, dims=["layers", *HEADS], layers=[3, 0]),
+                       stacked * (theta[[2, 0]] > 0).float()[:, None, None, :, None])
+    shared = featurizers.make("gate", {"over": ["num_heads"]}, 4, {"theta": theta[0]}, None, None,
+                              kept={"num_heads": [0, 1, 2, 3]})
+    assert torch.equal(ops.call("apply", h, {"featurizer": shared}, dims=HEADS, layers=2),
+                       h * (theta[0] > 0).float()[:, None])
+    last = featurizers.make("gate", {"over": ["hidden_size"]}, 16, {"theta": torch.linspace(-1, 1, 16)}, None, None,
+                            kept={"hidden_size": list(range(16))})
+    plain = featurizers.make("gate", {}, 16, {"theta": torch.linspace(-1, 1, 16)}, None, None)
+    for training in (False, True):
+        last.training = plain.training = training
+        assert torch.equal(ops.call("apply", H, {"featurizer": last}, dims=DIMS, layers=0),
+                           ops.call("apply", H, {"featurizer": plain}, dims=DIMS, layers=0))
+
+
+def test_a_gates_apply_with_is_the_interpolation_exact_at_either_end():
+    """`apply` with `with` is `h·m + with·(1−m)`: scored, a unit that is on gives `h` to the bit and one that is off
+    `with` to the bit, a number as a value; soft, while a fit trains it, the interpolation itself, its gradient
+    reaching `theta`. Without `with` it is `h·m`, as before."""
+    theta = torch.tensor([[1.0, -1.0, 2.0, -0.5], [-1.0, 1.0, -1.0, 1.0]])
+    gate = over_heads(theta, [0, 1])
+    h, other = torch.randn(2, 3, 4, 5, generator=G), torch.randn(2, 3, 4, 5, generator=G)
+    on = (theta[1] > 0)[None, None, :, None].expand_as(h)
+    got = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=1)
+    assert torch.equal(got[on], h[on]) and torch.equal(got[~on], other[~on])
+    zeroed = ops.call("apply", h, {"featurizer": gate, "with": 0.0}, dims=HEADS, layers=1)
+    assert torch.equal(zeroed[on], h[on]) and bool((zeroed[~on] == 0).all())
+    assert torch.equal(ops.call("apply", h, {"featurizer": gate}, dims=HEADS, layers=1), h * on.float())
+    gate.training, gate.theta = True, theta.clone().requires_grad_()
+    soft = torch.sigmoid(gate.theta[1])[:, None]
+    got = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=1)
+    torch.testing.assert_close(got, h * soft + other * (1 - soft), atol=1e-6, rtol=0)
+    (grad,) = torch.autograd.grad(got.sum(), gate.theta)
+    assert bool((grad[1] != 0).all()) and bool((grad[0] == 0).all())
+
+
+def bits(t: torch.Tensor) -> torch.Tensor:
+    """`t`'s float32 bits, so that two compare equal only with the same NaNs and the same signs of zero."""
+    return t.contiguous().view(torch.int32)
+
+
+def test_a_scored_gate_selects_so_neither_side_reaches_the_other():
+    """Scored, `apply` with `with` takes `h` where a unit is on and `with` where it is off, so a NaN or an infinity in
+    `with` at a unit that is on leaves `h` there to the bit, and a negative zero keeps its sign on either side; while
+    a fit trains it the soft mask interpolates, and `with`'s NaN reaches the result."""
+    gate = over_heads(torch.tensor([[1.0, -1.0, 1.0, -1.0]]), [0])
+    h, other = torch.randn(2, 3, 4, 5, generator=G), torch.randn(2, 3, 4, 5, generator=G)
+    on = torch.tensor([True, False, True, False])[None, None, :, None].expand_as(h)
+    other[:, :, 0] = float("nan")                           # head 0 is on
+    other[0, 0, 2] = torch.tensor([float("inf"), -float("inf"), 0.0, 1.0, 2.0])   # head 2 is on
+    h[1, 1, 0, 0], other[1, 1, 1, 0] = -0.0, -0.0           # a negative zero on each side: on at head 0, off at 1
+    got = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=0)
+    assert torch.equal(bits(got[on]), bits(h[on])) and torch.equal(bits(got[~on]), bits(other[~on]))
+    assert bool(torch.signbit(got[1, 1, 0, 0])) and bool(torch.signbit(got[1, 1, 1, 0]))
+    gate.training = True
+    assert bool(ops.call("apply", h, {"featurizer": gate, "with": other}, dims=HEADS, layers=0)[on].isnan().any())
+
+
+def test_a_gates_apply_keeps_a_missing_element_missing_where_other_kinds_lose_the_vector():
+    """A `key` axis is NaN past a shorter row's own keys, so every vector of that row holds a NaN. A gate's `apply` is
+    elementwise: the result is NaN exactly where the value was and the rest are gated, without `with` or with it,
+    and a fit's gradient on `theta` through it, `with` missing at the same keys, has no NaN; a subspace's `apply`,
+    which reduces over the last axis, still makes every such vector missing whole."""
+    keys = ["rows", "pos", "num_heads", "key"]
+    gate = featurizers.make("gate", {"over": ["num_heads"]}, 4, {"theta": torch.tensor([1.0, -1.0, 1.0, 1.0])}, None,
+                            None, kept={"num_heads": [0, 1, 2, 3]})
+    assert isinstance(gate, Gate)
+    h, other = torch.rand(2, 1, 4, 6, generator=G), torch.rand(2, 1, 4, 6, generator=G)
+    h[1, :, :, 4:] = other[1, :, :, 4:] = float("nan")     # row 1 has 4 keys of the 6
+    on = torch.tensor([True, False, True, True])[None, None, :, None].expand_as(h)
+    masked = ops.call("apply", h, {"featurizer": gate}, dims=keys)
+    toward = ops.call("apply", h, {"featurizer": gate, "with": other}, dims=keys)
+    for got in (masked, toward):
+        assert torch.equal(got.isnan(), h.isnan()) and torch.equal(got[on & ~h.isnan()], h[on & ~h.isnan()])
+    assert bool((masked[~on & ~h.isnan()] == 0).all())
+    assert torch.equal(toward[~on & ~h.isnan()], other[~on & ~h.isnan()])
+    gate.training, gate.theta = True, gate.theta.clone().requires_grad_()
+    (grad,) = torch.autograd.grad(ops.call("apply", h, {"featurizer": gate, "with": other}, dims=keys).nansum(),
+                                  gate.theta)
+    assert bool(grad.isfinite().all()) and bool((grad != 0).all())
+    subspace = featurizers.make("subspace", {"k": 2}, 6, None, 0, None)
+    assert bool(subspace.call("apply", h, {})[1].isnan().all())
+
+
 def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
     for kind in ("subspace", "pca", "sae", "gate"):
         f = made(kind)
@@ -169,6 +275,10 @@ def test_describe_shows_the_ops_and_each_kinds_ops():
     assert "apply(featurizer: Featurizer, with: Value = null)  [keeps the layout]" in text
     assert "ops: encode gives its coordinates, the last axis becoming classes\n" in text
     assert "ops: apply(with: Value or null = null) gives its version of the value" in text
+    assert "gate(over: list of str or null = null, temperature: {start: float, end: float} or null = null, " \
+           "file_path: str or null = null)" in text
+    assert "decode writes a change of its coordinates back into the value; apply(with: Value or null = null) gives " \
+           "its version of the value, in the value's own layout: h times the mask m, soft while a fit trains it" in text
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
