@@ -16,6 +16,7 @@ the model calls it made and the tokens they fed to its `cost`, which `run` recor
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 import json
 import os
@@ -224,10 +225,12 @@ def versions() -> dict[str, str]:
             "python": platform.python_version()}
 
 
+@functools.cache
 def version() -> str:
     """clab's version here, with the commit it is when one is known: the one an install from git recorded
     (`direct_url.json`), else `git describe --always --dirty` of the checkout clab is imported from, else the
-    static version alone."""
+    static version alone. Worked out once per process: what is imported does not change under it, and a `git
+    describe` on every run costs more than some runs do."""
     dist = importlib.metadata.distribution("clab")
     url = json.loads(dist.read_text("direct_url.json") or "{}")
     commit = url.get("vcs_info", {}).get("commit_id")
