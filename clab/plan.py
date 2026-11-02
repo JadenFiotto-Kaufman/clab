@@ -671,8 +671,10 @@ class Forward(Record):
     row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
     depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
     narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
-    most, a trained featurizer's by 7e-7). Results reproduce to the bit at a fixed batch size, padding and thread
-    count."""
+    most); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
+    a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
+    whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
+    batch size, padding and thread count."""
     kind: Literal["forward"]
     input: str | list[str | TextPart]
     interventions: Interventions = {}

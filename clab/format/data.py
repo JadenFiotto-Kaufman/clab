@@ -216,8 +216,7 @@ PADDINGS = {
              "numbers move in the last bits with its batch's width",
     "sorted": "a step's rows ordered by token count, longest first, before they are batched, each batch padded to "
               "its own longest row, and every value put back in dataset row order before anything reads it: the "
-              "fewest tokens fed, and numbers that move as under `batch`, a fit's trained tensors a little more (a "
-              "minibatch's gradients sum over its rows in another order)",
+              "fewest tokens fed, and numbers that move as under `batch`",
 }
 
 

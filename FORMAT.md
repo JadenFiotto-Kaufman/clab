@@ -298,8 +298,10 @@ same under each. At the thread count the suite pins (`tests/conftest.py`, 12; 8 
 row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
 depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
 narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
-most, a trained featurizer's by 7e-7). Results reproduce to the bit at a fixed batch size, padding and thread
-count.
+most); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
+a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
+whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
+batch size, padding and thread count.
 
 ### `generate`
 
@@ -781,7 +783,7 @@ Every engine runs with `batch_size`, how many of a step's rows go through the mo
 
 - `dataset`: every batch padded to the longest row of the step's whole input, the default: a row's numbers do not depend on which rows share its batch, and a run reproduces to the bit at one batch size
 - `batch`: each batch padded to its own longest row, the rows in dataset order: fewer tokens fed, and a row's numbers move in the last bits with its batch's width
-- `sorted`: a step's rows ordered by token count, longest first, before they are batched, each batch padded to its own longest row, and every value put back in dataset row order before anything reads it: the fewest tokens fed, and numbers that move as under `batch`, a fit's trained tensors a little more (a minibatch's gradients sum over its rows in another order)
+- `sorted`: a step's rows ordered by token count, longest first, before they are batched, each batch padded to its own longest row, and every value put back in dataset row order before anything reads it: the fewest tokens fed, and numbers that move as under `batch`
 
 The options below are each engine's own.
 
