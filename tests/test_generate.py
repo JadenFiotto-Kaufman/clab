@@ -362,7 +362,7 @@ def test_the_manifest_holds_each_rows_positions_and_what_it_said(filled, tmp_pat
     manifest = json.loads((out / "manifest.json").read_text())
     assert [p["interventions"]["logits"]["positions"][p["dataset"]] for p in manifest["steps"]["patched"]] == \
         [[[p - 1 + k] for p in PROMPT] for k in range(3)]
-    assert manifest["run"]["tokens"]["patched"]["frame=0"][0] == ["Handler", "▁substr", "▁energ"]
+    assert manifest["run"]["tokens"]["patched"][0] == ["Handler", "▁substr", "▁energ"]    # one generation, three frames
     rows = Plan.load(str(out)).table("p_answer")
     assert [(r["at"], r["row"], r["pos"], r["pos_token"], r["call"]) for r in rows][4] == \
         ({"frame": 1}, 0, 11, "Handler", 1)

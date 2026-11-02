@@ -50,13 +50,19 @@
         3
        ]
       },
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": []
+    }
    },
    {
     "kind": "forward",
@@ -95,13 +101,21 @@
         7
        ]
       },
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "intermediate_size": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -140,13 +154,21 @@
         11
        ]
       },
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "intermediate_size": 0
+     }
+    }
    }
   ],
   "patched": [
@@ -197,7 +219,10 @@
         2,
         3
        ]
-      }
+      },
+      "axes": [
+       "intermediate_size"
+      ]
      },
      "logits": {
       "site": {
@@ -212,13 +237,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "intermediate_size"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -267,7 +300,10 @@
         6,
         7
        ]
-      }
+      },
+      "axes": [
+       "intermediate_size"
+      ]
      },
      "logits": {
       "site": {
@@ -282,13 +318,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "intermediate_size"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -337,7 +381,10 @@
         10,
         11
        ]
-      }
+      },
+      "axes": [
+       "intermediate_size"
+      ]
      },
      "logits": {
       "site": {
@@ -352,13 +399,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "intermediate_size"
+      ],
       "gathered": true
      }
     },
     "at": {
      "intermediate_size": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "intermediate_size"
+     ]
+    }
    }
   ],
   "iia": [
@@ -374,6 +429,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 0
     }
@@ -390,6 +448,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 1
     }
@@ -406,6 +467,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 2
     }
@@ -425,6 +489,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 0
     }
@@ -442,6 +509,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 1
     }
@@ -459,6 +529,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "intermediate_size"
+    ],
     "at": {
      "intermediate_size": 2
     }

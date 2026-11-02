@@ -37,7 +37,10 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": []
+   }
   },
   "basis": {
    "kind": "op",

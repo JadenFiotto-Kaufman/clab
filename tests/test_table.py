@@ -26,11 +26,11 @@ def logits(pos: int = -1) -> dict:
 
 
 def test_values_over_different_sweep_axes_join_on_the_axes_they_share(engines):
-    """A value over `src` and `dst` (the patch, a 2x2 grid) beside one over `src` alone (the hit of a read at `src`
-    on the same input): the two are joined by `src`, `row` and `pos`, not by their whole coordinates, so each row of
-    the grid takes the hit of its `src`, which repeats across `dst`, and the joined `at` holds both coordinates; in
-    either order. The counterfactual's own hit is read on another input: beside the grid its `pos` counts other
-    prompts' positions, which is refused by name."""
+    """A value over `src` and `dst` (the patch, a 2x2 grid) beside one over `src` alone (the hit of a readout at
+    `src` on the same input): the two are joined by `src`, `row` and `pos`, not by their whole coordinates, so each
+    row of the grid takes the hit of its `src`, which repeats across `dst`, and the joined `at` holds both
+    coordinates; in either order. The counterfactual's own hit is read on another input: beside the grid its `pos`
+    counts other prompts' positions, which is refused by name."""
     def site(label: str) -> dict:
         return {"component": "layer_output", "layers": {"sweep": [0, 1], "label": label}}
     filled = run(engines, plan(
@@ -43,8 +43,8 @@ def test_values_over_different_sweep_axes_join_on_the_axes_they_share(engines):
                    "logits": logits()}},
                "iia": {"kind": "op", "op": "match", "of": "patched.logits", "expected": "pairs.cf_answer"},
                "at_src": {"kind": "forward", "input": "pairs.input",
-                          "interventions": {"r": {"site": "src", "pos": -1}, "logits": logits()}},
-               "src_hit": {"kind": "op", "op": "match", "of": "at_src.logits", "expected": "pairs.cf_answer"}},
+                          "interventions": {"r": {"site": "src", "pos": -1, "ops": [{"op": "readout"}]}}},
+               "src_hit": {"kind": "op", "op": "match", "of": "at_src.r", "expected": "pairs.cf_answer"}},
         saves=["iia", "cf_hit", "src_hit"]))
     hits = {(t["at"]["src"], t["row"]): t["value"] for t in filled.table("src_hit")}
     assert len(hits) == 8
@@ -82,13 +82,13 @@ def test_rowless_values_with_a_layers_axis_join_by_layer_and_a_rowed_one_beside_
 
 def test_a_value_with_fewer_keys_broadcasts_over_the_other_s(engines):
     """As an operand broadcasts over an axis it leaves out: a `mean` over everything, unswept, sits beside every
-    row; swept over `L`, each point's number sits beside every row of an unswept value, at that point, in the order
-    of the value with more keys (the rows'), whichever name comes first."""
+    row; swept over `L` (a readout at `L`, scored), each point's number sits beside every row of an unswept value,
+    at that point, in the order of the value with more keys (the rows'), whichever name comes first."""
     swept = {"component": "layer_output", "layers": {"sweep": [0, 1], "label": "L"}}
     filled = run(engines, plan(
-        steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {"h": {"site": swept, "pos": -1},
-                                                                                  "logits": logits()}},
-               "hit": {"kind": "op", "op": "match", "of": "f.logits", "expected": "pairs.cf_answer"},
+        steps={"f": {"kind": "forward", "input": "pairs.input",
+                     "interventions": {"h": {"site": swept, "pos": -1, "ops": [{"op": "readout"}]}}},
+               "hit": {"kind": "op", "op": "match", "of": "f.h", "expected": "pairs.cf_answer"},
                "acc": {"kind": "op", "op": "mean", "of": "hit"},
                "g": {"kind": "forward", "input": "pairs.input", "interventions": {"logits": logits()}},
                "hit2": {"kind": "op", "op": "match", "of": "g.logits", "expected": "pairs.cf_answer"},

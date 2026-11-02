@@ -40,7 +40,10 @@
    "max_new_tokens": 6,
    "min_new_tokens": 6,
    "do_sample": false,
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": []
+   }
   },
   "p": {
    "kind": "op",

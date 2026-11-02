@@ -86,13 +86,19 @@
         "featurizer": "rot"
        }
       ],
+      "axes": [
+       "seed"
+      ],
       "gathered": true
      }
     },
     "at": {
      "seed": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": []
+    }
    },
    {
     "kind": "forward",
@@ -135,6 +141,9 @@
        {
         "featurizer": "rot"
        }
+      ],
+      "axes": [
+       "seed"
       ],
       "gathered": true
      }
@@ -142,7 +151,12 @@
     "at": {
      "seed": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "seed": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -186,13 +200,21 @@
         "featurizer": "rot"
        }
       ],
+      "axes": [
+       "seed"
+      ],
       "gathered": true
      }
     },
     "at": {
      "seed": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "seed": 0
+     }
+    }
    }
   ],
   "patched": [
@@ -255,7 +277,10 @@
        0
       ],
       "read": "patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "seed"
+      ]
      },
      "logits": {
       "site": {
@@ -270,13 +295,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "seed"
+      ],
       "gathered": true
      }
     },
     "at": {
      "seed": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "seed"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -337,7 +370,10 @@
        0
       ],
       "read": "patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "seed"
+      ]
      },
      "logits": {
       "site": {
@@ -352,13 +388,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "seed"
+      ],
       "gathered": true
      }
     },
     "at": {
      "seed": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "seed"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -419,7 +463,10 @@
        0
       ],
       "read": "patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "seed"
+      ]
      },
      "logits": {
       "site": {
@@ -434,13 +481,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "seed"
+      ],
       "gathered": true
      }
     },
     "at": {
      "seed": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "seed"
+     ]
+    }
    }
   ],
   "iia": [
@@ -456,6 +511,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 0
     }
@@ -472,6 +530,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 1
     }
@@ -488,6 +549,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 2
     }
@@ -507,6 +571,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 0
     }
@@ -524,6 +591,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 1
     }
@@ -541,6 +611,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "seed"
+    ],
     "at": {
      "seed": 2
     }

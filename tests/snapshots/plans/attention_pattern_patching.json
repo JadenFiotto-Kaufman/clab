@@ -44,13 +44,19 @@
         0
        ]
       },
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": []
+    }
    },
    {
     "kind": "forward",
@@ -82,13 +88,21 @@
         1
        ]
       },
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "num_heads": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -120,13 +134,21 @@
         2
        ]
       },
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "num_heads": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -158,13 +180,21 @@
         3
        ]
       },
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 3
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "num_heads": 0
+     }
+    }
    }
   ],
   "patched": [
@@ -209,7 +239,10 @@
        "num_heads": [
         0
        ]
-      }
+      },
+      "axes": [
+       "num_heads"
+      ]
      },
      "logits": {
       "site": {
@@ -224,13 +257,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 0
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "num_heads"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -273,7 +314,10 @@
        "num_heads": [
         1
        ]
-      }
+      },
+      "axes": [
+       "num_heads"
+      ]
      },
      "logits": {
       "site": {
@@ -288,13 +332,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 1
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "num_heads"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -337,7 +389,10 @@
        "num_heads": [
         2
        ]
-      }
+      },
+      "axes": [
+       "num_heads"
+      ]
      },
      "logits": {
       "site": {
@@ -352,13 +407,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 2
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "num_heads"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -401,7 +464,10 @@
        "num_heads": [
         3
        ]
-      }
+      },
+      "axes": [
+       "num_heads"
+      ]
      },
      "logits": {
       "site": {
@@ -416,13 +482,21 @@
       "dataset": "pairs",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "num_heads"
+      ],
       "gathered": true
      }
     },
     "at": {
      "num_heads": 3
     },
-    "dataset": "pairs"
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "num_heads"
+     ]
+    }
    }
   ],
   "iia": [
@@ -438,6 +512,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 0
     }
@@ -454,6 +531,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 1
     }
@@ -470,6 +550,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 2
     }
@@ -486,6 +569,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 3
     }
@@ -505,6 +591,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 0
     }
@@ -522,6 +611,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 1
     }
@@ -539,6 +631,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 2
     }
@@ -556,6 +651,9 @@
     "dataset": "pairs",
     "read": "patched.logits",
     "width": 1,
+    "axes": [
+     "num_heads"
+    ],
     "at": {
      "num_heads": 3
     }

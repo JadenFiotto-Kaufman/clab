@@ -1,10 +1,11 @@
 """What a run costs, and where a forward ends.
 
-`plan.run.costs` holds every step's and point's seconds, peak memory (null off CUDA), model calls and input
-tokens, exact for a forward, a swept step, an op and a fit, and the server's under ndif, which come home in the run
-record; `clab show` prints them. (A generation's are pinned in test_generate.py.)
+`plan.run.costs` holds every run of every step: its seconds, peak memory (null off CUDA), model calls and input
+tokens and the points it served, exact for a forward, a swept step, an op and a fit, and the server's under ndif,
+which come home in the run record; `clab show` prints them. (A generation's are pinned in test_generate.py; the
+points one forward serves in test_shared.py.)
 
-A forward stops right after its deepest site, by the engine's `rank`, on the nnterp and hooks engines: nothing
+A forward stops right after the schedule's stop site, its deepest, on the nnterp and hooks engines: nothing
 after it runs (a hook on each block, MLP, the final norm and the head watches what does), and every value it reads
 or writes is the whole forward's to the bit. A generation runs whole; a fit's body forward stops where its own
 entries do. The ndif engine runs every forward whole, under `remote="local"` and through the stand-in server. A stopped forward leaves none of its frames (and so none of its
@@ -38,21 +39,23 @@ def lengths(run, name: str) -> int:
     return sum(map(len, run.tokens[name]))
 
 
-def test_every_step_and_point_has_a_cost_and_a_forward_one_call_per_batch(engines):
-    """logit_lens: `lens` is swept over two layers, so its cost and its ops' are keyed by coordinate as
-    `positions` are; each point of the forward is two batches of two of the four rows, each prompt token fed once;
-    an op calls no model; off CUDA no memory is measured."""
+def test_every_run_of_a_step_has_a_cost_and_a_forward_one_call_per_batch(engines):
+    """logit_lens: `lens` is swept over two layers it only reads at, so its one forward, at the first point, serves
+    both (`serves`), and its ops' costs are keyed by coordinate as `positions` are; the forward is two batches of
+    two of the four rows, each prompt token fed once; an op calls no model; off CUDA no memory is measured."""
     plan = plan_of("logit_lens")
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert list(run.costs) == list(plan.steps)
-    for name, entry in plan.steps.items():
-        costs = run.costs[name]
-        assert list(costs) == [labelled(plan, p.at) for p in points(entry)] == ["layers=0", "layers=1"]
+    assert list(run.costs["lens"]) == ["layers=0"] and run.costs["lens"]["layers=0"]["serves"] == ["layers=0", "layers=1"]
+    for name in ("p_answer", "top1"):
+        assert list(run.costs[name]) == [labelled(plan, p.at) for p in points(plan.steps[name])] == ["layers=0", "layers=1"]
+        assert [c["serves"] for c in run.costs[name].values()] == [["layers=0"], ["layers=1"]]
+    for costs in run.costs.values():
         for cost in costs.values():
-            assert set(cost) == COST and cost["memory"] is None and cost["seconds"] >= 0
+            assert set(cost) == COST | {"serves"} and cost["memory"] is None and cost["seconds"] >= 0
     prompts = lengths(run, "prompts.input")
     assert prompts == 38
-    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts)] * 2
+    assert [(c["forwards"], c["tokens"]) for c in run.costs["lens"].values()] == [(2, prompts)]
     assert all((c["forwards"], c["tokens"]) == (0, 0) for name in ("p_answer", "top1")
                for c in run.costs[name].values())
 
@@ -134,20 +137,21 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     seen: list[Any] = []
     compute = order.compute
     monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
-    monkeypatch.setattr("clab.steps.measured", lambda engine, call: seen.append(("step", engine.model.dispatched))
-                        or measured(engine, call))
+    monkeypatch.setattr("clab.steps.measured", lambda engine, cost, call: seen.append(("step", engine.model.dispatched))
+                        or measured(engine, cost, call))
     plan = plan_of("logit_lens")
     load("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
-    assert seen == ["order"] + [("step", True)] * 6
+    assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-@pytest.mark.parametrize("name, expected", [("logit_lens", 4), ("generated_answer", 12)])
+@pytest.mark.parametrize("name, expected", [("logit_lens", 2), ("generated_answer", 12)])
 def test_every_forward_the_model_runs_is_a_steps(kind, name, expected):
     """Counted at the model itself (a pre-hook on its root module), a fresh engine's first run makes exactly the
-    forwards its steps' costs sum to (logit_lens's two points of two batches, generated_answer's two batches of a
-    prefill and five decode calls) plus, on nnterp, the one forward `ready` makes before the first step to measure
-    the forward order (`rank`), once per engine; hooks measured it on a meta shell at load, so none."""
+    forwards its steps' costs sum to (logit_lens's one forward of two batches, serving its two points,
+    generated_answer's two batches of a prefill and five decode calls) plus, on nnterp, the one forward `ready`
+    makes before the first step to measure the forward order (`rank`), once per engine; hooks measured it on a meta
+    shell at load, so none."""
     from clab.engines import load
 
     plan = plan_of(name)
@@ -169,16 +173,16 @@ def test_show_prints_each_steps_cost(engines, tmp_path, capsys):
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
     assert main(["show", str(tmp_path)]) == 0
     shown = capsys.readouterr().out.splitlines()
-    assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
-    rows = [line.split() for line in shown[4:10]]
-    assert [(r[0], r[1], r[3], r[4], r[5]) for r in rows] == [
-        ("lens", "layers=0", "—", "2", "38"), ("lens", "layers=1", "—", "2", "38"),
-        ("p_answer", "layers=0", "—", "0", "0"), ("p_answer", "layers=1", "—", "0", "0"),
-        ("top1", "layers=0", "—", "0", "0"), ("top1", "layers=1", "—", "0", "0")]
-    assert all(float(r[2]) >= 0 for r in rows)
-    assert shown[10].split() == ["entry", "at", "positions"]                # then where each entry resolved
-    assert shown[11].split(maxsplit=1) == ["lens.logits", "all 2 points  [10], [8], [8], [8]"]   # one row, both layers
-    assert shown[12].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]
+    rows = [line.split(maxsplit=2) + line.split()[-4:] for line in shown[4:9]]      # the serves cell has spaces
+    assert [(r[0], r[1], r[2].rsplit(maxsplit=4)[0], r[4], r[5], r[6]) for r in rows] == [
+        ("lens", "layers=0", "all 2 points", "—", "2", "38"),
+        ("p_answer", "layers=0", "—", "—", "0", "0"), ("p_answer", "layers=1", "—", "—", "0", "0"),
+        ("top1", "layers=0", "—", "—", "0", "0"), ("top1", "layers=1", "—", "—", "0", "0")]
+    assert all(float(r[3]) >= 0 for r in rows)
+    assert shown[9].split() == ["entry", "at", "positions"]                 # then where each entry resolved
+    assert shown[10].split(maxsplit=1) == ["lens.logits", "all 2 points  [10], [8], [8], [8]"]   # one row, both layers
+    assert shown[11].split() == ["result", "step", "dims", "axes", "shape"]
     manifest = tmp_path / "manifest.json"                    # as a run that recorded no costs wrote it
     written = json.loads(manifest.read_text())
     del written["run"]["costs"]
@@ -286,6 +290,32 @@ def test_a_forward_stops_right_after_its_deepest_site_and_reads_what_the_whole_o
     assert same(filled.results["early.read"], filled.results["whole.read"])
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monkeypatch):
+    """A schedule whose stop is the first of two sites (written so by hand, since preflight writes the last):
+    both engines run block 0 alone (the first batch's; the refusal ends the step) and read nothing past it, and
+    the read at block 3 the forward never reached is refused by name, the same on each; `stop` means one thing."""
+    from clab.compile import preflight, schedule
+
+    def early(engine, plan, name, step, trained):
+        schedule.scheduled(engine, plan, name, step, trained)
+        step.schedule["stop"] = ["layer_output", 0]
+    monkeypatch.setattr(preflight, "scheduled", early)
+
+    def change(d):
+        d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input",
+                               "interventions": {"a": at("layer_output", 0), "b": at("layer_output", 3)}}}
+        d["saves"] = ["lens.a", "lens.b"]
+    plan = edited("gpt2_reach", change).compile()
+    engine = engines(kind, plan.model)
+    engine.execute(plan_of("gpt2_reach"), batch_size=BATCH_SIZE)
+    with counting(engine) as ran, pytest.raises(RuntimeError, match=rf"^lens: the {kind} engine ended the forward at "
+                                                                     r"\['layer_output', 0\] without reading b@3; the "
+                                                                     r"schedule's stop site comes after its last read$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
+    assert ran == through(1)            # block 0 and its MLP, the stop site's; nothing after
+
+
 def test_the_write_before_the_stop_changes_the_read_after_it(engines):
     plan = gpt2(CASES["a write at block 1, then a read at block 3"][0])
     clean = gpt2({"read": at("layer_output", 3)})
@@ -351,11 +381,13 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
              "position_ids": torch.arange(4).repeat(2, 1)}
     read = {"component": "layer_output", "layer": 0, "name": "read", "positions": torch.tensor([[3], [3]]),
             "select": {}}
+    bound = {"sites": [{"component": "layer_output", "layer": 0, "records": [read]}], "stop": ["layer_output", 0],
+             "loop": None, "online": False}
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)
     try:
-        got = engine.forward(batch, [read])
+        got = engine.forward(batch, bound)
         gc.collect()
         frames = [f"{o.f_code.co_filename}:{o.f_code.co_name}" for o in gc.garbage if isinstance(o, types.FrameType)]
     finally:

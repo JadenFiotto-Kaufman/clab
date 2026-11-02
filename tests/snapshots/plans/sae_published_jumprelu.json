@@ -84,7 +84,10 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": []
+   }
   },
   "spliced": {
    "kind": "forward",
@@ -135,7 +138,10 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": []
+   }
   },
   "kl": {
    "kind": "op",

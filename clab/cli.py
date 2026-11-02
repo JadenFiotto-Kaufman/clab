@@ -1,8 +1,9 @@
 """`clab run`, `clab show`, `clab table` and `clab describe`: a thin command line over
 `clab.run` and a run's output directory, and the format read off the code.
 
-`show` prints what a run's directory holds (how the run ran and what each step cost, where each entry resolved,
-then each result with its step, dims, axes and shape); `table` prints `plan.table(...)` over its saved values,
+`show` prints what a run's directory holds (how the run ran and what each run of each step cost, with the points
+it served, where each entry resolved, then each result with its step, dims, axes and shape); `table` prints
+`plan.table(...)` over its saved values,
 aligned or as CSV. Both are `Plan.load` and one call.
 
 `describe` prints the format's tables by introspection: the records and their fields (from the plan's
@@ -25,7 +26,7 @@ from clab import output
 from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, entries, name, points
+from clab.plan import Plan, Run, entries, name, points, projections, serving
 
 
 def how(run: Run) -> str:
@@ -39,9 +40,14 @@ def show(filled: Plan) -> str:
     """A filled plan as text: how it ran (of what was installed, clab's and python's versions; where it stopped,
     if it did), what each step cost (`costs`), where each entry resolved (`resolved`), then each result with the
     step that made it, its dims (per coordinate when swept and its points differ), its sweep axes and its shape
-    (`shaped`: counted over its points when swept)."""
+    (`shaped`: counted over its points when swept). A compiled plan that has not run: its name, and which points
+    each run of a step will serve (`served`)."""
     run = filled.run
-    assert run is not None
+    if run is None:
+        rows = [[step, labelled(filled, p.at) or "—", served(filled, entry, points_)]
+                for step, entry in filled.steps.items() for p, points_ in serving(filled, step)]
+        return "\n".join([f"{name(filled)}: compiled, not run"]
+                         + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
@@ -51,33 +57,44 @@ def show(filled: Plan) -> str:
     lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
-        entry = filled.steps[saved.partition(".")[0]]
-        value = filled.results[saved]
-        if isinstance(entry, list):
-            value = {labelled(filled, p.at): value[coordinate(filled, p.at)] for p in entry}
+        value, ats = filled.results[saved], projections(filled, saved)
+        swept = ats != [({}, ats[0][1])]
+        if swept:
+            value = {labelled(filled, at): value[coordinate(filled, at)] for at, _ in ats}
         dims = output.layouts(filled, saved)["dims"]
         rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(points(entry)[0].at) or "—",
-                     shaped(output.describe(value, "shape"), isinstance(entry, list))])
+                     ", ".join(output.axes(filled, saved)) or "—", shaped(output.describe(value, "shape"), swept)])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
 def costs(filled: Plan) -> list[list[str]]:
-    """What each step cost (`plan.run.costs`) as table rows, one per step and point: its seconds, its peak memory
-    on each device in MiB (— where none was measured), its model calls and the tokens they fed."""
+    """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`serving`: a forward's or
+    generation's per forward, an op's per distinct value, a fit's per point), at the point that ran, with the
+    points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
+    each device in MiB (— where none was measured), its model calls and the tokens they fed."""
     run = filled.run
     assert run is not None
-    rows = [["step", "at", "seconds", "memory", "forwards", "tokens"]]
+    rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]]
     for step, entry in filled.steps.items():
-        for p in points(entry) if step in run.costs else []:
+        for p, points_ in serving(filled, step) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
+            serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
-                rows.append([step, labelled(filled, p.at) or "—", "—", "—", "—", "—"])
+                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—"])
                 continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
-            rows.append([step, labelled(filled, p.at) or "—", f"{cost['seconds']:.3f}", memory,
+            rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"])])
     return rows
+
+
+def served(filled: Plan, entry: Any, points_: list) -> str:
+    """The points one run of a step serves, as a cell: `—` for itself alone, `all N points`, else each one."""
+    if len(points_) == 1:
+        return "—"
+    if len(points_) == len(points(entry)):
+        return f"all {len(points_)} points"
+    return ", ".join(labelled(filled, p.at) for p in points_)
 
 
 def resolved(filled: Plan) -> list[list[str]]:

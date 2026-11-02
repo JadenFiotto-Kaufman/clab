@@ -10,6 +10,5 @@ What is agreed but not built, in no order. Bring an item up when the owner asks 
 - **A cross-site adapter inside a generation** (an operand from an entry of its own step is served in a forward
   only).
 - **A sequence metric** beyond what `before` and `sum` give; featurizer composition beyond nesting; `subspace`'s
-  parametrization and its learning-rate scale; a dependency rule so that a step referencing a swept step
-  inherits only the axes its value can depend on.
+  parametrization and its learning-rate scale.
 - **A clab skill for agents** (`~/wd/clab-trials/SKILL-NOTES.md` is the raw material).

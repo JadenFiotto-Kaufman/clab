@@ -25,7 +25,7 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 import os
 import time
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import nnsight
 import torch
@@ -35,7 +35,7 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.standard import SIZES, build, by_site, envoy, inputs, loading, nnterp_name, placing, served, stops
+from clab.engines.standard import SIZES, build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.sweeps import points
 from clab.plan import QUANTIZED, Model, Plan
 from clab.steps import batches
@@ -46,6 +46,7 @@ from clab.steps.batches import landed, now
 class NnterpEngine:
     name: str
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
+    stops: bool = True              # a forward ends right after the schedule's stop site (`tracer.stop()`)
     order: dict[tuple[str, int | None], tuple[int, int]] | None = None     # under tp, measured on a meta shell
 
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
@@ -137,36 +138,28 @@ class NnterpEngine:
     def sizes(self) -> dict[str, int]:
         return {k: getattr(self.model, k) for k in SIZES}
 
-    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]:
-        """One trace over the batch, its one forward call done as `visited` says and stopped right after its last
-        site, the deepest (nnsight's `tracer.stop()`), unless the engine is remote (the ndif engine says why)."""
-        sites = by_site(records)
-        order = sorted(sites, key=lambda s: self.rank(*s))
+    def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
+        """One trace over the batch, its one forward call done as `visited` says and, where the engine `stops`,
+        ended right after the schedule's stop site (nnsight's `tracer.stop()`; the ndif engine says why it does
+        not)."""
         got: dict[str, Tensor] = {}
         with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
                                      batches.home(self))) as tracer:
-            self.visited(order, sites, 0, [], got)
-            if not self.remote:
-                tracer.stop()
+            self.visited(bound["sites"], 0, [], got, bound["stop"] if self.stops else None, tracer.stop)
         return got
 
-    def generate(self, batch: dict[str, Tensor], records: list[dict],
+    def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],
                  options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]:
         """`model.generate` over the batch, with `options` as its keyword arguments: the new ids, and each read.
 
-        One loop over the forward calls does each call as `visited` says (from the inputs seen so far: each decode
-        call's `input_ids`, read first, where a write has an online scope). It is bounded by the steps the reads ask
-        for, or open when a read asks for every step;
-        either way it ends where the generation does, which nnsight warns of (that one warning is silenced; a
-        read out of forward order shows up instead as a missing step, which `generate.generate` refuses), so the
-        ids are read in an invoke of their own, which the loop's end does not cut short."""
-        model = self.model
-        sites = by_site(records)
-        order = sorted(sites, key=lambda s: self.rank(*s))
-        asked = [r["calls"] for r in records if "calls" in r]
-        loop = None if None in asked else sorted({0, *(s for a in asked for s in a)})
-        got: dict[str, Any] = {r["name"]: [] for r in records if "calls" in r and "ops" not in r}
-        online = any("online" in r for r in records)
+        One loop over the forward calls the schedule's `loop` names (every one where it is None) does each call as
+        `visited` says (from the inputs seen so far: each decode call's `input_ids`, read first, where the schedule
+        says a write is found `online`). The loop ends where the generation does, which nnsight warns of (that one
+        warning is silenced; a read out of forward order shows up instead as a missing step, which
+        `generate.generate` refuses), so the ids are read in an invoke of their own, which the loop's end does not
+        cut short."""
+        model, loop = self.model, bound["loop"]
+        got: dict[str, Any] = {}
         result: dict[str, Tensor] = {}
         seen: list[Tensor] = []
         with warnings.catch_warnings():
@@ -175,25 +168,31 @@ class NnterpEngine:
             with model.generate(**options) as tracer:
                 with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.home(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
-                        if online and step > 0:
+                        if bound["online"] and step > 0:
                             seen.append(model.input_ids)
-                        self.visited(order, sites, step, seen, got)
+                        self.visited(bound["sites"], step, seen, got)
                 with tracer.invoke():
                     result["ids"] = tracer.result
         return result["ids"][:, batch["input_ids"].shape[1]:], got
 
-    def visited(self, order: list[tuple[str, int | None]], sites: dict[tuple[str, int | None], list[dict]], call: int,
-                seen: list[Tensor], got: dict[str, Any]) -> None:
-        """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site in forward `order`,
-        doing there what `now` says and, at a decode call, `landed`, from the inputs `seen` so far."""
-        for component, layer in order:
-            here = now(sites[(component, layer)], call)
+    def visited(self, sites: list[dict[str, Any]], call: int, seen: list[Tensor], got: dict[str, Any],
+                stop: list | None = None, ended: Callable[[], Any] | None = None) -> None:
+        """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site of the bound
+        schedule in its order, doing there what `now` says and, at a decode call, `landed`, from the inputs `seen`
+        so far; right after the `stop` site, where one is given, the forward is `ended` (the trace's stop) and the
+        sites after it are not visited, as the hooks engine's are not."""
+        for site in sites:
+            component, layer = site["component"], site["layer"]
+            here = now(site["records"], call)
             here = landed(here, seen, self.tokenizer, call) if call > 0 else here
             if here:
                 host = envoy(self.model, component, layer)
                 value, wrote = batches.visit(getattr(host, component), component, here, got)
                 if wrote:
                     setattr(host, component, value)
+            if stop is not None and ended is not None and [component, layer] == stop:
+                ended()
+                return
 
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""

@@ -32,7 +32,10 @@
      "gathered": true
     }
    },
-   "dataset": "prompts"
+   "dataset": "prompts",
+   "schedule": {
+    "axes": []
+   }
   },
   "top3": {
    "kind": "op",

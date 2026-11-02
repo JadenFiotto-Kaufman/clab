@@ -65,7 +65,10 @@
      "gathered": true
     }
    },
-   "dataset": "qa"
+   "dataset": "qa",
+   "schedule": {
+    "axes": []
+   }
   },
   "p_spelled": {
    "kind": "op",

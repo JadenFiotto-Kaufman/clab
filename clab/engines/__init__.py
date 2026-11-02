@@ -15,24 +15,28 @@ where it does not place the model: an NDIF server does) and `options` as given, 
 `execute(plan, batch_size=...)` is the single entry point and the only method an engine that ignores
 `clab.steps` must have; it returns the filled plan. A hub dataset's rows are not in the plan: an engine that
 ignores `clab.steps` loads them where it runs with `compile.materialized`, as `steps.run` does (`steps.held`). The
-rest is what `steps.run` asks of an engine: one batch through the model with its records done (`forward`), a
-generation (`generate`), the model's own unembedding (`readout`), what it cannot serve, layer by layer
-(`unserved`), where a component falls in its forward (`rank`, any sortable value), its sizes, its tokenizer, and
-the ids its generation stops on (`eos`).
+rest is what `steps.run` asks of an engine: one batch through the model with a bound schedule executed (`forward`),
+a generation (`generate`), the model's own unembedding (`readout`), what it cannot serve, layer by layer
+(`unserved`), where a component falls in its forward (`rank`, any sortable value, which preflight reads once per
+site to write the schedule's order), its sizes, its tokenizer, and the ids its generation stops on (`eos`).
 
-The records are one list in the order a step's entries run: a write (it has `ops`) or a read (it has none),
-each at a site. A forward visits the sites in its own forward order and does each site's records there in
-turn, a write on the value as the records before it left it and a read taking that value, with
-`batches.visit(value, component, records, got)`; it gathers nothing a record does not ask for, and computes
-nothing past its deepest site, by `rank`: it stops right after it (an engine that runs on returns the same
-values, later); a generation runs whole. A write's op argument may be `{"live": <read name>}`: the value of a
-read the same call has already made (`got[<read name>]`), which `batches.visit` resolves. Preflight has
-checked, by `rank`, that the read's site comes first; an engine that runs the plan without `clab.steps` must
-resolve such an argument the same way. An engine holds its model and
+A bound schedule (`batches.bind`) is a forward's `schedule` bound to one batch: `sites`, each its `component` and
+`layer` and its `records`, the sites in this engine's forward order and the records in the order they are done
+at each, a write (it has `ops`) or a read (it has `name`); `stop`, the site a forward ends at, or None; and for a
+generation `loop`, the forward calls to run the records at (None: every one), and `online`, whether a write is
+found call by call from the inputs fed so far. An engine reaches each site's module in turn and does its records
+there with `batches.visit(value, component, records, got)`, a write on the value as the records before it left
+it and a read taking that value into `got` under its name, and decides nothing: it visits what the schedule
+lists, in its order, gathers nothing a record does not ask for, and ends the forward right after `stop` where it
+declares that it `stops` (a class attribute; an engine that runs on returns the same values, later); a generation
+runs whole, each call doing what `batches.now` and `batches.landed` say of the records. A write's op argument may
+be `{"live": <read name>}`: the value of a read the same call has already made (`got[<read name>]`), which
+`batches.visit` resolves; the schedule has the read's site first. An engine holds its model and
 its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
 block it loaded, `name` the name it registered under, `device` and `options` how it loaded, `remote` what its
-session's `remote=` is (False for a run in this process), and `cuda` the CUDA devices a step's cost measures the
-peak memory of: the model's, or none where the run is remote (the server's process is its own to account).
+session's `remote=` is (False for a run in this process), `stops` whether it honours the schedule's stop, and
+`cuda` the CUDA devices a step's cost measures the peak memory of: the model's, or none where the run is remote
+(the server's process is its own to account).
 """
 
 import inspect
@@ -60,6 +64,7 @@ class Engine(Protocol):
     model: Parameterized
     options: dict[str, Any]
     remote: bool | str
+    stops: bool
 
     @property
     def device(self) -> str | None: ...
@@ -69,9 +74,9 @@ class Engine(Protocol):
 
     def execute(self, plan: Plan, *, batch_size: int = 8) -> Plan: ...
 
-    def forward(self, batch: dict[str, Tensor], records: list[dict]) -> dict[str, Tensor]: ...
+    def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]: ...
 
-    def generate(self, batch: dict[str, Tensor], records: list[dict],
+    def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],
                  options: dict[str, Any]) -> tuple[Tensor, dict[str, Any]]: ...
 
     def readout(self, hidden: Tensor) -> Tensor: ...

@@ -149,11 +149,13 @@ uv run clab table out/generate_probe p_answer --csv      # the same as CSV on st
 ```
 
 `show` prints the run's engine, device and options, batch size, start time and seconds, the served dtype and
-devices, the versions (and where the run stopped, if a step ran out of CUDA memory), then one line per step and
-point with what it cost (its seconds, its peak memory on each CUDA device, the model calls it made and the tokens
-they fed), one line per entry and point with the positions it resolved to on each row (one list where every row
-agrees), then one line per saved value: the step that made it, its `dims`, its sweep axes and its shape (counted
-over its points when swept: `3 points, each [4, 1]`; the manifest holds each point's).
+devices, the versions (and where the run stopped, if a step ran out of CUDA memory), then one line per run of a
+step, at the point that ran it, with the points it served (one forward serves every point of a step that differs
+from the others in what it reads alone: `all 3 points`) and what it cost (its seconds, its peak memory on each CUDA
+device, the model calls it made and the tokens they fed), one line per entry and point with the positions it
+resolved to on each row (one list where every row agrees), then one line per saved value: the step that made it,
+its `dims`, the sweep axes it depends on and its shape (counted over its points when swept: `3 points, each [4,
+1]`; the manifest holds each point's).
 `table` prints `plan.table(name, ...)`: a row per example and position (`pos`/`pos_token`, and in a
 generation the forward `call` that holds it), the point's coordinates `at` when the step is swept, the
 dataset columns the step used, and one column per name; a row a read beyond the prefill did not reach says
@@ -173,6 +175,9 @@ plan                                 # Plan(patching, run on nnterp, 2 results)
 
 swept = clab.run("documents/pos_sweep.json")
 swept.results["iia"][-2]             # the point where the patch landed at pos -2: tensor [4, 1]
+probe = clab.run("documents/generate_probe.json")
+probe.results["p_answer"][1]         # at frame 1, where the head was read at decode call 1: tensor [4, 1]
+probe.results["patched"]             # the ids, tensor [4, 3]: one generation served the three frames
 
 back = Plan.load("out/patching")     # the filled plan again, from its directory
 back.table("iia", "logit_diff")      # one row per example: row, pos, pos_token, iia, logit_diff, the columns used
@@ -194,9 +199,10 @@ filled.dump("out/pos_sweep")
 
 A plan's methods are views and serialization, never execution: `compile`, `dump`, `Plan.load`, `write` (the
 plan as a JSON document, in its current state), `table`; `plan.run` says how it ran (engine, batch size,
-device and every engine option; the versions, dtype and devices where the model was; timing, and what each step
-cost in `plan.run.costs`: its seconds, its peak memory on each CUDA device, weights included, its model calls and
-the tokens they fed; how each input tokenized). `clab.describe()` prints the format's tables.
+device and every engine option; the versions, dtype and devices where the model was; timing, and what each run of
+each step cost in `plan.run.costs`: its seconds, its peak memory on each CUDA device, weights included, its model
+calls and the tokens they fed, and the points it served; how each input tokenized). `clab.describe()` prints the
+format's tables.
 
 ## The package
 
@@ -209,9 +215,9 @@ its labels in the output), so a change to a feature stays in its module:
 | `format/` | the vocabulary a document is written in: the locations (`address`), the selector grammar (`selectors`), signatures as contracts (`registry`), sweeps (`sweeps`), datasets and inputs (`data`) |
 | `featurizers/`, `ops/` | the featurizer kinds and their bundles (`bundles`); the op vocabulary, one plain function per op, which names the kinds |
 | `plan.py` | the records a document is made of and the `Plan` that holds them: the hub every layer above imports, sitting above the ops and kinds its records validate |
-| `compile/` | what it means, decided before any forward: the compile driver, `preflight` (the second pass, with the model in hand), their state (`state`), and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands), `uses` (a featurizer's uses in a plan: its width at every site, its bundle's header against them, the instance the run makes) |
-| `steps/` | the run inside the session: the driver with the forward and op kinds, `batches` (everything an engine calls: an entry bound to a batch, `visit`, and what a generation does at each call), `generate`, `fit` |
-| `engines/` | the protocol and the three engines, each holding a model and nothing else |
+| `compile/` | what it means, decided before any forward: the compile driver (the sweep axes each value depends on among them), `preflight` (the second pass, with the model in hand), their state (`state`), and `answers` (a column scored against a vocabulary), `positions` (`pos` resolved per row), `arguments` (an op's arguments against what compile knows), `interventions` (an entry, its brackets and operands), `schedule` (the forward as a compiled schedule: which points one forward serves, the sites it visits in the engine's order and the records done at each), `uses` (a featurizer's uses in a plan: its width at every site, its bundle's header against them, the instance the run makes) |
+| `steps/` | the run inside the session: the driver with the forward and op kinds, `batches` (everything an engine calls: a schedule bound to a batch, `visit`, and what a generation does at each call), `generate`, `fit` |
+| `engines/` | the protocol and the three engines, each holding a model and nothing else, executing a bound schedule and deciding nothing |
 | `output/` | a run's directory and back, and `table` |
 | `cli.py`, `docs.py` | the command line; `describe` and FORMAT.md |
 
@@ -244,7 +250,10 @@ named in every error.
 ## The output
 
 One file per saved name: `<name>.safetensors` when the value is a tensor or a dict of tensors, `<name>.json`
-otherwise. A swept value is one file keyed by coordinate (`pos=-1`, `pos=-2`, ...). `manifest.json` is the
+otherwise. A swept value is one file keyed by coordinate (`pos=-1`, `pos=-2`, ...) on the sweep axes it depends
+on (`axes`: a read's own sweeps, those of what its ops name, and its forward's, which are its writes'; so a read
+swept over layers beside writes that do not vary is one entry per layer, and a generation's ids one tensor
+whatever its reads sweep). `manifest.json` is the
 plan itself, without the rows it read from files (a hub dataset's never were in the plan), with each result
 replaced by where it is and what it is:
 
@@ -257,9 +266,12 @@ replaced by where it is and what it is:
 `step` names the step that made the value, and `dims` and the labels after it are the value's layout as its
 record holds it (`dataset`, `layers`, `read`, `kept`, `space`, those it has; per coordinate, like `shape`, where
 a swept step's points differ). The manifest's `steps` hold each step as the run completed it (its entries one dict
-in execution order, each with its labels, marked `gathered` when the run takes its value off the model, and with
-the `positions` every read and write resolved to per row, which is how `table` labels `pos_token`), so a result
-links back to what computed it. `run.tokens` holds each input's tokens per row.
+in execution order, each with its labels and `axes`, marked `gathered` when the run takes its value off the model,
+and with the `positions` every read and write resolved to per row, which is how `table` labels `pos_token`; a
+forward's or generation's `schedule`: at a point another point's forward served, that point's coordinates
+(`serving`), and at a point that ran its forward, the sites the forward visited in the engine's order with the
+records done at each and where it stopped), so a result links back to what computed it. `run.tokens` holds each
+input's tokens per row.
 
 A row's positions are its input tokens, all of them, in order from 0: BOS where the tokenizer adds one (so
 `pos: 0` is BOS on Llama, the first word on GPT-2), a chat template's markers, everything but padding, an

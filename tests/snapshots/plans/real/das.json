@@ -75,7 +75,10 @@
      "gathered": true
     }
    },
-   "dataset": "train"
+   "dataset": "train",
+   "schedule": {
+    "axes": []
+   }
   },
   "fit": [
    {
@@ -114,6 +117,9 @@
        {
         "featurizer": "fit.rot"
        }
+      ],
+      "axes": [
+       "k"
       ],
       "at": {
        "k": 0
@@ -178,7 +184,10 @@
          8
         ],
         "read": "patched.patch",
-        "width": 1
+        "width": 1,
+        "axes": [
+         "k"
+        ]
        },
        "logits": {
         "site": {
@@ -193,13 +202,21 @@
         "dataset": "train",
         "read": "patched.logits",
         "width": 1,
+        "axes": [
+         "k"
+        ],
         "gathered": true
        }
       },
       "at": {
        "k": 0
       },
-      "dataset": "train"
+      "dataset": "train",
+      "schedule": {
+       "axes": [
+        "k"
+       ]
+      }
      },
      "iia": {
       "kind": "op",
@@ -213,6 +230,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 0
       }
@@ -229,6 +249,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 0
       }
@@ -280,6 +303,9 @@
         "featurizer": "fit.rot"
        }
       ],
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 1
       }
@@ -343,7 +369,10 @@
          8
         ],
         "read": "patched.patch",
-        "width": 1
+        "width": 1,
+        "axes": [
+         "k"
+        ]
        },
        "logits": {
         "site": {
@@ -358,13 +387,21 @@
         "dataset": "train",
         "read": "patched.logits",
         "width": 1,
+        "axes": [
+         "k"
+        ],
         "gathered": true
        }
       },
       "at": {
        "k": 1
       },
-      "dataset": "train"
+      "dataset": "train",
+      "schedule": {
+       "axes": [
+        "k"
+       ]
+      }
      },
      "iia": {
       "kind": "op",
@@ -378,6 +415,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 1
       }
@@ -394,6 +434,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 1
       }
@@ -445,6 +488,9 @@
         "featurizer": "fit.rot"
        }
       ],
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 2
       }
@@ -508,7 +554,10 @@
          8
         ],
         "read": "patched.patch",
-        "width": 1
+        "width": 1,
+        "axes": [
+         "k"
+        ]
        },
        "logits": {
         "site": {
@@ -523,13 +572,21 @@
         "dataset": "train",
         "read": "patched.logits",
         "width": 1,
+        "axes": [
+         "k"
+        ],
         "gathered": true
        }
       },
       "at": {
        "k": 2
       },
-      "dataset": "train"
+      "dataset": "train",
+      "schedule": {
+       "axes": [
+        "k"
+       ]
+      }
      },
      "iia": {
       "kind": "op",
@@ -543,6 +600,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 2
       }
@@ -559,6 +619,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 2
       }
@@ -610,6 +673,9 @@
         "featurizer": "fit.rot"
        }
       ],
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 3
       }
@@ -673,7 +739,10 @@
          8
         ],
         "read": "patched.patch",
-        "width": 1
+        "width": 1,
+        "axes": [
+         "k"
+        ]
        },
        "logits": {
         "site": {
@@ -688,13 +757,21 @@
         "dataset": "train",
         "read": "patched.logits",
         "width": 1,
+        "axes": [
+         "k"
+        ],
         "gathered": true
        }
       },
       "at": {
        "k": 3
       },
-      "dataset": "train"
+      "dataset": "train",
+      "schedule": {
+       "axes": [
+        "k"
+       ]
+      }
      },
      "iia": {
       "kind": "op",
@@ -708,6 +785,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 3
       }
@@ -724,6 +804,9 @@
       "dataset": "train",
       "read": "patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "at": {
        "k": 3
       }
@@ -782,13 +865,19 @@
         "featurizer": "fit.rot"
        }
       ],
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 0
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "axes": []
+    }
    },
    {
     "kind": "forward",
@@ -831,6 +920,9 @@
        {
         "featurizer": "fit.rot"
        }
+      ],
+      "axes": [
+       "k"
       ],
       "gathered": true
      }
@@ -838,7 +930,12 @@
     "at": {
      "k": 1
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "serving": {
+      "k": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -881,6 +978,9 @@
        {
         "featurizer": "fit.rot"
        }
+      ],
+      "axes": [
+       "k"
       ],
       "gathered": true
      }
@@ -888,7 +988,12 @@
     "at": {
      "k": 2
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "serving": {
+      "k": 0
+     }
+    }
    },
    {
     "kind": "forward",
@@ -932,13 +1037,21 @@
         "featurizer": "fit.rot"
        }
       ],
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 3
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "serving": {
+      "k": 0
+     }
+    }
    }
   ],
   "held_patched": [
@@ -1001,7 +1114,10 @@
        8
       ],
       "read": "held_patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "k"
+      ]
      },
      "logits": {
       "site": {
@@ -1016,13 +1132,21 @@
       "dataset": "test",
       "read": "held_patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 0
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "axes": [
+      "k"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -1083,7 +1207,10 @@
        8
       ],
       "read": "held_patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "k"
+      ]
      },
      "logits": {
       "site": {
@@ -1098,13 +1225,21 @@
       "dataset": "test",
       "read": "held_patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 1
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "axes": [
+      "k"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -1165,7 +1300,10 @@
        8
       ],
       "read": "held_patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "k"
+      ]
      },
      "logits": {
       "site": {
@@ -1180,13 +1318,21 @@
       "dataset": "test",
       "read": "held_patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 2
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "axes": [
+      "k"
+     ]
+    }
    },
    {
     "kind": "forward",
@@ -1247,7 +1393,10 @@
        8
       ],
       "read": "held_patched.patch",
-      "width": 1
+      "width": 1,
+      "axes": [
+       "k"
+      ]
      },
      "logits": {
       "site": {
@@ -1262,13 +1411,21 @@
       "dataset": "test",
       "read": "held_patched.logits",
       "width": 1,
+      "axes": [
+       "k"
+      ],
       "gathered": true
      }
     },
     "at": {
      "k": 3
     },
-    "dataset": "test"
+    "dataset": "test",
+    "schedule": {
+     "axes": [
+      "k"
+     ]
+    }
    }
   ],
   "held_iia": [
@@ -1284,6 +1441,9 @@
     "dataset": "test",
     "read": "held_patched.logits",
     "width": 1,
+    "axes": [
+     "k"
+    ],
     "at": {
      "k": 0
     }
@@ -1300,6 +1460,9 @@
     "dataset": "test",
     "read": "held_patched.logits",
     "width": 1,
+    "axes": [
+     "k"
+    ],
     "at": {
      "k": 1
     }
@@ -1316,6 +1479,9 @@
     "dataset": "test",
     "read": "held_patched.logits",
     "width": 1,
+    "axes": [
+     "k"
+    ],
     "at": {
      "k": 2
     }
@@ -1332,6 +1498,9 @@
     "dataset": "test",
     "read": "held_patched.logits",
     "width": 1,
+    "axes": [
+     "k"
+    ],
     "at": {
      "k": 3
     }

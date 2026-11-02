@@ -67,7 +67,10 @@
      "gathered": true
     }
    },
-   "dataset": "chats"
+   "dataset": "chats",
+   "schedule": {
+    "axes": []
+   }
   },
   "p_answer": {
    "kind": "op",

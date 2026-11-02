@@ -407,13 +407,13 @@ scored on the training rows after each epoch.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout)
+- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, or a later entry or step uses it), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
 - `Op`: `dims` (the layout of the op's value, at each layer the entry is made at (the op after it meets it; the first meets the site's selection)), `space` (the coordinates the op's value is in: the encodes open after it, outermost first, each its `featurizer` and `select`; none in the site's own layout)
-- `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to)
-- `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over)
+- `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
+- `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere); a saved bundle's header records it)
 
@@ -831,9 +831,9 @@ server, and the results and the run record come home. The server holds the weigh
 deployment does, so on a server a quantized `dtype` is refused by name, and the engine takes no `tp`. The server's
 address and API key are nnsight's own (`nnsight.CONFIG`, or its environment variables). `remote="local"` runs
 nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
-forwards run whole, under either `remote`: in an NDIF server's model process nnsight keeps a stopped forward's
-frames, and every activation in them, in reference cycles out of the engine's reach, so the nnterp engine's stop
-waits for nnsight to clear them.
+forwards run whole, under either `remote` (the engine declares that it does not honour the schedule's stop,
+`stops`): in an NDIF server's model process nnsight keeps a stopped forward's frames, and every activation in
+them, in reference cycles out of the engine's reach, so the stop waits for nnsight to clear them.
 
 ## Names and scoping
 
@@ -867,8 +867,20 @@ cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a w
 each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
 of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
 points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
-sweep touches runs once. A saved value of a swept step is a dict keyed by coordinate: the axis's value, or a
-tuple of them in axis order.
+sweep touches runs once.
+
+A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
+own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops
+name, and, for an entry of a forward, the forward's own, which are the step's options' and its writes' (each
+write's site, positions, ops up to its last edit and their operands; an operand from an earlier entry of the
+forward counts that entry's); an op step's value depends on its `of`'s and its operands' axes beside its own
+sweeps, and a fit's members on the fit's. So a read of a forward whose writes do not vary depends on its own
+sweeps alone, and a generation's ids on the forward's. A value is made once per distinct point on its axes,
+and a saved value is a dict keyed by coordinate on those axes (the axis's value, or a tuple of them in axis
+order), the value itself where it depends on none; so a read swept over layers beside writes that do not vary
+is a dict by layer, and a sampled generation whose points differ in reads alone is one sample. Two points of a
+forward or generate step run one forward exactly when they agree on the forward's axes (`schedule`): a sweep
+on what a step reads runs one forward, a sweep on what it writes one per point.
 
 ## Saves and the output
 
@@ -876,8 +888,9 @@ A run's output directory and back.
 
 One file per save, named after it: `<name>.safetensors` when the value is a tensor or a dict of tensors (a
 bundle, `top_k`'s ids and probabilities), `<name>.json` otherwise, tensors in it as nested lists. A swept
-save holds one entry per point, keyed by its coordinate, `pos=-1` (`layers=0,pos=-1` over two axes), in
-safetensors and JSON alike, a dict's own keys after a `/`. A file is the value and
+save holds one entry per point of the value's own axes (`axes`: those of its step's it depends on), keyed by its
+coordinate, `pos=-1` (`layers=0,pos=-1` over two axes), in safetensors and JSON alike, a dict's own keys after a
+`/`. A file is the value and
 nothing else, except that a bundle a featurizer loads (the value of an op that declares one, `pca`, and a
 fit's trained featurizer) carries the header that featurizer checks; a swept one holds each point's header keys
 after its coordinate and a `/`, as its tensors are (`rank=2/rank`), beside one `format`.
@@ -887,13 +900,14 @@ never were there; `table` loads either again, from its file or the hub, and chec
 `dump` does a probe's classes dataset for the header of the bundle it saves) and without bundle tensors, its
 `results` each replaced by `{file, step, dims, <its labels>, axes, shape, dtype}`: the value's layout and labels as
 its record holds them (`dims`, and those it has of `dataset`, `layers`, `read`, `width`, `kept`, `space`), once
-where every point agrees, else per point by coordinate, as `shape` and `dtype` are, so that a result links back to
-the step that made it and says what each point of it is. It records the document's path relative to the corpus
-root, and each dataset's `n_rows`. The plan's `steps` hold each record with its labels and, on every read and
-write, the positions it resolved to per row, which `table` uses to label positions; its `featurizers` each one's
-width; its `run` holds how each input tokenized, what each generate step's rows generated, the model's sizes, and
-what each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls and the tokens
-they fed). Values are never in the manifest.
+where every point agrees, else per point by coordinate, as `shape` and `dtype` are, and `axes`, the sweep axes the
+value depends on, so that a result links back to the step that made it and says what each point of it is. It
+records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
+each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
+to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
+did; its `featurizers` each one's width; its `run` holds how each input tokenized, what each generate step's rows
+generated, the model's sizes, and what each run of each step cost (`costs`: its seconds, its peak memory on each
+CUDA device, its model calls and the tokens they fed, and the points it served). Values are never in the manifest.
 
 The saved values `names` as rows, joined wide on the keys they share, one column per name.
 

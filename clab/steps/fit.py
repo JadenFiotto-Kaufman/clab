@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections import ChainMap, Counter
+from collections import ChainMap
 from typing import TYPE_CHECKING, Any, cast
 
 import torch
 from torch import Tensor
 
+from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.featurizers import Kind
@@ -21,12 +22,13 @@ if TYPE_CHECKING:
 OPTIMIZERS = {"adamw": torch.optim.AdamW, "adam": torch.optim.Adam, "sgd": torch.optim.SGD}
 
 
-def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch_size: int, found: Found) -> Counter:
+def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch_size: int, found: Found,
+        cost: dict[str, Any]) -> None:
     """Train the featurizers `train` names, then score the body once per named `eval` (`plan.Fit` says what
     each part means). The optimizer and every trained featurizer are made here, inside the run; each minibatch's
     gradients are `torch.autograd.grad` of the objective for the featurizers' tensors alone, so the model's
     weights never hold a gradient. The featurizers are made where the model is, so the optimizer runs there.
-    Returns the model calls every run of its body made and the tokens they fed."""
+    Every run of its body adds the model calls it made and the tokens they fed to the fit's `cost`."""
     sources = lookup(found.bodies, name, step.at)
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
@@ -35,10 +37,12 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
+    # What each body forward reads, once for every run of the body: its records are the same under every eval.
+    reading = {n: gathered(sources["train"][0], n, s) for n, s in step.steps.items() if isinstance(s, Forward)}
     n = len(held_rows(sources["train"][0], datasets(step)[0]))
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
-    best, since, kept, count = None, 0, None, Counter()
+    best, since, kept = None, 0, None
     for epoch in range(epochs):
         for f in trained.values():
             f.anneal(epoch, epochs)
@@ -48,8 +52,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
             with torch.enable_grad():
                 for f in trained.values():
                     f.settle()
-            body, made = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + size])
-            count += made
+            body = body_run(engine, name, step, state, trained, sources["train"], order[lo:lo + size], cost, reading)
             with torch.enable_grad():
                 loss = sum(cast(float, weight) * term(body, trained, t, step.at)
                            for t, weight in step.objective.items())
@@ -62,8 +65,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
                 f.project()
         for f in trained.values():
             f.settle()
-        scored, made = body_run(engine, name, step, state, trained, sources["train"], None)
-        count += made
+        scored = body_run(engine, name, step, state, trained, sources["train"], None, cost, reading)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
@@ -84,8 +86,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
         vars(inst).update(kept[f] if kept else {})
         inst.settle()
     for label in step.eval:
-        final, made = body_run(engine, name, step, state, trained, sources["evals"][label], None)
-        count += made
+        final = body_run(engine, name, step, state, trained, sources["evals"][label], None, cost, reading)
         for key, s in step.steps.items():
             members = [key] if isinstance(s, OpStep) else []
             members += [f"{key}.{k}" for k, e in entries(s).items() if e.gathered]
@@ -96,16 +97,16 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
         put(state, f"{name}.{f}", step.at, inst)
     for key, values in history.items():         # `epochs: 0` scores the untrained draw: an empty history
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
-    return count
 
 
 def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind],
-             source: tuple[Plan, Found], ids: list[int] | None) -> tuple[ChainMap, Counter]:
+             source: tuple[Plan, Found], ids: list[int] | None, cost: dict[str, Any],
+             reading: dict[str, dict]) -> ChainMap:
     """A fit's body over every row `source` holds (its training rows or eval's), or the minibatch of dataset row ids
     `ids`, in a scope of its own that falls back to `state` and carries those ids (`batches.ROWS`: what its values'
-    rows are), each trained featurizer under its declared name and `<fit>.<name>`. With a minibatch it trains:
-    gradients on, gates soft; otherwise it scores. Returns the body's namespace, and the model calls its steps made
-    and the tokens they fed."""
+    rows are), each trained featurizer under its declared name and `<fit>.<name>`, each body forward given what it
+    reads (`reading`, by name). With a minibatch it trains: gradients on, gates soft; otherwise it scores. Returns
+    the body's namespace; the model calls its steps made and the tokens they fed add to the fit's `cost`."""
     plan, found = source
     body = state.new_child({ROWS: ids} if ids is not None else {})
     for f, inst in trained.items():
@@ -114,11 +115,11 @@ def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
         put(body, f, {}, inst)
         put(body, f"{name}.{f}", {}, inst)
     from clab.steps import KINDS
-    count = Counter()
     with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
-            count += KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found)
-    return body, count
+            KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found, cost,
+                                      *([reading[n]] if n in reading else []))
+    return body
 
 
 def datasets(step: Fit) -> list[str]:

@@ -52,7 +52,10 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": []
+   }
   },
   "adapted": {
    "kind": "forward",
@@ -104,7 +107,10 @@
      "gathered": true
     }
    },
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": []
+   }
   },
   "clean_ld": {
    "kind": "op",
@@ -171,7 +177,10 @@
    },
    "max_new_tokens": 4,
    "do_sample": false,
-   "dataset": "test"
+   "dataset": "test",
+   "schedule": {
+    "axes": []
+   }
   },
   "said": {
    "kind": "op",

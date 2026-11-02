@@ -51,7 +51,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "clean_ld": {
    "kind": "op",
@@ -104,7 +107,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "patched": {
    "kind": "forward",
@@ -155,7 +161,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "iia": {
    "kind": "op",
@@ -233,7 +242,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "ablation_ld": {
    "kind": "op",

@@ -36,7 +36,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "clean": {
    "kind": "forward",
@@ -71,7 +74,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "patched": {
    "kind": "forward",
@@ -135,7 +141,10 @@
      "gathered": true
     }
    },
-   "dataset": "pairs"
+   "dataset": "pairs",
+   "schedule": {
+    "axes": []
+   }
   },
   "similarity": {
    "kind": "op",

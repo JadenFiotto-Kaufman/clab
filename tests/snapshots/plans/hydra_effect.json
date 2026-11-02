@@ -36,7 +36,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "clean": {
    "kind": "forward",
@@ -96,7 +99,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "ablated": {
    "kind": "forward",
@@ -166,7 +172,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "inj0_clean": {
    "kind": "forward",
@@ -217,7 +226,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "inj1_clean": {
    "kind": "forward",
@@ -268,7 +280,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "inj1_abl": {
    "kind": "forward",
@@ -319,7 +334,10 @@
      "gathered": true
     }
    },
-   "dataset": "sample"
+   "dataset": "sample",
+   "schedule": {
+    "axes": []
+   }
   },
   "te_clean": {
    "kind": "op",

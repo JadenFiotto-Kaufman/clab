@@ -9,8 +9,8 @@ from torch import Tensor
 from clab import ops
 from clab.compile import materialized, positions
 from clab.format import data
-from clab.format.sweeps import agreeing, by_point, labelled
-from clab.plan import Intervention, Labelled, Plan, arguments, body_view, entries, entry_of, points, record_of, walk
+from clab.format.sweeps import agreeing, labelled, projected
+from clab.plan import Intervention, Labelled, Plan, arguments, body_view, by_point, entries, entry_of, points, projections, record_of, walk
 
 # The column a value's example and token axes are tabled under.
 COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
@@ -68,8 +68,8 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
 
 
 def keyed(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
-    """What a saved value's rows are keyed by, as its record says: the labels of its step's sweep axes (its `at`),
-    and its axis columns (`COLUMNS`): for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has
+    """What a saved value's rows are keyed by, as its record says: the labels of the sweep axes it depends on (its
+    `axes`), and its axis columns (`COLUMNS`): for a value with a rows axis `row`, and `layer`, `pos` and `key` where it has
     those axes; for one without, each of its axes under the same names. With a token axis, also what its `pos` and
     `key` count: the positions of the input its read was made on, or, with no rows axis, a plain index along it."""
     first = points(plan.steps[name.partition(".")[0]])[0]
@@ -80,7 +80,7 @@ def keyed(plan: Plan, name: str) -> tuple[list[str], list[str], str | None]:
     if "pos" in dims or "key" in dims:
         counts = "a plain index along it (a value with no rows axis)" if "rows" not in dims else \
             f"positions of {data.input_name(entry_of(plan.steps, cast(str, record.read), first.at)[0].input)}"
-    return list(first.at), axes, counts
+    return list(record.axes), axes, counts
 
 
 def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | None], right: list[dict[str, Any]],
@@ -128,7 +128,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
                     for row in elements(value, dims, None)]
         return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
     out = []
-    for p, (at, value) in zip(points(plan.steps[thing]), by_point(plan, name)):
+    for (_, p), (at, value) in zip(projections(plan, name), by_point(plan, name)):
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
         if isinstance(value, dict) and "rows" not in dims:
@@ -284,8 +284,8 @@ def located(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, Any]:
     read = cast(Intervention, record_of(plan.steps, record.read, at))
     prompt = plan.run.tokens[data.input_name(producer.input)]
     said = plan.run.tokens.get(record.read.partition(".")[0]) if producer.kind == "generate" else None
-    if said is not None and producer.at:
-        said = said[labelled(plan, producer.at)]
+    if said is not None and projected(producer.at, cast(Labelled, producer).axes):
+        said = said[labelled(plan, projected(producer.at, cast(Labelled, producer).axes))]
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,
             "beyond": producer.kind == "generate",
             "keys": read.kept.get("key"),
