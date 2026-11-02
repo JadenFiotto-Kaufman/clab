@@ -25,7 +25,8 @@ client-side objects, and nnsight ships every name a block closes over to whereve
 import os
 import time
 import warnings
-from typing import Any, Callable
+from contextlib import nullcontext
+from typing import Any
 
 import nnsight
 import torch
@@ -37,7 +38,7 @@ from clab import steps
 from clab.engines import engine, standard
 from clab.engines.standard import SIZES, build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.sweeps import points
-from clab.plan import QUANTIZED, Model, Plan
+from clab.plan import QUANTIZED, Model, Plan, entries, gradient_of, walk
 from clab.steps import batches
 from clab.steps.batches import landed, now
 
@@ -71,9 +72,14 @@ class NnterpEngine:
         labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
-        picks the same tokens on every rank, and the run record lists every rank's device."""
+        picks the same tokens on every rank, and the run record lists every rank's device; a `grad` entry is
+        refused by name there before anything runs, since a value the ranks shard has its gradient in pieces."""
         started = steps.begin(self, plan, batch_size, padding)
         ranks = self.options.get("tp", 1)
+        for name, step in walk(plan.steps) if ranks > 1 else ():
+            for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
+                raise ValueError(f"{name}.{key}: the nnterp engine takes no gradient under tp {ranks}, whose ranks "
+                                 "hold a sharded value's gradient in pieces; run it at tp 1")
         if ranks > 1:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
@@ -140,13 +146,19 @@ class NnterpEngine:
         return {k: getattr(self.model, k) for k in SIZES}
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
-        """One trace over the batch, its one forward call done as `visited` says and, where the engine `stops`,
-        ended right after the schedule's stop site (nnsight's `tracer.stop()`; the ndif engine says why it does
-        not)."""
+        """One trace over the batch, its one forward call done as `visited` says up to the schedule's stop site
+        where the engine `stops`, then its gradients taken (`batches.differentiate`, under `torch.enable_grad()` with
+        the forward where the bound schedule has any), and the forward ended there (nnsight's `tracer.stop()`; the
+        ndif engine says why it does not)."""
         got: dict[str, Tensor] = {}
-        with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
-                                     batches.home(self))) as tracer:
-            self.visited(bound["sites"], 0, [], got, bound["stop"] if self.stops else None, tracer.stop)
+        stop = bound["stop"] if self.stops else None
+        with torch.enable_grad() if bound["grad"] else nullcontext():
+            with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
+                                         batches.home(self))) as tracer:
+                self.visited(bound["sites"], 0, [], got, stop)
+                batches.differentiate(got, bound["grad"])
+                if stop is not None:
+                    tracer.stop()
         return got
 
     def generate(self, batch: dict[str, Tensor], bound: dict[str, Any],
@@ -177,11 +189,11 @@ class NnterpEngine:
         return result["ids"][:, batch["input_ids"].shape[1]:], got
 
     def visited(self, sites: list[dict[str, Any]], call: int, seen: list[Tensor], got: dict[str, Any],
-                stop: list | None = None, ended: Callable[[], Any] | None = None) -> None:
+                stop: list | None = None) -> None:
         """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site of the bound
         schedule in its order, doing there what `now` says and, at a decode call, `landed`, from the inputs `seen`
-        so far; right after the `stop` site, where one is given, the forward is `ended` (the trace's stop) and the
-        sites after it are not visited, as the hooks engine's are not."""
+        so far, and setting the value back where `visit` says to; it returns right after the `stop` site, where one
+        is given, and the sites after it are not visited, as the hooks engine's are not."""
         for site in sites:
             component, layer = site["component"], site["layer"]
             here = now(site["records"], call)
@@ -191,8 +203,7 @@ class NnterpEngine:
                 value, wrote = batches.visit(getattr(host, component), component, here, got)
                 if wrote:
                     setattr(host, component, value)
-            if stop is not None and ended is not None and [component, layer] == stop:
-                ended()
+            if [component, layer] == stop:
                 return
 
     def readout(self, hidden: Tensor) -> Tensor:

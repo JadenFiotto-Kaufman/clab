@@ -3,6 +3,7 @@ the ops a write runs there, and a read's value with the ops after its last edit 
 
 from __future__ import annotations
 
+import functools
 from collections import ChainMap
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
@@ -17,7 +18,8 @@ from clab.compile.state import Found
 from clab.format import address, data, selectors
 from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
-from clab.plan import Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, held_rows, record_of
+from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
+                        held_rows, record_of)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -173,16 +175,19 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
     it: its sites in order, each record with what reaches its selection in the padded batch (`site`; at a decode
     call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position), a write with
     its ops bound (`edit`), its decode `calls` and, found `online`, each row's texts to find it by, a read with its
-    name; the `stop` site; and a generation's `loop` and whether any write is `online`. A read is bound at the
-    record of the value it is (`reading`, `schedule.gathered`), and the bound reads are also returned by entry,
-    the value's coordinates and layer, each in the order its parts are done (a forward's one record; beyond a
-    generation's prefill the part over the prompt, where there is one, then the part at its decode calls)."""
+    name (a `grad` entry's marked `capture`); the `stop` site; what the forward differentiates (`grad`, one item
+    per distinct value: `of`, each of its reads' names with the `read` that makes the value from it, and `wrt`, the
+    bound `grad` reads it serves; empty where it takes no gradient); and a generation's `loop` and whether any
+    write is `online`. A read is bound at the record of the value it is (`reading`, `schedule.gathered`), and the
+    bound reads are also returned by entry, the value's coordinates and layer, each in the order its parts are
+    done (a forward's one record; beyond a generation's prefill the part over the prompt, where there is one, then
+    the part at its decode calls)."""
     schedule, span = step.schedule, found.inputs[data.input_name(step.input)]["width"]
     device = home(engine)
     prompts = [len(e["ids"]) for e in data.by_id(found.inputs[data.input_name(step.input)]["rows"], ids)]
     width = prompts[0] + pads[0]            # the batch's: each row's tokens and its padding
     rows = data.by_id(held_rows(plan, cast(str, step.dataset)), ids) if schedule.get("online") else []
-    sites, binds = [], {}
+    sites, binds, named = [], {}, {}
     for s in schedule["sites"]:
         records = []
         for r in s["records"]:
@@ -207,12 +212,19 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
                                        "eos": sorted(stops(engine, cast(Generate, step)))}
             else:
                 bound["name"] = r["name"]
+                if gradient_of(record) is not None:
+                    bound["capture"] = True
                 binds.setdefault((key, tuple(r["at"].items()), s["layer"]), []).append(bound)
+                named[r["name"]] = (bound, record, reading[key, tuple(r["at"].items())][2])
             if "calls" in r:
                 bound["calls"] = r["calls"]
             records.append(bound)
         sites.append({"component": s["component"], "layer": s["layer"], "records": records})
-    return {"sites": sites, "stop": schedule["stop"], "loop": schedule.get("loop"),
+    grad = [{"of": [(n, functools.partial(read, engine, plan, named[n][1], site=named[n][0], ids=ids, state=state,
+                                          at=named[n][2].at, found=found, layer=named[n][0]["layer"]))
+                    for n in g["of"]],
+             "wrt": [named[n][0] for n in g["wrt"]]} for g in schedule.get("grad", [])]
+    return {"sites": sites, "stop": schedule["stop"], "grad": grad, "loop": schedule.get("loop"),
             "online": schedule.get("online", False)}, binds
 
 
@@ -402,9 +414,13 @@ def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
 
 
 def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tuple[Tensor, bool]:
-    """`value` with a site's records done in listed order, and whether any wrote: a write's ops run on its
-    selection of the current value, out of place, and the result lands there; a read takes its selection of
-    the current value into `got` under its name (at a decode call, appended: one per call it reads).
+    """`value` with a site's records done in listed order, and whether the engine sets it back (a record wrote, or
+    captured it): a write's ops run on its selection of the current value, out of place, and the result lands
+    there; a read takes its selection of the current value into `got` under its name (at a decode call, appended:
+    one per call it reads). A `grad` read (`capture`) puts there the current value whole instead, the tensor the
+    forward goes on with, made a leaf that requires grad where it requires none, so that the graph starts at the
+    shallowest such site; `differentiate` takes its gradient after the forward, and a later write here works on a
+    copy of it, so that its gradient passes through the write.
 
     `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
     the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
@@ -420,16 +436,21 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     axis = pos_axis(component)
     before = x = value.movedim(axis, 1)
     rows = torch.arange(x.shape[0], device=x.device)[:, None]
-    wrote = False
+    wrote = copied = False      # copied: `x` is this visit's own copy, which a write may change in place
     for w in records:
         if "ops" not in w:
-            if "calls" in w:
+            if w.get("capture"):
+                if not x.requires_grad:
+                    leaf = x.detach().requires_grad_()
+                    before, x = (leaf if before is x else before), leaf
+                got[w["name"]], wrote, copied = x, True, False
+            elif "calls" in w:
                 got.setdefault(w["name"], []).append(taken(x, w))
             else:
                 got[w["name"]] = taken(x, w)
             continue
-        if not wrote:
-            x, wrote = before.clone(), True
+        if not copied:
+            x, wrote, copied = x.clone(), True, True
         pos = w["positions"].to(x.device)
         current = x[rows, pos]
         new, original = owned(current, w), owned(before[rows, pos], w)
@@ -466,6 +487,29 @@ def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict, places: 
         start = start if features is None else start.index_select(-1, features.to(start.device))
         new = f.within(new, lambda z, start=start, inner=o["inner"]: edited(z, start, inner, got, places), features)
     return new
+
+
+def differentiate(got: dict[str, Any], grad: list[dict]) -> None:
+    """What a forward's `grad` reads are, taken once the forward has reached its stop site, into `got`: for each item
+    of the bound schedule's `grad` (`bind`), the sum of its value over every axis, made by `read` from the reads
+    `got` holds (a missing entry, NaN, adds nothing), and one `torch.autograd.grad` of it for the values `visit`
+    captured for the `grad` reads it serves, each read's gradient (zero where the sum does not depend on the value)
+    selected and positioned as its record says (`taken`) under its name. Every value `got` holds is then detached,
+    so that no graph outlives the call. A forward that takes no gradient is left as it is."""
+    if not grad:
+        return
+    captured = {r["name"]: got[r["name"]] for g in grad for r in g["wrt"]}
+    with torch.enable_grad():
+        for i, g in enumerate(grad):
+            scalar = sum(made(got[name]).float().nansum() for name, made in g["of"])
+            values = list({id(v): v for v in (captured[r["name"]] for r in g["wrt"])}.values())
+            computed = torch.autograd.grad(scalar, values, retain_graph=i + 1 < len(grad), allow_unused=True) \
+                if isinstance(scalar, Tensor) and scalar.requires_grad else [None] * len(values)
+            of_value = {id(v): torch.zeros_like(v) if d is None else d for v, d in zip(values, computed)}
+            for r in g["wrt"]:
+                got[r["name"]] = taken(of_value[id(captured[r["name"]])], r)
+    for name, value in got.items():
+        got[name] = value.detach() if isinstance(value, Tensor) else value
 
 
 def live(got: dict, operand: dict) -> Tensor:
