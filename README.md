@@ -123,7 +123,7 @@ Across techniques:
 - [Fits](docs/usage/fit.md): a `fit` step trains featurizers inside the run, through the frozen model.
 - [Bundles](docs/usage/bundles.md): a trained featurizer is saved as a file that another document loads, its header checked against that document before anything runs.
 - [Engines](docs/usage/engines.md): `nnterp` (the default), `hooks` (plain transformers with forward hooks, to cross-check) and `ndif`.
-- [Quantized and sharded models](docs/usage/engines.md): a `model.dtype` of `nf4`, `fp4`, `int8` or `fp8`, and `-o tp=N` under torchrun to shard a model over N ranks.
+- [Quantized and sharded models](docs/usage/engines.md#quantized-and-sharded-models): a `model.dtype` of `nf4`, `fp4`, `int8` or `fp8`, and `-o tp=N` under torchrun to shard a model over N ranks.
 
 ## Install
 
@@ -134,9 +134,9 @@ uv sync
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the documents under `documents/` run on CPU
-on tiny random-weight checkpoints, and those under `documents/real/` run Llama-3.2-1B, a gated checkpoint, and
-want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
+`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (45 in all) runs on CPU
+on tiny random-weight checkpoints, and the five under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
+and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.
 
 ## Run on an NDIF server
