@@ -31,7 +31,7 @@ The hooks engine reaches the model another way: `register_forward_hook` and `reg
 
 ### Comparing two runs to the bit
 
-Two runs agree to the bit when their value files do. Every file in the output directory but `manifest.json` holds values, so compare those byte for byte; the manifest always differs, since it records the engine and the time:
+Two runs agree to the bit when their value files do. Every file in the output directory but `manifest.json` holds values or, in `tokens.json`, the tokens, which one checkpoint's tokenizer makes alike, so compare those byte for byte; the manifest always differs, since it records the engine and the time:
 
 ```text
 for f in out/nnterp/*; do [ "${f##*/}" = manifest.json ] || cmp "$f" "out/hooks/${f##*/}"; done
@@ -46,7 +46,7 @@ $ clab run documents/attention_query.json --engine hooks
 clab: counterfactual.v_cf: the hooks engine does not serve attention_queries: nnterp reads it inside a module's forward (source.attention_interface_1.inputs), not at a module boundary
 ```
 
-Preflight raises it, after the model has loaded and before any forward. Both engines also answer layer by layer from nnterp's one answer of what each block holds: on a hybrid whose blocks are of two kinds, a component is served at the blocks that have its module and refused at the others, by the same reason on both. On the tiny `yujiepan/qwen3-next-moe-tiny-random`, whose layers 0 to 2 are linear attention and layer 3 full attention, `attention_output` at layer 3 is byte-identical on nnterp and hooks, and at layer 0 both refuse it (`r.x: the nnterp engine does not serve attention_output: no self_attn module on this block`). `attention_premix`, `mlp_activation` and the residual-stream components are module boundaries, and hooks serves them. Without `attn_implementation: "eager"` in the model block, both engines refuse the same six interior components: nnterp with a reason that asks for eager ([sites.md](sites.md#attention-needs-eager)), hooks with the one above, under either attention implementation.
+Preflight raises it, after the model has loaded and before any forward. Both engines also answer layer by layer from nnterp's one answer of what each block holds: on a hybrid whose blocks are of two kinds, a component is served at the blocks that have its module and refused at the others, by the same reason on both. On the tiny `yujiepan/qwen3-next-moe-tiny-random`, whose layers 0 to 2 are linear attention and layer 3 full attention, `attention_output` at layer 3 is byte-identical on nnterp and hooks, and at layer 0 both refuse it (`r.x: the nnterp engine does not serve attention_output: no self_attn module on this block`). `attention_premix`, a dense MLP's `mlp_activation` and the residual-stream components are module boundaries, and hooks serves them. Without `attn_implementation: "eager"` in the model block, both engines refuse the same six interior components: nnterp with a reason that asks for eager ([sites.md](sites.md#attention-needs-eager)), hooks with the one above, under either attention implementation.
 
 ## Where the model goes: `--device`
 

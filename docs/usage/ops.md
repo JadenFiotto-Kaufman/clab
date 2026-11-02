@@ -89,7 +89,7 @@ Metrics and the reductions `mean`, `sum` and `min` compute in float32 and return
 | a write's value (`steered.steer`) and an edit as a step | bfloat16 |
 | `top_k` over a vocabulary: `probs` | float32 |
 | `top_k` over another axis: `values` | bfloat16 |
-| `pca`'s `basis` and `mean` | bfloat16 |
+| `pca`'s `basis` and `mean`, a bundle | float32 |
 | `argmax`, `top_k`'s `ids` | int64 |
 
 `clab show` prints the dtype the model was served in (`served: bfloat16 on cpu`); [values and layout](../concepts/values-and-layout.md) explains the mechanism. What it means for a bfloat16 model's numbers:
@@ -98,6 +98,7 @@ Metrics and the reductions `mean`, `sum` and `min` compute in float32 and return
 - An edit rounds once: `add` of a float32 mean at `"scale": 4.0` writes `(value + 4 * mean)` computed in float32 and then rounded, which differs from adding in bfloat16.
 - It cannot undo the model's own rounding. Logits a bfloat16 model returns are bfloat16: one near 20 is a multiple of 0.125, and a `logit_diff` of two of them moves in those steps. A difference finer than that needs the model in float32.
 - Ranks are the same either way: `match`, `argmax` and `top_k` pick the same ids from a bfloat16 value and its float32 copy.
+- A bundle is float32 whatever the model's dtype, a `pca`'s as a fit's: its basis is orthonormal to float32's precision in the file, and a featurizer rounds it to the value's dtype where it meets the value, as every featurizer's math runs in that dtype.
 - A null that holds to the bit in bfloat16 proves the read and the write are at one place; it does not make an effect below the dtype's rounding readable. On Qwen3-4B, a head whose effect is exactly zero in float32 shows about ±0.02 in a mean logit difference over 120 rows in bfloat16, early layers included. Recompute a few points in float32 before reading effects near that size.
 
 ## Missing values

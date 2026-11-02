@@ -655,6 +655,26 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
     assert torch.equal(filled.results["out"], ops.edits.project_out(resid.float(), avg).to(torch.bfloat16))
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_pca_bundle_of_a_bf16_model_is_float32_in_the_run_and_the_file(engines, tmp_path, kind):
+    """A `pca` of a bfloat16 read is saved float32, as every bundle is, its basis orthonormal to float32's
+    precision rather than bfloat16's (5.6e-4 on Llama-3.2-1B): in `plan.results`, in the manifest and in the
+    bundle's file."""
+    steps = {"base": forward({"resid": {"site": LAYER0, "pos": {"index": "1:"}}}),
+             "pcs": {"kind": "op", "op": "pca", "of": "base.resid", "k": 8}}
+    filled = run(engines, plan(model=BF16, data={"d": MANY}, steps=steps, saves=["base.resid", "pcs"]).compile(),
+                 kind)
+    pcs = filled.results["pcs"]
+    assert filled.results["base.resid"].dtype == torch.bfloat16
+    assert {k: v.dtype for k, v in pcs.items()} == {"basis": torch.float32, "mean": torch.float32}
+    assert (pcs["basis"].T @ pcs["basis"] - torch.eye(8)).abs().max() < 1e-6
+    filled.dump(str(tmp_path))
+    assert json.loads((tmp_path / "manifest.json").read_text())["results"]["pcs"]["dtype"] == \
+        {"basis": "float32", "mean": "float32"}
+    with safe_open(str(tmp_path / "pcs.safetensors"), "pt") as f:
+        assert {k: f.get_tensor(k).dtype for k in f.keys()} == {"basis": torch.float32, "mean": torch.float32}
+
+
 def test_a_reduction_that_removes_no_axis_is_refused_at_compile(engines):
     """PR 18's bug 1: a `sum` of a `[hidden_size]` mean removed no axis and wrote the grand total into every
     entry (torch reads no dims as every one). It is refused by name before any forward, with the value's

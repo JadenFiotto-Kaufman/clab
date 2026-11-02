@@ -58,7 +58,9 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
             if path[0] in ("description", "model", "data") or field in UNSWEPT:
                 raise ValueError(f"{where}: a sweep cannot stand for {field!r}"
                                  + ("; a dataset's rows are compiled once, and a step reads them by name: write one "
-                                    "dataset per value" if path[0] == "data" else ""))
+                                    "dataset per value" if path[0] == "data" else
+                                    f"; a run loads one model: write one document per {field}" if path[0] == "model"
+                                    else ""))
             given = value.get("label")
             label = field if given is None else given
             if given is not None and not (isinstance(label, str) and re.fullmatch(r"\w+", label)):

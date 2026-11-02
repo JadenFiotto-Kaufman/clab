@@ -289,7 +289,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                                      "forward without one width on every row is read at as many on each")
         producer_input, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer_input != consumer:
-            for row, (a, b) in enumerate(zip(found.inputs[producer_input]["rows"], found.inputs[consumer]["rows"])):
+            for row, (a, b) in enumerate(zip(encoded(found, producer_input), encoded(found, consumer))):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer_input}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
@@ -297,6 +297,13 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         written = positions.parse(record.pos)
         if producer_input != consumer and written["scope"] is None and positions.parse(read.pos) == written:
             windowed(engine, plan, where, value, producer_input, consumer, found, step.at)
+
+
+def encoded(found: Found, input: str) -> list[dict]:
+    """An input's encoded rows as preflight found them: the scope's own; in a fit's body, for a value the body
+    takes from a step before the fit, the root's (`Found.root`), which a body's own `inputs` do not hold. No eval
+    reads the dataset of such a value as another, so the root's rows are the ones it was read on."""
+    return (found.inputs[input] if input in found.inputs else found.root[input])["rows"]
 
 
 def unreached(where: str, value: str, row: int, lands: list[int]) -> str:
@@ -318,7 +325,7 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
     texts = vocabulary(engine.tokenizer)
-    for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
+    for row, (a, b) in enumerate(zip(encoded(found, producer), encoded(found, consumer))):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
             continue

@@ -39,6 +39,8 @@ From `documents/head_patching.json`: a site declared once under `sites` and name
 
 The identities in the notes hold to the bit on the corpus Llama, a pre-norm block; check them on your architecture before relying on one.
 
+A mixture of experts is served whole. At a block whose MLP is one, `mlp_norm_output`, `mlp_input` and `mlp_output` are served, and `mlp_activation` and `mlp_neurons`, a dense MLP's values, are refused (`block 0's MLP is a mixture of experts, whose routers and experts clab does not address; ...`). No component addresses a mixture's router or its experts: a name such as `router_logits` is refused as an unknown component, and `clab describe components` lists the components there are.
+
 ## `layers`
 
 A block's component needs `layers`; the model's own values (`token_embeddings`, `final_norm_output`, `lm_head_output`, `logits`) refuse it. `layers` is a selector over the model's layers ([FORMAT.md#pos](../../FORMAT.md#pos) has the grammar):

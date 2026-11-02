@@ -246,7 +246,8 @@ class Site(Record):
     @model_validator(mode="after")
     def _narrowing(self) -> "Site":
         if self.component not in address.COMPONENTS:
-            raise ValueError(f"unknown component {self.component!r}; valid: {', '.join(address.COMPONENTS)}")
+            raise ValueError(f"unknown component {self.component!r}; the components clab addresses (`clab describe "
+                             f"components` says what each is): {', '.join(address.COMPONENTS)}")
         if address.COMPONENTS[self.component]["per_layer"] != (self.layers is not None):
             raise ValueError(f"{self.component} is a block's value and needs 'layers'"
                              if address.COMPONENTS[self.component]["per_layer"]
@@ -904,7 +905,8 @@ class Run(Record):
     bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
     each dataset input tokenized and what each
     generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
-    keyed by coordinate). Where every read and write resolved is on its own record (`positions`), as a value's
+    keyed by coordinate); a run's directory holds them in `tokens.json` beside its manifest, not in it, and
+    `Plan.load` reads them back here. Where every read and write resolved is on its own record (`positions`), as a value's
     layout and labels are. `costs` holds what each step cost, by
     name, one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each
     listing in `serves` the coordinates of the points it served, `serving`: those one forward serves, or those an
@@ -1010,12 +1012,17 @@ class Plan(Record):
         return document and os.path.relpath(document, corpus_root(self))
 
     def __repr__(self) -> str:
+        """The plan in one line: its name and its state (uncompiled; compiled, with its points; or run, with its
+        engine and how many results it holds), which `str` and `print` give too, never its records' fields or a
+        bundle's tensors."""
         if self.run is not None:
             return f"Plan({name(self)}, run on {self.run.engine}, {len(self.results)} results)"
         if self.compiled:
             n = math.prod(len(axis.values) for axis in self.sweeps.values())
             return f"Plan({name(self)}, compiled, {n} point{'s' * (n != 1)})"
         return f"Plan({name(self)}, uncompiled)"
+
+    __str__ = __repr__
 
     def compile(self) -> "Plan":
         """This plan compiled: rows loaded (a hub dataset's checked, then left out), sites and named interventions
@@ -1025,7 +1032,8 @@ class Plan(Record):
         return compile(self)
 
     def dump(self, out: str) -> None:
-        """A run's output directory: one file per save and `manifest.json`."""
+        """A run's output directory: one file per save, `manifest.json` and `tokens.json` (each input's tokens per
+        row, `run.tokens`, which `load` reads back)."""
         from clab.output import dump
         dump(self, out)
 

@@ -24,6 +24,7 @@ from conftest import (
     close,
     dims,
     edited,
+    on_each,
     placed,
     plain,
     same,
@@ -875,6 +876,174 @@ def test_the_held_out_steps_after_the_fit_give_what_a_held_out_eval_gave(engines
     got, held = (engine.execute(p, batch_size=2).results for p in (after, evaluated))
     assert same(got["held_hit"], held["fit.held_out.hit"]) and same(got["held_iia"], held["fit.held_out.iia"])
     assert same(got["fit.rot"], held["fit.rot"])
+
+
+def t1() -> dict:
+    """T1's document: a gate trained on the difference a write makes from the counterfactual's value, which a step
+    before the fit reads on `pairs.counterfactual_inputs[0]` at `pos: -1`, the write's own `pos`."""
+    return {
+        "model": TINY, "data": {"pairs": {"path": "weekdays/train"}}, "featurizers": {"g": {"kind": "gate"}},
+        "steps": {
+            "counterfactual": {"kind": "forward", "input": "pairs.counterfactual_inputs[0]",
+                               "interventions": {"v": {"site": {"component": "layer_output", "layers": 0}, "pos": -1}}},
+            "fit": {"kind": "fit", "train": ["g"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 4, "seed": 0,
+                    "optimizer": {"name": "sgd", "lr": 1.0}, "steps": {
+                        "run": {"kind": "forward", "input": "pairs.input", "interventions": {
+                            "w": {"site": {"component": "layer_output", "layers": 0}, "pos": -1,
+                                  "ops": [{"op": "sub", "with": "counterfactual.v"}, {"op": "apply", "featurizer": "g"},
+                                          {"op": "add", "with": "counterfactual.v"}]},
+                            "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}},
+                        "ce": {"kind": "op", "op": "cross_entropy", "of": "run.logits", "target": "pairs.cf_answer"}}}},
+        "saves": ["fit.g", "fit.history.ce"]}
+
+
+def t6() -> dict:
+    """T6's document: a gate on layer 0's output masked into the patch from the counterfactual's value, which a step
+    before the fit reads on `train.counterfactual_inputs[0]` at `pos: -1`, the write's own `pos`, its objective
+    with the gate's `mask` scalar."""
+    return {
+        "model": TINY, "data": {"train": {"path": "weekdays/data", "split": "train"}},
+        "sites": {"target": {"component": "layer_output", "layers": 0}, "head": {"component": "lm_head_output"}},
+        "featurizers": {"mask": {"kind": "gate"}},
+        "steps": {
+            "counterfactual": {"kind": "forward", "input": "train.counterfactual_inputs[0]",
+                               "interventions": {"h": {"site": "target", "pos": -1}}},
+            "fit": {"kind": "fit", "train": ["mask"], "objective": {"ce": 1.0, "mask.mask": 0.01}, "epochs": 1,
+                    "batch_size": 16, "seed": 0, "optimizer": {"name": "adam", "lr": 0.05}, "steps": {
+                        "patched": {"kind": "forward", "input": "train.input", "interventions": {
+                            "patch": {"site": "target", "pos": -1, "ops": [
+                                {"op": "sub", "with": "counterfactual.h"}, {"op": "apply", "featurizer": "fit.mask"},
+                                {"op": "add", "with": "counterfactual.h"}]},
+                            "logits": {"site": "head", "pos": -1}}},
+                        "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits",
+                               "target": "train.cf_answer"}}}},
+        "saves": ["fit.mask", "fit.history.ce"]}
+
+
+def written(doc: dict, *changes) -> Plan:
+    """`doc` with `changes`, read as if from a corpus document, compiled."""
+    doc = json.loads(json.dumps(doc))
+    chain(*changes)(doc)
+    return Plan(**doc, document=os.path.join(DOCUMENTS, "finding.json")).compile()
+
+
+def the_write(doc: dict) -> dict:
+    """The body write of T1's or T6's document."""
+    body = doc["steps"]["fit"]["steps"]
+    return next(e for s in body.values() if s["kind"] == "forward" for e in s["interventions"].values() if "ops" in e)
+
+
+@pytest.mark.parametrize("doc", [t1, t6], ids=["T1", "T6"])
+def test_a_body_write_takes_an_operand_read_on_another_input_at_its_own_pos(engines, doc):
+    """A fit body's write whose operand a step before the fit read on another input, at the write's own `pos`,
+    runs: preflight pairs the two inputs token for token (`interventions.windowed`) over the rows the root encoded,
+    which the body's own inputs do not hold. Both engines give one result to the bit; it is what the body that
+    makes the harvest itself gives (the fit's one minibatch every row, as the harvest's one batch), and what the
+    write spelled `{"index": "-1:"}`, the same positions, gives."""
+    plan = written(doc())
+    ran = on_each(engines, plan, batch_size=4)
+    assert same(ran["nnterp"].results, ran["hooks"].results) and placed(ran["nnterp"]) == placed(ran["hooks"])
+    for other in (written(doc(), inside("counterfactual")),
+                  written(doc(), lambda d: the_write(d).update(pos={"index": "-1:"}))):
+        assert same(engines("hooks", plan.model).execute(other, batch_size=4).results, ran["hooks"].results)
+
+
+def test_a_body_writes_window_on_another_input_is_refused_as_the_roots_is(engines):
+    """The check that pairs a write's positions with its operand's runs in the body as at the root: a window of
+    three, `{"index": "3:6"}`, read on the counterfactual prompts and written on the base prompts, whose rows differ
+    in length past the `▁is` they begin with, pairs `,` with `urs` on row 0, and is refused before any forward naming
+    them, and the fit inside its body, as the same write in a forward after the counterfactual is."""
+    window = {"index": "3:6"}
+    def windowed(d):
+        d["steps"]["counterfactual"]["interventions"]["v"]["pos"] = window
+        the_write(d)["pos"] = window
+    def outside(d):
+        d["steps"]["run"] = d["steps"].pop("fit")["steps"]["run"]
+        d.update(featurizers={}, saves=["run.logits"])
+        the_write = d["steps"]["run"]["interventions"]["w"]
+        the_write["ops"] = [o for o in the_write["ops"] if o["op"] != "apply"]
+    said = (r"run\.w: operand 'counterfactual\.v' was read on pairs\.counterfactual_inputs\[0\], row 0 of which is 9 "
+            r"tokens; pairs\.input has 11, so position 2 pairs ',' with 'urs'; use a scope to name the token in "
+            r"each row$")
+    for kind in ("nnterp", "hooks"):
+        for change, where in ((outside, "^"), (lambda d: None, r"^fit\.")):
+            plan = written(t1(), windowed, change)
+            with pytest.raises(ValueError, match=where + said):
+                engines(kind, plan.model).execute(plan, batch_size=4)
+
+
+ROOT_HARVEST_MODEL = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+                      "revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "dtype": "float32"}
+ROOT_HARVEST_ROWS = [{"input": f"If today is {a}, tomorrow is", "said": f" {b}", "other": f" {c}"}
+                     for a, b, c in [("Sunday", "Monday", "Friday"), ("Friday", "Saturday", "Monday"),
+                                     ("Saturday", "Sunday", "Monday"), ("Monday", "Friday", "Sunday")]]
+
+
+def root_harvest(body: bool, forced_inside: bool = False) -> dict:
+    """A `before`-scoped read of the head on the prompts followed by `said`, scored by cross-entropy against
+    `other`, which the input does not say there: as a root step (`body` False), as a body op over the root's
+    harvest, or with the harvest made inside the body (`forced_inside`)."""
+    head, l0 = {"component": "lm_head_output"}, {"component": "layer_output", "layers": 0}
+    forced = {"kind": "forward", "input": ["d.input", "d.said"], "interventions": {
+        "logits": {"site": head, "pos": {"scope": {"column": "d.said", "occurrence": -1, "before": True}}}}}
+    nll = {"kind": "op", "op": "cross_entropy", "of": "forced.logits", "target": "d.other"}
+    if not body:
+        return {"model": ROOT_HARVEST_MODEL, "data": {"d": {"rows": ROOT_HARVEST_ROWS}},
+                "steps": {"forced": forced, "nll": nll}, "saves": ["nll"]}
+    run = {"kind": "forward", "input": "d.input", "interventions": {
+        "w": {"site": l0, "pos": -1, "ops": [{"op": "apply", "featurizer": "g"}]}, "logits": {"site": head, "pos": -1}}}
+    fit = {"kind": "fit", "train": ["g"], "objective": {"ce": 1.0}, "epochs": 1, "batch_size": 4, "seed": 0,
+           "optimizer": {"name": "sgd", "lr": 1.0}, "eval": {"train": {}},
+           "steps": {**({"forced": forced} if forced_inside else {}), "run": run,
+                     "ce": {"kind": "op", "op": "cross_entropy", "of": "run.logits", "target": "d.said"}, "nll": nll}}
+    return {"model": ROOT_HARVEST_MODEL, "data": {"d": {"rows": ROOT_HARVEST_ROWS}}, "featurizers": {"g": {"kind": "gate"}},
+            "steps": {**({} if forced_inside else {"forced": forced}), "fit": fit}, "saves": ["fit.train.nll"]}
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_body_op_over_a_root_harvest_is_held_to_its_input_as_the_root_is(engines, kind):
+    """A metric's answer is checked against what the input says at the read's positions (`preflight.placed`, with
+    the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
+    column the input does not say there is refused naming the token, as the root's own op and the body that makes
+    the harvest itself are; a body's `Found` holds only its own inputs, so the harvest's are the root's."""
+    said = r"predicts ' Monday' in the input, which is not token 0 of ' Friday'"
+    for doc in (root_harvest(False), root_harvest(True), root_harvest(True, forced_inside=True)):
+        plan = written(doc)
+        with pytest.raises(ValueError, match=said):
+            engines(kind, plan.model).execute(plan, batch_size=4)
+
+
+def held_out_extra(d):
+    """T1's body with a second forward over `extra` (the same prompts), and an eval that reads `extra` as
+    `shuffled`, the prompts in another order, beside the eval over its training rows."""
+    d["data"].update(extra={"path": "weekdays/train"}, shuffled={"path": "weekdays/train", "shuffle": True})
+    d["steps"]["fit"]["steps"].update(
+        side={"kind": "forward", "input": "extra.input",
+              "interventions": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}},
+        side_ce={"kind": "op", "op": "cross_entropy", "of": "side.logits", "target": "extra.cf_answer"})
+    d["steps"]["fit"]["eval"] = {"train": {}, "held_out": {"extra": "shuffled"}}
+    d["saves"] += ["fit.train.ce", "fit.held_out.ce", "fit.held_out.side_ce"]
+
+
+def held_out_own(d):
+    """T1 with the counterfactual read inside the body, and an eval that reads `pairs`, which both of the write's
+    inputs are of, as `shuffled`."""
+    inside("counterfactual")(d)
+    d["data"]["shuffled"] = {"path": "weekdays/train", "shuffle": True}
+    d["steps"]["fit"]["eval"] = {"held_out": {"pairs": "shuffled"}}
+    d["saves"] += ["fit.held_out.ce"]
+
+
+@pytest.mark.parametrize("change", [held_out_extra, held_out_own], ids=["harvest", "body"])
+def test_under_an_eval_a_body_write_pairs_its_operand_over_the_rows_it_was_read_on(engines, change):
+    """An eval prepares the body again over its own rows: a write whose operand a step before the fit read pairs
+    it over the root's rows there too, under an eval that reads another of the body's datasets as a third; and one
+    whose operand the body itself reads pairs both over the eval's rows, under an eval that reads their dataset as
+    another. Each runs on both engines, alike, and each eval member is over its eval's rows."""
+    plan = written(t1(), change)
+    ran = on_each(engines, plan, batch_size=4)
+    assert same(ran["nnterp"].results, ran["hooks"].results) and placed(ran["nnterp"]) == placed(ran["hooks"])
+    assert ran["hooks"].results["fit.held_out.ce"].shape == (4, 1)
 
 
 def other_dataset(d):

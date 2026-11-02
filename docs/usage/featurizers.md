@@ -13,7 +13,7 @@ A featurizer is a space or a function you declare once under the root key `featu
 | kind | what it is | where it comes from | ops |
 |---|---|---|---|
 | [`subspace`](../../FORMAT.md#subspace) | a rank-`k` subspace, the first `k` columns of a rotation | drawn from `seed` (a uniformly random subspace), trained, or a bundle | `encode`, `decode`, `apply` |
-| [`gate`](../../FORMAT.md#gate) | a mask over the site's units | drawn with every unit on, trained, or a bundle | `encode`, `decode`, `apply` |
+| [`gate`](../../FORMAT.md#gate) | a mask over the units of the last axis of its site's selection | drawn with every unit on, trained, or a bundle | `encode`, `decode`, `apply` |
 | [`pca`](../../FORMAT.md#pca) | the top-`k` principal directions and their mean | only the bundle a `pca` op wrote | `encode`, `decode`, `apply` |
 | [`sae`](../../FORMAT.md#sae) | a sparse autoencoder | drawn with `latents`, trained, a bundle, or a published file | `encode`, `decode`, `apply` |
 | [`linear`](../../FORMAT.md#linear) | a probe whose coordinates are its classes | drawn at zero and trained, or a bundle | `encode` |
@@ -122,6 +122,7 @@ The `site` check compares your use with your claim; it cannot check the claim. W
 - **Serve another kind's ops.** A `linear` probe only encodes; a `lora` only applies; compile refuses the rest by name (`'probe' is a 'linear' featurizer, which has no decode`).
 - **Be drawn as a `pca`.** A `pca` featurizer exists only as the bundle a `pca` op wrote.
 - **Have two widths.** Its width is the last axis of every site it is used at (inside an `encode`, that one's `k`), and one featurizer used at sites of two widths is refused before any forward. `k` is at most that width.
+- **Mask whole heads.** A `gate`'s units are the last axis of the value it meets, its site's selection, and its mask broadcasts over every other axis. At `attention_premix` (`rows, pos, num_heads, head_dim`) its `theta` is `head_dim` wide, one mask over the units of a head that every head shares, and selecting one head (`select: {"num_heads": [h]}`) leaves it as wide. One number per head is not a gate; the nearest is a gate per head, each at a site that selects that head, masking its `head_dim` units apart.
 - **Be one per layer by itself.** A featurizer used at a site whose `layers` picks several is one featurizer, applied at each. Sweep the site's `layers` for one per layer ([probing.md](../patterns/probing.md) does).
 - **Be trained once loaded.** A fit refuses to train a featurizer with a `file_path`.
 - **Read across sites in a generate.** A lora's `with` names an entry of the same forward, which only a `forward` step serves ([lora.md](../patterns/lora.md)).

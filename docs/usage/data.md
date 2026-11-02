@@ -61,13 +61,21 @@ The four fields apply in this order: `split`, `shuffle`, `take`, `columns`.
 | field | does | refused |
 |---|---|---|
 | `split` | a file: keeps the rows whose `split` column equals it; the hub: which split | on inline rows; a split no row has |
-| `shuffle: true` | one fixed random order (seed 0), the same on every machine | — |
+| `shuffle: true` | one fixed random order, the same on every machine (below) | — |
 | `take: N` | keeps the first N rows; after `shuffle`, a random sample of N | N beyond the rows there are |
 | `columns` | `{"<new name>": "<column as the source has it>"}` renames columns | a source the rows lack; a new name that is a column the rows keep |
 
 A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept. A rename into a name the steps read changes what they read, unrefused: on `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1); check `run.tokens` after renaming.
 
 The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `clab table` counts these rows.
+
+`shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`clab/format/data.py` `shuffled`), so it depends on the row count alone and is reproduced outside clab by
+
+```python
+order = sorted(range(n), key=lambda i: hashlib.blake2b(repr((0, i)).encode(), digest_size=8).digest())
+```
+
+which gives each shuffled row in turn as its index among the rows before `shuffle` (after `split`); `take: N` then keeps the first N.
 
 ## Inputs
 

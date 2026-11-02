@@ -47,10 +47,13 @@ class Found:
     and for each fit point the same for its body (`bodies`): over its training rows (`train`) and under each of
     its named `eval` substitutions (`evals`), each beside the plan the body runs in. `swap` is the substitution
     the body runs under (`{<body dataset>: <dataset read>}`; the root's is none), which names the dataset a
-    record's positions are under. Each table with a row per example holds every row of its dataset, by id; which
-    rows a run is over is its scope's to say (`batches.over`)."""
+    record's positions are under. A body's `inputs` are its own forwards'; `root` is the root's, those of the steps
+    before the fit, where a value the body takes from one of them was read (`interventions.encoded`), as the body's
+    scope holds the root's records beside its own. Each table with a row per example holds every row of its
+    dataset, by id; which rows a run is over is its scope's to say (`batches.over`)."""
     swap: dict[str, str] = field(default_factory=dict)
     inputs: dict[str, dict] = field(default_factory=dict)
+    root: dict[str, dict] = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     answers: dict[str, Answer] = field(default_factory=dict)
     widths: dict[str, int] = field(default_factory=dict)

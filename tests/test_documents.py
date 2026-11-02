@@ -302,7 +302,7 @@ def test_top_k_saves_its_tokens_as_text(filled, engines, tmp_path):
     assert top3["tokens"][0][0] == tokenizer.convert_ids_to_tokens(top3["ids"][0, 0].tolist())
     assert len(top3["tokens"][0][0]) == 3 and any(t.startswith("▁") for t in top3["tokens"][0][0])
     plan.dump(str(tmp_path))
-    assert sorted(os.listdir(tmp_path)) == ["manifest.json", "p_answer.safetensors", "top3.json"]
+    assert sorted(os.listdir(tmp_path)) == ["manifest.json", "p_answer.safetensors", "tokens.json", "top3.json"]
     back = Plan.load(str(tmp_path)).results["top3"]
     assert same(back, top3)
     row = plan.table("top3")[0]

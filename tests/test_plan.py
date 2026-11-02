@@ -151,6 +151,20 @@ def test_repr_says_the_state():
     assert repr(plan_of("patching")) == "Plan(patching, compiled, 1 point)"
 
 
+def test_print_gives_the_one_line_repr_whatever_the_plan_holds(engines, capsys):
+    """`str` is `repr`, so `print(plan)` is one line, not every field: a compiled plan that loads a bundle
+    (sae_feature_ablation's dictionary) holds its tensors and prints none of them, and a run's prints its state."""
+    compiled = plan_of("sae_feature_ablation")
+    assert any(points(f)[0].bundle for f in compiled.featurizers.values())
+    patching = plan_of("patching")
+    filled = engines("nnterp", patching.model).execute(patching, batch_size=BATCH_SIZE)
+    for plan, said in ((Plan(document("pos_sweep")), "Plan(pos_sweep, uncompiled)"),
+                       (compiled, "Plan(sae_feature_ablation, compiled, 4 points)"),
+                       (filled, "Plan(patching, run on nnterp, 2 results)")):
+        print(plan)
+        assert capsys.readouterr().out == f"{said}\n" and str(plan) == repr(plan) == said
+
+
 def test_write_keeps_the_document(tmp_path):
     plan = Plan(document("steer_renormalize"))
     plan.write(str(tmp_path / "copy.json"))
@@ -265,7 +279,8 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
 @pytest.mark.parametrize("change, message", [
     (lambda d: d["steps"]["iia"].update(op="matches"), r"steps\.iia: unknown op 'matches'; valid: swap, add"),
     (lambda d: d["sites"]["target"].update(component="block_output"),
-     r"sites\.target: unknown component 'block_output'; valid: token_embeddings"),
+     r"sites\.target: unknown component 'block_output'; the components clab addresses \(`clab describe components` "
+     r"says what each is\): token_embeddings"),
     (lambda d: d["steps"]["patched"].update(field="input"),
      r"steps\.patched: unknown field 'field'; valid: kind, input, interventions"),
     (lambda d: d["steps"]["iia"].update(expect="pairs.cf_answer"),
@@ -289,11 +304,14 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["sites"]["target"].update(layers="5:2"), r"sites\.target\.layers: '5:2' picks nothing, however "
      r"many things there are$"),
     (lambda d: d["steps"]["patched"]["interventions"]["logits"].update(site={"component": "nope"}),
-     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; valid: token_embeddings, [a-z_, ]+, logits$"),
+     r"steps\.patched\.interventions\.logits\.site: unknown component 'nope'; the components clab addresses "
+     r"\(`clab describe components` says what each is\): token_embeddings, [a-z_, ]+, logits$"),
     (lambda d: d["data"]["pairs"].update(path=None, rows=[{"input": "x"}], split="train"),
      r"data\.pairs: 'split' is which split of a file or a hub dataset; inline 'rows' are the rows$"),
     (lambda d: d["sites"]["target"].update(component={"sweep": ["layer_output"]}),
      r"sites\.target\.component: a sweep cannot stand for 'component'$"),
+    (lambda d: d["model"].update(revision={"sweep": ["main", "9fb191250dd56d0ba7ec9785a025ed29c03d5998"]}),
+     r"model\.revision: a sweep cannot stand for 'revision'; a run loads one model: write one document per revision$"),
     (lambda d: d["data"]["pairs"].update(take={"sweep": [1, 2]}),
      r"data\.pairs\.take: a sweep cannot stand for 'take'; a dataset's rows are compiled once, and a step reads them "
      r"by name: write one dataset per value$"),
@@ -329,6 +347,9 @@ def test_a_document_error_names_the_path_and_the_choices(change, message):
                                                    r"or a step's member: counterfactual\.v_cf, iia, logit_diff, "
                                                    r"patched\.logits, patched\.patch$"),
     (lambda d: d.update(saves=["iia", "iia"]), r"saves\[1\]: 'iia' is saved twice$"),
+    (lambda d: d.update(steps={**d["steps"], "tokens": d["steps"].pop("logit_diff")}, saves=["iia", "tokens"]),
+     r"saves\[1\]: 'tokens' is the name of a run directory's own tokens\.json, which a save beside it would be "
+     r"written over or write over; give the step another name$"),
     (lambda d: d.update(saves=["pairs"]), r"saves\[0\]: 'pairs' names no step's value; a save is a step or a step's member"),
     (lambda d: d["sites"]["target"].update(layers="0:0"),
      r"sites\.target\.layers: '0:0' picks nothing, however many things there are"),
