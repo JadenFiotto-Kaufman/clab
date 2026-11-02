@@ -77,12 +77,28 @@ def shuffled(rows: list[dict]) -> list[dict]:
     return [rows[i] for i in sorted(range(len(rows)), key=key)]
 
 
-def renamed(rows: list[dict], columns: dict[str, str]) -> list[dict]:
-    """Each row with each name `columns` maps the column it maps to, that column no longer under its own name,
-    and every other column as it is."""
-    sources = set(columns.values())
-    return [{**{k: v for k, v in row.items() if k not in sources}, **{name: row[c] for name, c in columns.items()}}
+def renamed(rows: list[dict], columns: dict[str, Any]) -> list[dict]:
+    """Each row with each name `columns` maps the column it maps to, that column no longer under its own name, or
+    the text a derived column (`plan.Derived`) cuts from its source's (`cut`), and every other column as it is."""
+    sources = {c for c in columns.values() if isinstance(c, str)}
+    return [{**{k: v for k, v in row.items() if k not in sources},
+             **{name: row[c] if isinstance(c, str) else cut(row[c.source], c) for name, c in columns.items()}}
             for row in rows]
+
+
+def cut(text: str, derived: Any) -> str | None:
+    """A derived column's text on one row (`plan.Derived`): `text` after the first occurrence of its `after`'s
+    literal, then before the first occurrence of its `before`'s in what is left, then stripped under its `strip`;
+    None where either literal does not occur."""
+    for side in ("after", "before"):
+        literal = getattr(derived, side)
+        if literal is None:
+            continue
+        at = text.find(literal.text)
+        if at < 0:
+            return None
+        text = text[at + len(literal.text):] if side == "after" else text[:at]
+    return text.strip() if derived.strip else text
 
 
 def digest(rows: list[dict]) -> str:

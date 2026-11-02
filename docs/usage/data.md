@@ -1,6 +1,6 @@
 ---
 title: Data and Inputs
-one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
+one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns (renamed or derived) and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
 tags: [usage, data, inputs, chat]
 related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md]
 sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py]
@@ -63,11 +63,22 @@ The four fields apply in this order: `split`, `shuffle`, `take`, `columns`.
 | `split` | a file: keeps the rows whose `split` column equals it; the hub: which split | on inline rows; a split no row has |
 | `shuffle: true` | one fixed random order, the same on every machine (below) | — |
 | `take: N` | keeps the first N rows; after `shuffle`, a random sample of N | N beyond the rows there are |
-| `columns` | `{"<new name>": "<column as the source has it>"}` renames columns | a source the rows lack; a new name that is a column the rows keep |
+| `columns` | `{"<new name>": "<column as the source has it>"}` renames columns; `{"<new name>": {"from": "<column>", "after"?, "before"?, "strip"?}}` derives one ([below](#a-column-cut-from-another)) | a source the rows lack; a new name that is a column the rows keep; a derived column's literal absent on a row |
 
 A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept. A rename into a name the steps read changes what they read, unrefused: on `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1); check `run.tokens` after renaming.
 
 The manifest records each dataset's `sha256` and `n_rows` after these fields apply, and a row's index in `clab table` counts these rows.
+
+### A column cut from another
+
+A `columns` entry that is an object derives a column from another column's text, where a renamed one moves it. GSM8K's `answer` ends in `#### <the number>`; the number alone is
+
+```json
+"test": {"hf": "openai/gsm8k", "revision": "740312add88f781978c0658806c59bc2815b9866", "config": "main", "split": "test",
+         "columns": {"gold": {"from": "answer", "after": {"text": "#### "}, "strip": true}}}
+```
+
+`after` keeps the text after the first occurrence of its literal, `before` the text before the first occurrence of its literal (after `after`'s, when both are given), and `strip` drops the surrounding whitespace of what is left. `from` names the column as the source has it, which stays under its own name. Each literal is `{"text": ...}`, as wherever a text is written as it is; a bare string is refused with it. Compile cuts every row and refuses, naming the row, one whose `from` is not text or that lacks a literal: `data.test.columns.gold.after: row 17: '#### ' is not in its 'answer', …`. The derived column is part of the rows, so it is in the dataset's `sha256` as a column the source has is, and a hub dataset's rows are cut again where the run loads them. It is text cut from text, decided before any forward, never a computation on values.
 
 `shuffle`'s order ranks each row's index `i` by the 8-byte blake2b hash of `repr((0, i))` (`clab/format/data.py` `shuffled`), so it depends on the row count alone and is reproduced outside clab by
 
@@ -137,7 +148,7 @@ Where a field takes a column, as an answer to score or as text to find (a metric
 - **A list of strings is a set**, any member of which is the answer: `"answer": [" Yes", " True"]` above. `clab table` prints it as JSON.
 - **A fixed answer is a literal, not a column.** Where an op takes an answer or a text, `{"text": "</think>"}` stands in place of the column: the same text on every row, tokenized as written and compared under the same flags (`{"text": " yes", "strip": true, "lower": true}`; a list is a set). It scores exactly as a column holding that text on every row does, to the bit, so a constant column built only to be scored is not needed. A bare string is always a column reference: `"token": "</think>"` is refused with `'</think>' is not <dataset>.<column> over a dataset; …; text written as it is, the same on every row, is {'text': '</think>'}`.
 - **A path reaches inside a column's entries**: `pairs.counterfactual_inputs_variables[0].entity` is the `entity` of each row's first variables object.
-- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. An answer column from the hub may lack it, and a document cannot add it, since a dataset is never a computation on its values. On a byte-level BPE tokenizer the bare word is then refused wherever it is more tokens than the spaced one (GPT-2's `signs` is `sign`, `s`; ` signs` is one token), and `strip` does not help, since it loosens the comparison, not the answer's tokens: `lam.answer row 0: 'signs' is 2 tokens; the read has 1 position on that row; …`. Write the rows inline, or to a file, from a script that adds the space, and record the hub source and commit in `description`. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
+- **An answer is tokenized exactly as written, without special tokens.** On a byte-level BPE tokenizer such as GPT-2's, `" Friday"` and `"Friday"` are different tokens; on the corpus Llama both are `▁Friday`. Write the space the prompt implies. An answer column from the hub may lack it, and a document cannot add it: a derived column only cuts a column's text ([above](#a-column-cut-from-another)), and a dataset is never a computation on its values. On a byte-level BPE tokenizer the bare word is then refused wherever it is more tokens than the spaced one (GPT-2's `signs` is `sign`, `s`; ` signs` is one token), and `strip` does not help, since it loosens the comparison, not the answer's tokens: `lam.answer row 0: 'signs' is 2 tokens; the read has 1 position on that row; …`. Write the rows inline, or to a file, from a script that adds the space, and record the hub source and commit in `description`. Text searched in a generation is decoded text, in which the first generated token has lost its space: [generate.md](generate.md#the-first-generated-tokens-leading-space).
 
 ## `example_id`
 

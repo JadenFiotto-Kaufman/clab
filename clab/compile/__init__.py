@@ -122,14 +122,29 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
         fail(f"data.{name}.take", f"take {d.take}, and the dataset has {len(rows)} rows"
              + (f" in split {d.split!r}" if d.split else "") + "; take keeps at most as many as there are")
     rows = rows[:d.take]
+    moved = {c for c in (d.columns or {}).values() if isinstance(c, str)}
     for new, column in (d.columns or {}).items():
-        lacking = next((i for i, r in enumerate(rows) if column not in r), None)
+        where, source = f"data.{name}.columns.{new}", column if isinstance(column, str) else column.source
+        lacking = next((i for i, r in enumerate(rows) if source not in r), None)
         if lacking is not None:
-            fail(f"data.{name}.columns.{new}", f"{column!r} is not a column of row {lacking}; its columns: "
-                 f"{', '.join(rows[lacking])}")
-        if new not in (d.columns or {}).values() and any(new in r for r in rows):
-            fail(f"data.{name}.columns.{new}", f"{new!r} is a column the rows keep, which this rename would "
-                 "overwrite; name the new column otherwise")
+            fail(where + ("" if isinstance(column, str) else ".from"), f"{source!r} is not a column of row "
+                 f"{lacking}; its columns: {', '.join(rows[lacking])}")
+        if new not in moved and any(new in r for r in rows):
+            fail(where, f"{new!r} is a column the rows keep, which this "
+                 f"{'rename' if isinstance(column, str) else 'derived column'} would overwrite; name the new column "
+                 "otherwise")
+        if isinstance(column, str):
+            continue
+        for i, r in enumerate(rows):
+            if not isinstance(r[source], str):
+                fail(f"{where}.from", f"row {i}: {source!r} is {type(r[source]).__name__}, {r[source]!r}; a derived "
+                     "column is cut from text")
+            if data.cut(r[source], column) is None:
+                after = column.after.text if column.after is not None else None
+                side = "after" if after is not None and after not in r[source] else "before"
+                fail(f"{where}.{side}", f"row {i}: {getattr(column, side).text!r} is not in its {source!r}"
+                     + (f" after the first {after!r}" if side == "before" and after is not None else "")
+                     + f", {r[source]!r}")
     return data.renamed(rows, d.columns) if d.columns else rows
 
 

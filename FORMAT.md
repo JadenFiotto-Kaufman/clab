@@ -40,7 +40,7 @@ the model runs (`device`) is a run option, not the document's. The attention int
 - `split: str or null = null`
 - `shuffle: bool = false`
 - `take: int or null = null`
-- `columns: object of str or null = null`
+- `columns: object of str or derived column or null = null`
 - `template: object of Any or null = null`
 
 A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
@@ -54,7 +54,9 @@ dataset, the hub dataset's split (left out: its only one) or the rows of a file 
 `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
 N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
 it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
+fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
 `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
 "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
 checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
@@ -65,8 +67,23 @@ JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `h
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
 several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
 rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
+keeps neither), a derived column's source that is not text on a row or that lacks its literal there, a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
 a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
+
+### A derived column
+
+- `from: str`
+- `after: literal or null = null`
+- `before: literal or null = null`
+- `strip: bool = false`
+
+`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
+bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
+computation on its values: the text of column `from` after the first occurrence of `after`'s literal, then
+before the first occurrence of `before`'s in what is left (each optional), then, under `strip`, without its
+surrounding whitespace. `{"from": "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's
+number. `from` stays under its own name. Refused by name: a row whose `from` is not text, and one on which
+`after`'s or `before`'s literal does not occur, naming the row.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -110,11 +127,11 @@ the last without trailing, a one-token answer's without either (` Yes`, ` yes`, 
 flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
 `▁New ▁York`, `▁New` standing for `New` too).
 
-### A literal in a list `input`
+### A literal text
 
 - `text: str`
 
-`{"text": "<literal>"}`: literal text in a list `input`.
+`{"text": "<literal>"}`: literal text, in a list `input` and as a derived column's `after` or `before`.
 
 ### An entry of `interventions`
 

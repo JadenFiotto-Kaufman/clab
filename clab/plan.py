@@ -62,8 +62,9 @@ class Record(BaseModel):
     def _known(cls, given: Any) -> Any:
         if isinstance(given, dict) and cls.model_config.get("extra") == "forbid":
             for key in given:
-                if key not in cls.model_fields:
-                    raise ValueError(f"unknown field {key!r}; valid: {', '.join(documented(cls))}")
+                if key not in {f.alias or k for k, f in cls.model_fields.items()}:
+                    raise ValueError(f"unknown field {key!r}; valid: "
+                                     f"{', '.join(cls.model_fields[k].alias or k for k in documented(cls))}")
         return given
 
     @model_serializer(mode="wrap")
@@ -173,6 +174,35 @@ class Model(Record):
         return QUANTIZED.get(self.dtype, self.dtype)
 
 
+class TextPart(Record):
+    """`{"text": "<literal>"}`: literal text, in a list `input` and as a derived column's `after` or `before`."""
+    text: str
+
+
+class Derived(Record):
+    """`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
+    bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
+    computation on its values: the text of column `from` after the first occurrence of `after`'s literal, then
+    before the first occurrence of `before`'s in what is left (each optional), then, under `strip`, without its
+    surrounding whitespace. `{"from": "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's
+    number. `from` stays under its own name. Refused by name: a row whose `from` is not text, and one on which
+    `after`'s or `before`'s literal does not occur, naming the row."""
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, use_attribute_docstrings=True,
+                              serialize_by_alias=True)
+    source: str = Field(alias="from")
+    after: TextPart | None = None
+    before: TextPart | None = None
+    strip: bool = False
+
+    @field_validator("after", "before", mode="before")
+    @classmethod
+    def _literal(cls, given: Any) -> Any:
+        """A literal is the object, as it is wherever a text is taken: a bare string is refused with it."""
+        if isinstance(given, str):
+            raise ValueError(f"{given!r} is a string; text written as it is is {{'text': {given!r}}}")
+        return given
+
+
 class Data(Record):
     """A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
     come from one of three sources: `path` is `data/<path>.json` under the corpus root, `rows` are inline, and
@@ -185,7 +215,9 @@ class Data(Record):
     `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
     N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
     it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-    fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
+    fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+    source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+    which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
     "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
     checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
@@ -196,7 +228,7 @@ class Data(Record):
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
     rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
+    keeps neither), a derived column's source that is not text on a row or that lacks its literal there, a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
     a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
@@ -206,7 +238,7 @@ class Data(Record):
     split: str | None = None
     shuffle: bool = False
     take: int | None = None
-    columns: dict[str, str] | None = None
+    columns: dict[str, Annotated[Union[str, Derived], ByShape()]] | None = None
     template: dict[str, Any] | None = None
     sha256: str | None = derived(None, "the digest of the rows, which a re-materialization must match")
     n_rows: int | None = derived(None, "how many rows the dataset has")
@@ -675,11 +707,6 @@ def gathers(entry: Intervention) -> list[Op]:
     every one of a `grad` entry's."""
     last = -1 if gradient_of(entry) is not None else max((i for i, o in enumerate(entry.ops) if edits(o)), default=-1)
     return entry.ops[last + 1:]
-
-
-class TextPart(Record):
-    """`{"text": "<literal>"}`: literal text in a list `input`."""
-    text: str
 
 
 class Forward(Record):
