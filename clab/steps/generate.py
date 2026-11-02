@@ -60,7 +60,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     new, order = [], []
     for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
         order += ids
-        bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
+        bound, binds = bind(engine, plan, name, step, state, found, ids, pads, reading)
         tokens, got = generated(engine, name, batch, bound, dict(step.model_extra or {}))
         inputs, examples = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]

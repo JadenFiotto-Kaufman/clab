@@ -649,7 +649,9 @@ int `layers` drops its axis. `key` is each row's own keys, its positions as `pos
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
 `"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
 shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
-`stream` marks the residual-stream values `readout` may project.
+`stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
+entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
+whole number from 0 below that size, since the model indexes with them.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes

@@ -173,17 +173,19 @@ def stops(engine: Engine, step: Generate) -> list[int]:
     return engine.eos if given is None else [given] if isinstance(given, int) else list(given)
 
 
-def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Found, ids: list[int], pads: list[int],
-         reading: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]
+def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, found: Found, ids: list[int],
+         pads: list[int], reading: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]
          ) -> tuple[dict[str, Any], dict[tuple[str, tuple, int | None], list[dict]]]:
-    """The schedule of `step` (a serving point) bound to one batch of dataset row `ids`, as the engine executes it: its
-    sites in order, each record with what reaches its selection in the padded batch (`site`; at a decode call
-    `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position, the head's at the last,
-    the one the prefill computes), a write with its ops bound (`edit`), its decode `calls` and, found `online`, each
-    row's texts to find it by, a read with its name (a `grad` entry's marked `capture`) and the ops it runs at each call
-    bound (`per_call`, by `edit`, at the point the read is for); the `stop` site; what the forward differentiates
-    (`grad`, one item per distinct value: `of`, each of its reads' names with the `read` that makes the value from it,
-    and `wrt`, the bound `grad` reads it serves; empty where it takes no gradient); and a generation's `loop` and
+    """The schedule of `step` (a serving point of step `name`) bound to one batch of dataset row `ids`, as the engine
+    executes it: its sites in order, each record with what reaches its selection in the padded batch (`site`; at a
+    decode call `decoding`; a part over the prompt of an entry beyond the prefill at every prompt position, the head's
+    at the last, the one the prefill computes), a write with its ops bound (`edit`), on a component of ids the size
+    they are under (`ids`: the entry, the axis and the model's size of it, which `visit` holds what lands to), its
+    decode `calls` and, found `online`, each row's texts to find it by, a read with its name (a `grad` entry's marked
+    `capture`) and the ops it runs at each call bound (`per_call`, by `edit`, at the point the read is for); the
+    `stop` site; what the forward differentiates (`grad`, one item per distinct value: `of`, each of its reads' names
+    with the `read` that makes the value from it, and `wrt`, the bound `grad` reads it serves; empty where it takes no
+    gradient); and a generation's `loop` and
     whether any write is `online`. A read is bound at the record of the value it is (`reading`, `schedule.gathered`),
     and the bound reads are also returned by entry, the value's coordinates and layer, each in the order its parts are
     done (a forward's one record; beyond a generation's prefill the part over the prompt, where there is one, then the
@@ -212,6 +214,8 @@ def bind(engine: Engine, plan: Plan, step: Forward, state: ChainMap, found: Foun
             if "write" in r:
                 resolved = {v["name"]: v for o in r["ops"] for v in o.values() if isinstance(v, dict) and "name" in v}
                 bound["ops"] = edit(plan, record, state, step.at, ids, found, s["layer"], resolved, device)
+                if axis := address.COMPONENTS[cast(Site, record.site).component].get("ids"):
+                    bound["ids"] = {"entry": f"{name}.{key}", "axis": axis, "size": engine.sizes()[axis]}
                 if r.get("online"):
                     pos = positions.parse(record.pos)
                     bound["online"] = {"pos": pos, "texts": [texts(pos, row) for row in rows],
@@ -445,9 +449,10 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
     padded to one width; only the positions its `keep` marks are written (a write whose rows are equal has no
     `keep` and writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`owned`), to a
-    read and to a write's ops alike, and a write writes those alone (`unowned`). Every index, mask and result moves
-    to the value's device, and a result to its dtype, where it meets the value: no move for the indices `bind`
-    made, which are on the model's device already.
+    read and to a write's ops alike, and a write writes those alone (`unowned`). A write of ids (`ids`, `bind`'s) runs
+    its ops in float32 and is refused by its entry where what would land is no id under the model's size (`indexes`),
+    before the model reads it. Every index, mask and result moves to the value's device, and a result to its dtype,
+    where it meets the value: no move for the indices `bind` made, which are on the model's device already.
     """
     axis = pos_axis(component)
     before = x = value.movedim(axis, 1)
@@ -478,7 +483,10 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
         for dim, index in w["select"].items():
             new, original = take(new, dim, index), take(original, dim, index)
         at = w["tok"] + w.get("call", 0) if "tok" in w else None        # each position, at a decode call its own
-        new = edited(new, original, w["ops"], got, at)
+        # A write of ids runs on them in float32, as the model would never see them, and is held to its size first.
+        new = edited(new.float() if "ids" in w else new, original, w["ops"], got, at)
+        if "ids" in w:
+            indexes(new, component, w, at)
         new = new.to(device=current.device, dtype=current.dtype)
         for dim, index in w["select"].items():
             new = whole.index_copy(dim, index.to(current.device), new)
@@ -490,6 +498,31 @@ def visit(value: Tensor, component: str, records: list[dict], got: dict) -> tupl
         else:
             x[rows.expand_as(pos), pos] = new
     return x.movedim(1, axis), wrote
+
+
+def indexes(new: Tensor, component: str, w: dict, places: Tensor | None) -> None:
+    """Refuses, by the write's entry, what a write of ids (`w["ids"]`, `bind`'s) would hand the model at a position
+    it lands on (its `keep`) that is no id under the model's size: a hole, -1, where its operand holds no id (a
+    generation's read on a row that stopped early, a position past a row's own); a missing entry, NaN; and a number
+    that is not a whole one from 0 below the size, which the model would index with out of range or truncated. It
+    looks at what the ops wrote (`new`, in float32) before it is cast to ids, and so before it lands; the refusal
+    names the first such entry's dataset row and token position (`places`)."""
+    ids = w["ids"]
+    bad = (new < 0) | (new >= ids["size"]) | (new != new.round()) | new.isnan()
+    if "keep" in w:
+        bad &= w["keep"].to(bad.device).reshape(*w["keep"].shape, *[1] * (bad.dim() - 2))
+    if not bad.any():
+        return
+    first = bad.nonzero()[0].tolist()
+    value, (i, j) = float(new[tuple(first)]), first[:2]
+    rows = w["ops"][0]["rows"]
+    where = f"row {int(rows[i])}" + (f", token {int(places[i, j])}" if places is not None else "")
+    said, why = (("a hole, -1,", "where its operand holds no id (a row that stopped before the call it was read at, "
+                  "or a position past a row's own)") if value == -1 else
+                 ("a missing entry, NaN,", "where its operand is missing") if value != value else
+                 (f"{value:g}", "which is no id"))
+    raise ValueError(f"{ids['entry']}: writes {said} into {component} at {where}, {why}; an id is a whole number from "
+                     f"0 to {ids['size'] - 1} (the model's {ids['axis']}, {ids['size']}), which the model indexes with")
 
 
 def edited(new: Tensor, original: Tensor, bound: list[dict], got: dict, places: Tensor | None) -> Tensor:

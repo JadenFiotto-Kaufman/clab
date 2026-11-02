@@ -237,3 +237,87 @@ def test_without_a_mixture_each_value_is_refused_by_name_and_its_sizes_are_absen
         select = {"site": {"component": "router_logits", "layers": 1, "select": {"num_experts": 4}}, "pos": -1}
         with pytest.raises(ValueError, match=r"^f\.x: select num_experts 4 outside the model's 4"):
             glm.execute(reading(GLM4_MOE, {"x": select}), batch_size=BATCH_SIZE)
+
+
+# -- a write of ids: a swap of experts the model has, refused by name otherwise before the model reads it ------------
+
+
+def rerouted(ops: list[dict], steps: dict | None = None, pos=-1) -> Plan:
+    """A forward `f` over the weekday prompts on the tiny Mixtral writing slot 0 of `expert_indices` at block 1 with
+    `ops`, reading every token's `routed_output` and `expert_indices` there, beside `steps`."""
+    write = {"site": {"component": "expert_indices", "layers": 1, "select": {"top_k": 0}}, "pos": pos, "ops": ops}
+    return reading(MIXTRAL, {"w": write, "routed": at("routed_output"), "idx": at("expert_indices")}, steps)
+
+
+@pytest.mark.parametrize("op", [{"op": "add", "with": 1}, {"op": "scale", "factor": 0.5},
+                                {"op": "noise", "scale": 1.0, "seed": 0}, {"op": "clamp", "max": 3}])
+def test_an_edit_of_expert_indices_other_than_swap_is_refused_at_compile(op):
+    """`add 1`, `scale 0.5` and `noise` would compute on ids as numbers and the write would truncate them back to
+    int64 (3 * 0.5 lands as 1, 3 + 1 as 4, outside the 4 experts), so each, and every other edit, is refused by name
+    before the model is loaded."""
+    from clab.plan import PlanError
+
+    with pytest.raises(PlanError, match=rf"^steps\.f\.interventions\.w\.ops\[0\]: '{op['op']}' would compute on "
+                                        r"expert_indices, the ids the model indexes its num_experts with, as numbers, "
+                                        r"and the write would cast the result back to ids, truncated; an index takes "
+                                        r"a swap, \{'op': 'swap', 'with': <an id, or a named value of ids>\}$"):
+        rerouted([op])
+
+
+@pytest.mark.parametrize("given", [4, -1, 2.7])
+def test_a_swap_of_expert_indices_with_a_number_that_is_no_expert_is_refused_before_any_forward(engines, given):
+    """4 is past the tiny Mixtral's 4 experts and -1 before them, which transformers' grouped expert matmul drops,
+    shifting every later group, and 2.7 would land as 2: each is refused by name against the model's `num_experts`
+    before any forward."""
+    plan = rerouted([{"op": "swap", "with": given}])
+    with pytest.raises(ValueError, match=rf"^f\.w: swap with {given}: expert_indices holds ids, and an id is a whole "
+                                         r"number from 0 to 3 \(the model's num_experts, 4\)$"):
+        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+
+
+def test_a_swap_of_an_expert_reroutes_its_slot_and_moves_no_other_token_past_rounding(engines):
+    """Every row's last token routes slot 0 to experts 2 and 3; a swap of 0, 1 or 3 there lands as written, moves
+    that token's routed output at the routed output's own scale, and every other token's by the grouped matmul's
+    rounding alone (below 1e-8 here, where an id outside the experts moved them by as much as the token's own), and a
+    swap of the id already there changes nothing, to the bit."""
+    clean = reading(MIXTRAL, {"routed": at("routed_output"), "idx": at("expert_indices")})
+    base = dict(engines("nnterp", clean.model).execute(clean, batch_size=BATCH_SIZE).results)
+    assert base["f.idx"][:, -1].tolist() == [[2, 3]] * 4
+    for e in range(4):
+        r = dict(engines("nnterp", clean.model).execute(rerouted([{"op": "swap", "with": e}]),
+                                                         batch_size=BATCH_SIZE).results)
+        assert r["f.idx"][:, -1].tolist() == [[e, 3]] * 4 and torch.equal(r["f.w"], torch.full((4, 1, 1), e))
+        moved = (r["f.routed"] - base["f.routed"]).abs()
+        assert moved[:, :-1].max() < 1e-8
+        assert torch.equal(r["f.routed"], base["f.routed"]) if e == 2 else moved[:, -1].amax(-1).min() > 1e-3
+
+
+def test_an_id_a_write_lands_that_is_no_expert_is_refused_by_name_before_the_model_reads_it(engines):
+    """A generation's `expert_indices` read at decode calls 1 to 3 holds the hole, -1, on the rows that stopped
+    first, and a swap of it into a forward's last 3 tokens is refused at its first hole, by entry, row and token;
+    a step's ids moved past the 4 experts (`add 3`), and a float read (the router logits' `max`), are refused the same
+    way at the first entry that is no id."""
+    def swapped(steps: dict, operand: str, pos) -> Plan:
+        write = {"site": {"component": "expert_indices", "layers": 1}, "pos": pos,
+                 "ops": [{"op": "swap", "with": operand}]}
+        return Plan(model=MIXTRAL, data={"prompts": {"path": "weekdays/train"}},
+                    steps={**steps, "f": {"kind": "forward", "input": "prompts.input", "interventions": {"w": write}}},
+                    saves=["f.w"], document=document("patching")).compile()
+    generation = {"kind": "generate", "input": "prompts.input", "max_new_tokens": 4, "do_sample": False,
+                  "eos_token_id": 5521,
+                  "interventions": {"idx": at("expert_indices", 1, {"frame": "1:4", "index": ":3"})}}
+    engine = engines("nnterp", Model.model_validate(MIXTRAL))
+    with pytest.raises(ValueError, match=r"^f\.w: writes a hole, -1, into expert_indices at row 0, token 5, where its "
+                                         r"operand holds no id \(a row that stopped before the call it was read at, "
+                                         r"or a position past a row's own\); an id is a whole number from 0 to 3 \(the "
+                                         r"model's num_experts, 4\), which the model indexes with$"):
+        engine.execute(swapped({"g": generation}, "g.idx", {"index": "-3:"}), batch_size=BATCH_SIZE)
+    clean = {"kind": "forward", "input": "prompts.input", "interventions": {
+        "idx": at("expert_indices", 1, -1),
+        "top": {**at("router_logits", 1, -1), "ops": [{"op": "max", "over": ["num_experts"]}]}}}
+    past = {"clean": clean, "past": {"kind": "op", "op": "add", "of": "clean.idx", "with": 3}}
+    with pytest.raises(ValueError, match=r"^f\.w: writes 5 into expert_indices at row 0, token 7, which is no id; "):
+        engine.execute(swapped(past, "past", -1), batch_size=BATCH_SIZE)
+    with pytest.raises(ValueError, match=r"^f\.w: writes 0\.\d+ into expert_indices at row 0, token 7, which is no "
+                                         r"id; "):
+        engine.execute(swapped({"clean": clean}, "clean.top", -1), batch_size=BATCH_SIZE)

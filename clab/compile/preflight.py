@@ -36,6 +36,7 @@ from clab.plan import (
     points,
     record_of,
     serving,
+    writes,
 )
 
 if TYPE_CHECKING:
@@ -56,7 +57,8 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     body's steps and each substituted dataset's rows under the body's name for it.
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
-    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a position
+    model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a `swap` of a
+    component of ids with a number that is no id under the model's size (`address.COMPONENTS`' `ids`); a position
     that does not fit some row's scope, or whose scope is not in a row a write or a read of static width needs; a
     token column that is not one token on some row; an operand that breaks Ops' one rule once the model's sizes
     and the rows' positions are known (`arguments.mismatch`: a layer the op acts at that the operand does not hold,
@@ -175,6 +177,12 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         if axis == "key" else (sizes[axis], f"the model's {sizes[axis]}")
                     selected(where, axis, index, size, what)
                 record.kept = selectors.kept(select, sizes)
+                if writes(record) and (axis := address.COMPONENTS[site.component].get("ids")):
+                    for o in record.ops:
+                        given, n = arguments(o).get("with") if o.op == "swap" else None, sizes[axis]
+                        if isinstance(given, (int, float)) and not (0 <= given < n and given == int(given)):
+                            raise ValueError(f"{where}: swap with {given!r}: {site.component} holds ids, and an id is "
+                                             f"a whole number from 0 to {n - 1} (the model's {axis}, {n})")
                 pos = positions.parse(record.pos)
                 resolved_ = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
