@@ -24,19 +24,20 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
     assert shown[0].startswith("generate_probe: run on nnterp, device cpu, tp 1, batch size 2, started ")
     assert shown[1] == "  served: float32 on cpu"
     assert shown[2].startswith("  versions: clab ")
-    assert shown[3].split() == ["step", "at", "seconds", "memory", "forwards", "tokens"]
-    assert [line.split()[:2] for line in shown[4:11]] == [["counterfactual", "—"]] + \
-        [[step, f"frame={k}"] for step in ("patched", "p_answer") for k in range(3)]
-    assert shown[11].split() == ["entry", "at", "positions"]
-    assert shown[12].split() == ["counterfactual.v_cf", "—", "[8],", "[8],", "[10],", "[8]"]
-    assert [line.split(maxsplit=1) for line in shown[13:17]] == [       # the write lands alike at every frame
+    assert shown[3].split() == ["step", "at", "serves", "seconds", "memory", "forwards", "tokens"]
+    assert [line.split()[:2] for line in shown[4:9]] == [["counterfactual", "—"], ["patched", "frame=0"]] + \
+        [["p_answer", f"frame={k}"] for k in range(3)]                  # one generation serves the three points
+    assert shown[5].split(maxsplit=2)[2].startswith("all 3 points")
+    assert shown[9].split() == ["entry", "at", "positions"]
+    assert shown[10].split() == ["counterfactual.v_cf", "—", "[8],", "[8],", "[10],", "[8]"]
+    assert [line.split(maxsplit=1) for line in shown[11:15]] == [       # the write lands alike at every frame
         ["patched.patch", "all 3 points  [10], [8], [8], [8]"],
         ["patched.logits", "frame=0       [10], [8], [8], [8]"],
         ["patched.logits", "frame=1       [11], [9], [9], [9]"],          # call 1 holds generated token 0
         ["patched.logits", "frame=2       [12], [10], [10], [10]"]]
-    assert shown[17].split() == ["result", "step", "dims", "axes", "shape"]
-    assert shown[18].split() == ["p_answer", "p_answer", "rows,", "pos", "frame", "3", "points,", "each", "[4,1]"]
-    assert shown[19].split()[:5] == ["patched", "patched", "rows,", "new", "frame"]
+    assert shown[15].split() == ["result", "step", "dims", "axes", "shape"]
+    assert shown[16].split() == ["p_answer", "p_answer", "rows,", "pos", "frame", "3", "points,", "each", "[4,1]"]
+    assert shown[17].split() == ["patched", "patched", "rows,", "new", "—", "[4,3]"]   # the ids depend on no axis
 
 
 @pytest.mark.parametrize("name", ["generated_contains", "das"])
