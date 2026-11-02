@@ -39,8 +39,9 @@ def writes() -> list[dict]:
                 {"op": "add", "args": {"with": torch.ones(2), "scale": 2.0}, "dims": ["rows", "pos", "features"]}]}]},
         {"positions": torch.tensor([[5], [5], [5]]), "select": {2: torch.tensor([0, 7])},
          "ops": [{"op": "scale", "args": {"factor": 3.0}, "dims": DIMS}]},
-        {"positions": torch.tensor([[2], [2], [2]]), "select": {},
-         "keys": {"dim": 2, "index": torch.tensor([[1, 2], [3, 4], [5, 6]]), "own": torch.ones(3, 2, dtype=torch.bool)},
+        {"positions": torch.tensor([[2], [2], [2]]), "select": {},     # a key index as wide as the axis (`keys`)
+         "keys": {"dim": 2, "index": torch.tensor([[1, 2, 3, 4, 5, 6, 7, 0], [3, 4, 5, 6, 7, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4]]),
+                  "own": torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1]]).bool()},
          "ops": [{"op": "sub", "args": {"with": 1.0}, "dims": DIMS}]},
         {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3),
          "ops": [{"op": "renormalize", "args": {}, "dims": DIMS}]},
