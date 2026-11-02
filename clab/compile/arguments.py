@@ -2,11 +2,12 @@
 featurizer), the layout of its result, and the one rule an operand keeps against the value it meets (`mismatch`)."""
 
 import inspect
+import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from clab import featurizers, ops
-from clab.compile.answers import column_ref, text_ref
+from clab.compile.answers import column_ref, literal, text_ref
 from clab.compile.state import Compiling
 from clab.format import address, data, registry
 from clab.format.sweeps import points
@@ -71,7 +72,8 @@ def references(name: str, args: dict, resolve: Callable[[str, Any, inspect.Param
         record = resolve(key, value, p) if named and value is not None else None
         if record is not None:
             ref = data.column_of(value) if p.annotation != ops.Value else None
-            found[key] = (ref[0] if ref else str(value), record)
+            found[key] = (ref[0] if ref else json.dumps(value, ensure_ascii=False) if data.literal_of(value)
+                          else str(value), record)
     return found
 
 
@@ -80,7 +82,8 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
     """How compile resolves an op's named arguments (`references`) at `path`, at the consumer's point `at`: a value
     to its record (`value_of`, an entry of the forward being compiled among `live`), a column to a row per example
     of its dataset once it is checked to hold text on every row, or, scored against a probe's `classes`, its
-    labels, whatever they are (`classes`), and a featurizer to nothing, once it is checked to exist."""
+    labels, whatever they are (`classes`), a literal to no axis at all, the same on every row, once it is checked to
+    be one (`literal`), and a featurizer to nothing, once it is checked to exist."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
@@ -88,6 +91,8 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
         if p.annotation == ops.Featurizer:
             featurizer_ref(cx, value, where)
             return None
+        if literal(value, where):
+            return Labelled(dims=[])
         ref = data.column_of(value)
         dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
             else text_ref(cx, value, where, None)

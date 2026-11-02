@@ -144,6 +144,20 @@ def column_of(ref: object) -> tuple[str, bool, bool] | None:
     return ref["column"], bool(ref.get("strip")), bool(ref.get("lower"))
 
 
+def literal_of(ref: object) -> tuple[str | list[str], bool, bool] | None:
+    """A literal where a column is read as text, as a document writes it, `(text, strip, lower)`: `{"text", "strip"?,
+    "lower"?}`, its text a string or a list of them (a set), the same on every row; None for anything else."""
+    if not isinstance(ref, dict) or "text" not in ref or "column" in ref:
+        return None
+    return ref["text"], bool(ref.get("strip")), bool(ref.get("lower"))
+
+
+def flags_of(ref: object) -> tuple[bool, bool]:
+    """How a column reference's or a literal's text compares, `(strip, lower)`; neither for anything else."""
+    given = column_of(ref) or literal_of(ref)
+    return (given[1], given[2]) if given else (False, False)
+
+
 def field(row: dict, input: str | list[str | TextPart]) -> str | list[dict]:
     """The row's input: its text, or its chat messages; a list's parts joined, each column's text as it is."""
     if not isinstance(input, str):

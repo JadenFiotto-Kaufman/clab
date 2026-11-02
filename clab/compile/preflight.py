@@ -237,12 +237,15 @@ def lined_up(engine: Engine, plan: Plan, found: Found, o: Any, where: str) -> bo
 
 def resolving(plan: Plan, at: dict[str, int]) -> Callable[[str, Any, inspect.Parameter], Labelled | None]:
     """How preflight resolves an op's named arguments (`arguments.references`), every name known to resolve: a
-    value to its record at `at`, a column to a row per example of its dataset, a featurizer to nothing."""
+    value to its record at `at`, a column to a row per example of its dataset, a literal to no axis, a featurizer to
+    nothing."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         if p.annotation == ops.Value:
             return record_of(plan.steps, value, at)
         if p.annotation == ops.Featurizer:
             return None
+        if data.literal_of(value) is not None:
+            return Labelled(dims=[])            # the same on every row
         return Labelled(dims=["rows"], dataset=(data.column_of(value) or (str(value),))[0].partition(".")[0])
     return resolve
 

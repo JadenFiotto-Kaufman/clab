@@ -271,6 +271,11 @@ class Column(Record):
     of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
     lowercased, and `strip` makes its surrounding whitespace optional.
 
+    Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
+    column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
+    same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
+    (tokenized as written, the flags as here); a scope's literal is its own `text`.
+
     A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
     whitespace, its positions the original's.
 

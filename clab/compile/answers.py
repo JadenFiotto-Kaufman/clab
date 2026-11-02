@@ -7,7 +7,7 @@ import functools
 import json
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from pydantic import ValidationError
@@ -29,6 +29,9 @@ def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> st
     """A column reference (`"<dataset>.<column path>"`, or `{"column", "strip"?, "lower"?}`) naming text on
     every row, of `dataset` (the step's) when one is given: a string, or a non-empty list of them (a set).
     Returns its dataset."""
+    if isinstance(value, str) and value.partition(".")[0] not in cx.rows:
+        fail(path, f"{value!r} is not <dataset>.<column> over a dataset; datasets: {', '.join(cx.rows)}; text "
+                   f"written as it is, the same on every row, is {{'text': {value!r}}}")
     if isinstance(value, dict):
         try:
             Column(**value)
@@ -50,6 +53,26 @@ def text_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> st
             fail(path, f"{ref[0]!r} is {type(found).__name__} on row {i} of {name!r}; a column read as text is a "
                        "string, or a list of them (a set)")
     return name
+
+
+def literal(value: object, path: str) -> bool:
+    """Whether an argument a column is read as text in is a literal, `{"text": <a string, or a non-empty list of
+    them: a set>, "strip"?: bool, "lower"?: bool}`, the same text on every row of whatever dataset the value it goes
+    with has rows of; one with another key, or a text or a flag of another type, is refused by name."""
+    if data.literal_of(value) is None:
+        return False
+    assert isinstance(value, dict)
+    for key in value:
+        if key not in ("text", "strip", "lower"):
+            fail(path, f"a literal takes no {key!r}: it is {{'text': <a string, or a list of them (a set)>, "
+                       "'strip'?: bool, 'lower'?: bool}")
+    text = value["text"]
+    if not (isinstance(text, str) or isinstance(text, list) and text and all(isinstance(t, str) for t in text)):
+        fail(f"{path}.text", f"{text!r} is not a literal's text: a string, or a non-empty list of them (a set)")
+    for flag in ("strip", "lower"):
+        if not isinstance(value.get(flag, False), bool):
+            fail(f"{path}.{flag}", f"{value[flag]!r} is not a boolean")
+    return True
 
 
 def column_ref(cx: Compiling, value: object, path: str, dataset: str | None) -> str:
@@ -84,7 +107,10 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
             continue
         got = answer(engine, plan, found, args[key], where)
         values, sets, column, aligned = got.values, got.sets, got.column, got.aligned
-        _, strip, lower = data.column_of(args[key]) or ("", False, False)
+        if got.literal:                         # the same on every row the read holds
+            n = len(placed) if placed is not None else 1
+            values, sets = values * n, sets * n
+        strip, lower = data.flags_of(args[key])
         for r, (value, row) in enumerate(zip(values, sets)):
             if name in ONE_ID and any(len(ids) > 1 for ids in row):
                 raise ValueError(f"{where}: {column} row {r}: {value!r} stands for {max(map(len, row))} ids (a set, "
@@ -113,24 +139,32 @@ def check_tokens(engine: Engine, plan: Plan, found: Found, where: str, name: str
 class Answer:
     """A column reference's answers, resolved once per findings: each row's `values`, per token the ids it may
     be (`sets`), the `column`, and whether its rows line up with the read (`aligned`: some row is several
-    tokens; else every row is one, which scores every position of its row)."""
+    tokens; else every row is one, which scores every position of its row). A literal's (`literal`) is one row,
+    the same on every row of whatever value it scores, `column` its JSON."""
     values: list
     sets: list
     column: str
     aligned: bool
+    literal: bool = False
 
 
 def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str) -> Answer:
-    """The `Answer` of a column reference, resolved into `found.answers` the first time it is asked for."""
+    """The `Answer` of a column reference or a literal, resolved into `found.answers` the first time it is asked
+    for; a literal's is tokenized as a column's value is."""
     key = refkey(ref)
     if key not in found.answers:
-        column, strip, lower = data.column_of(ref) or ("", False, False)
-        values = column_texts(plan, column, None)
+        given = data.literal_of(ref)
+        if given is not None:
+            column, values = json.dumps(ref, ensure_ascii=False), [given[0]]
+        else:
+            column = (data.column_of(ref) or ("",))[0]
+            values = column_texts(plan, column, None)
+        strip, lower = data.flags_of(ref)
         try:
             sets = answers(engine.tokenizer, values, column, strip, lower)
         except ValueError as e:
             raise ValueError(f"{where}: {e}") from None
-        found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets))
+        found.answers[key] = Answer(values, sets, column, any(len(row) > 1 for row in sets), given is not None)
     return found.answers[key]
 
 
@@ -140,10 +174,17 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
     vocabulary = classes[declared(plan, probe)]
     for key, p in ops.parameters(name).items():
         if p.annotation == ops.Tokens and key in args:
-            ref, strip, lower = data.column_of(args[key]) or ("", False, False)
+            strip, lower = data.flags_of(args[key])
             if strip or lower:
                 raise ValueError(f"{where}: {key} names a class of probe {declared(plan, probe)!r}, which is compared "
                                  "exactly; strip and lower compare an answer's tokens")
+            given = data.literal_of(args[key])
+            if given is not None:
+                if isinstance(given[0], list) or given[0] not in vocabulary:
+                    raise ValueError(f"{where}: {key} is the literal {given[0]!r}, not one of the classes of probe "
+                                     f"{declared(plan, probe)!r}: {vocabulary}")
+                continue
+            ref = (data.column_of(args[key]) or ("",))[0]
             dataset, _, column = ref.partition(".")
             for i, row in enumerate(held_rows(plan, dataset)):
                 if isinstance(row[column], list) or row[column] not in vocabulary:
@@ -152,15 +193,33 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                                      f"{vocabulary}")
 
 
-def indexed(plan: Plan, column: str, vocabulary: list, ids: list[int] | None) -> Tensor:
-    """A column's values as their indices in a probe's class list."""
-    return torch.tensor([vocabulary.index(v) for v in column_texts(plan, column, ids)])   # each one, preflight checked
+def indexed(plan: Plan, ref: object, vocabulary: list, ids: list[int] | None, of: object, dims: list[str]) -> Tensor:
+    """A column's values, or a literal's, as their indices in a probe's class list, at the dataset rows `ids` (every
+    row of the value `of` it scores, laid out `dims`: None)."""
+    return torch.tensor([vocabulary.index(v) for v in texts_of(plan, ref, ids, of, dims)])   # preflight checked each
 
 
 def column_texts(plan: Plan, column: str, ids: list[int] | None) -> list:
     """A column's value on each of its dataset's rows `ids` (every one: None), a string or a list of them."""
     name, _, path = column.partition(".")
     return [data.lookup(r, path) for r in data.by_id(held_rows(plan, name), ids)]
+
+
+def texts_of(plan: Plan, ref: object, ids: list[int] | None, of: object, dims: list[str]) -> list:
+    """A column reference's value on each of the dataset rows `ids` (`column_texts`), or a literal's text on each
+    of them, the same on every row (every row of the value `of` it goes with, laid out `dims`: None)."""
+    given = data.literal_of(ref)
+    if given is not None:
+        return [given[0]] * rows_in(of, dims, ids)
+    return column_texts(plan, (data.column_of(ref) or ("",))[0], ids)
+
+
+def rows_in(of: object, dims: list[str], ids: list[int] | None) -> int:
+    """How many rows the value `of` (laid out `dims`; a list of texts is one per row) holds: `ids`'s, where given."""
+    if ids is not None:
+        return len(ids)
+    assert of is not None, "a value bound without its rows is a write's, which a batch's ids are given for"
+    return of.shape[dims.index("rows")] if isinstance(of, Tensor) else len(cast(list, of))
 
 
 def refkey(ref: str | dict) -> str:
@@ -174,7 +233,10 @@ def answered(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int] 
     row is one token scores it at every position of its row (`[rows, m]`); one with an answer of several tokens is
     `aligned`: token i of each row's at the row's position i (`[rows, pos, m]`), which needs every row the value
     reaches to have as many positions as its answer has tokens (`present`)."""
-    column, chosen = answer.column, data.by_id(answer.sets, ids)
+    n = rows_in(of, dims, ids) if answer.literal else 0
+    column = answer.column
+    chosen = answer.sets * n if answer.literal else data.by_id(answer.sets, ids)
+    given = answer.values * n if answer.literal else data.by_id(answer.values, ids)
     most = max(len(t) for row in chosen for t in row)
     sets = [[t + [-1] * (most - len(t)) for t in row] for row in chosen]
     if not answer.aligned:
@@ -184,10 +246,9 @@ def answered(answer: Answer, of: Tensor | None, dims: list[str], ids: list[int] 
                          f"axis ({dims})")
     assert of is not None, "only a write's ops are bound without the value, and with no dims"
     width = of.shape[dims.index("pos")]
-    for r, value, row, n in zip(ids if ids is not None else range(len(sets)), data.by_id(answer.values, ids), sets,
-                                present(of, dims)):
-        if n != len(row) and n != 0:                    # a row the value does not reach is missing, not refused
-            raise ValueError(unaligned(column, r, value, len(row), n))
+    for r, value, row, k in zip(ids if ids is not None else range(len(sets)), given, sets, present(of, dims)):
+        if k != len(row) and k != 0:                    # a row the value does not reach is missing, not refused
+            raise ValueError(unaligned(column, r, value, len(row), k))
     # `[rows, pos, m]` whatever `width` is: over a read no row reached it is 0, and the list alone would be `[rows, 0]`.
     return torch.tensor([[row[i] if i < len(row) else [-1] * most for i in range(width)]
                          for row in sets]).reshape(len(sets), width, most)

@@ -12,7 +12,7 @@ from torch import Tensor
 
 from clab import featurizers, ops
 from clab.compile import positions
-from clab.compile.answers import answered, column_texts, indexed, refkey
+from clab.compile.answers import answered, indexed, refkey, texts_of
 from clab.compile.positions import head, texts
 from clab.compile.state import Found
 from clab.format import address, data, selectors
@@ -361,12 +361,13 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
                 if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
-            value = (indexed(plan, value, vocabulary, ids)[:, None] if vocabulary is not None else
-                     answered(found.answers[refkey(value)], of, dims or [], ids))
+            value = (indexed(plan, value, vocabulary, ids, of, dims or [])[:, None]
+                     if vocabulary is not None else answered(found.answers[refkey(value)], of, dims or [], ids))
             value = placed(value, of.device) if isinstance(of, Tensor) else value
         elif annotation == ops.Text:
-            column, strip, lower = data.column_of(value) or ("", False, False)
-            value = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, ids)]
+            strip, lower = data.flags_of(value)
+            value = [(v if isinstance(v, list) else [v], strip, lower)
+                     for v in texts_of(plan, value, ids, of, dims or [])]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, resolved[value]["at"] if value in resolved else at)
         out[key] = value

@@ -119,8 +119,9 @@ features are the adapter's width; a gate `apply`'s `with`, the value it interpol
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else
-is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
+`vocab_size` or a `classes` axis); `Text` a column read as text; either one may be a literal in the column's place,
+`{"text": "</think>"}` (with `strip` and `lower` as a column's reference has them, a list a set), read as a column
+holding that text on every row is; `Featurizer` a featurizer's name; anything else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
 its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.

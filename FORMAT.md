@@ -92,6 +92,11 @@ whole: `pairs.counterfactual_inputs_variables[0].entity`). A row's value may be 
 of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
 lowercased, and `strip` makes its surrounding whitespace optional.
 
+Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
+column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
+same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
+(tokenized as written, the flags as here); a scope's literal is its own `text`.
+
 A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
 whitespace, its positions the original's.
 
@@ -539,8 +544,9 @@ features are the adapter's width; a gate `apply`'s `with`, the value it interpol
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else
-is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
+`vocab_size` or a `classes` axis); `Text` a column read as text; either one may be a literal in the column's place,
+`{"text": "</think>"}` (with `strip` and `lower` as a column's reference has them, a list a set), read as a column
+holding that text on every row is; `Featurizer` a featurizer's name; anything else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
 its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
