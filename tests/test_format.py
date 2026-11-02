@@ -79,7 +79,9 @@ def test_the_components_table_shows_a_selections_layout_and_which_values_readout
            "the MLP |" in table
     rows = [line for line in table.partition("## Components")[2].partition("## Featurizer kinds")[0].splitlines()
             if line.startswith("| `")]
-    assert len(rows) == 21 and not any("batch" in r or "seq" in r or "query" in r for r in rows)
+    assert "| `expert_outputs` | rows, pos, top_k, hidden_size | layers, top_k, hidden_size | no | each slot's " \
+           "expert output times its weight, before the slots are summed |" in table
+    assert len(rows) == 27 and not any("batch" in r or "seq" in r or "query" in r for r in rows)
 
 
 def test_describe_lists_the_engines_and_spells_literals_as_json():

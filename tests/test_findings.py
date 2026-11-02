@@ -645,6 +645,7 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
              "max": {"kind": "op", "op": "max", "of": "f.w"}, "std": {"kind": "op", "op": "std", "of": "f.w"},
              "count": {"kind": "op", "op": "count", "of": "f.w"}, "norm": {"kind": "op", "op": "norm", "of": "f.w"},
              "dot": {"kind": "op", "op": "dot", "of": "f.w", "with": "avg"},
+             "entropy": {"kind": "op", "op": "entropy", "of": "f.logits"},
              **{name: {"kind": "op", "op": name, "of": "f.w"} for name in ELEMENTWISE},
              "mul": {"kind": "op", "op": "mul", "of": "f.w", "with": "avg"},
              "div": {"kind": "op", "op": "div", "of": "f.w", "with": "avg"},
@@ -653,8 +654,8 @@ def test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays
              "within": forward({"n": {"site": LAYER0, "pos": -1, "ops": [{"op": "norm"}]},
                                 "a": {"site": LAYER0, "pos": -1, "ops": [{"op": "abs"}]},
                                 "g": {"site": LAYER0, "pos": -1, "ops": [{"op": "gt", "with": 0}]}})}
-    names = [*metric, "avg", "cosine", "sum", "min", "contains", "max", "std", "count", "norm", "dot", *ELEMENTWISE,
-             "mul", "div", "pow", "within.n", "within.a"]
+    names = [*metric, "avg", "cosine", "sum", "min", "contains", "max", "std", "count", "norm", "dot", "entropy",
+             *ELEMENTWISE, "mul", "div", "pow", "within.n", "within.a"]
     kept = ["base.resid", "f.w", "f.logits", "out", *COMPARISONS, "within.g"]
     filled = run(engines, plan(model=BF16, data={"d": few}, steps=steps, saves=[*kept, *names, "top"]).compile(),
                  kind)

@@ -2,8 +2,9 @@
 own; the hooks engine's standard form (final norm, head, softcap) agrees with it on every tiny model, Gemma-2's softcap
 included, and on a tiny Cohere, whose model scales its logits after the head, differs, as it may. What an engine
 refuses it refuses layer by layer, from the one source both read (`clab.engines.standard`), so that the engines differ
-only where nnterp reads a value inside a module's forward, which the hooks engine refuses at every layer that has the
-module.
+only where nnterp reads a value inside a module's forward or among a module's call arguments, which the hooks engine
+refuses at every layer that has the module, and in the components each names as served where it refuses a dense
+MLP's value on a mixture of experts.
 
 Two checkpoints are this module's: `hf-internal-testing/tiny-random-Gemma2ForCausalLM` at commit de7c11b6, the one
 tiny model that softcaps its logits (`final_logit_softcapping` 30), and `yujiepan/qwen3-next-moe-tiny-random` at
@@ -39,6 +40,10 @@ EAGER = {"attn_implementation": "eager"}
 # with attention.
 INTERIOR = {"attention_queries", "attention_keys", "attention_values", "attention_scores", "attention_probabilities",
             "attention_head_outputs"}
+# What nnterp reads of the hybrid's mixtures of experts inside a module's forward or among its call arguments, which the
+# hooks engine refuses at every block: the router's logits, the experts' arguments, each slot's output and the gated
+# shared expert's product.
+ROUTING = {"router_logits", "expert_weights", "expert_indices", "expert_outputs", "shared_expert_output"}
 LINEAR = "no self_attn module on this block"
 COHERE = {"key": "trl-internal-testing/tiny-CohereForCausalLM", "revision": "90bc56bd12c642f6bf5e710ebd7c626dd7c0201c"}
 COHERE_CACHED = isinstance(try_to_load_from_cache(COHERE["key"], "model.safetensors", revision=COHERE["revision"]), str)
@@ -122,17 +127,33 @@ def test_a_component_nnterps_support_does_not_name_is_refused_not_served(engines
 
 def test_the_engines_differ_only_where_nnterp_reads_inside_a_forward(engines):
     """On the hybrid, block by block, the hooks engine's answer is nnterp's (`attention_output` at blocks 0 to 2,
-    which have no `self_attn`) but where nnterp reads the value inside a module's forward at a block with the module:
-    the attention interior at block 3, which the hooks engine refuses for that reason under sdpa and eager alike."""
+    which have no `self_attn`) but where nnterp reads the value inside a module's forward or among a module's call
+    arguments at a block with the module: the attention interior at block 3, and at every block the mixture's
+    routing, slots and gated shared expert, which the hooks engine refuses for those reasons under sdpa and eager
+    alike; and the dense MLP's values each engine refuses on the mixture name the MLP's components that engine
+    serves there, the routed sum among the hooks engine's."""
     answers = {}
     for name, extra in (("sdpa", {}), ("eager", EAGER)):
         model = Model.model_validate({**HYBRID, **extra})
         nnterp, hooks = (engines(kind, model).unserved() for kind in ("nnterp", "hooks"))
         assert nnterp["attention_output"] == hooks["attention_output"] == {0: LINEAR, 1: LINEAR, 2: LINEAR}
         for component in COMPONENTS:
-            own = {3: hooks[component][3]} if component in INTERIOR else {}
+            if component in ("mlp_activation", "mlp_neurons"):
+                continue
+            own = ({3: hooks[component][3]} if component in INTERIOR else
+                   dict(hooks[component]) if component in ROUTING else {})
             assert hooks[component] == ({**(nnterp[component] or {}), **own} if own else nnterp[component]), component
-            assert all(why.startswith("nnterp reads it inside a module's forward (source.") for why in own.values())
+            assert all(why.startswith(("nnterp reads it inside a module's forward (", "nnterp reads it among a "
+                                       "module's call arguments (experts.inputs)")) for why in own.values())
+        assert all(nnterp[c] is None for c in ROUTING | {"routed_output"})
+        for component in ("mlp_activation", "mlp_neurons"):
+            for kind, answer, served in (("nnterp", nnterp, "router_logits, expert_weights, expert_indices, "
+                                          "expert_outputs, routed_output, shared_expert_output"),
+                                         ("hooks", hooks, "routed_output")):
+                assert answer[component] == {layer: f"block {layer}'s MLP is a mixture of experts, which has no single "
+                                             "activation or down projection; at block {layer} its MLP is served as "
+                                             f"mlp_norm_output, mlp_input, {served} and mlp_output".replace(
+                                                 "{layer}", str(layer)) for layer in range(4)}, (kind, component)
         answers[name] = hooks
     assert answers["sdpa"] == answers["eager"]
 
@@ -153,18 +174,22 @@ def test_attention_output_at_a_linear_attention_block_is_refused_by_name(engines
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_dense_mlp_value_on_a_mixture_of_experts_is_refused_naming_what_the_block_serves(engines, kind):
-    """The hybrid's MLPs are mixtures of experts, which clab addresses only whole: `mlp_activation` at a block is
-    refused saying so and naming the MLP's components that block serves, never nnterp's advice to read its own
-    `Moe` component (`standard.ROUTED`, a copy of nnterp's text, which clab replaces), which clab has no name for."""
+    """The hybrid's MLPs are mixtures of experts, which have no single activation: `mlp_activation` at a block is
+    refused saying so and naming the MLP's components the engine serves at that block, its routing and experts' on
+    nnterp, the routed sum alone on hooks, in place of nnterp's advice to read its own `Moe` component
+    (`standard.ROUTED`, a copy of nnterp's text, which clab replaces with the names of that component's values)."""
     from nnterp.components import moe
 
     assert standard.ROUTED == moe.ROUTED
     plan = reading(HYBRID, {"act": at("mlp_activation", 3)})
     engine = engines(kind, plan.model)
     assert not any("Moe" in str(why) for why in engine.unserved().values())
-    with pytest.raises(ValueError, match=rf"^f\.act: the {kind} engine does not serve mlp_activation: block 3's MLP is a "
-                                         r"mixture of experts, whose routers and experts clab does not address; at block "
-                                         r"3 its MLP is served as mlp_norm_output, mlp_input and mlp_output$"):
+    served = ("router_logits, expert_weights, expert_indices, expert_outputs, routed_output, shared_expert_output"
+              if kind == "nnterp" else "routed_output")
+    with pytest.raises(ValueError, match=rf"^f\.act: the {kind} engine does not serve mlp_activation: block 3's MLP "
+                                         r"is a mixture of experts, which has no single activation or down "
+                                         r"projection; at block 3 its MLP is served as mlp_norm_output, mlp_input, "
+                                         rf"{served} and mlp_output$"):
         engine.execute(plan, batch_size=BATCH_SIZE)
 
 
