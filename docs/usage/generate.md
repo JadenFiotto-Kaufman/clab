@@ -68,6 +68,12 @@ Row 0 of `documents/generate_probe.json` has an 11-token prompt at positions 0 t
 
 In the prefill, the head is computed only at the last position. So `{"frame": 0, "index": -2}` at the head is refused, while the same `pos` on a residual site reads the second-to-last prompt token. A row's last generated token is never an input to any call. In a generation, `clab table` adds a `call` column beside `pos` and `pos_token`.
 
+### A read at every call
+
+At the head, `{"frame": ":"}` is the per-call read: one position per call, the prefill's last prompt token and then each generated input, `[rows, calls, vocab_size]`. `{"frame": ":", "index": -1}` is one position, the last call's, since `index` counts over the tokens of every call the frame picks; on a residual site `{"frame": ":"}` is every prompt token and then each generated input.
+
+A per-call read is held whole until its batch's generation ends, and its ops, inside the entry or not, run on it then. So a full-width read at the head holds `calls × vocab_size` values in the model's dtype for every row of a batch: at 512 calls over a 151,936-token vocabulary in bfloat16, about 156 MB a row, and a metric over it makes a float32 copy of twice that. To hold less, read only the ids you score (`select: {"vocab_size": [...]}`, raw logits, which no metric scores, since a metric needs the whole vocabulary), or lower `--batch-size`.
+
 ## Writes during generation
 
 A write lands as its call runs.

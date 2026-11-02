@@ -82,6 +82,21 @@ The `pca` op's value is a bundle: the top-`k` directions (`basis`, `[width, k]`)
 
 `documents/pca_control.json` loads it as `{"kind": "pca", "k": 4, "file_path": "documents/artifacts/basis.safetensors"}`. A `pca` needs more vectors than its `k`, so a read of one position per row on four rows is refused before any forward (`pca of 4 vectors has no rank-4 basis; it needs more than 4`); read a range of positions to give it more.
 
+## A hand-made `linear` bundle
+
+A probe trained outside clab loads as a `linear` bundle only with clab's header: a file without one is refused (`... has no clab header; a linear bundle is one clab wrote`). The file holds `W`, `[width, classes]`, and `b`, `[classes]`, and the probe's scores are `h @ W + b`, each class at its index in the class list: the distinct values of the document's `classes` column, sorted. Every header value is a string:
+
+```python
+save_file({"W": W, "b": b}, "documents/artifacts/probe.safetensors", metadata={
+    "format": "clab/1", "kind": "linear", "classes": json.dumps(["weekday", "weekend"]),
+    "model.key": key, "model.revision": revision, "model.dtype": "float32",
+    "component": "layer_output", "layer": "1", "width": "16", "document": "hand_made"})
+```
+
+- `classes` is the class list as `json.dumps` writes it, its `", "` separator included: `'["weekday","weekend"]'` is refused against `'["weekday", "weekend"]'`. It is checked, with `kind` and the three `model.` keys (the document's `model` block as written), when the document compiles.
+- `component` and `layer` (the one layer as an int, or a JSON list of several) are checked at every use when the document compiles, and `width`, the site's last axis, before any forward; a header without one of them is refused.
+- `document` says what made the bundle; nothing checks it.
+
 ## Swept training runs
 
 A fit or `pca` step under a sweep writes one file holding a bundle per point, each key prefixed by its coordinate (`mask.mask=0.01/theta`). A featurizer loads one bundle, so loading that file is refused:
