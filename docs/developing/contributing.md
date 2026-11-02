@@ -22,7 +22,7 @@ The format is everything a document can write: the records and their fields, the
 - **Proposed with before-and-after JSON.** A format change is proposed before it is built, as the same document fragment written today and as it would be written after the change. It lands only when the repository's owner ratifies it.
 - **One spelling per thing.** No aliases, and no old spelling kept beside a new one. A spelling the format does not have is refused by name with the one to write instead: `reads` and `writes` on a step are refused because a step's reads and writes are one `interventions` value, and a model block's `torch_dtype` with ``the dtype is spelled `dtype` ``.
 - **The corpus runs unchanged.** The documents under `documents/` are the format's semantics, and their pinned numbers say what each means ([testing.md](testing.md)). A change never edits a corpus document to make it pass. A change that would need one rewritten is a format change; a pin that moves is a change of meaning, made on purpose and visible in the snapshot diff. New behavior gets a new document or a new test.
-- **FORMAT.md is regenerated in the same commit.** It is rendered from the code's docstrings and registries (`clab/docs.py` `markdown`), and `tests/test_format.py` fails when it drifts. Run `uv run clab describe --markdown` from the repo root: it writes `FORMAT.md` into the current directory itself, so do not redirect its output into the file, which overwrites the file's first line with the command's message.
+- **FORMAT.md is regenerated in the same commit.** It is rendered from the code's docstrings and registries (`clab/docs.py` `markdown`), and `tests/test_format.py` fails when it drifts. Run `uv run clab describe --markdown`: it writes `FORMAT.md` at the repo root itself, from any directory, and prints nothing (`--verbose` prints the path it wrote), so nothing is redirected into the file.
 
 Adding an op, a featurizer kind, a component or a step kind is [extending.md](extending.md).
 
@@ -34,7 +34,7 @@ uv run clab describe --markdown        # when the format changed; commit FORMAT.
 uvx pyright
 ```
 
-`tests/test_real.py` and `tests/test_device.py` need a GPU and skip without one; run them on one when a change touches an engine or where tensors are placed. Running, pinning and re-pinning are [testing.md](testing.md).
+`tests/test_real.py`, `tests/test_device.py`, the CUDA cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py` need GPUs and skip without them; run them on one when a change touches an engine or where tensors are placed. Running, pinning and re-pinning are [testing.md](testing.md).
 
 ## What a pull request carries
 

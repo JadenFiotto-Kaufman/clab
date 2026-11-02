@@ -23,7 +23,7 @@ clab's vocabulary is read off the code: an op's signature is what a document may
 
 1. Write a plain function over tensors in its group's module (`clab/ops/metrics.py`, `reductions.py`, `edits.py` or `transforms.py`), its first parameter `of`, the value it acts on.
 2. Decorate it with `@op(group, ...)` (`clab/ops/__init__.py` `op`), declaring its axes: `needs` (axes the value must carry), `removes`, `adds`; or `layout=`, a function of the value's axes, the arguments and the featurizer kind, when they depend on the arguments. `bundle=<kind>` marks a value a featurizer of that kind loads; `check=` raises on arguments the types accept but the op cannot mean.
-3. Add the function to the ordered list at the end of `clab/ops/__init__.py`. The decorator alone does not list it, and `import clab` fails with `AssertionError: every declared op is listed once` until the list has it. Within a group, that list's order is the tables' order. A new edit is also named, by hand, in two docstrings that FORMAT.md prints: the edits group in `clab/ops/__init__.py` `ABOUT` and in `clab/plan.py` `Intervention`. Add it to both; `tests/test_format.py` cannot see that they are short.
+3. Add the function to the ordered list at the end of `clab/ops/__init__.py`. The decorator alone does not list it, and `import clab` fails with `AssertionError: every declared op is listed once` until the list has it. Within a group, that list's order is the tables' order. The prose FORMAT.md prints names the edits group from that list (`clab/ops/__init__.py` `listed`, written into `ABOUT` and the `Intervention` docstring in `clab/plan.py`), so a new edit joins it there with nothing written by hand.
 
 A minimal edit, added to the edits module and listed after `clamp`:
 
@@ -80,16 +80,16 @@ class Shift(Kind):
 
 A component is a row of `clab/format/address.py` `COMPONENTS`: its `meaning`, whether it is `per_layer`, its `dims` and whether it is a residual-stream value `readout` may project (`stream`). Its name is nnterp's name for the value, and its `dims` are nnterp's layout of it (`batch` first, the token axis `seq`, or `query` on an attention pattern); a site's `select` may narrow every other axis.
 
-The engines reach a component only through nnterp, so nnterp must serve that name. The nnterp and ndif engines read and set it on the envoy that hosts it (`clab/engines/standard.py` `envoy`), ask nnterp's `support()` whether it is served and nnterp's `rank` where it falls; one nnterp serves on the attention or the MLP is also listed in `clab/engines/standard.py` `BELOW`, under its host. The hooks engine resolves, at load, the module boundary nnterp's key for it names, and refuses by name one nnterp reads inside a module's forward. A name nnterp does not have breaks both: the hooks engine fails to load for every document, and the nnterp engine counts it as served, then fails at `rank` when a document uses it. Check that nnterp's `StandardizedTransformer.support()` lists the name before adding the row.
+The engines reach a component only through nnterp, so nnterp must serve that name. The nnterp and ndif engines read and set it on the envoy that hosts it (`clab/engines/standard.py` `envoy`), ask nnterp's `support()` whether it is served and nnterp's `rank` where it falls; one nnterp serves on the attention or the MLP is also listed in `clab/engines/standard.py` `BELOW`, under its host. The hooks engine resolves, at load, the module boundary nnterp's key for it names, and refuses by name one nnterp reads inside a module's forward. A name nnterp's `support()` does not answer for is refused by name for every document, whether it uses the component or not (`clab/engines/standard.py` `unserved`): the hooks engine when it loads, the nnterp engine in preflight. Check that nnterp's `StandardizedTransformer.support()` lists the name before adding the row.
 
 ## Adding a step kind
 
 A step kind is the widest change: the kind is dispatched in each stage.
 
-- `clab/plan.py`: a `Record` subclass with `kind: Literal["<kind>"]`, its entry in `KINDS`, and a tagged member of the `Step` union; `dims_in` for the layout of its value.
-- `clab/compile/__init__.py` `step`: the function that compiles it and registers the names it produces.
-- `clab/compile/preflight.py` `prepare`: what it checks with the model (any kind but `op` and `fit` is prepared as a forward).
-- `clab/steps/__init__.py` `KINDS`: the function that runs it, called as `(engine, plan, name, step, state, batch_size, found)`; a fit's body runs through the same table.
+- `clab/plan.py`: a `Record` subclass with `kind: Literal["<kind>"]` (a `Labelled` one where the step has a value of its own, whose record carries that value's layout and `axes`), its entry in `KINDS`, and a tagged member of the `Step` union; `serving` says which of its points run.
+- `clab/compile/__init__.py` `step`: the function that compiles it, writing its records' layout and the sweep axes each value depends on.
+- `clab/compile/preflight.py` `prepare`: what it checks with the model (any kind but `op` and `fit` is prepared as a forward, and its serving points' `schedule` written by `clab/compile/schedule.py` `scheduled`).
+- `clab/steps/__init__.py` `KINDS`: the function that runs it, called as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls it makes and the tokens they feed to `cost`; a fit's body runs through the same table.
 - The rest of the code that branches on a step's kind: `grep -rn 'kind ==' clab/`.
 
 `clab describe steps` and FORMAT.md list `clab/plan.py` `KINDS` with each record's docstring.
@@ -101,6 +101,6 @@ A step kind is the widest change: the kind is dispatched in each stage.
 | an op | `tests/test_ops.py`: the op on plain tensors; the two tests that list every op and its group fail until the new one is in them. A metric or reduction joins the list in `tests/test_findings.py` `test_every_metric_and_reduction_is_float32_on_a_bf16_model_and_an_edit_stays_bf16`, which names the ops it checks |
 | a featurizer kind | `tests/test_featurizers.py` `every_kind`, so the device and autocast tests cover it; `tests/test_featurizer_ops.py`, whose test of each kind's ops lists every kind and fails until updated; a kind with both `encode` and `decode` joins the parameters of its identity-to-the-bit test |
 | a component or a step kind | a corpus document that uses it, run on both engines |
-| a corpus document | pins for its numbers and its compiled form, and the corpus count in `tests/test_plan.py` |
+| a corpus document | pins for its numbers and its compiled form, and the README's corpus count, which `tests/test_plan.py` checks |
 
-An op, a kind, a component or a step kind changes FORMAT.md, which `clab/docs.py` `markdown` renders from the registries: regenerate it with `uv run clab describe --markdown` from the repo root, since it writes `FORMAT.md` into the current directory, or `tests/test_format.py` fails. Pinning a new document is [testing.md](testing.md); what lands with the change is [contributing.md](contributing.md).
+An op, a kind, a component or a step kind changes FORMAT.md, which `clab/docs.py` `markdown` renders from the registries: regenerate it with `uv run clab describe --markdown`, which writes `FORMAT.md` at the repo root from any directory, or `tests/test_format.py` fails. Pinning a new document is [testing.md](testing.md); what lands with the change is [contributing.md](contributing.md).

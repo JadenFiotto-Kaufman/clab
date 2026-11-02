@@ -1,6 +1,6 @@
 ---
 title: Testing
-one_liner: "Running and extending the suite: offline CPU runs, snapshot pins and re-pinning, the GPU real-model tests, the FORMAT drift test, the docs test, and pyright."
+one_liner: "Running and extending the suite: offline CPU runs at the pinned thread count, snapshot pins and re-pinning, the GPU and torchrun tests, the FORMAT drift test, the docs test, and pyright."
 tags: [developing, testing, snapshots]
 related: [docs/developing/contributing.md, docs/developing/extending.md, docs/developing/engines.md]
 sources: [tests/conftest.py, tests/test_documents.py, tests/test_plan.py, tests/test_real.py, tests/test_format.py, tests/test_docs.py, pyproject.toml]
@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 ```
 
 - `tests/conftest.py` sets `CUDA_VISIBLE_DEVICES` empty and `HF_HUB_OFFLINE=1` when they are unset, so a plain `uv run pytest tests/` already runs on CPU and offline. Setting either yourself overrides it; that is how the GPU tests run.
-- Run the suite at the machine's default thread count. Two pins depend on it: forcing `OMP_NUM_THREADS` to 2 fails the batch-companion test, and forcing 1 moves a fit's history pin past its tolerance. Cap threads for single documents, not for the suite.
+- `tests/conftest.py` pins torch's intra-op thread count to `THREADS` (12), the count the snapshots were made with: the BLAS splits a matmul's reduction by thread, and 4 threads or fewer move a row's numbers by about 1e-8. Pinned, `OMP_NUM_THREADS` and the host's core count do not decide whether the suite passes.
 - Checkpoints and datasets come from the local Hugging Face cache, at the revisions below. `tests/test_hub.py`'s docstring has the command that fetches its dataset. On a fresh cache, run once with `HF_HUB_OFFLINE=0` and hub access.
 
 | repository | revision | read by |
@@ -27,10 +27,14 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 | `trl-internal-testing/tiny-Qwen3ForCausalLM` | `25bb9b8963688237e94750f6f3e48f1947d3c7a3` | chat-template tests in `tests/test_positions.py` and `tests/test_findings.py` |
 | `nyu-mll/glue`, a dataset, configs `wnli` and `ax` | `bcdcba79d07bc864c1c254ccfcedcce55bcc9a8c` | `tests/test_hub.py` |
 | `Qwen/Qwen3-8B`, its tokenizer only | `b968826d9c46dd6066d109eabc6255188de91218` | one chat-template test in `tests/test_positions.py`, which skips without it |
-| `meta-llama/Llama-3.2-1B`, gated | `4e20de362430cd3b72f300e6b0f18e50e7166e08` | `documents/real/`, through `tests/test_real.py` on a GPU |
+| `hf-internal-testing/tiny-random-Gemma2ForCausalLM` | `de7c11b6c25d26ddd1bf4324fcf479b61d18e440` | the one tiny model that softcaps its logits: `tests/test_engines.py` and `tests/test_documents.py` |
+| `yujiepan/qwen3-next-moe-tiny-random` | `ec636a93e953ed50d2ecebda99b04673b5f1e248` | a hybrid whose blocks are of two kinds: `tests/test_engines.py`, and `tests/test_tp.py` where it is cached |
+| `trl-internal-testing/tiny-CohereForCausalLM` | `90bc56bd12c642f6bf5e710ebd7c626dd7c0201c` | one test in `tests/test_engines.py` (the readouts differing on a model that scales its logits), which skips without it |
+| `yujiepan/llama-3.2-tiny-random` | `0bf108f80b7c6cdf6e7e85698f0464bfbf7f9ce5` | one test in `tests/test_plan.py` (a chat template that reads the clock), which skips without it |
+| `meta-llama/Llama-3.2-1B`, gated | `4e20de362430cd3b72f300e6b0f18e50e7166e08` | `documents/real/`, through `tests/test_real.py` on a GPU, and the GPU case of `tests/test_quantized.py` |
 - One file, or tests by name: `uv run pytest tests/test_ops.py -q`, `uv run pytest tests/test_ops.py -k clamp -q`. In the files that run the corpus, a module-scoped fixture (`filled`, `ran`) runs all of the file's documents for the first selected test that asks for it, so selecting one such test still runs them all.
 
-Results are reproducible to the bit only at a fixed batch size, so the suite runs every document at `tests/conftest.py` `BATCH_SIZE` (2), and every pin of results records the batch size it was made at.
+Results are reproducible to the bit only at a fixed batch size and thread count, so the suite runs every document at `tests/conftest.py` `BATCH_SIZE` (2) and `THREADS`, and every pin of results records the batch size it was made at.
 
 ## Fixtures and helpers
 
@@ -38,9 +42,9 @@ Results are reproducible to the bit only at a fixed batch size, so the suite run
 
 - `engines`: each engine loaded once per model block and options for the whole session, `engines("nnterp", plan.model)`.
 - `corpus`: a copy of `documents/`, its `data/` linked, whose `documents/artifacts/` holds stand-in bundles for the documents that load what another writes (`fit.rot`, `basis`, `fit.dictionary`, `fit.lora`). The docs test compiles fenced documents against it.
-- `stand_in`: a plan run on the ndif engine against a stand-in server, which serializes the real request, runs it with a loaded model and returns what came home and what the trip carried (`by_reference`, `TRIP`).
+- `stand_in`: a plan run on the ndif engine against a stand-in server, which serializes the real request, runs it with a loaded model and returns what came home and what the trip carried (`by_reference`; `TRIP`: the results, the run record and the completed records).
 - `tests/fixtures/sae.py` and `tests/fixtures/published_sae.py` write the committed SAE fixtures under `documents/artifacts/` from seeded generators, the same bytes on every run; rerun one from the repo root (`uv run python tests/fixtures/sae.py`) only to change a fixture.
-- Helpers: `plan_of(name)` compiles a corpus document; `edited(name, change)` is one with `change` applied to its JSON, read as if from its own file; `close` compares floats to 1e-6 and NaN to NaN; `same` is bit equality.
+- Helpers: `plan_of(name)` compiles a corpus document; `edited(name, change)` is one with `change` applied to its JSON, read as if from its own file; `on_each` runs a plan on each engine and keeps each run's results apart; `placed` is where every read and write resolved, per row, as the records hold it; `close` compares floats to 1e-6 and NaN to NaN; `same` is bit equality.
 
 ## Snapshot pins
 
@@ -49,10 +53,10 @@ Results are reproducible to the bit only at a fixed batch size, so the suite run
 | snapshot, under `tests/snapshots/` | pinned by | holds, compared how |
 |---|---|---|
 | `<document>.<engine>.json` | `tests/test_documents.py` (forward documents), `tests/test_generate.py`, `tests/test_fit.py`, `tests/test_patching.py` | the saved results at `BATCH_SIZE`, to 1e-6 |
-| `plans/<document>.json` | `tests/test_plan.py` | the compiled plan, rows aside, exactly |
+| `plans/<document>.json` | `tests/test_plan.py` | the compiled plan, rows aside (every record's layout and `axes`, and which point each forward serves), exactly |
 | `real/<document>.<engine>.json` | `tests/test_real.py` | GPU results, with the GPU, torch and transformers that made them |
 
-Which file runs a document is decided in `tests/conftest.py`: one named in `FIT` (trains or loads a featurizer) runs in `tests/test_fit.py`, one in `GENERATE` in `tests/test_generate.py`, and every other in `tests/test_documents.py`, on the nnterp and hooks engines (the hooks engine skips those in `INSIDE`, which it refuses). Beside the pins, the files check that the engines agree to the bit (`same`, and the same `run.positions`) and that the ndif engine under `remote="local"` equals the nnterp engine.
+Which file runs a document is decided in `tests/conftest.py`: one named in `FIT` (trains or loads a featurizer) runs in `tests/test_fit.py`, one in `GENERATE` in `tests/test_generate.py`, and every other in `tests/test_documents.py`, on the nnterp and hooks engines (the hooks engine skips those in `INSIDE`, which it refuses). Beside the pins, the files check that the engines agree to the bit (`same`, and the same `placed`) and that the ndif engine under `remote="local"` equals the nnterp engine.
 
 To re-pin after a change that means to move numbers, rerun the files whose pins move with the variable set, then read what changed:
 
@@ -61,7 +65,7 @@ CLAB_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_documents.py -q
 git diff tests/snapshots/
 ```
 
-The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the corpus count in `tests/test_plan.py` changes with it.
+The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the README's corpus count, which `tests/test_plan.py` checks, changes with it.
 
 ## GPU real-model tests
 
@@ -73,11 +77,11 @@ uv pip install --python <venv>/bin/python --no-deps -e .
 CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest tests/test_real.py -q
 ```
 
-`tests/test_device.py` and the device test in `tests/test_featurizers.py` also need a CUDA device, and skip under the suite's default of none.
+`tests/test_device.py`, the device test in `tests/test_featurizers.py`, the CUDA and Llama-3.2-1B cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py` also need CUDA devices, and skip under the suite's default of none. The rest of `tests/test_tp.py` starts its two ranks with torchrun on the CPU, in the suite; the tiny-Llama cases of `tests/test_quantized.py` (`nf4`, `fp4`, `int8`) run on the CPU with the dev group's `bitsandbytes`.
 
 ## The FORMAT drift test
 
-`tests/test_format.py` fails when the committed FORMAT.md differs from what `clab/docs.py` `markdown` renders now, and when an engine option has no docstring line saying what it takes. Fix the first by regenerating it with `uv run clab describe --markdown` from the repo root, as [contributing.md](contributing.md#changing-the-format) says.
+`tests/test_format.py` fails when the committed FORMAT.md differs from what `clab/docs.py` `markdown` renders from the code, and when an engine option has no docstring line saying what it takes. Fix the first by regenerating it with `uv run clab describe --markdown`, as [contributing.md](contributing.md#changing-the-format) says.
 
 ## The docs test
 
@@ -100,6 +104,9 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | file | covers |
 |---|---|
 | `tests/test_plan.py` | each document compiles to its snapshot; the plan as pure data; errors name the document path |
+| `tests/test_engines.py` | a component means one thing on every engine; each engine's readout and its refusals layer by layer |
+| `tests/test_shared.py` | one forward shared by the points that differ only in what they read, and the schedule the engines execute |
+| `tests/test_efficiency.py` | what a run costs (`run.costs`), and where a forward ends |
 | `tests/test_refusals.py` | what cannot be served, or would change a document's meaning, refused by name before any forward |
 | `tests/test_findings.py` | one test per silent failure mode or unclear refusal, each pinned as a refusal or a check, named by a short tag |
 | `tests/test_documents.py` | forward documents on each engine; what padding, positions, scopes, windows, ragged reads and `layers` mean |
@@ -113,7 +120,10 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_featurizers.py`, `tests/test_featurizer_ops.py` | featurizer math on any device and under autocast, published SAEs; `encode`, `decode` and `apply` per kind |
 | `tests/test_lora.py` | the `lora` kind |
 | `tests/test_hub.py` | hub datasets held by reference |
+| `tests/test_quantized.py` | quantized `dtype`s on both engines |
+| `tests/test_tp.py` | the nnterp engine's `tp` under torchrun: its refusals, what every rank holds whole, rank 0 writing |
 | `tests/test_device.py` | on a GPU, every tensor clab builds meets an activation on its device |
-| `tests/test_cli.py` | `clab show` and `clab table` |
+| `tests/test_cli.py` | `clab show` and `clab table`, and what `clab run` prints and refuses |
+| `tests/test_table.py` | `table`: values joined on the keys they share, and what has no rows to table |
 
 What to add for a new op, kind, component or step kind is in [extending.md](extending.md).
