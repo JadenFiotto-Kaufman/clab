@@ -26,7 +26,7 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 
 from clab import Plan
 from clab.cli import main
-from clab.compile.state import Found
+from clab.compile.state import Findings
 from clab.format.sweeps import labelled, points, put
 from clab.plan import entries, runnable
 from clab.steps.batches import bind_ops
@@ -315,9 +315,9 @@ def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monk
     from clab.compile import preflight, schedule
 
     def early(engine, plan, name, step, served):
-        schedule.scheduled(engine, plan, name, step, served)
+        schedule.write_schedule(engine, plan, name, step, served)
         step.schedule["stop"] = ["layer_output", 0]
-    monkeypatch.setattr(preflight, "scheduled", early)
+    monkeypatch.setattr(preflight, "write_schedule", early)
 
     def change(d):
         d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input",
@@ -435,8 +435,8 @@ def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
     plan = edited("patching", change).compile()
     engine: Any = load("nnterp", plan.model)
     placed, checked, sized, bounds = [], [], [], []
-    place, check, forward = positions.place, preflight.check_operands, engine.forward
-    monkeypatch.setattr(positions, "place", lambda *a: placed.append(a) or place(*a))
+    place, check, forward = positions.resolve_row, preflight.check_operands, engine.forward
+    monkeypatch.setattr(positions, "resolve_row", lambda *a: placed.append(a) or place(*a))
     monkeypatch.setattr(preflight, "check_operands", lambda *a: checked.append(a[2]) or check(*a))
     monkeypatch.setattr(standard, "sizes", lambda model: sized.append(model) or {})
     monkeypatch.setattr(engine, "forward", lambda batch, bound: bounds.append(bound) or forward(batch, bound))
@@ -486,7 +486,7 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     def bound() -> None:
         state: ChainMap = ChainMap()
         put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
-        bind_ops(plan, record, state, {}, [0, 1], Found(), 0, {})
+        bind_ops(plan, record, state, {}, [0, 1], Findings(), 0, {})
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)

@@ -19,7 +19,7 @@ from conftest import BATCH_SIZE, TRIP, same, stand_in
 
 from clab import Plan
 from clab.cli import main
-from clab.compile import materialized
+from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
 from clab.format import data
 from clab.plan import PlanError
@@ -66,7 +66,7 @@ def test_a_hub_dataset_compiles_with_its_digest_and_without_its_rows():
     assert compiled.data["glue"].rows is None and compiled.data["glue"].n_rows == 6
     assert compiled.model_dump(mode="json", exclude_defaults=True)["data"]["glue"] == {
         **GLUE, "take": 6, "sha256": data.digest(rows), "n_rows": 6}
-    assert materialized(compiled, "glue") == rows
+    assert dataset_rows(compiled, "glue") == rows
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -81,7 +81,7 @@ def test_a_forward_over_a_hub_dataset_is_the_forward_over_its_rows_inline(engine
 def rows_of(**d) -> list[dict]:
     """Dataset `glue` (the fixture's wnli validation rows, with `d`) as a compiled plan's run materializes it."""
     compiled = plan({**GLUE, **d}, steps={}, saves=[]).compile()
-    rows = materialized(compiled, "glue")
+    rows = dataset_rows(compiled, "glue")
     assert compiled.data["glue"].sha256 == data.digest(rows) and compiled.data["glue"].n_rows == len(rows)
     return rows
 
@@ -180,7 +180,7 @@ def test_a_run_read_of_rows_never_loaded_is_refused_by_name(engines):
     compiled = plan().compile()
     engine = engines("hooks", compiled.model)
     start_run(engine, compiled, BATCH_SIZE)
-    with pytest.raises(PlanError, match=r"^data\.glue: the plan holds none of its rows; `compile\.materialized` loads "
+    with pytest.raises(PlanError, match=r"^data\.glue: the plan holds none of its rows; `compile\.dataset_rows` loads "
                                         r"them, as the run does first \(`steps\.plan_with_rows`\)$"):
         preflight(engine, compiled)
 

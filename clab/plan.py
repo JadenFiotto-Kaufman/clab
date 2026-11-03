@@ -1461,7 +1461,7 @@ def held_rows(plan: Plan, name: str) -> list[dict]:
     none (a hub dataset's, a loaded plan's file rows) is refused by name."""
     rows = plan.data[name].rows
     if rows is None:
-        fail(f"data.{name}", "the plan holds none of its rows; `compile.materialized` loads them, as the run does "
+        fail(f"data.{name}", "the plan holds none of its rows; `compile.dataset_rows` loads them, as the run does "
              "first (`steps.plan_with_rows`)")
     return rows
 

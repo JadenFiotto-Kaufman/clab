@@ -102,6 +102,6 @@ class Gate(Kind):
 
 
 def kept_of(kept: dict[str, list[int]] | None) -> dict[str, list[int]]:
-    """A gate over axes' `kept`, which the run supplies wherever it has `over` (`uses.widths`)."""
+    """A gate over axes' `kept`, which the run supplies wherever it has `over` (`uses.write_widths`)."""
     assert kept is not None, "a gate over axes is made with the indices it keeps on each"
     return kept

@@ -13,7 +13,7 @@ from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, placed, pl
 from huggingface_hub import try_to_load_from_cache
 
 from clab import Plan, ops
-from clab.compile import dataset, positions
+from clab.compile import make_dataset_rows, positions
 from clab.format import data, registry, selectors
 from clab.format.sweeps import agreeing, lookup, points
 from clab.plan import Data, PlanError
@@ -589,7 +589,7 @@ def test_columns_renames_and_keeps_every_other_column():
     assert plan.data["pairs"].rows == [{"label": 1, "input": "a", "answer": " b"},
                                        {"label": 0, "input": "c", "answer": " d"}]
     assert compiled_form(plan)["data"]["pairs"]["columns"] == {"input": "prompt", "answer": "target"}
-    swapped = dataset("", "pairs", Data(rows=rows, columns={"prompt": "target", "target": "prompt"}))
+    swapped = make_dataset_rows("", "pairs", Data(rows=rows, columns={"prompt": "target", "target": "prompt"}))
     assert swapped == [{"label": 1, "prompt": " b", "target": "a"}, {"label": 0, "prompt": " d", "target": "c"}]
     with pytest.raises(PlanError, match=r"steps\.p\.token: dataset 'pairs' has no column 'target' on every row"):
         with_data({"rows": rows, "columns": {"input": "prompt", "answer": "target"}}, steps={
@@ -662,7 +662,8 @@ def test_a_derived_column_is_the_text_cut_from_its_source_and_joins_the_digest()
     the compiled plan spells it as the document does."""
     derived = with_data({"rows": WORKED, "columns": CUT}, steps=SCORED, saves=["p"]).compile()
     by_hand = with_data({"rows": BY_HAND}, steps=SCORED, saves=["p"]).compile()
-    assert derived.data["pairs"].rows == BY_HAND and dataset("", "pairs", Data.model_validate({"rows": WORKED, "columns": CUT})) == BY_HAND
+    assert derived.data["pairs"].rows == BY_HAND and \
+        make_dataset_rows("", "pairs", Data.model_validate({"rows": WORKED, "columns": CUT})) == BY_HAND
     assert derived.data["pairs"].sha256 == by_hand.data["pairs"].sha256 == data.digest(BY_HAND)
     assert compiled_form(derived)["data"]["pairs"]["columns"] == CUT
 

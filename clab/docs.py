@@ -239,7 +239,7 @@ def markdown() -> str:
     for name, cls in engines.ENGINES.items():
         listed = "".join(f"- `{o}`" + (f": {text}" if text else "") + "\n" for o, text in run_options(name))
         parts += [f"### `{name}`\n", listed + "\n" + doc(inspect.getmodule(cls)) + "\n"]
-    parts += ["## Names and scoping\n", doc(compiler.step) + "\n",
+    parts += ["## Names and scoping\n", doc(compiler.compile_step) + "\n",
               "## Sweeps\n", doc(sweeps.find_sweeps) + "\n",
               "## Saves and the output\n", doc(output) + "\n", doc(table.table) + "\n",
               "## A worked document\n", "`documents/patching.json`:\n", "```json\n" + example + "```\n"]

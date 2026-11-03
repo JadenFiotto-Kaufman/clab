@@ -10,9 +10,9 @@ import torch
 from torch import Tensor
 
 from clab.compile import positions
-from clab.compile.positions import head, place, texts
-from clab.compile.schedule import gathered
-from clab.compile.state import Found
+from clab.compile.positions import reads_head, resolve_row, scope_texts
+from clab.compile.schedule import values_read_by
+from clab.compile.state import Findings
 from clab.format import address, data
 from clab.format.sweeps import projected, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
@@ -25,11 +25,11 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int, found: Found,
-             cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
+def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int,
+             findings: Findings, cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
     """The step's input in batches of dataset row ids padded as the run says (`input_batches`, `plan.run.padding`), each
     through `engine.generate` with the point's schedule bound to it (`bind_schedule`) and the step's own keys as its
-    options; each value the generation reads (`values_read`, `gathered` over the points it serves, `served`, as a
+    options; each value the generation reads (`values_read`, `values_read_by` over the points it serves, `served`, as a
     forward's) joined along rows from its own reads, and the new ids, one generation's, put as the step's value, each in
     the run's row order, as where each entry landed is (`in_run_order`).
 
@@ -46,22 +46,22 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     generation's last, which no call is fed."""
     assert plan.run is not None
     eos, rows = set(stop_ids(engine, step)), held_rows(plan, cast(str, step.dataset))
-    encoded = found.inputs[data.input_name(step.input)]["rows"]
-    values_read = gathered(served) if values_read is None else values_read
+    encoded = findings.inputs[data.input_name(step.input)]["rows"]
+    values_read = values_read_by(served) if values_read is None else values_read
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
     # coordinates on the entry's axes, with the record it is at the first such point.
     beyond_prefill: dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]] = {}
     for point in served:
         for key, record in entries(point).items():
-            if not positions.prefill(positions.parse(record.pos)):
+            if not positions.prefill_only(positions.parse(record.pos)):
                 beyond_prefill.setdefault((key, tuple(projected(point.at, record.axes).items())),
                                           (record, projected(point.at, record.axes), point))
     parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
     beyond_positions: dict[tuple[str, tuple], list] = {k: [] for k in beyond_prefill}
     new, batched_ids = [], []
-    for ids, batch, pads in input_batches(engine, step, state, found, batch_size, plan.run.padding):
+    for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
-        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, found, ids, pads, values_read)
+        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, findings, ids, pads, values_read)
         tokens, got = run_engine_generate(engine, name, batch, bound_schedule, dict(step.model_extra or {}))
         inputs, batch_rows = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]
@@ -70,18 +70,18 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
         cost["real"] += batch["input_ids"].numel() - sum(pads) + sum(map(len, said)) - len(said)
         for k, (record, own, point) in beyond_prefill.items():
             beyond_positions[k] += positions_beyond_prefill(record, batch_rows, inputs, said, eos, engine.tokenizer,
-                                                            head(step, record))
+                                                            reads_head(step, record))
         for k, (record, own, point) in values_read.items():
             if k in beyond_prefill:
                 row_positions = beyond_positions[k][-len(ids):]
                 parts[k].append(stack_layers(record, [
                     value_beyond_prefill(engine, plan, record, got, binds[k + (layer,)], row_positions, inputs, ids,
-                                         state, point.at, head(step, record), found, layer)
+                                         state, point.at, reads_head(step, record), findings, layer)
                     for layer in layers_made_at(engine, record)]))
             else:
                 parts[k].append(stack_layers(record, [
                     value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0],
-                                     ids, state, point.at, found, layer)
+                                     ids, state, point.at, findings, layer)
                     for layer in layers_made_at(engine, record)]))
         new.append(tokens)
     width = max(x.shape[1] for x in new)
@@ -97,7 +97,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
                 k = (key, tuple(projected(point.at, record.axes).items()))
                 if k in beyond_prefill:
                     record.positions = {**record.positions, cast(str, step.dataset): beyond_positions[k]}
-        put(found.said, name, projected(step.at, step.axes),
+        put(findings.said, name, projected(step.at, step.axes),
             [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in tokens.tolist()])
 
 
@@ -105,14 +105,15 @@ def positions_beyond_prefill(record: Intervention, rows: list[dict], encoded: li
                              eos: set[int], tokenizer: PreTrainedTokenizerBase,
                              head_only: bool) -> list[list[int] | str]:
     """Where an entry past the prefill resolved on each row, once what the row generated (`said`) is known: a
-    write with a text scope at the calls `positions.landing` said so of as each input was fed, any other entry
-    by `positions.resolve` (`place`); a marker for a row it does not reach."""
+    write with a text scope at the calls `positions.lands_at_call` said so of as each input was fed, any other entry
+    by `positions.resolve` (`resolve_row`); a marker for a row it does not reach."""
     pos = positions.parse(record.pos)
     if writes(record) and pos["scope"]:
         return [[len(encoded_row["ids"]) + k - 1 for k in range(1, len(row_said))
-                 if positions.landing(pos, texts(pos, row), row_said[:k], eos, tokenizer)] or positions.MISSING
+                 if positions.lands_at_call(pos, scope_texts(pos, row), row_said[:k], eos, tokenizer)]
+                or positions.MISSING
                 for row, encoded_row, row_said in zip(rows, encoded, said)]
-    return [place(pos, row, encoded_row, row_said, tokenizer, head_only)
+    return [resolve_row(pos, row, encoded_row, row_said, tokenizer, head_only)
             for row, encoded_row, row_said in zip(rows, encoded, said)]
 
 
@@ -146,7 +147,7 @@ def run_engine_generate(engine: Engine, name: str, batch: dict, bound_schedule: 
 
 def value_beyond_prefill(engine: Engine, plan: Plan, record: Intervention, got: dict, parts: list[dict],
                          row_positions: list, encoded: list[dict], ids: list[int], state: ChainMap, at: dict,
-                         head_only: bool, found: Found, layer: int | None) -> Any:
+                         head_only: bool, findings: Findings, layer: int | None) -> Any:
     """One layer of an entry's value beyond the prefill in one batch, arranged by the positions each row resolved
     to (`row_positions`, per row a list of positions or an alignment marker): a prompt position from the prefill's
     whole value (the read's part over the prompt, `[rows, width, ...]`, column `p` the row's token `p`; its one
@@ -196,5 +197,5 @@ def value_beyond_prefill(engine: Engine, plan: Plan, record: Intervention, got: 
         value = arranged(missing, whole, by_call, shown)
     token_positions = torch.tensor([reached + [-1] * (width - len(reached)) for reached in reached_positions],
                                    dtype=torch.long).reshape(len(row_positions), width)
-    return apply_ops_after_edit(engine, plan, record, value, state, at, ids, token_positions, found, layer,
+    return apply_ops_after_edit(engine, plan, record, value, state, at, ids, token_positions, findings, layer,
                                 len(record.ops) - len(gathers(record)) + len(each))

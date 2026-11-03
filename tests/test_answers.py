@@ -12,7 +12,7 @@ from conftest import BATCH_SIZE, ROOT, edited, placed, plan_of, same
 
 from clab import Plan, ops
 from clab.compile import answers
-from clab.compile.answers import Answer, answered
+from clab.compile.answers import Answer, answer_ids
 from clab.plan import PlanError
 
 TINY = {"key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
@@ -202,11 +202,11 @@ def test_a_generated_rows_positions_that_do_not_line_up_with_its_answer_are_refu
     its answer, is refused by name, and a row with none is missing."""
     of = torch.zeros(1, 2, 5)
     with pytest.raises(ValueError, match=r"^days\.answer row 0: ' Tuesday' is 3 tokens; the read has 2 positions"):
-        answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of,
-                 ["rows", "pos", "vocab_size"], None)
+        answer_ids(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), of,
+                   ["rows", "pos", "vocab_size"], None)
     missing = torch.full((1, 3, 5), float("nan"))
-    assert answered(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
-                    ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
+    assert answer_ids(Answer([" Tuesday"], [[[1], [2], [3]]], "days.answer", True), missing,
+                      ["rows", "pos", "vocab_size"], None).shape == (1, 3, 1)
 
 
 @pytest.mark.parametrize("scope, message", [
@@ -365,7 +365,7 @@ def test_a_token_that_is_part_of_a_character_is_its_own_class(engines):
     tokenizer = engines("nnterp", plan_of("gpt2_reach").model).tokenizer
     parts = [i for i, text in enumerate(answers.vocabulary(tokenizer)) if "�" in text]
     assert len(parts) > 1
-    assert all(answers.spelled(tokenizer, [i], 0, True, True) == [i] for i in parts)
+    assert all(answers.spelling_ids(tokenizer, [i], 0, True, True) == [i] for i in parts)
 
 
 WHOLE = (r"keeps {kept} of its {axis} \(select\), and it scores 'days\.answer' by its id over the whole vocabulary, "

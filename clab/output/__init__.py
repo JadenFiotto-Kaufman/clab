@@ -37,7 +37,7 @@ from safetensors.torch import load_file, save
 from torch import Tensor
 
 from clab import featurizers, ops
-from clab.compile import materialized
+from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
@@ -264,7 +264,7 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     else:
         return None
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
-    classes = labels({dataset: materialized(plan, dataset)}, fields["classes"]) if dataset else None
+    classes = labels({dataset: dataset_rows(plan, dataset)}, fields["classes"]) if dataset else None
     return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept)
 
 

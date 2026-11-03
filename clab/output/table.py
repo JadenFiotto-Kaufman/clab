@@ -7,7 +7,7 @@ from typing import Any, cast
 from torch import Tensor
 
 from clab import ops
-from clab.compile import materialized, positions
+from clab.compile import dataset_rows, positions
 from clab.format import data
 from clab.format.sweeps import agreeing, labelled, projected
 from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, made_by, points,
@@ -135,7 +135,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
                     f"laid out {dims}, a {record.op} over a value with no rows axis, its ids and probabilities one "
                     "list each") if isinstance(record, OpStep) else f"laid out {dims}"
             raise ValueError(f"{name!r} has no rows to table: it is {what}; read it from plan.results")
-        examples = materialized(plan, record.dataset) if record.dataset else []
+        examples = dataset_rows(plan, record.dataset) if record.dataset else []
         place = located(plan, record, p.at) if record.read else None
         used = columns_used(plan, name, p.at)
         for row in elements(value, dims, place):

@@ -10,7 +10,7 @@ Offline, on CPU, no model loaded, in seconds: `uv run pytest tests/test_docs.py 
 * a repo path in backticks exists: one under `clab/`, `tests/`, `documents/`, `data/` or `docs/` with a file
   extension or a trailing slash, any other `.py` path with a slash (read from the repo root or from `clab/`), and a
   root file named in capitals (`FORMAT.md`) or `pyproject.toml`;
-* a symbol cited beside its `.py` file (`clab/compile/positions.py` `landing`, and the other forms
+* a symbol cited beside its `.py` file (`clab/compile/positions.py` `lands_at_call`, and the other forms
   `PATH_THEN_SYMBOL` and `SYMBOL_THEN_PATH` accept) is defined in that file: a def, a class, an assignment or an
   import;
 * nothing is cited by line number (`plan.py:123`, `#L123`): line numbers drift, so code is cited by path and
@@ -299,7 +299,7 @@ def test_no_line_number_citations():
              for _ in LINE_CITATION.finditer(line)]
     assert len(found) <= LINE_CITATION_BASELINE, (
         f"{len(found)} line-number citations, baseline {LINE_CITATION_BASELINE}: cite path + symbol instead "
-        f"(`clab/compile/positions.py` `landing`). {found[:10]}")
+        f"(`clab/compile/positions.py` `lands_at_call`). {found[:10]}")
 
 
 # --------------------------------------------------------------------------- banned terms

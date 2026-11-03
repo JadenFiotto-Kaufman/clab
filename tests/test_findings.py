@@ -374,16 +374,16 @@ def test_s3_an_occurrence_lies_on_token_and_word_boundaries(engines):
         for text, find, count in (("Then Ann and Annabel met. Ann left", " Ann", 2),
                                   ("I love Paris. Paris is big", "Paris", 2)):
             row = data.encode(tokenizer, text, None)
-            assert len(positions.located([(find, False, False)], row["text"], row["offsets"])) == count
+            assert len(positions.occurrence_spans([(find, False, False)], row["text"], row["offsets"])) == count
         row = data.encode(tokenizer, "I love Paris. Paris is big", None)
-        (a, b), = positions.located([("Paris. ", False, False)], row["text"], row["offsets"])
+        (a, b), = positions.occurrence_spans([("Paris. ", False, False)], row["text"], row["offsets"])
         covered = [t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a]
         assert "Paris" not in tokenizer.decode([row["ids"][covered[-1]]])
     words, letters = "f(): a: b", [(0, 1), (1, 4), (4, 6), (6, 7), (7, 9)]       # `():` is one token
-    assert positions.located([(":", False, False)], words, letters) == [(6, 7)]
-    assert positions.located([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
-    assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
-    assert positions.located([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
+    assert positions.occurrence_spans([(":", False, False)], words, letters) == [(6, 7)]
+    assert positions.occurrence_spans([("a", False, False)], words, letters) == [(5, 6)]     # ` a` without its space
+    assert positions.occurrence_spans([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)]) == []
+    assert positions.occurrence_spans([("Ann", False, False)], "Annabel", [(0, 3), (3, 7)], ahead=False) == [(0, 3)]
     from clab.plan import Pos, Scope
     assert "starts where a token starts and ends where a token" in " ".join((Pos.__doc__ or "").split())
     assert "lies on token and word boundaries" in " ".join((Scope.__doc__ or "").split())
@@ -777,7 +777,7 @@ def test_s18_an_answer_under_strip_keeps_its_leading_space_and_widens_only_its_e
     texts = answers.vocabulary(tokenizer)
 
     def classes(value: str, lower: bool = False) -> list[list[str]]:
-        return [[texts[i] for i in ids] for ids in answers.answers(tokenizer, [value], "d.a", True, lower)[0]]
+        return [[texts[i] for i in ids] for ids in answers.answer_sets(tokenizer, [value], "d.a", True, lower)[0]]
     blank = [i for i, t in enumerate(texts) if not t.strip() and "\ufffd" not in t]
     assert len(blank) == 441
     assert classes(" 42") == [[" "], ["4"], ["2"]]                  # this tokenizer splits digits: ` 42` is three
@@ -796,7 +796,7 @@ def test_s18_an_answer_under_strip_keeps_its_leading_space_and_widens_only_its_e
             assert len(ids) == 1
             key = data.compared(texts[ids[0]], True, lower)              # the rule for one token before this PR
             before = [i for i, t in enumerate(texts) if "\ufffd" not in t and data.compared(t, True, lower) == key]
-            assert answers.answers(tokenizer, [word], "d.a", True, lower)[0] == [before]
+            assert answers.answer_sets(tokenizer, [word], "d.a", True, lower)[0] == [before]
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])

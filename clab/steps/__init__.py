@@ -31,10 +31,10 @@ import torch
 from torch import Tensor
 
 from clab import ops
-from clab.compile import materialized
+from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
-from clab.compile.schedule import gathered
-from clab.compile.state import Found
+from clab.compile.schedule import values_read_by
+from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
 from clab.format.sweeps import agreeing, by_coordinate, coordinate, labelled, lookup, projected, put
@@ -93,7 +93,7 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     plan = plan_with_rows(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
-    found = preflight(engine, plan)
+    findings = preflight(engine, plan)
     state = state_at_start(plan, model_device(engine))
     devices, costs = engine.cuda, {}
     with torch.no_grad():
@@ -104,17 +104,17 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
                 rows = step.batch_size if isinstance(step, Forward) and step.batch_size is not None else batch_size
                 try:
                     measure_cost(devices, cost, lambda: KINDS[step.kind](
-                        engine, plan, name, step, state, rows, found, cost,
+                        engine, plan, name, step, state, rows, findings, cost,
                         *([served] if isinstance(step, Forward) else [])), step.kind not in NO_MODEL)
                     put(costs, name, step.at, cost)
                 except torch.OutOfMemoryError as e:
                     plan.run.stopped = out_of_memory_refusal(plan, name, step.at, rows, state, e)
-                    record_results(engine, plan, state, costs, found)
+                    record_results(engine, plan, state, costs, findings)
                     raise ValueError(plan.run.stopped) from e
-    record_results(engine, plan, state, costs, found)
+    record_results(engine, plan, state, costs, findings)
 
 
-def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, found: Found) -> None:
+def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
     """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
     every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
     coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
@@ -125,7 +125,7 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fou
         ats = [at for at, _ in projections(plan, name)]
         plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(saved(plan, state, name, at)) for at in ats}
                               if ats != [{}] else detached_cpu_clone(saved(plan, state, name, {})))
-    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
+    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
 
@@ -191,9 +191,9 @@ def cuda_devices(engine: Engine) -> list[str]:
 
 def plan_with_rows(plan: Plan) -> Plan:
     """The plan as the run reads it: every dataset's rows in it, a hub dataset's loaded here, where the run is (on the
-    server, under `ndif`), and refused unless their digest is the one compile recorded (`materialized`). It is a
+    server, under `ndif`), and refused unless their digest is the one compile recorded (`dataset_rows`). It is a
     view: its `results` and `run` are the plan's own, which the run fills."""
-    return plan.model_copy(update={"data": {n: d.model_copy(update={"rows": materialized(plan, n)})
+    return plan.model_copy(update={"data": {n: d.model_copy(update={"rows": dataset_rows(plan, n)})
                                             for n, d in plan.data.items()}})
 
 
@@ -268,25 +268,25 @@ def version() -> str:
     return f"{dist.version}+{described}"
 
 
-def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, found: Found,
+def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, findings: Findings,
             cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
     """The step's input in batches of dataset row ids padded as the run says (`input_batches`, `plan.run.padding`), each
     through `engine.forward` with the point's schedule bound to it (`bind_schedule`); each value the forward reads
-    (`values_read`, `gathered` over the points its run serves, `served`: each gathered entry at each distinct point on
-    its axes among them, which a fit gives once for its every run of the body) joined along rows from its own reads,
-    in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
+    (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each distinct
+    point on its axes among them, which a fit gives once for its every run of the body) joined along rows from its own
+    reads, in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
     padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
     positions is as wide as the widest, NaN past a row's own."""
     assert plan.run is not None
-    values_read = gathered(served) if values_read is None else values_read
+    values_read = values_read_by(served) if values_read is None else values_read
     parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
     batched_ids: list[int] = []
-    for ids, batch, pads in input_batches(engine, step, state, found, batch_size, plan.run.padding):
+    for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
-        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, found, ids, pads, values_read)
+        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, findings, ids, pads, values_read)
         got = engine.forward(batch, bound_schedule)
         missing = [r["name"] for s in bound_schedule["sites"] for r in s["records"]
                    if "name" in r and r["name"] not in got]
@@ -300,13 +300,13 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
         for k, (record, own, point) in values_read.items():
             parts[k].append(stack_layers(record, [
                 value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
-                                 state, point.at, found, layer)
+                                 state, point.at, findings, layer)
                 for layer in layers_made_at(engine, record)]))
     for k, (record, own, _) in values_read.items():
         join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
 
 
-def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found,
+def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, findings: Findings,
        cost: dict[str, Any]) -> None:
     """The op over the value `of` names at the rows the run is over (`scope_ids`, else every row of its dataset),
     given each one's dataset row, at the layers `of`'s record says it is at (its `layers` axis's labels, or the one
@@ -322,7 +322,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
     value = ops.call(step.op, of, bind_arguments(plan, step.op, arguments(step), state, step.at, scope_ids(state),
-                                                 found, of, vocabulary, dims=dims, layers=acts),
+                                                 findings, of, vocabulary, dims=dims, layers=acts),
                      engine=engine, dims=dims, layers=acts,
                      eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
@@ -330,7 +330,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     put(state, name, projected(step.at, step.axes), value)
 
 
-def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, found: Found,
+def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, findings: Findings,
          cost: dict[str, Any]) -> None:
     """The saved value the plan carries (`Load.loaded`, which the compiled plan read from its run's file and which
     travels with it, in a request too), put where the model is (`model_device`), every tensor of it, at the point's
@@ -358,7 +358,7 @@ def token_strings(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
     return [next(texts) if i >= 0 else None for i in ids.tolist()]
 
 
-# The step kinds, each run as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls
+# The step kinds, each run as `(engine, plan, name, step, state, batch_size, findings, cost)`, adding the model calls
 # it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take
 # the points their run serves, `served`, and what they read, `values_read`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit, "load": load}

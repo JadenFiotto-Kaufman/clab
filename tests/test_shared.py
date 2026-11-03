@@ -385,7 +385,7 @@ def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_do
 
 
 def ranked(rank: Callable[[str, int | None], Any]) -> Any:
-    """A stand-in engine for `schedule.scheduled`: its name, and the rank it gives each `(component, layer)`."""
+    """A stand-in engine for `schedule.write_schedule`: its name, and the rank it gives each `(component, layer)`."""
     return types.SimpleNamespace(name="stand-in", rank=rank)
 
 
@@ -395,15 +395,15 @@ def test_an_operand_read_at_a_site_the_engine_ranks_alike_with_the_writes_is_ref
     write's own site whatever the ranks, read there first, in entry order."""
     plan = gpt2(LIVE)
     step = points(plan.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, [step])
+    schedule.write_schedule(ranked(lambda component, layer: layer), plan, "lens", step, [step])
     assert [s["layer"] for s in step.schedule["sites"]] == [0, 1]
     with pytest.raises(ValueError, match=r"^lens\.added: operand 'lens\.premix' is read at layer_output layer 0, which "
                                          r"the stand-in engine's forward reaches no earlier than this write's "
                                          r"layer_output layer 1; "):
-        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, [step])
+        schedule.write_schedule(ranked(lambda component, layer: 0), plan, "lens", step, [step])
     here = gpt2({**LIVE, "premix": at("layer_output", 1)})
     step = points(here.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, [step])
+    schedule.write_schedule(ranked(lambda component, layer: 0), here, "lens", step, [step])
     assert [[r.get("write") or r.get("read") for r in s["records"]] for s in step.schedule["sites"]] == \
         [["premix", "added", "added"]]
 
