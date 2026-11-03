@@ -85,8 +85,8 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
                after: Text | None = None) -> list[str] | list[list[str]]:
     """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
     with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text":
-    "</think>"}`) keeps each row's text after its first occurrence there (`following`), the whole text where it
-    does not occur, so `contains` scores what follows it alone."""
+    "</think>"}`) keeps each row's text after its first occurrence there, the whole text where it does not occur,
+    so `contains` scores what follows it alone."""
     tokenizer, stops = engine.tokenizer, set(eos)
     out = []
     for r, ids in enumerate(of.tolist()):
@@ -95,18 +95,16 @@ def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = Fals
             out.append(tokenizer.convert_ids_to_tokens(ids))
             continue
         text = tokenizer.decode(ids)
-        out.append(text if after is None else following(text, *after[r]))
+        if after is not None:
+            # Of the row's texts (a set's members), each compared as its flags say and the text lowercased too under
+            # `lower`, as `contains` compares, so an occurrence may cut a word: the occurrence that ends first, as a
+            # scope orders them; the text cut keeps its own characters.
+            texts, strip, lower = after[r]
+            words = data.compared(text, False, lower)
+            ends = [words.find(t) + len(t) for t in (data.compared(x, strip, lower) for x in texts) if t in words]
+            text = text[min(ends):] if ends else text
+        out.append(text)
     return out
-
-
-def following(text: str, texts: list[str], strip: bool, lower: bool) -> str:
-    """`text` after the first occurrence in it of any of `texts` (a set's members, each compared as the flags say,
-    `data.compared`, `text` lowercased too under `lower`, its characters its own): the occurrence that ends first,
-    as a scope orders them; all of `text` where none occurs. Text on text, as `contains` compares, so an occurrence
-    may cut a word."""
-    words = data.compared(text, False, lower)
-    ends = [words.find(t) + len(t) for t in (data.compared(x, strip, lower) for x in texts) if t in words]
-    return text[min(ends):] if ends else text
 
 
 @op("transforms")
