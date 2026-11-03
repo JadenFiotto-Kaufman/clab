@@ -234,7 +234,7 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, 
             record = entries(step)[key] if "write" in r else reading[key, tuple(r["at"].items())][0]
             head_only = head(step, record)
             # The rows' positions, which records alike in the prefill hold as one list (`positions.indices`).
-            where = None if "calls" in r or r.get("prompt") else record.positions[read_over(step, found)]
+            where = None if "calls" in r or r.get("prompt") else record.positions[cast(str, step.dataset)]
             reached = (cast(Site, record.site).component, repr(record.kept), head_only, "calls" in r, r.get("prompt"),
                        None if where is None else id(where))
             bound = dict(once(made, reached, lambda: decoding(record, record.kept, prompts, device) if "calls" in r else
@@ -271,12 +271,6 @@ def bind(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, 
              "wrt": [named[n][0] for n in g["wrt"]]} for g in schedule.get("grad", [])]
     return {"sites": sites, "stop": schedule["stop"], "grad": grad, "loop": schedule.get("loop"),
             "online": schedule.get("online", False)}, binds
-
-
-def read_over(step: Forward, found: Found) -> str:
-    """The dataset a step's records are read over in this run, which their `positions` are under: the step's, or
-    the one a fit's eval reads in its place (`found.swap`)."""
-    return found.swap.get(cast(str, step.dataset), cast(str, step.dataset))
 
 
 def layers(engine: Engine, record: Intervention) -> list[int] | list[None]:

@@ -186,6 +186,23 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     assert not torch.equal(other["fit.history.ce"], values["fit.history.ce"])
 
 
+def test_a_fits_evals_run_in_batches_of_its_batch_size_whatever_the_runs(engines):
+    """An eval's forward is a step after the fit whose record holds the fit's `batch_size` (`Forward.batch_size`),
+    which it runs in whatever the run's: das with its counterfactual read inside the body, so that no step before
+    the fit runs at the run's batch size, gives its rotation and its `train` eval to the bit at `--batch-size` 1 and
+    8, each eval forward one call over the two training rows at both, where `held_patched`, a root step after the
+    fit, makes one call per batch of the run's."""
+    plan = lambda: edited("das", inside("counterfactual")).compile()         # noqa: E731
+    engine = engines("hooks", plan().model)
+    runs = {size: engine.execute(plan(), batch_size=size) for size in (1, 8)}
+    for size, filled in runs.items():
+        assert filled.run is not None
+        assert [filled.run.costs[s]["forwards"] for s in ("fit.train.counterfactual", "fit.train.patched",
+                                                          "held_patched")] == [1, 1, 2 if size == 1 else 1]
+    for name in ("fit.rot", "fit.train.iia", "fit.train.ce"):
+        assert same(runs[1].results[name], runs[8].results[name])
+
+
 def test_a_pca_encodes_its_mean_as_zero():
     g = torch.Generator().manual_seed(0)
     bundle = {"basis": torch.linalg.qr(torch.randn(16, 4, generator=g))[0], "mean": torch.randn(16, generator=g)}
@@ -639,15 +656,15 @@ def test_a_probe_class_column_is_compared_exactly(engines):
 
 def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines):
     """Under eval the label column is the held-out dataset's; a label there the probe has no class for is
-    refused naming that dataset, before the fit's first forward."""
+    refused at the eval's own step, naming that dataset, before the fit's first forward."""
     plan = probe(held_out("holiday"))
     engine = engines("hooks", plan.model)
     calls = []
     original = engine.forward
     engine.forward = lambda *args: calls.append(1) or original(*args)
     try:
-        with pytest.raises(ValueError, match=r"ce: target is 'label' of 'held', whose row 0 is 'holiday', not one of "
-                                             r"the classes of probe 'probe': \['weekday', 'weekend'\]"):
+        with pytest.raises(ValueError, match=r"^fit\.train\.ce: target is 'label' of 'held', whose row 0 is 'holiday', "
+                                             r"not one of the classes of probe 'probe': \['weekday', 'weekend'\]$"):
             engine.execute(plan, batch_size=BATCH_SIZE)
     finally:
         del engine.forward
@@ -717,6 +734,24 @@ def test_inside_the_body_a_trained_featurizers_two_names_are_one_space(engines):
     engine = engines("hooks", plan.model)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
                 engine.execute(edited("das", lambda d: None).compile(), batch_size=BATCH_SIZE).results)
+
+
+def test_a_swept_fit_whose_body_names_its_featurizer_bare_runs_as_its_fit_name_does(engines):
+    """Compile writes a trained featurizer's bare name in its fit's body as `<fit>.<featurizer>`, so the two are one
+    featurizer at every point of a sweep: das with `rot`'s `k` swept over 4 and 8 and its body naming `rot` bare
+    compiles to the body that names `fit.rot`, and runs to its numbers to the bit, each point's body training that
+    point's instance."""
+    def swept(d):
+        d["featurizers"]["rot"]["k"] = {"sweep": [4, 8]}
+        d["steps"]["fit"]["epochs"] = 3
+
+    def bare(d):
+        d["steps"]["fit"]["steps"] = json.loads(json.dumps(d["steps"]["fit"]["steps"]).replace('"fit.rot"', '"rot"'))
+    named, written_bare = (edited("das", chain(swept, *more)).compile() for more in ((), (bare,)))
+    assert [p.steps for p in points(written_bare.steps["fit"])] == [p.steps for p in points(named.steps["fit"])]
+    engine = engines("hooks", named.model)
+    assert same(engine.execute(written_bare, batch_size=BATCH_SIZE).results,
+                engine.execute(named, batch_size=BATCH_SIZE).results)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -1005,7 +1040,7 @@ def test_a_body_op_over_a_root_harvest_is_held_to_its_input_as_the_root_is(engin
     """A metric's answer is checked against what the input says at the read's positions (`preflight.placed`, with
     the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
     column the input does not say there is refused naming the token, as the root's own op and the body that makes
-    the harvest itself are; a body's `Found` holds only its own inputs, so the harvest's are the root's."""
+    the harvest itself are; the body prepares into the root's `Found`, which holds the harvest's input."""
     said = r"predicts ' Monday' in the input, which is not token 0 of ' Friday'"
     for doc in (root_harvest(False), root_harvest(True), root_harvest(True, forced_inside=True)):
         plan = written(doc)
@@ -1036,7 +1071,7 @@ def held_out_own(d):
 
 @pytest.mark.parametrize("change", [held_out_extra, held_out_own], ids=["harvest", "body"])
 def test_under_an_eval_a_body_write_pairs_its_operand_over_the_rows_it_was_read_on(engines, change):
-    """An eval prepares the body again over its own rows: a write whose operand a step before the fit read pairs
+    """An eval's steps are prepared over its own rows: a write whose operand a step before the fit read pairs
     it over the root's rows there too, under an eval that reads another of the body's datasets as a third; and one
     whose operand the body itself reads pairs both over the eval's rows, under an eval that reads their dataset as
     another. Each runs on both engines, alike, and each eval member is over its eval's rows."""
@@ -1044,6 +1079,129 @@ def test_under_an_eval_a_body_write_pairs_its_operand_over_the_rows_it_was_read_
     ran = on_each(engines, plan, batch_size=4)
     assert same(ran["nnterp"].results, ran["hooks"].results) and placed(ran["nnterp"]) == placed(ran["hooks"])
     assert ran["hooks"].results["fit.held_out.ce"].shape == (4, 1)
+
+
+def test_an_eval_over_a_dataset_of_another_row_count_runs_and_tables_over_its_own_rows(engines):
+    """A body that reads two datasets pairs their rows in each minibatch, so the two have as many rows; an eval's
+    steps run over every row of each dataset, so one that reads `extra` as `few`, 2 rows beside `pairs`' 4, runs. Its
+    members are over its own rows: `fit.held_out.side.logits` tables a row per row of `few` with `pos_token` from
+    `few.input`'s tokens (its record's read is the eval step's own), and joins row by row with a read of
+    `few.input` after the fit, which it equals to the bit (`side` writes nothing, and both run in batches of 4)."""
+    def change(d):
+        held_out_extra(d)
+        d["data"]["few"] = {"path": "weekdays/train", "take": 2}
+        d["steps"]["fit"]["eval"] = {"held_out": {"extra": "few"}}
+        d["steps"]["plain"] = {"kind": "forward", "input": "few.input",
+                               "interventions": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+        d["saves"] = ["fit.held_out.ce", "fit.held_out.side_ce", "fit.held_out.side.logits", "plain.logits"]
+    filled = engines("hooks", TINY_MODEL).execute(written(t1(), change), batch_size=4)
+    assert filled.results["fit.held_out.ce"].shape == (4, 1) and filled.results["fit.held_out.side_ce"].shape == (2, 1)
+    assert filled.run is not None
+    last = [tokens[-1] for tokens in filled.run.tokens["few.input"]]
+    rows = filled.table("fit.held_out.side.logits")
+    assert [(r["row"], r["pos_token"]) for r in rows] == list(enumerate(last))
+    joined = filled.table("plain.logits", "fit.held_out.side.logits")
+    assert [r["row"] for r in joined] == [0, 1]
+    assert all(r["plain.logits"] == r["fit.held_out.side.logits"] for r in joined)
+
+
+# Two training rows and three held-out ones, longer, whose entities are words of other token counts.
+TRAINING = [{"input": f"If today is {a}, tomorrow is", "entity": a, "cf_answer": f" {b}",
+             "counterfactual_inputs": [f"If today is {c}, tomorrow is"]}
+            for a, b, c in [("Thursday", "Saturday", "Friday"), ("Friday", "Friday", "Thursday")]]
+HELD_OUT = [{"input": i, "entity": a, "cf_answer": f" {b}", "counterfactual_inputs": [c]} for i, a, b, c in [
+    ("Suppose that today is Saturday, and so tomorrow is", "Saturday", "Monday",
+     "Suppose that today is Sunday, and so tomorrow is"),
+    ("Suppose, just for now, that today is Sunday; then tomorrow is", "Sunday", "Sunday",
+     "If today is Saturday, tomorrow is"),
+    ("Say today is Monday: tomorrow is", "Monday", "Friday", "Say today is Tuesday: tomorrow is")]]
+L0, L1, LOGITS = ({"component": "layer_output", "layers": 0}, {"component": "layer_output", "layers": 1},
+                  {"component": "lm_head_output"})
+
+
+def as_at_the_root(engines, body, members: list[str], over: str = "te", before: dict | None = None) -> Plan:
+    """A lora fit over `tr` whose one eval reads `tr` as `over` (`held_out`; over `tr` itself, `train`), beside the
+    same steps written at the root after the fit over `over`, through `fit.lora`, each `r_<step>`: `body(d, lora,
+    ref)` is the steps over dataset `d`, each named `ref(<step>)`, and `before` root steps before the fit. Run on
+    hooks, each of the eval's `members` equals its root copy to the bit; the filled plan."""
+    label, swap = ("held_out", {"tr": over}) if over != "tr" else ("train", {})
+    plan = written({
+        "model": TINY, "data": {"tr": {"rows": TRAINING}, "te": {"rows": HELD_OUT}},
+        "featurizers": {"lora": {"kind": "lora", "rank": 2, "alpha": 4}},
+        "steps": {**(before or {}),
+                  "fit": {"kind": "fit", "train": ["lora"], "objective": {"ce": 1.0}, "epochs": 3, "batch_size": 4,
+                          "seed": 0, "optimizer": {"name": "adam", "lr": 0.05}, "eval": {label: swap},
+                          "steps": body("tr", "lora", lambda n: n)},
+                  **body(over, "fit.lora", lambda n: f"r_{n}")},
+        "saves": [f"fit.{label}.{m}" for m in members] + [f"r_{m}" for m in members]})
+    filled = engines("hooks", plan.model).execute(plan, batch_size=4)
+    for m in members:
+        assert same(filled.results[f"fit.{label}.{m}"], filled.results[f"r_{m}"]), m
+    return filled
+
+
+def adapted(d: str, lora: str, ref, adapt: dict | None = None, **more) -> dict:
+    """A forward over `d.input` through `lora` (`adapt`: by default at every position of layer 0), reading the last
+    token's logits, with `more` entries; and their cross entropy against `d.cf_answer`, the fit's objective."""
+    adapt = adapt or {"site": L0, "pos": {"index": ":"}, "ops": [{"op": "apply", "featurizer": lora}]}
+    return {ref("adapted"): {"kind": "forward", "input": f"{d}.input", "interventions": {
+                "adapt": adapt, **more, "logits": {"site": LOGITS, "pos": -1}}},
+            ref("ce"): {"kind": "op", "op": "cross_entropy", "of": f"{ref('adapted')}.logits",
+                        "target": f"{d}.cf_answer"}}
+
+
+def test_an_op_over_an_eval_generation_stops_at_the_generations_own_eos(engines):
+    """An op over an eval's value takes what made it from the eval step that did: `detokenize` over the held-out
+    generation, whose `eos_token_id` is `▁bande` (which every row generates third), stops there as the root's copy
+    does, where it took the fit as the value's maker and ran on past the step's EOS to the engine's."""
+    def body(d, lora, ref):
+        return {**adapted(d, lora, ref),
+                ref("gen"): {"kind": "generate", "input": f"{d}.input", "max_new_tokens": 4, "do_sample": False,
+                             "eos_token_id": 27628, "interventions": {"adapt": {
+                                 "site": L0, "pos": {"frame": ":", "index": ":"},
+                                 "ops": [{"op": "apply", "featurizer": lora}]}}},
+                ref("text"): {"kind": "op", "op": "detokenize", "of": ref("gen")}}
+    filled = as_at_the_root(engines, body, ["gen", "text"])
+    assert filled.run is not None and all(t[-1] == "▁bande" for t in filled.run.tokens["r_gen"])
+    assert "bande" not in "".join(filled.results["r_text"])
+
+
+def test_an_eval_write_whose_operand_its_own_forward_reads_runs_as_the_roots(engines):
+    """A write whose operand is an earlier entry of its own forward, read at a scope of a different number of
+    positions on each row, is the forward's own value in an eval's step as at the root, so it runs, and the eval
+    over the training rows (`Thursday` and `Friday`, of two lengths) gives the root's numbers, where the eval's
+    write was refused as pairing with no other value's."""
+    def body(d, lora, ref):
+        scope = {"scope": {"column": f"{d}.entity"}}
+        return adapted(d, lora, ref, r1={"site": L0, "pos": scope},
+                       w={"site": L1, "pos": scope, "ops": [{"op": "add", "with": f"{ref('adapted')}.r1"}]})
+    as_at_the_root(engines, body, ["ce", "adapted.logits"], over="tr")
+
+
+def test_an_eval_lora_with_from_another_forward_of_the_body_runs_as_the_roots(engines):
+    """A lora's `with` read by another of the body's forwards is another forward's value in an eval as at the root
+    (two eval steps share their first two parts, `fit.held_out`, which compared as one forward), so it may be read
+    at other positions than the write's: the held-out counterfactual's last token is 8 on row 1 and the write's 15,
+    and the eval gives the root's numbers."""
+    def body(d, lora, ref):
+        return {ref("cf"): {"kind": "forward", "input": f"{d}.counterfactual_inputs[0]",
+                            "interventions": {"x": {"site": {"component": "layer_input", "layers": 0}, "pos": -1}}},
+                **adapted(d, lora, ref, {"site": L0, "pos": -1, "ops": [
+                    {"op": "apply", "featurizer": lora, "with": f"{ref('cf')}.x"}]})}
+    as_at_the_root(engines, body, ["ce", "adapted.logits"])
+
+
+def test_a_body_step_before_one_that_takes_a_root_steps_name_reads_the_roots_value(engines):
+    """The body's names are the eval's from each body step on: `pre`, first, reads the root's `adapted`, which the
+    body's own `adapted` after it shadows only from there, so the eval compiles (where the whole body's names were
+    renamed at once and `pre` named an eval step not yet made, a bare KeyError) and `fit.train.pre` is the root's
+    copy over the root's `adapted`."""
+    def body(d, lora, ref):
+        return {ref("pre"): {"kind": "op", "op": "cross_entropy", "of": "adapted.logits", "target": f"{d}.cf_answer"},
+                **adapted(d, lora, ref)}
+    plain = {"adapted": {"kind": "forward", "input": "tr.input",
+                         "interventions": {"logits": {"site": LOGITS, "pos": -1}}}}
+    as_at_the_root(engines, body, ["pre", "ce"], over="tr", before=plain)
 
 
 def other_dataset(d):

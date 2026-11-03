@@ -22,9 +22,9 @@ class Compiling:
     the records compiled so far (`featurizers`, `steps`: a point each, or a list of points), which is where every
     name a later entry references resolves (`plan.record_of`, at the consumer's point), each entry's sweep axes
     (`axes_of`), and every value any entry references (`used`), which decides what the run gathers. A fit's body
-    compiles in a copy whose `steps` is its own scope (the root's records, then its own as they compile) and maps
-    each featurizer it trains to the name it resolves to there (`aliases`: `rot` is `<fit>.rot`, the instance being
-    trained); it shares `axes_of` and `used`. `points` holds each point of the document built so far, by its
+    compiles in a copy whose `steps` is its own scope (the root's records and the fit being compiled, then the
+    body's own as they compile), and each of its evals in a copy whose `steps` are the root's and that fit; each
+    shares `axes_of` and `used`. `points` holds each point of the document built so far, by its
     coordinates (`point`), `chats` each dataset a step reads a chat column of (shared with a body), which a
     `template` needs, and `sources` each run a load reads, by its directory, read once (`compile.source`)."""
     doc: dict
@@ -36,7 +36,6 @@ class Compiling:
     steps: dict[str, Entry]
     axes_of: dict[str, list[str]]
     used: set[str]
-    aliases: dict[str, str] = field(default_factory=dict)
     points: dict[tuple, Plan] = field(default_factory=dict)
     chats: set[str] = field(default_factory=set)
     sources: dict[str, dict] = field(default_factory=dict)
@@ -45,19 +44,11 @@ class Compiling:
 @dataclass
 class Found:
     """What preflight found, which the run needs beside the records it completed: each dataset input's encoded
-    rows and padded width (`inputs`), room for what each generate step's rows said (`said`), each column
-    reference's answers (`answers`, see `answers.answer`), each featurizer's width (`widths`, the root's alone),
-    and for each fit point the same for its body (`bodies`): over its training rows (`train`) and under each of
-    its named `eval` substitutions (`evals`), each beside the plan the body runs in. `swap` is the substitution
-    the body runs under (`{<body dataset>: <dataset read>}`; the root's is none), which names the dataset a
-    record's positions are under. A body's `inputs` are its own forwards'; `root` is the root's, those of the steps
-    before the fit, where a value the body takes from one of them was read (`interventions.encoded`), as the body's
-    scope holds the root's records beside its own. Each table with a row per example holds every row of its
-    dataset, by id; which rows a run is over is its scope's to say (`batches.over`)."""
-    swap: dict[str, str] = field(default_factory=dict)
+    rows and padded width (`inputs`, a fit body's forwards' among them), room for what each generate step's rows
+    said (`said`), each column reference's answers (`answers`, see `answers.answer`) and each featurizer's width
+    (`widths`). Each table with a row per example holds every row of its dataset, by id; which rows a run is over
+    is its scope's to say (`batches.over`)."""
     inputs: dict[str, dict] = field(default_factory=dict)
-    root: dict[str, dict] = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     answers: dict[str, Answer] = field(default_factory=dict)
     widths: dict[str, int] = field(default_factory=dict)
-    bodies: dict = field(default_factory=dict)

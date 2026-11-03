@@ -41,7 +41,8 @@ from clab.compile import materialized
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, points, projections, record_of, scope
+from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, made_by,
+                        points, projections, record_of, scope)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -70,7 +71,7 @@ def dump(plan: Plan, out: str) -> None:
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
-        described[name] = {"file": file, "step": name.partition(".")[0], **layouts(plan, name),
+        described[name] = {"file": file, "step": made_by(plan, name), **layouts(plan, name),
                            "axes": axes(plan, name), "shape": describe(value, "shape"),
                            "dtype": describe(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
@@ -178,12 +179,16 @@ def load(out: str) -> Plan:
 
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
-    name."""
+    name. One whose fit has an `eval` and no `evals`, which an older clab wrote, is refused by name."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
+    for name, entry in held.get("steps", {}).items():
+        if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
+            raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "
+                             "does not hold its evals' records; rerun the document that wrote it")
     return held, held.pop("results")
 
 

@@ -16,8 +16,7 @@ from clab.compile.state import Found
 from clab.format import address, data
 from clab.format.sweeps import projected, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
-from clab.steps.batches import (bind, chunked, edited, joined, layers, ordered, over, read, read_over, stacked, stops,
-                                with_ops)
+from clab.steps.batches import bind, chunked, edited, joined, layers, ordered, over, read, stacked, stops, with_ops
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -92,7 +91,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
             for key, record in entries(p).items():
                 k = (key, tuple(projected(p.at, record.axes).items()))
                 if k in landing:
-                    record.positions = {**record.positions, read_over(step, found): landed[k]}
+                    record.positions = {**record.positions, cast(str, step.dataset): landed[k]}
         put(found.said, name, projected(step.at, step.axes),
             [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in tokens.tolist()])
 

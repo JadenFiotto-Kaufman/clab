@@ -1174,15 +1174,14 @@ def test_m11_a_fit_over_datasets_of_unequal_rows_says_how_to_pair_them():
         edited("lora_train", change).compile()
 
 
-def test_m12_a_refusal_in_an_eval_names_the_eval_and_its_dataset(engines):
+def test_m12_a_refusal_in_an_eval_names_the_eval_step(engines):
     """trial-12 x02: the training rows hold the scope's text and the held-out rows do not; the refusal names the
-    fit, the eval and the dataset its rows are."""
+    eval's own step, `<fit>.<eval>.<step>`, whose rows are its eval's dataset's."""
     def change(d):
         d["steps"]["fit"]["steps"]["adapted"]["interventions"]["adapt"]["pos"] = {
             "scope": {"text": ["Thursday", "Friday"]}}
     refused_before_any_forward(engines, edited("lora_train", change).compile(),
-                               r"^fit: eval 'held_out', with dataset 'train' read as 'test' \(a row is the eval's "
-                               r"dataset's\): adapted\.adapt: row 0: text \['Thursday', 'Friday'\] is not in its "
+                               r"^fit\.held_out\.adapted\.adapt: row 0: text \['Thursday', 'Friday'\] is not in its "
                                r"input$")
 
 

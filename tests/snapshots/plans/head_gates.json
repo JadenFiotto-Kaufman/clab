@@ -245,6 +245,137 @@
     },
     "at": {
      "heads.mask": 0
+    },
+    "evals": {
+     "train": {
+      "run": {
+       "kind": "forward",
+       "input": "pairs.input",
+       "interventions": {
+        "gated": {
+         "site": {
+          "component": "attention_premix",
+          "layers": ":"
+         },
+         "pos": {
+          "index": "0:12"
+         },
+         "ops": [
+          {
+           "op": "apply",
+           "featurizer": "fit.heads",
+           "with": "corrupt.z",
+           "dims": [
+            "rows",
+            "pos",
+            "num_heads",
+            "head_dim"
+           ]
+          }
+         ],
+         "dims": [
+          "layers",
+          "rows",
+          "pos",
+          "num_heads",
+          "head_dim"
+         ],
+         "dataset": "pairs",
+         "layers": [],
+         "read": "fit.train.run.gated",
+         "width": 12,
+         "axes": [
+          "heads.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "pairs",
+         "read": "fit.train.run.logits",
+         "width": 1,
+         "axes": [
+          "heads.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "heads.mask": 0
+       },
+       "dataset": "pairs",
+       "schedule": {
+        "axes": [
+         "heads.mask"
+        ]
+       },
+       "batch_size": 2
+      },
+      "ld": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.run.logits",
+       "a": "pairs.base_answer",
+       "b": "pairs.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 0
+       }
+      },
+      "diff": {
+       "kind": "op",
+       "op": "sub",
+       "of": "fit.train.ld",
+       "with": "clean_ld",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 0
+       }
+      },
+      "sq": {
+       "kind": "op",
+       "op": "square",
+       "of": "fit.train.diff",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 0
+       }
+      }
+     }
     }
    },
    {
@@ -396,6 +527,137 @@
     },
     "at": {
      "heads.mask": 1
+    },
+    "evals": {
+     "train": {
+      "run": {
+       "kind": "forward",
+       "input": "pairs.input",
+       "interventions": {
+        "gated": {
+         "site": {
+          "component": "attention_premix",
+          "layers": ":"
+         },
+         "pos": {
+          "index": "0:12"
+         },
+         "ops": [
+          {
+           "op": "apply",
+           "featurizer": "fit.heads",
+           "with": "corrupt.z",
+           "dims": [
+            "rows",
+            "pos",
+            "num_heads",
+            "head_dim"
+           ]
+          }
+         ],
+         "dims": [
+          "layers",
+          "rows",
+          "pos",
+          "num_heads",
+          "head_dim"
+         ],
+         "dataset": "pairs",
+         "layers": [],
+         "read": "fit.train.run.gated",
+         "width": 12,
+         "axes": [
+          "heads.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "pairs",
+         "read": "fit.train.run.logits",
+         "width": 1,
+         "axes": [
+          "heads.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "heads.mask": 1
+       },
+       "dataset": "pairs",
+       "schedule": {
+        "axes": [
+         "heads.mask"
+        ]
+       },
+       "batch_size": 2
+      },
+      "ld": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.run.logits",
+       "a": "pairs.base_answer",
+       "b": "pairs.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 1
+       }
+      },
+      "diff": {
+       "kind": "op",
+       "op": "sub",
+       "of": "fit.train.ld",
+       "with": "clean_ld",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 1
+       }
+      },
+      "sq": {
+       "kind": "op",
+       "op": "square",
+       "of": "fit.train.diff",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 1
+       }
+      }
+     }
     }
    },
    {
@@ -547,6 +809,137 @@
     },
     "at": {
      "heads.mask": 2
+    },
+    "evals": {
+     "train": {
+      "run": {
+       "kind": "forward",
+       "input": "pairs.input",
+       "interventions": {
+        "gated": {
+         "site": {
+          "component": "attention_premix",
+          "layers": ":"
+         },
+         "pos": {
+          "index": "0:12"
+         },
+         "ops": [
+          {
+           "op": "apply",
+           "featurizer": "fit.heads",
+           "with": "corrupt.z",
+           "dims": [
+            "rows",
+            "pos",
+            "num_heads",
+            "head_dim"
+           ]
+          }
+         ],
+         "dims": [
+          "layers",
+          "rows",
+          "pos",
+          "num_heads",
+          "head_dim"
+         ],
+         "dataset": "pairs",
+         "layers": [],
+         "read": "fit.train.run.gated",
+         "width": 12,
+         "axes": [
+          "heads.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "pairs",
+         "read": "fit.train.run.logits",
+         "width": 1,
+         "axes": [
+          "heads.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "heads.mask": 2
+       },
+       "dataset": "pairs",
+       "schedule": {
+        "axes": [
+         "heads.mask"
+        ]
+       },
+       "batch_size": 2
+      },
+      "ld": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.run.logits",
+       "a": "pairs.base_answer",
+       "b": "pairs.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 2
+       }
+      },
+      "diff": {
+       "kind": "op",
+       "op": "sub",
+       "of": "fit.train.ld",
+       "with": "clean_ld",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 2
+       }
+      },
+      "sq": {
+       "kind": "op",
+       "op": "square",
+       "of": "fit.train.diff",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 2
+       }
+      }
+     }
     }
    },
    {
@@ -698,6 +1091,137 @@
     },
     "at": {
      "heads.mask": 3
+    },
+    "evals": {
+     "train": {
+      "run": {
+       "kind": "forward",
+       "input": "pairs.input",
+       "interventions": {
+        "gated": {
+         "site": {
+          "component": "attention_premix",
+          "layers": ":"
+         },
+         "pos": {
+          "index": "0:12"
+         },
+         "ops": [
+          {
+           "op": "apply",
+           "featurizer": "fit.heads",
+           "with": "corrupt.z",
+           "dims": [
+            "rows",
+            "pos",
+            "num_heads",
+            "head_dim"
+           ]
+          }
+         ],
+         "dims": [
+          "layers",
+          "rows",
+          "pos",
+          "num_heads",
+          "head_dim"
+         ],
+         "dataset": "pairs",
+         "layers": [],
+         "read": "fit.train.run.gated",
+         "width": 12,
+         "axes": [
+          "heads.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "pairs",
+         "read": "fit.train.run.logits",
+         "width": 1,
+         "axes": [
+          "heads.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "heads.mask": 3
+       },
+       "dataset": "pairs",
+       "schedule": {
+        "axes": [
+         "heads.mask"
+        ]
+       },
+       "batch_size": 2
+      },
+      "ld": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.run.logits",
+       "a": "pairs.base_answer",
+       "b": "pairs.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 3
+       }
+      },
+      "diff": {
+       "kind": "op",
+       "op": "sub",
+       "of": "fit.train.ld",
+       "with": "clean_ld",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 3
+       }
+      },
+      "sq": {
+       "kind": "op",
+       "op": "square",
+       "of": "fit.train.diff",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "pairs",
+       "read": "fit.train.run.logits",
+       "width": 1,
+       "axes": [
+        "heads.mask"
+       ],
+       "at": {
+        "heads.mask": 3
+       }
+      }
+     }
     }
    }
   ]

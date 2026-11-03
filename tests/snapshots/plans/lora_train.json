@@ -113,6 +113,144 @@
      "train": "test"
     },
     "train": {}
+   },
+   "evals": {
+    "held_out": {
+     "adapted": {
+      "kind": "forward",
+      "input": "test.input",
+      "interventions": {
+       "adapt": {
+        "site": {
+         "component": "layer_output",
+         "layers": 0
+        },
+        "ops": [
+         {
+          "op": "apply",
+          "featurizer": "fit.lora",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ],
+        "dataset": "test",
+        "layers": [
+         0
+        ],
+        "read": "fit.held_out.adapted.adapt"
+       },
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ],
+        "dataset": "test",
+        "read": "fit.held_out.adapted.logits",
+        "width": 1,
+        "gathered": true
+       }
+      },
+      "dataset": "test",
+      "schedule": {
+       "axes": []
+      },
+      "batch_size": 2
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "fit.held_out.adapted.logits",
+      "target": "test.cf_answer",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "test",
+      "read": "fit.held_out.adapted.logits",
+      "width": 1
+     }
+    },
+    "train": {
+     "adapted": {
+      "kind": "forward",
+      "input": "train.input",
+      "interventions": {
+       "adapt": {
+        "site": {
+         "component": "layer_output",
+         "layers": 0
+        },
+        "ops": [
+         {
+          "op": "apply",
+          "featurizer": "fit.lora",
+          "dims": [
+           "rows",
+           "pos",
+           "hidden_size"
+          ]
+         }
+        ],
+        "dims": [
+         "rows",
+         "pos",
+         "hidden_size"
+        ],
+        "dataset": "train",
+        "layers": [
+         0
+        ],
+        "read": "fit.train.adapted.adapt"
+       },
+       "logits": {
+        "site": {
+         "component": "lm_head_output"
+        },
+        "pos": -1,
+        "dims": [
+         "rows",
+         "pos",
+         "vocab_size"
+        ],
+        "dataset": "train",
+        "read": "fit.train.adapted.logits",
+        "width": 1,
+        "gathered": true
+       }
+      },
+      "dataset": "train",
+      "schedule": {
+       "axes": []
+      },
+      "batch_size": 2
+     },
+     "ce": {
+      "kind": "op",
+      "op": "cross_entropy",
+      "of": "fit.train.adapted.logits",
+      "target": "train.cf_answer",
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "train",
+      "read": "fit.train.adapted.logits",
+      "width": 1
+     }
+    }
    }
   }
  },

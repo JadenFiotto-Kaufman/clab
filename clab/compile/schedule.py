@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 def shared(plan: Plan) -> None:
     """Who serves whom, as compile decides it: of the points of a forward or generate step that agree on the
     forward's axes (`axes`, which `compile.forward` wrote), the first runs the forward, and each other's `schedule`
-    is `serving`, that point's coordinates, alone. A fit body's step is one point per fit point, which runs its
-    own."""
+    is `serving`, that point's coordinates, alone. A fit body's step, and a fit's eval step, is one point per fit
+    point, which runs its own."""
     for entry in plan.steps.values():
         first: dict[tuple, Forward] = {}
         for step in points(entry):
@@ -34,8 +34,7 @@ def shared(plan: Plan) -> None:
                     first[key] = step
 
 
-def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list[Forward],
-              trained: dict[str, dict[str, int]]) -> None:
+def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list[Forward]) -> None:
     """What the forward of `step` (a serving point of step `name`, with the points it serves, `served`, as
     `plan.serving` lists them, every point's records completed) does, written into its `schedule`: `sites`, each
     `(component, layer)` the forward visits in the engine's forward order (`engine.rank`), holding the records done
@@ -53,7 +52,7 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
     entries also holds `grad`: for each distinct value its gathered `grad` reads differentiate (the `of` entry at
     the point each serves), the names of that value's reads (`of`, one per layer) and of the `grad` reads it serves
     (`wrt`), each `grad` read refused by name unless the engine ranks every site its `of` is read at strictly after
-    its own. `trained` is each featurizer the enclosing fit trains, by both its names, with the fit's point."""
+    its own."""
     reading = gathered(served)
     sites: dict[tuple[str, int | None], list[dict]] = {}
     names: dict[str, dict[int | None, str]] = {}        # the serving point's reads by `<step>.<entry>`, per layer
@@ -64,7 +63,7 @@ def scheduled(engine: Engine, plan: Plan, name: str, step: Forward, served: list
             for layer in record.layers or [None]:
                 for part in parts(step, record)[0]:
                     sites.setdefault((component, layer), []).append(
-                        {"write": key, "ops": resolved(plan, name, record, layer, names, trained, step.at), **part})
+                        {"write": key, "ops": resolved(plan, name, record, layer, names, step.at), **part})
         for (k, _), (theirs, own, p) in reading.items():
             if k != key:
                 continue
@@ -144,12 +143,12 @@ def parts(step: Forward, record: Intervention) -> tuple[list[dict[str, Any]], li
 
 
 def resolved(plan: Plan, name: str, record: Intervention, layer: int | None, names: dict[str, dict[int | None, str]],
-             trained: dict[str, dict[str, int]], at: dict[str, int]) -> list[dict[str, Any]]:
+             at: dict[str, int]) -> list[dict[str, Any]]:
     """A write's ops up to its last edit, each by name with its named operands resolved: an entry of the same
     forward to the name of its read at this `layer` (`live`: at the write's layer where the operand stacks layers,
     else its one read), a value or a featurizer to its name and the point of it this point takes (`at`: the point's
-    own coordinates on the operand's axes, those its record says, a declared featurizer's own, a trained one's the
-    fit's)."""
+    own coordinates on the operand's axes, those its record says, a declared featurizer's own; a trained one's, as
+    its record says, are the fit's)."""
     out = []
     for o in record.ops[:len(record.ops) - len(gathers(record))]:
         params, listed = ops.parameters(o.op), cast(dict[str, Any], {"op": o.op})
@@ -159,8 +158,6 @@ def resolved(plan: Plan, name: str, record: Intervention, layer: int | None, nam
             if value in names:
                 stacked = "layers" in (record_of(plan.steps, value, at).dims or [])
                 listed[key] = {"name": value, "live": names[value][layer] if stacked else next(iter(names[value].values()))}
-            elif value in trained:
-                listed[key] = {"name": value, "at": trained[value]}
             elif value in plan.featurizers:
                 listed[key] = {"name": value, "at": agreeing(plan.featurizers[value], at).at}
             else:

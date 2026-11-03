@@ -18,9 +18,7 @@ from clab.compile.state import Found
 from clab.compile.uses import widths
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector, picked, selected
-from clab.format.sweeps import put
 from clab.plan import (
-    Fit,
     Forward,
     Labelled,
     Plan,
@@ -35,6 +33,7 @@ from clab.plan import (
     kind_of,
     points,
     record_of,
+    runnable,
     serving,
     writes,
 )
@@ -51,10 +50,7 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     records done at each, and where it stops), and each
     featurizer's `width` at the sites it is used at (`uses.widths`). Fills `plan.run.tokens` with each input's
     tokens, and returns what the run needs beside the records: each dataset input's encoded rows and padded width
-    (`inputs`), room for what each generate step's rows said (`said`), and for each fit point the same for its body
-    (`bodies`): over its training rows (`train`) and
-    under each of its named `eval` substitutions (`evals`), each beside the plan the body runs in, which holds the
-    body's steps and each substituted dataset's rows under the body's name for it.
+    (`inputs`, a fit body's among them) and room for what each generate step's rows said (`said`).
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a `swap` of a
@@ -72,55 +68,35 @@ def preflight(engine: Engine, plan: Plan) -> Found:
     layer than the one it says it was trained at, reading its input elsewhere than its bundle was made reading it
     (`read_with`), or encoded with a `select` outside its features or keeping none of them; and a trained
     featurizer used at no site. A write whose operand its own forward reads at a site the engine reaches no earlier
-    than the write's is refused where the schedule is written. A refusal inside a fit's body names the fit, and
-    under an eval the eval and the datasets it reads.
+    than the write's is refused where the schedule is written. A refusal inside a fit's body names the fit, and one
+    in an eval its eval step (`<fit>.<eval>.<step>`).
     """
     refuse(engine, plan)
     rows = {n: held_rows(plan, n) for n in plan.data}
     classes = {name: featurizers.labels(rows, (spec.model_extra or {})["classes"])
                for name, entry in plan.featurizers.items() for spec in points(entry)[:1] if spec.kind == "linear"}
-    found = prepare(engine, plan, plan.steps, {}, classes)
+    found = Found()
+    prepare(engine, plan, plan.steps, classes, found)
     widths(engine, plan)
     return found
 
 
-def body(engine: Engine, plan: Plan, fit: str, step: Fit, label: str | None, swap: dict[str, str],
-         classes: dict[str, list], root: dict[str, dict]) -> tuple[Plan, Found]:
-    """A fit body's plan (under eval `label`, with each dataset `swap` maps read under the body's name for it) and
-    its `prepare`, which completes the body's records (their positions under the dataset each run reads), beside
-    the root's inputs encoded so far (`root`, `Found.root`); a refusal names the fit and, under an eval, which one
-    and the datasets it reads in place of the body's, whose rows a row number counts."""
-    view = body_view(plan, fit, step.at, swap)
-    trained = {alias: step.at for f in step.train for alias in (f, f"{fit}.{f}")}
-    try:
-        return view, prepare(engine, view, step.steps, swap, classes, trained, root)
-    except ValueError as e:
-        if label is None:
-            raise ValueError(f"{fit}.{e}") from None
-        read = ", ".join(f"dataset {a!r} read as {b!r}" for a, b in swap.items())
-        raise ValueError(f"{fit}: eval {label!r}, with {read} (a row is the eval's dataset's): {e}") from None
-
-
-def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], classes: dict[str, list],
-            trained: dict[str, dict[str, int]] | None = None, root: dict[str, dict] | None = None) -> Found:
-    """`preflight`'s checks and findings for `steps`, in order (a fit's body prepared at the fit's place, over its
-    training rows and under each eval), over the rows `plan` holds: the root's, or a body's. `swap` names each
-    dataset as the run reads it (an eval substitution's `{"train": "test"}` records `train.input` as `test.input`
-    and the records' positions under `test`); `classes` is each probe's class list; `trained`, in a body, each
-    featurizer the fit trains by both its names, with the fit's point; `root`, in a body, the root's inputs encoded
-    before the fit. Once every point of a step has its records, each serving point's schedule is written
-    (`scheduled`)."""
+def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], found: Found) -> None:
+    """`preflight`'s checks and findings for `steps`, in the order they run (`plan.runnable`: a fit's eval steps
+    after it), over the rows `plan` holds, into `found`; a fit's body is prepared at the fit's place, over its
+    training rows, in the plan as the body sees it (`plan.body_view`), a refusal there named after the fit.
+    `classes` is each probe's class list. Once every point of a step has its records, each serving point's schedule
+    is written (`scheduled`)."""
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
-    found = Found(swap=swap, root=root or {})
     alike: dict[tuple, list] = {}           # each distinct prefill resolution, which records alike share
-    for name, entry in steps.items():
+    for name, entry in runnable(steps).items():
         for step in points(entry):
             if step.kind == "fit":
-                train = body(engine, plan, name, step, None, {}, classes, found.inputs)
-                put(found.bodies, name, step.at, {"train": train, "evals": {
-                    label: body(engine, plan, name, step, label, other, classes, found.inputs) if other else train
-                    for label, other in step.eval.items()}})
+                try:
+                    prepare(engine, body_view(plan, name, step.at), step.steps, classes, found)
+                except ValueError as e:
+                    raise ValueError(f"{name}.{e}") from None
                 continue
             if step.kind == "op":
                 args, of = arguments(step), record_of(plan.steps, step.of, step.at)
@@ -131,7 +107,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                     if why:
                         raise ValueError(f"{name}: operand {why}")
                 if "classes" in of.dims:
-                    check_classes(plan, name, step.op, args, of.space[-1]["featurizer"], classes, swap)
+                    check_classes(plan, name, step.op, args, of.space[-1]["featurizer"], classes)
                 else:
                     check_tokens(engine, plan, found, name, step.op, args, of.dims, *placed(plan, of, step.at, found))
                 bundle = ops.DECLARED[step.op]["bundle"]
@@ -141,7 +117,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         raise ValueError(f"{name}: {step.op} {field} {args[field]} counts directions of a "
                                          f"value {width} wide, which has no more than {width}")
                 if step.op == "pca" and of.read is not None:
-                    got = resolved(plan.steps, of.read, step.at, swap)
+                    got = resolved(plan.steps, of.read, step.at)
                     n = sum(len(p) for p in got if isinstance(p, list)) if got is not None else None
                     if n is not None and n <= args["k"]:
                         raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
@@ -149,9 +125,9 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 continue
             if step.kind == "load":         # the input its read was made on, whose tokens its positions are of
                 if step.source is not None:
-                    tokenized(engine, plan, found, name, step.source, swap)
+                    tokenized(engine, plan, found, name, step.source)
                 continue
-            rows, encoded = held_rows(plan, step.dataset), tokenized(engine, plan, found, name, step, swap)
+            rows, encoded = held_rows(plan, step.dataset), tokenized(engine, plan, found, name, step)
             for key, record in entries(step).items():
                 where, site = f"{name}.{key}", cast(Site, record.site)
                 layers, select = cast("Selector | None", site.layers), cast("dict[str, Selector] | None", site.select)
@@ -174,7 +150,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 resolved_ = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     resolved_ = indices(where, record, step, rows, encoded, tokenizer, alike)
-                    record.positions = {**record.positions, swap.get(step.dataset, step.dataset): resolved_}
+                    record.positions = {**record.positions, step.dataset: resolved_}
                     counts = {len(p) if isinstance(p, list) else 0 for p in resolved_}     # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
                 probe = None                        # past a probe's encode, a column names its classes
@@ -183,7 +159,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         check_tokens(engine, plan, found, where, o.op, arguments(o), None, resolved_,
                                      [e["ids"] for e in encoded], bool((pos["scope"] or {}).get("before")))
                     else:
-                        check_classes(plan, where, o.op, arguments(o), probe, classes, swap)
+                        check_classes(plan, where, o.op, arguments(o), probe, classes)
                     if o.op == "encode" and kind_of(plan, arguments(o)["featurizer"]) == "linear":
                         probe = arguments(o)["featurizer"]
                 # A metric of an answer of several tokens lines up with the read's positions, which a generation knows
@@ -203,7 +179,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                                     layers=record.layers, read=record.read, width=record.width if "pos" in dims else None,
                                     kept={a: v for a, v in record.kept.items() if a in dims})
                     for k, (written, theirs) in references(o.op, arguments(o), resolving(plan, step.at)).items():
-                        forward = written.partition(".")[0] == name
+                        forward = written.rpartition(".")[0] == name
                         why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
                                        adapts(plan, o))
                         if why:
@@ -216,24 +192,22 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                     dims = o.dims or dims
         if points(entry)[0].kind in ("forward", "generate"):
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
-                scheduled(engine, plan, name, step, served, trained or {})
-    return found
+                scheduled(engine, plan, name, step, served)
 
 
-def tokenized(engine: Engine, plan: Plan, found: Found, name: str, step: Forward, swap: dict[str, str]) -> list[dict]:
+def tokenized(engine: Engine, plan: Plan, found: Found, name: str, step: Forward) -> list[dict]:
     """The rows of `step`'s input as the tokenizer encodes them (`data.encode`), encoded once per input
     (`found.inputs`, with the padded width) and recorded as token strings in `plan.run.tokens` under the input's
-    name as the run reads it (`swap`); a chat of a template that reads the clock without its date pinned, and a row
-    that does not encode, are refused by name."""
+    name; a chat of a template that reads the clock without its date pinned, and a row that does not encode, are
+    refused by name."""
     assert plan.run is not None and step.dataset is not None
     source, tokenizer = data.input_name(step.input), engine.tokenizer
     if source not in found.inputs:
         rows, template = held_rows(plan, step.dataset), plan.data[step.dataset].template
         if any(isinstance(data.field(r, step.input), list) for r in rows) and data.clocked(tokenizer, template):
-            read = swap.get(step.dataset, step.dataset)
             raise ValueError(f"{name}: {source}: the checkpoint's chat template calls strftime_now, which writes "
                              "today's date into the prompt, so these rows render to other tokens on another day and "
-                             f"nothing in the run record says so; pin it in data.{read}.template, "
+                             f"nothing in the run record says so; pin it in data.{step.dataset}.template, "
                              "{\"date_string\": \"26 Jul 2024\"}")
         encoded = []
         for i, r in enumerate(rows):
@@ -242,8 +216,7 @@ def tokenized(engine: Engine, plan: Plan, found: Found, name: str, step: Forward
             except ValueError as e:
                 raise ValueError(f"{name}: {source} row {i}: {e}") from None
         found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
-        plan.run.tokens[data.input_name(step.input, swap)] = \
-            [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
+        plan.run.tokens[source] = [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
     return found.inputs[source]["rows"]
 
 
@@ -276,11 +249,10 @@ def placed(plan: Plan, of: Labelled, at: dict, found: Found) -> tuple[list | Non
     is `before` (whose next tokens an answer scores); else None, None and False."""
     if of.read is None:
         return None, None, False
-    where, read = resolved(plan.steps, of.read, at, found.swap), of.read
+    where, read = resolved(plan.steps, of.read, at), of.read
     if where is None:
         return None, None, False
     step, record = entry_of(plan.steps, read, at)
     scope = positions.parse(record.pos)["scope"] or {}
-    name = data.input_name(step.input)
-    encoded = found.inputs.get(name) or found.root.get(name)    # a harvest's input is among the root's, not a body's
+    encoded = found.inputs.get(data.input_name(step.input))
     return where, None if encoded is None else [e["ids"] for e in encoded["rows"]], bool(scope.get("before"))

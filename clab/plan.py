@@ -688,8 +688,7 @@ class Intervention(Labelled):
     positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
                                              "index into the row's prompt tokens, BOS first, then its generated ones; "
                                              "`alignment_missing` for a row it does not reach), under the dataset whose "
-                                             "rows they are (a fit body's entry has them under each dataset an eval "
-                                             "reads it over); the prefill's set by preflight, a generation's decode "
+                                             "rows they are; the prefill's set by preflight, a generation's decode "
                                              "calls' by the run")
 
     @field_validator("pos", mode="before")
@@ -783,6 +782,9 @@ class Forward(Record):
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
     schedule: dict[str, Any] = derived({}, SCHEDULE)
+    batch_size: int | None = derived(None, "the rows a batch of the input holds, whatever the run's batch size, where "
+                                           "the step fixes it: a fit's eval step's are the fit's `batch_size`; null, "
+                                           "the run's")
 
     @model_validator(mode="before")
     @classmethod
@@ -905,9 +907,9 @@ class Load(Labelled):
     declares each such sweep this document does not, with the run's label and values, so a value swept over layers
     loads with no other field swept. So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
     `file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
-    source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
-    tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are
-    the value's move to the model's device. The value travels inside the compiled plan, as a bundle's tensors do,
+    source's; a value a generation made, or one whose positions are a generation's, which count tokens this run
+    does not have; and a load inside a fit's body. It calls no model; its cost's seconds are the value's move to
+    the model's device. The value travels inside the compiled plan, as a bundle's tensors do,
     wherever the run is: under `ndif`, in the request, so a server runs it as `remote="local"` does and reads no
     file of this machine's; a request carries at most 512 MiB of loaded tensors over a document's loads, and a
     document that loads more is refused by name before anything is sent."""
@@ -965,16 +967,18 @@ class Fit(Record):
     After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
     op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
     `<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
-    (without `early_stop`, the last's) are restored, and the body runs once, scored, per named substitution of
-    `eval`, in listed order: `{"held_out": {"train": "test"}, "train": {}}` runs it with dataset `train` read as
-    `test`, then on the data it trained on (a dataset read as another renders its chats with its own `template`,
-    so the two have the same one). The body's forwards run in batches of `batch_size`, whatever the run's batch
-    size, padded as the run's `padding` says (under `sorted`, a minibatch's own rows longest first). `epochs: 0`
-    trains nothing: the featurizers are scored as drawn (an untrained lora is the identity exactly, a null
-    control), and each history is empty, `[0]`.
+    (without `early_stop`, the last's) are restored, and the fit ends with them scoring (gates hard). Each named
+    substitution of `eval` is the body once more as ordinary steps after the fit (`evals`), in listed order, each
+    over every row of its dataset: `{"held_out": {"train": "test"}, "train": {}}` is the body with dataset `train`
+    read as `test` (its inputs, columns and scopes), then the body over the data it trained on (a dataset read as
+    another renders its chats with its own `template`, so the two have the same one). The body's forwards, and an
+    eval's, run in batches of `batch_size`, whatever the run's batch size, padded as the run's `padding` says
+    (under `sorted`, a minibatch's own rows longest first). `epochs: 0` trains nothing: the featurizers are scored
+    as drawn (an untrained lora is the identity exactly, a null control), and each history is empty, `[0]`.
 
-    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name and
-    `<fit>.<featurizer>` both mean the one being trained. A value made before the fit with a row per example of
+    The body is a scope of its own that sees every value produced before the fit; a trained featurizer's name
+    there is `<fit>.<featurizer>`, the one being trained, which compile writes for its bare name. A value made
+    before the fit with a row per example of
     one of the body's datasets (a harvest) comes into every run of the body at that run's rows, taken by their
     ids as the body's datasets are, and as it was made: on its device, in its dtype, with no gradient of its own;
     so the model runs while the fit trains only where the body has a forward. The body's datasets are those its
@@ -984,10 +988,10 @@ class Fit(Record):
     refused, since no step made the harvest over the other's rows: evaluate on other data in steps after the fit,
     through `<fit>.<featurizer>`. So is an objective none of whose terms depends on what the fit trains, which has
     no gradient to step on. Nothing leaves the body except through the fit's members: `<fit>.<featurizer>` the
-    trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a body value
-    from the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any
-    of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list
-    of points."""
+    trained featurizer (saved as its bundle), `<fit>.<eval>.<op>` and `<fit>.<eval>.<step>.<entry>` a value of the
+    eval named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry per epoch run. A sweep over any of the
+    fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list of
+    points."""
     kind: Literal["fit"]
     train: list[str]
     objective: dict[str, Swept[float]]
@@ -1001,6 +1005,11 @@ class Fit(Record):
     """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
     it trained on"""
     at: dict[str, int] = derived({}, AT)
+    evals: "dict[str, dict[str, Step]]" = derived(
+        {}, "each eval as the steps it runs, by label, then by body step: the body's steps compiled again at the "
+            "fit's point, after it, each dataset the substitution names read as the one it maps to, each body name "
+            "`<fit>.<eval>.<name>` and each trained featurizer `<fit>.<featurizer>`, each step and value on the "
+            "fit's axes, and a forward's batches of the fit's `batch_size`")
 
     @model_validator(mode="after")
     def _counts(self) -> "Fit":
@@ -1081,16 +1090,15 @@ class Run(Record):
     generate step's rows generated (token strings per row, under the input or the step's name; a swept step's
     keyed by coordinate); a run's directory holds them in `tokens.json` beside its manifest, not in it, and
     `Plan.load` reads them back here. Where every read and write resolved is on its own record (`positions`), as a value's
-    layout and labels are. `costs` holds what each step cost, by
-    name, one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each
-    listing in `serves` the coordinates of the points it served, `serving`: those one forward serves, or those an
-    op's value is one for): its wall time in `seconds`, the peak `memory` allocated during it on
-    each of the model's devices, weights included, in bytes by device (null where the model is not on CUDA or the
-    run is remote), the model calls it made in `forwards` (each forward, each call of a generation, its prefill
-    and every decode call, and every forward a fit's body makes), the input `tokens` they fed, padding included
-    (each call's input ids: a batch's padded prompts, then one per row at each decode call), and of those the rows'
-    own, `real` (a generation's rows each fed their generated tokens but the last, their EOS or the generation's
-    final one).
+    layout and labels are. `costs` holds what each step cost, by name (a fit's eval steps' under `<fit>.<eval>.<step>`),
+    one entry per run the step made (a swept step's keyed by the coordinate of the point that ran, each listing in
+    `serves` the coordinates of the points it served, `serving`: those one forward serves, or those an op's value is one
+    for): its wall time in `seconds`, the peak `memory` allocated during it on each of the model's devices, weights
+    included, in bytes by device (null where the model is not on CUDA or the run is remote), the model calls it made in
+    `forwards` (each forward, each call of a generation, its prefill and every decode call, and every forward a fit's
+    body makes), the input `tokens` they fed, padding included (each call's input ids: a batch's padded prompts, then
+    one per row at each decode call), and of those the rows' own, `real` (a generation's rows each fed their generated
+    tokens but the last, their EOS or the generation's final one).
     `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
@@ -1332,13 +1340,14 @@ def adapts(plan: Plan, o: "Op | OpStep") -> bool:
 
 
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
-    """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, in
-    that fit's body; or a load's read, the forward and entry it carries), at the step's point that agrees with
-    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
+    """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, among
+    that fit's eval steps; or a load's read, the forward and entry it carries), at the step's point that agrees
+    with `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind == "fit":
-        return entry_of(step.steps, member.partition(".")[2], step.at)
+        label, _, rest = member.partition(".")
+        return entry_of(step.evals[label], rest, step.at)
     if step.kind == "load":
         assert step.source is not None, f"{ref} names no read"
         return step.source, entries(step.source)[member]
@@ -1348,9 +1357,8 @@ def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[For
 def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
     labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
-    load's own (`<step>`), or a fit member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's
-    record with the dataset that eval reads it over, its read named from the root), a term's history
-    (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
+    load's own (`<step>`), or a fit member's: an eval step's value (`<fit>.<eval>.<member>`, its record among the
+    fit's `evals`), a term's history (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind != "fit":
@@ -1361,11 +1369,7 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     label, _, rest = member.partition(".")
     if label == "history" or label in step.train:
         return Labelled(dims=["epochs"] if label == "history" else [], axes=list(step.at))
-    inner = record_of(step.steps, rest, step.at)
-    inside = inner.read is not None and inner.read.partition(".")[0] in step.steps
-    return inner.model_copy(update={"dataset": step.eval[label].get(inner.dataset, inner.dataset),
-                                    "read": f"{thing}.{label}.{inner.read}" if inside else inner.read,
-                                    "axes": list(step.at)})
+    return record_of(step.evals[label], rest, step.at)
 
 
 def own_read(record: Labelled) -> bool:
@@ -1389,14 +1393,39 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     return list(found.values())
 
 
+def runnable(steps: dict[str, Entry]) -> dict[str, Entry]:
+    """The steps that run, by name, in the order they run: each of `steps`, and after a fit each of its evals'
+    steps under `<fit>.<eval>.<step>`, a point per point of the fit."""
+    out: dict[str, Entry] = {}
+    for name, entry in steps.items():
+        out[name] = entry
+        fits = points(entry)
+        for label, evaluated in fits[0].evals.items() if fits[0].kind == "fit" else ():
+            for n in evaluated:
+                each = [f.evals[label][n] for f in fits]
+                out[f"{name}.{label}.{n}"] = each if isinstance(entry, list) else each[0]
+    return out
+
+
+def made_by(plan: Plan, name: str) -> str:
+    """The step that makes value `name`, by the name `runnable` gives it: an eval's member's its eval step
+    (`fit.held_out.ce`'s itself, `fit.held_out.adapted.logits`'s `fit.held_out.adapted`), any other value's the
+    step its first part names."""
+    thing, _, member = name.partition(".")
+    label, _, rest = member.partition(".")
+    step = points(plan.steps[thing])[0]
+    return f"{thing}.{label}.{rest.partition('.')[0]}" if step.kind == "fit" and label in step.evals else thing
+
+
 def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
-    """The points of step `name` that run, in order, each with the points its run serves, itself first: a
-    forward's or a generation's each point whose `schedule` holds no `serving`, with the points whose `serving`
-    names it; an op's or a load's the points of its value (`projections`: one per distinct point on its `axes`),
-    each with the step's points that agree with it there; a fit's each point, itself alone. Found in one pass over
-    the points, each joining the run its coordinates name (an op's or a load's on its axes, a forward's its
-    `serving` or its own), whose first point is the one that runs."""
-    steps = points(plan.steps[name])
+    """The points of step `name` (a name `runnable` lists: a fit's eval step's too) that run, in order, each with
+    the points its run serves, itself first: a forward's or a generation's each point whose `schedule` holds no
+    `serving`, with the points whose `serving` names it; an op's or a load's the points of its value
+    (`projections`: one per distinct point on its `axes`), each with the step's points that agree with it there; a
+    fit's each point, itself alone. Found in one pass over the points, each joining the run its coordinates name
+    (an op's or a load's on its axes, a forward's its `serving` or its own), whose first point is the one that
+    runs."""
+    steps = points(runnable(plan.steps)[name])
     if steps[0].kind == "fit":
         return [(p, [p]) for p in steps]
     runs: dict[tuple, list[Step]] = {}
@@ -1437,16 +1466,10 @@ def held_rows(plan: Plan, name: str) -> list[dict]:
     return rows
 
 
-def body_view(plan: Plan, fit: str, at: dict[str, int] | None = None, swap: dict[str, str] | None = None) -> Plan:
-    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
-    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
-    dataset a substitution `swap` maps read under the body's name for it."""
-    entry = plan.steps[fit]
-    fits = [agreeing(entry, at)] if at is not None else points(entry)
-    one = at is not None or not isinstance(entry, list)
-    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
-    return plan.model_copy(update={"steps": {**plan.steps, **steps},
-                                   "data": {**plan.data, **{a: plan.data[b] for a, b in (swap or {}).items()}}})
+def body_view(plan: Plan, fit: str, at: dict[str, int]) -> Plan:
+    """The plan as fit `fit`'s body sees it at the fit's point `at`: the body's steps beside the root's, which
+    they shadow."""
+    return plan.model_copy(update={"steps": {**plan.steps, **agreeing(plan.steps[fit], at).steps}})
 
 
 # -- an entry's brackets ---------------------------------------------------------------------------------

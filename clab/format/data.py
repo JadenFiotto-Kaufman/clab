@@ -141,13 +141,10 @@ def input_columns(input: str | list[str | TextPart]) -> list[str]:
     return [input] if isinstance(input, str) else [part for part in input if isinstance(part, str)]
 
 
-def input_name(input: str | list[str | TextPart], swap: dict[str, str] | None = None) -> str:
-    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a text as JSON),
-    each column's dataset as `swap` renames it."""
+def input_name(input: str | list[str | TextPart]) -> str:
+    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a text as JSON)."""
     parts = [input] if isinstance(input, str) else input
-    swap = swap or {}
-    return " + ".join(f"{swap.get(p.partition('.')[0], p.partition('.')[0])}.{p.partition('.')[2]}"
-                      if isinstance(p, str) else json.dumps(p.text, ensure_ascii=False) for p in parts)
+    return " + ".join(p if isinstance(p, str) else json.dumps(p.text, ensure_ascii=False) for p in parts)
 
 
 def column_of(ref: object) -> tuple[str, bool, bool] | None:

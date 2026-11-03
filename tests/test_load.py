@@ -18,9 +18,10 @@ from conftest import BATCH_SIZE, ROOT, TRIP, document, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
+from clab.cli import main
 from clab.format.sweeps import points
 from clab.output import load
-from clab.plan import Load, PlanError
+from clab.plan import Load, PlanError, entries
 
 LOAD = {"kind": "load", "from": "out/pca_harvest", "value": "harvest.acts"}
 
@@ -134,6 +135,50 @@ def test_a_fit_takes_a_loaded_harvests_rows_by_id(engines, root):
     source = load(os.path.join(root, "out", "sae_train"))
     for name in ("fit.dictionary", "fit.history.dictionary.reconstruction", "fit.history.dictionary.l1"):
         assert same(filled.results[name], source.results[name]), name
+
+
+def test_an_eval_members_read_loads_as_the_eval_step_read_it(engines, root):
+    """A fit's eval is steps after it, so a member of one is a value of an ordinary step: lora_train's held-out
+    logits, saved and loaded from its run, carry the eval forward's read of `test.input` (named after the load,
+    with its positions under `test`), and a cross entropy over them gives the eval's own `fit.held_out.ce`, to the
+    bit."""
+    ran(engines, root, "lora_train",
+        corpus("lora_train", lambda doc: doc["saves"].append("fit.held_out.adapted.logits")))
+    plan = written(root, "held_from_cache", loading(corpus("lora_train"), {
+        "held": {"kind": "load", "from": "out/lora_train", "value": "fit.held_out.adapted.logits"},
+        "ce": {"kind": "op", "op": "cross_entropy", "of": "held", "target": "test.cf_answer"}}, ["ce"]))
+    step = cast(Load, plan.steps["held"])
+    assert step.read == "held.logits" and step.source is not None and step.source.input == "test.input"
+    assert list(entries(step.source)["logits"].positions) == ["test"]
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert same(filled.results["ce"], load(os.path.join(root, "out", "lora_train")).results["fit.held_out.ce"])
+
+
+
+def generated(engines, root: str) -> str:
+    """lora_train with a generation of two tokens in its body, so in each eval, and the same written at the root
+    after the fit over `test`, both saved: run once, into `out/lora_gen`."""
+    def change(doc):
+        gen = {"kind": "generate", "input": "train.input", "max_new_tokens": 2, "do_sample": False}
+        doc["steps"]["fit"]["steps"]["gen"] = gen
+        doc["steps"]["r_gen"] = {**gen, "input": "test.input"}
+        doc["saves"] += ["fit.held_out.gen", "r_gen"]
+    out = os.path.join(root, "out", "lora_gen")
+    if not os.path.exists(out):
+        ran(engines, root, "lora_gen", corpus("lora_train", change))
+    return out
+
+
+def test_a_load_of_an_eval_generation_is_refused_as_the_roots_is(engines, root):
+    """An eval's generation is made by its eval step, a generate step like the root's, so a load of
+    `fit.held_out.gen` is refused as a load of the same generation at the root is, where the fit was taken as its
+    maker and the load was compiled."""
+    generated(engines, root)
+    said = ("is a generation's value or holds its positions, which count the tokens that run generated; a load brings "
+            "a forward's values and what op steps and fits made of them")
+    for value in ("fit.held_out.gen", "r_gen"):
+        assert refused(root, {"kind": "load", "from": "out/lora_gen", "value": value}) == \
+            f"steps.harvest.value: {value!r} {said}"
 
 
 def test_a_chained_load_encodes_as_the_read_it_carries(engines, root):
@@ -315,6 +360,30 @@ def test_a_manifest_from_before_value_axes_is_refused(root):
         "steps.harvest.from: out/noaxes/manifest.json predates the sweep axes a saved value's record holds ('axes'), "
         "so it does not say which sweeps 'harvest.acts' depends on; rerun the document that saves it, with --out "
         "out/noaxes")
+
+
+
+def test_a_manifest_from_before_a_fits_evals_were_steps_is_refused_naming_the_fit(engines, root, capsys):
+    """A manifest whose fit has an `eval` and no `evals` (written by an older clab) holds no record of an eval's
+    values, so `Plan.load`, `clab show` and `clab table` through it, and a load from it refuse it by name, naming
+    the fit, as a manifest from before the sweep axes is refused, where each raised a bare KeyError on the eval's
+    label."""
+    old = os.path.join(root, "out", "noevals")
+    shutil.copytree(generated(engines, root), old, dirs_exist_ok=True)
+    with open(os.path.join(old, "manifest.json")) as f:
+        held = json.load(f)
+    del held["steps"]["fit"]["evals"]
+    with open(os.path.join(old, "manifest.json"), "w") as f:
+        json.dump(held, f)
+    said = ("manifest.json predates a fit's evals as steps ('evals'), so its fit 'fit' does not hold its evals' "
+            "records; rerun the document that wrote it")
+    with pytest.raises(ValueError) as e:
+        Plan.load(old)
+    assert str(e.value) == f"{old}/{said}"
+    for command in (["show", old], ["table", old, "fit.held_out.ce"]):
+        assert main(command) == 1 and capsys.readouterr().err == f"clab: {old}/{said}\n"
+    assert refused(root, {"kind": "load", "from": "out/noevals", "value": "fit.held_out.ce"}) == \
+        f"steps.harvest.from: out/noevals/{said}"
 
 
 def test_a_swept_value_loads_on_its_own_with_the_sweep_it_depends_on(engines, root):

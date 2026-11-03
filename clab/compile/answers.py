@@ -168,9 +168,9 @@ def answer(engine: Engine, plan: Plan, found: Found, ref: str | dict, where: str
     return found.answers[key]
 
 
-def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict, swap: dict) -> None:
+def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, classes: dict) -> None:
     """Every column op `name` scores against a probe's class list holds only those classes, on every row of the
-    dataset it reads (named as the run reads it: under eval, the substituted one)."""
+    dataset it reads."""
     vocabulary = classes[declared(plan, probe)]
     for key, p in ops.parameters(name).items():
         if p.annotation == ops.Tokens and key in args:
@@ -188,7 +188,7 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
             dataset, _, column = ref.partition(".")
             for i, row in enumerate(held_rows(plan, dataset)):
                 if isinstance(row[column], list) or row[column] not in vocabulary:
-                    raise ValueError(f"{where}: {key} is {column!r} of {swap.get(dataset, dataset)!r}, whose row {i} "
+                    raise ValueError(f"{where}: {key} is {column!r} of {dataset!r}, whose row {i} "
                                      f"is {row[column]!r}, not one of the classes of probe {declared(plan, probe)!r}: "
                                      f"{vocabulary}")
 

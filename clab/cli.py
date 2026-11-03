@@ -27,7 +27,7 @@ from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, labelled
-from clab.plan import Plan, Run, entries, name, points, projections, serving
+from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, serving
 
 
 def how(run: Run) -> str:
@@ -46,7 +46,7 @@ def show(filled: Plan) -> str:
     run = filled.run
     if run is None:
         rows = [[step, labelled(filled, p.at) or "—", served(filled, entry, points_)]
-                for step, entry in filled.steps.items() for p, points_ in serving(filled, step)]
+                for step, entry in runnable(filled.steps).items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, padding {run.padding}, "
@@ -63,21 +63,22 @@ def show(filled: Plan) -> str:
         if swept:
             value = {labelled(filled, at): value[coordinate(filled, at)] for at, _ in ats}
         dims = output.layouts(filled, saved)["dims"]
-        rows.append([saved, saved.partition(".")[0], ", ".join(dims) if isinstance(dims, list) else cell(dims),
+        rows.append([saved, made_by(filled, saved), ", ".join(dims) if isinstance(dims, list) else cell(dims),
                      ", ".join(output.axes(filled, saved)) or "—", shaped(output.describe(value, "shape"), swept)])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
 def costs(filled: Plan) -> list[list[str]]:
-    """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`serving`: a forward's or
-    generation's per forward, an op's per distinct value, a fit's per point), at the point that ran, with the
+    """What each step cost (`plan.run.costs`) as table rows, one per run of a step (`runnable`: a fit's eval steps
+    after it; `serving`: a forward's or generation's per forward, an op's per distinct value, a fit's per point),
+    at the point that ran, with the
     points it served beside it (— itself alone; `all N points`; else each one): its seconds, its peak memory on
     each device in MiB (— where none was measured), its model calls, the tokens they fed, padding included, and
     the rows' own of them (`real`)."""
     run = filled.run
     assert run is not None
     rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]]
-    for step, entry in filled.steps.items():
+    for step, entry in runnable(filled.steps).items():
         for p, points_ in serving(filled, step) if step in run.costs else []:
             cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
             serves = served(filled, entry, points_)
@@ -102,10 +103,10 @@ def served(filled: Plan, entry: Any, points_: list) -> str:
 def resolved(filled: Plan) -> list[list[str]]:
     """Where each read and write resolved, as table rows: one per entry and distinct `positions` per row
     (printed by `compact`) under its step's dataset, with the point it is at, or how many of the step's points
-    share it (a grid's positions vary along one axis, or none); a fit body's entries under each eval, as
+    share it (a grid's positions vary along one axis, or none); a fit's eval steps' entries as
     `<fit>.<eval>.<step>.<entry>`."""
     rows = [["entry", "at", "positions"]]
-    for step, entry in filled.steps.items():
+    for step, entry in runnable(filled.steps).items():
         listed = points(entry)
         # Each entry's distinct positions per row, by entry and their JSON, with the points that share them.
         found: dict[tuple[str, str], tuple[list | None, list[str]]] = {}
@@ -121,12 +122,9 @@ def resolved(filled: Plan) -> list[list[str]]:
 
 def placed(step: str, p: Any) -> list[tuple[str, list | None]]:
     """Each entry of step `step`'s point `p` by name with its positions per row under the step's dataset (a load's,
-    the read it carries); a fit body's under each eval, read as the eval reads it."""
-    if p.kind != "fit":
-        host = p.source if p.kind == "load" else p
-        return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(host).items()]
-    return [(f"{step}.{label}.{n}.{k}", e.positions.get(swap.get(s.dataset, s.dataset)))
-            for label, swap in p.eval.items() for n, s in p.steps.items() for k, e in entries(s).items()]
+    the read it carries); a fit's none, its eval steps' their own."""
+    host = p.source if p.kind == "load" else p
+    return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(host).items()]
 
 
 # The most rows, and the most positions in a row, that `show` prints one by one; past it, the first three and the
@@ -296,8 +294,9 @@ def command(args: argparse.Namespace) -> int:
     print(f"{stem} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
-    for d in described.values():
-        print(f"  {d['file']:28} {d['step']:16} {shaped(d['shape'], bool(d['axes']))}")
+    rows = [[d["file"], d["step"], shaped(d["shape"], bool(d["axes"]))] for d in described.values()]
+    for line in aligned(rows) if rows else []:        # each column as wide as its longest cell: an eval's are long
+        print("  " + line)
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
 

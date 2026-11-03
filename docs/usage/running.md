@@ -58,6 +58,8 @@ A step that runs out of CUDA memory stops the run. The refusal names the step (a
 clab: steps.logit_diff: out of CUDA memory at batch size 8 (CUDA out of memory. Tried to allocate 20.00 MiB. ...); the run holds counterfactual.v_cf [4, 1, 16] float32 on cpu, patched.logits [4, 1, 32000] float32 on cpu, iia [4, 1] float32 on cpu, each on the model's device until the run ends; run with a smaller --batch-size, or name and save fewer values; the steps before it are saved in out/patching
 ```
 
+A fit, and each of its eval steps, runs in batches of the fit's own `batch_size`, so its refusal names that batch size and says `give steps.<fit> a smaller batch_size` in place of `--batch-size`.
+
 The steps that finished are written as if the run had ended there: their saves, their `costs`, and the refusal as `run.stopped`, which `clab show` prints on its `stopped:` line. A save of a step the run did not finish has no file, and `clab table` refuses it naming the stop. From Python, `clab.run` writes the same directory and then raises the refusal as a `ValueError`. Every value a step binds stays on the model's device until the run ends, so saving fewer values, or naming fewer (an entry nothing names is never taken off the model), frees memory as a smaller batch does.
 
 ## Where output goes

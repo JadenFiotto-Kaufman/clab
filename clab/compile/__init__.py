@@ -28,7 +28,7 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import column_ref
 from clab.compile.arguments import called, carried, layout, mismatch, narrowed_readout, references, resolver, space_of, value_of
-from clab.compile.interventions import entry, items
+from clab.compile.interventions import bundles_of, entry, items
 from clab.compile.schedule import shared
 from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites, over_axes
@@ -43,6 +43,7 @@ from clab.plan import (
     Forward,
     Generate,
     Intervention,
+    Labelled,
     Load,
     OpStep,
     Plan,
@@ -57,10 +58,12 @@ from clab.plan import (
     gathers,
     gradient_of,
     kind_of,
+    made_by,
     own_read,
     points,
     produced,
     record_of,
+    runnable,
     writes,
 )
 
@@ -255,10 +258,9 @@ def ordered(cx: Compiling, labels: set[str]) -> list[str]:
 
 def named_axes(cx: Compiling, ref: str, at: dict[str, int]) -> set[str]:
     """The axes a named value or featurizer varies on, at the consumer's point `at`: a value's as its record says;
-    a declared featurizer's its own; a featurizer a fit trains (`<fit>.<f>`, or its bare name inside the body) the
-    fit's."""
-    thing = cx.aliases.get(ref, ref).partition(".")[0]
-    if thing in cx.featurizers or thing not in cx.steps:          # a declared featurizer, or the fit being compiled
+    a declared featurizer's its own; a featurizer a fit trains (`<fit>.<f>`) the fit's, as its record says."""
+    thing = ref.partition(".")[0]
+    if thing in cx.featurizers or thing not in cx.steps:
         return set(cx.axes_of.get(thing, []))
     return set(record_of(cx.steps, ref, at).axes)
 
@@ -439,6 +441,9 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         if (of := gradient_of(records[k])) is not None:
             axes[f"{name}.{k}"] |= axes[f"{name}.{of}"]
             records[k].axes = ordered(cx, axes[f"{name}.{k}"])
+    if spec.batch_size is not None:     # derived: a fit's eval step's, which compile_fit writes
+        fail(f"{path}.batch_size", "a step runs in batches of the run's --batch-size, and in a fit of the fit's "
+             "'batch_size'; a step sets none")
     fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                   dataset=dataset, at=at, schedule={"axes": ordered(cx, forward_axes)})
     if spec.kind == "generate":
@@ -498,7 +503,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)
     # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
-    space = of.space + space_of(cx.aliases, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
+    space = of.space + space_of([spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = carried(of, dims)
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in found.values() if "rows" in (t.dims or []) and t.dataset is not None), None)
@@ -522,7 +527,8 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
-    record, made = record_of(ran.steps, spec.value, there), agreeing(ran.steps[spec.value.partition(".")[0]], there)
+    record = record_of(ran.steps, spec.value, there)
+    made = agreeing(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
     if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
             made.kind == "op" and ops.DECLARED[made.op]["bundle"]:
@@ -531,9 +537,6 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
     if made.kind == "generate" or producer is not None and producer.kind == "generate":
         fail(here, f"{spec.value!r} is a generation's value or holds its positions, which count the tokens that run "
              "generated; a load brings a forward's values and what op steps and fits made of them")
-    if record.read is not None and record.read.count(".") > 1:
-        fail(here, f"{spec.value!r} holds the positions of {record.read!r}, a read of a fit's body, whose rows are its "
-             "eval's; save the body's value through a root step and load that")
     if record.space:
         fail(here, f"{spec.value!r} is in the coordinates of {', '.join(repr(s['featurizer']) for s in record.space)}, "
              f"a featurizer of {spec.from_}'s; load the value it encodes and encode it here")
@@ -578,6 +581,8 @@ def source(cx: Compiling, path: str, out: str) -> dict:
         except FileNotFoundError:
             fail(f"{path}.from", f"no run at {out} under the corpus root (no manifest.json); run the document that "
                  f"saves the value there first, with --out {out}")
+        except ValueError as e:                 # a manifest an older clab wrote, named as the document names it
+            fail(f"{path}.from", str(e).replace(where, out))
         try:
             ran = Plan(**{**held, "featurizers": {}})
         except PlanError as e:
@@ -605,17 +610,14 @@ def saved(cx: Compiling, path: str, out: str, value: str) -> tuple[dict, dict]:
 
 
 def gathered(steps: dict, used: set[str]) -> None:
-    """Marks each compiled entry the run takes off the model (`gathered`): one `used` names (a value something
-    references, a save, or the entries a fit's objective scalar is over), in a fit's body one a
-    `<fit>.<eval>.<step>.<entry>` member names, and the entry a gathered `grad` entry differentiates. Any other entry
-    only writes, and an entry that neither writes nor is gathered does nothing."""
-    for name, entry in steps.items():
+    """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
+    `used` names (a value something references, a save, or the entries a fit's objective scalar is over), and the
+    entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes nor
+    is gathered does nothing."""
+    for name, entry in runnable(steps).items():
         for point in points(entry):
             if point.kind == "fit":
-                inner = {member.partition(".")[2] for member in (u.removeprefix(f"{name}.") for u in used
-                                                                if u.startswith(f"{name}."))
-                         if member.partition(".")[0] in point.eval}
-                gathered(point.steps, used | inner)
+                gathered(point.steps, used)
             for k, e in entries(point).items():
                 e.gathered = f"{name}.{k}" in used
             for e in list(entries(point).values()):
@@ -659,10 +661,11 @@ def featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int]) -> Feat
 
 def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: dict[str, int]) -> Fit:
     """A fit's body runs over minibatches of its datasets' rows, the same rows of each: so its datasets have
-    as many rows as each other (under each of `eval`'s substitutions too), a value made before the fit that the body
-    uses with a row per example is of a dataset a forward of the body reads (with no forward, of one dataset), and
-    no eval reads such a value's dataset as another. It trains featurizers that have something to train, its
-    objective depends on one of them, and it holds no fit."""
+    as many rows as each other, a value made before the fit that the body uses with a row per example is of a
+    dataset a forward of the body reads (with no forward, of one dataset), and no eval reads such a value's dataset
+    as another. It trains featurizers that have something to train, its objective depends on one of them, and it
+    holds no fit. The body compiles with each trained featurizer's bare name written `<fit>.<f>`, in a scope that
+    holds the fit; then each eval compiles it again, as ordinary steps after the fit (`Fit.evals`)."""
     for i, f in enumerate(spec.train):
         if f not in plan.featurizers:
             fail(f"{path}.train[{i}]", f"no featurizer {f!r}; declared: {', '.join(plan.featurizers) or 'none'}")
@@ -673,10 +676,12 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         if any((p.model_extra or {}).get("file_path") for p in points(plan.featurizers[f])):
             fail(f"{path}.train[{i}]", f"{f!r} is loaded from a bundle, which fixes it; a fit trains a featurizer "
                  "it draws")
-    within = replace(cx, steps=dict(cx.steps), aliases={f: f"{name}.{f}" for f in spec.train})
+    fit = Fit(**spec.model_dump(exclude_defaults=True, exclude={"steps", "evals"}), steps={}, at=at, evals={})
+    own = {f: f"{name}.{f}" for f in spec.train}            # a trained featurizer's bare name, in the body
+    within, view = replace(cx, steps={**cx.steps, name: fit}), rewritten(plan, own, {})
     body: dict[str, Any] = {}
     harvests: dict[str, str] = {}   # each value made before the fit, with rows, that the body uses, by its first user
-    trained = set(spec.train) | set(within.aliases.values())    # what the fit trains, by either of its names
+    trained = set(spec.train) | set(own.values())   # bare in an objective's scalar, `<fit>.<f>` in the body
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")
@@ -692,7 +697,8 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                 fail(f"{p}.ops[{i}]" + (f" in {path}.steps.{n}" if p.startswith("interventions.") else ""),
                      "grad inside a fit's body is not served: the fit differentiates its objective for the "
                      "featurizers it trains; take the gradient in a forward before or after the fit")
-        body[n] = within.steps[n] = step(within, f"{path}.steps.{n}", n, s, plan, at)
+        s = renamed(s, own, {})
+        body[n] = within.steps[n] = step(within, f"{path}.steps.{n}", n, s, view, at)
         refs = referenced(cx, s.model_dump(exclude_defaults=True))
         for r in refs:
             thing = r.partition(".")[0]
@@ -710,12 +716,10 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
             reads = []                      # the body's open encodes of it: entries, which the run gathers, and steps
             for n, s in body.items():
-                if isinstance(s, OpStep) and s.op == "encode" and \
-                        arguments(s)["featurizer"] in (thing, f"{name}.{thing}"):
+                if isinstance(s, OpStep) and s.op == "encode" and arguments(s)["featurizer"] == own[thing]:
                     reads.append(n)
                 for k, e in entries(s).items():
-                    if any(o.op == "encode" and arguments(o)["featurizer"] in (thing, f"{name}.{thing}")
-                           for o in gathers(e)):
+                    if any(o.op == "encode" and arguments(o)["featurizer"] == own[thing] for o in gathers(e)):
                         cx.used.add(f"{n}.{k}")
                         reads.append(f"{n}.{k}")
             if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not reads:
@@ -750,23 +754,87 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                 fail(where, f"dataset {a!r} is read as {b!r}, and their templates differ ({a!r}: "
                      f"{plan.data[a].template}, {b!r}: {plan.data[b].template}); a chat renders with its own "
                      "dataset's template, so give the two the same one")
-            if a in cx.chats:                   # read as `a`, its chats render with the template they share
-                cx.chats.add(b)
-    for label, side in {"": {}, **spec.eval}.items():
-        counts = {d: len(cx.rows[side.get(d, d)]) for d in {s.dataset for s in body.values()} - {None}}
-        if len(set(counts.values())) > 1:
-            fail(f"{path}.steps", f"the body's datasets have {counts} rows" + (f" under eval {label!r}" if label else "")
-                 + "; it runs over minibatches of the same rows of each, paired row by row, so they have as many rows: "
-                 "repeat the smaller dataset's rows (or cut the larger's) to the same count, or fit on one")
+    counts = {d: len(cx.rows[d]) for d in {s.dataset for s in body.values()} - {None}}
+    if len(set(counts.values())) > 1:
+        fail(f"{path}.steps", f"the body's datasets have {counts} rows; it runs over minibatches of the same rows of "
+             "each, paired row by row, so they have as many rows: repeat the smaller dataset's rows (or cut the "
+             "larger's) to the same count, or fit on one")
     # The rows a minibatch's ids are: of the datasets the body's forwards read, or, with none, its first harvest's.
-    own = {s.dataset for s in body.values() if s.kind != "op"} or \
+    rows = {s.dataset for s in body.values() if s.kind != "op"} or \
         {record_of(cx.steps, r, at).dataset for r in list(harvests)[:1]}
     for ref, n in harvests.items():
         d = record_of(cx.steps, ref, at).dataset
-        if d not in own:
-            theirs = " and ".join(map(repr, sorted(map(str, own))))
+        if d not in rows:
+            theirs = " and ".join(map(repr, sorted(map(str, rows))))
             fail(f"{path}.steps.{n}", f"the body uses {ref!r}, made before the fit with a row per example of {d!r}, "
                  f"which no forward of the body reads; the body runs over the rows of {theirs}, so a minibatch would "
                  f"take rows of {d!r} at the ids of its rows of {theirs}, pairing the two row by row: read {d!r} in a "
                  f"forward of the body, or make {ref!r} over {theirs}")
-    return Fit(**spec.model_dump(exclude_defaults=True, exclude={"steps"}), steps=body, at=at)
+    fit.steps = body
+    for label, swap in spec.eval.items():          # each eval's steps, in the root's scope with the fit in it
+        scope, names, fit.evals[label] = replace(cx, steps={**cx.steps, name: fit}), dict(own), {}
+        for n, s in spec.steps.items():
+            names[n] = f"{name}.{label}.{n}"    # it and the body's steps before it: a later one's name is the root's
+            pulls = isinstance(s, (Forward, Generate)) and bundles_of(s)       # a bundle, whose entries it renames
+            view = rewritten(plan, names, swap) if pulls else plan
+            try:
+                made = step(scope, f"{path}.steps.{n}", names[n], renamed(s, names, swap), view, at)
+            except PlanError as e:
+                raise PlanError(f"{path}.eval.{label}: {e}") from None
+            for record in [made, *entries(made).values()]:
+                if isinstance(record, Labelled):
+                    record.axes = list(at)
+            if isinstance(made, Forward):
+                made.schedule, made.batch_size = {"axes": list(at)}, cast(int, spec.batch_size)
+            fit.evals[label][n] = made
+    return fit
+
+
+def renamed(spec: Any, names: dict[str, str], datasets: dict[str, str]) -> Any:
+    """A body step's spec (or a bundle's entries, as a dict) with each name `names` maps renamed where it is the
+    thing a reference names (a step, or a featurizer: `v_cf.x` under `{"v_cf": "fit.held_out.v_cf"}`), and each
+    dataset `datasets` maps read as the one it maps to (in an input, a column an op or a scope names); a `grad`'s
+    `of`, an entry of its own forward, keeps its name."""
+    def first(ref: Any, to: dict[str, str]) -> Any:      # a reference (or a column's, or a list of them) renamed
+        if isinstance(ref, list):
+            return [first(r, to) for r in ref]
+        if isinstance(ref, dict) and "column" in ref:
+            return {**ref, "column": first(ref["column"], to)}
+        thing, dot, rest = ref.partition(".") if isinstance(ref, str) else ("", "", "")
+        return f"{to[thing]}{dot}{rest}" if thing in to else ref
+
+    def op(o: dict) -> dict:
+        params = ops.parameters(o["op"])
+        kinds = {k: params[k].annotation if k in params else None for k in o}
+        return {k: first(v, names) if kinds[k] in (ops.Value, ops.Featurizer) or k == "of" and o["op"] != "grad" else
+                first(v, datasets) if kinds[k] in (ops.Tokens, ops.Text) else v for k, v in o.items()}
+
+    def entry(e: dict) -> dict:
+        pos, out = e.get("pos"), {**e, "ops": [op(o) for o in e.get("ops", [])]}
+        if isinstance(pos, dict) and "column" in (pos.get("scope") or {}):
+            out["pos"] = {**pos, "scope": {**pos["scope"], "column": first(pos["scope"]["column"], datasets)}}
+        return out
+
+    def listed(value: Any) -> Any:      # a step's `interventions`: a bundle's name, entries, or a list of either
+        return [listed(v) for v in value] if isinstance(value, list) else value if isinstance(value, str) else \
+            {k: entry(e) for k, e in value.items()}
+
+    if not isinstance(spec, dict):
+        return type(spec).model_validate(renamed(spec.model_dump(exclude_defaults=True), names, datasets))
+    if spec.get("kind") == "op":
+        return op(spec)
+    if "kind" in spec:
+        return {**spec, "input": first(spec["input"], datasets), "interventions": listed(spec.get("interventions", {}))}
+    return listed(spec)
+
+
+def rewritten(plan: Plan, names: dict[str, str], datasets: dict[str, str]) -> Plan:
+    """The plan a body step compiles in under `renamed`'s `names` and `datasets`: each bundle of entries it may pull
+    in renamed so too, a name of the bundle's own entries left bare, which `scoped` names in the step."""
+    if not plan.interventions:
+        return plan
+    bundles = {b: renamed({k: e.model_dump(exclude_defaults=True) for k, e in bundle.items()},
+                          {n: v for n, v in names.items() if n not in bundle}, datasets)
+               for b, bundle in plan.interventions.items()}
+    return plan.model_copy(update={"interventions": {b: {k: Intervention.model_validate(e) for k, e in bundle.items()}
+                                                     for b, bundle in bundles.items()}})

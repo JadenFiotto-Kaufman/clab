@@ -91,7 +91,7 @@ A metric over a linear probe's scores compares the column with the probe's class
 
 ```text
 fit.ce: target names a class of probe 'probe', which is compared exactly; strip and lower compare an answer's tokens
-fit: eval 'held_out', with dataset 'tr' read as 'te' (a row is the eval's dataset's): ce: target is 'label' of 'te', whose row 0 is 'maybe', not one of the classes of probe 'probe': ['no', 'yes']
+fit.held_out.ce: target is 'label' of 'te', whose row 0 is 'maybe', not one of the classes of probe 'probe': ['no', 'yes']
 ```
 
 The classes are the distinct values of the probe's `classes` column. Drop the flags, and give every scored row one of those values. [probing.md](../patterns/probing.md) covers probes.
