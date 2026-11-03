@@ -1,0 +1,158 @@
+# The CPU suite, pyright, and the docs and FORMAT checks, on every push to master and every pull request: the
+# commands docs/developing/testing.md gives, run as on the host that made the snapshots.
+#
+# nnterp 2 is a path dependency: pyproject.toml's [tool.uv.sources] names a local checkout of ndif-team/nnterp.
+# The job checks that repository out beside clab at the commit README.md names and rewrites the runner's copy of
+# pyproject.toml to point there (the uv source, and pyright's extraPaths): uv reads a path source from
+# pyproject.toml alone, since a uv.toml may not hold `sources` and no environment variable sets one. The
+# committed file keeps the developer's path.
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NNTERP_COMMIT: db80422dc7aa70cbb252affb241892b6c74de730
+  # The transformers the snapshots were made with; `uv sync` installs the newest.
+  TRANSFORMERS: "5.20.2"
+  # `uv run` would sync the venv again, back to the newest transformers.
+  UV_NO_SYNC: "1"
+  CUDA_VISIBLE_DEVICES: ""
+  # The vector width of the host that made the snapshots (AVX2): on a runner with AVX-512, torch's kernels and
+  # MKL's would otherwise reduce in another order and move the last bits.
+  ATEN_CPU_CAPABILITY: avx2
+  MKL_ENABLE_INSTRUCTIONS: AVX2
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: clab
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: clab
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ndif-team/nnterp
+          ref: ${{ env.NNTERP_COMMIT }}
+          path: nnterp
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Point the nnterp source at the checkout
+        run: |
+          python3 - "$GITHUB_WORKSPACE/nnterp" <<'PY'
+          import sys
+          import tomllib
+
+          with open("pyproject.toml") as f:
+              text = f.read()
+          local = tomllib.loads(text)["tool"]["uv"]["sources"]["nnterp"]["path"]
+          with open("pyproject.toml", "w") as f:
+              f.write(text.replace(local, sys.argv[1]))
+          PY
+          grep -n nnterp pyproject.toml
+
+      - name: Install
+        id: install
+        run: |
+          uv sync --dev
+          uv pip install "transformers==$TRANSFORMERS"
+
+      # The CPU and the versions, for reading a run whose last bits moved: the snapshots were made on AVX2.
+      - name: What runs it
+        run: |
+          lscpu | grep -E "^(Model name|CPU\(s\)|Thread)"
+          echo "vector extensions: $(grep -o -w -E 'avx2|avx512f' /proc/cpuinfo | sort -u | xargs)"
+          uv run python -c "import torch; print('torch', torch.__version__, torch.backends.cpu.get_cpu_capability())"
+          uv pip list | grep -E "^(nnsight|nnterp|torch|transformers) "
+
+      - name: pyright
+        run: uvx pyright
+
+      - name: The docs and FORMAT.md
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: uv run pytest tests/test_docs.py tests/test_format.py -q -p no:cacheprovider
+
+      # The checkpoints and the dataset the suite reads, cached under a key of the table that lists them
+      # (docs/developing/testing.md, "Running the suite"); a new row misses the key, restores the last cache and
+      # fetches what it lacks.
+      - name: The cache list
+        id: list
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: echo "hash=$(grep -E '^\| `[^`]+`[^|]*\| `[0-9a-f]{40}` \|' docs/developing/testing.md | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        id: hf
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ steps.list.outputs.hash }}
+          restore-keys: hf-
+
+      - name: Fetch the checkpoints
+        id: fetch
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.hf.outputs.cache-hit != 'true' }}
+        env:
+          HF_HUB_OFFLINE: "0"
+        run: |
+          uv run python - <<'PY'
+          import os
+          import re
+
+          import datasets
+          from huggingface_hub import constants, snapshot_download
+
+          ROW = re.compile(r"^\| `([^`]+)`([^|]*)\| `([0-9a-f]{40})` \|", re.M)
+          with open("docs/developing/testing.md") as f:
+              rows = ROW.findall(f.read())
+          for repo, what, revision in rows:
+              if "gated" in what:                     # meta-llama/Llama-3.2-1B: the GPU tests', which skip on CPU
+                  continue
+              if "a dataset" in what:
+                  for config in re.findall(r"`([^`]+)`", what.partition("configs")[2]):
+                      datasets.load_dataset(repo, config, revision=revision)
+              elif "tokenizer only" in what:
+                  snapshot_download(repo, revision=revision, allow_patterns=["*.json", "*.txt"])
+              else:
+                  snapshot_download(repo, revision=revision, ignore_patterns=["onnx/*", "*.onnx", "*.h5", "*.msgpack"])
+              # The cache's `main` is the pinned revision, as in the cache of the host that pins the suite: nnsight
+              # 0.8.2's meta load (the hooks engine's) reads the tokenizer at `main`, whatever revision it is given.
+              kind = "datasets" if "a dataset" in what else "models"
+              refs = os.path.join(constants.HF_HUB_CACHE, f"{kind}--{repo.replace('/', '--')}", "refs")
+              os.makedirs(refs, exist_ok=True)
+              with open(os.path.join(refs, "main"), "w") as f:
+                  f.write(revision)
+              print(repo, revision)
+          PY
+
+      # Saved before the suite runs, so that a failing suite does not cost the next run the fetch.
+      - uses: actions/cache/save@v6
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' }}
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ steps.list.outputs.hash }}
+
+      # At the 12 threads tests/conftest.py pins: the thread count sets the bits, not the cores, and 12 threads on
+      # the runner's 4 CPUs give the snapshots' numbers (at 4 threads four tests fail; docs/developing/testing.md).
+      - name: The suite
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: uv run pytest tests/ -q -p no:cacheprovider

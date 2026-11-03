@@ -1,0 +1,4 @@
+# The self-hosted runner label .github/workflows/gpu.yml names, so that actionlint knows it.
+self-hosted-runner:
+  labels:
+    - gpu
