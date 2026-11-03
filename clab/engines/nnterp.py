@@ -52,8 +52,6 @@ class NnterpEngine:
     stops: bool = True              # a forward ends right after the schedule's stop site (`tracer.stop()`)
     order: dict[tuple[str, int | None], tuple[int, int]] | None = None     # under tp, measured on a meta shell
     config: dict[str, Any]          # what it read off the model at load: its `sizes`
-    unwritable: dict[str, str] = {}             # every component it serves, it serves whole (`Engine`)
-    last_only: dict[str, str] = {}
 
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
         """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over

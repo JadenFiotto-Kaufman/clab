@@ -20,6 +20,7 @@ from clab.format import address, data, selectors
 from clab.format.selectors import Selector, picked, selected
 from clab.plan import (
     Forward,
+    Generate,
     Labelled,
     Plan,
     Site,
@@ -30,6 +31,7 @@ from clab.plan import (
     entry_of,
     gathers,
     held_rows,
+    horizon,
     kind_of,
     points,
     record_of,
@@ -128,6 +130,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                     encode_input(engine, plan, findings, name, step.source)
                 continue
             rows, encoded = held_rows(plan, step.dataset), encode_input(engine, plan, findings, name, step)
+            check_longest(engine, name, step, findings)
             for key, record in entries(step).items():
                 where, site = f"{name}.{key}", cast(Site, record.site)
                 layers, select = cast("Selector | None", site.layers), cast("dict[str, Selector] | None", site.select)
@@ -151,18 +154,6 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                 if positions.prefill_only(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     row_positions = prefill_positions(where, record, step, rows, encoded, tokenizer, alike)
                     record.positions = {**record.positions, step.dataset: row_positions}
-                    # Served at the row's last position alone (the vllm engine's head); a read the run's readout
-                    # `at-reads` moves to the last block's output is the readout's to serve (`read_out_at_reads`),
-                    # and one it leaves at the head the engine refuses when it meets it.
-                    why = engine.last_only.get(site.component)
-                    if why and not (plan.run.readout == "at-reads" and not writes(record)):
-                        for row, e in zip(row_positions, encoded):
-                            if isinstance(row, list) and row != [len(e["ids"]) - 1]:
-                                raise ValueError(f"{where}: the {engine.name} engine serves {site.component} at the "
-                                                 f"prompt's last position alone ({why}); this entry meets "
-                                                 f"position{'s' if len(row) != 1 else ''} {row} on a row of "
-                                                 f"{len(e['ids'])} tokens: name pos -1, or read layer_output at the "
-                                                 "last block and apply the readout op")
                     counts = {len(p) if isinstance(p, list) else 0 for p in row_positions}  # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
                 probe = None                        # past a probe's encode, a column names its classes
@@ -207,6 +198,47 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
         if points(entry)[0].kind in ("forward", "generate"):
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
                 write_schedule(engine, plan, name, step, served)
+                check_last_only(engine, name, step, findings)
+
+
+def check_last_only(engine: Engine, name: str, step: Forward, findings: Findings) -> None:
+    """Refuses by name a record the schedule does at a component the engine serves at the prompt's last position
+    alone (`engine.last_only`, the vllm engine's head; an engine without it serves every position) that meets any
+    other prefill position on some row: the prefill records at those sites (a decode call's one position is the
+    last), each at the positions preflight resolved for it, against the row's tokens. Read once the schedule is
+    written, so that a read of `logits` the run's readout `at-reads` moved to the last block's output is not held
+    to it, and one it left at the head is."""
+    last_only, encoded = getattr(engine, "last_only", {}), findings.inputs[data.input_name(step.input)]["rows"]
+    for site in step.schedule.get("sites", []):
+        why = last_only.get(site["component"])
+        for r in site["records"] if why else []:
+            if "calls" in r:
+                continue
+            key = r["write"] if "write" in r else r["read"]
+            for row, e in zip(entries(step)[key].positions.get(cast(str, step.dataset)) or [], encoded):
+                if isinstance(row, list) and row != [len(e["ids"]) - 1]:
+                    raise ValueError(f"{name}.{key}: the {engine.name} engine serves {site['component']} at the "
+                                     f"prompt's last position alone ({why}); this entry meets "
+                                     f"position{'s' if len(row) != 1 else ''} {row} on a row of {len(e['ids'])} "
+                                     "tokens: name pos -1, or read layer_output at the last block and apply the "
+                                     "readout op")
+
+
+def check_longest(engine: Engine, name: str, step: Forward, findings: Findings) -> None:
+    """Refuses by name a step whose longest row, plus what a generation adds (`horizon`, its `max_new_tokens`), is
+    longer than the longest sequence the engine serves (`engine.longest`; an engine without it is unbounded): the
+    vllm engine's `max_len`, past which vLLM would refuse the prompt or cut the generation short with no EOS."""
+    longest = getattr(engine, "longest", None)
+    if longest is None:
+        return
+    source = data.input_name(step.input)
+    width = findings.inputs[source]["width"]
+    more = (horizon(cast(Generate, step)) or 0) if step.kind == "generate" else 0
+    if width + more > longest:
+        raise ValueError(f"{name}: {source}'s longest row has {width} tokens"
+                         + (f", and the step generates up to {more} more" if more else "")
+                         + f", past the {longest} the {engine.name} engine serves (its max_len; raise it with -o "
+                         "max_len, up to the checkpoint's context)")
 
 
 def encode_input(engine: Engine, plan: Plan, findings: Findings, name: str, step: Forward) -> list[dict]:

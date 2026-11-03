@@ -37,11 +37,11 @@ the schedule has the read's site first. An engine holds its model and its config
 model (whatever it runs, with `.parameters()`), `spec` the model block it loaded, `name` the name it registered under,
 `device` and `options` how it loaded, `remote` what its session's `remote=` is (False for a run in this process),
 `stops` whether it honours the schedule's stop, and `cuda` the CUDA devices a step's cost measures the peak memory of:
-the model's, or none where the run is remote (the server's process is its own to account). What an engine serves in
-part it declares, each a component mapped to the reason, which preflight refuses by name before any forward: a write
-to a component it serves for reads alone (`unwritable`), and any prefill position but the row's last of one it serves
-there alone (`last_only`); the nnterp and hooks engines declare none, the vllm engine the pattern and the scores, and
-the head.
+the model's, or none where the run is remote (the server's process is its own to account). Two attributes an engine
+may add, which preflight reads where present: `last_only`, the components it serves at the prompt's last position
+alone, each mapped to the reason (the vllm engine's head), any other prefill position refused by name; and `longest`,
+the longest sequence it serves, prompt and new tokens (the vllm engine's `max_len`), a step whose rows do not fit
+refused by name.
 """
 
 import inspect
@@ -70,11 +70,6 @@ class Engine(Protocol):
     options: dict[str, Any]
     remote: bool | str
     stops: bool
-    # What the engine serves in part, each a component mapped to the reason, which preflight refuses by name: a
-    # write to a component served for reads alone (`unwritable`), and a prefill position but the row's last of one
-    # served there alone (`last_only`).
-    unwritable: dict[str, str]
-    last_only: dict[str, str]
 
     @property
     def device(self) -> str | None: ...

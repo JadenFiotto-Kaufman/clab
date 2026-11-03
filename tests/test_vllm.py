@@ -43,7 +43,6 @@ PROMPTS = {"path": "weekdays/train"}
 @pytest.fixture(scope="module")
 def engines():
     """The vllm engine and the nnterp engine on the CPU, each once, for the one model block."""
-    os.environ.setdefault("VLLM_USE_FLASHINFER_SAMPLER", "0")
     model = Model.model_validate(MODEL)
     return {"vllm": load("vllm", model, **OPTIONS), "nnterp": load("nnterp", model, "cpu")}
 
@@ -181,6 +180,30 @@ def test_a_generation_is_vllms_own(engines):
     assert head[short, said[short]:].isnan().all() and not head[short, :said[short]].isnan().any()
 
 
+def test_a_decode_call_write_lands_and_its_null_is_exact(engines):
+    """A steer added at every decode call changes what the rows say; the same write at scale 0 says what the
+    unsteered run says, to the bit, ids and head reads alike."""
+    engine = engines["vllm"]
+    rows = [{"input": "If today is Thursday, tomorrow is"}, {"input": "The capital of France is"},
+            {"input": "Two plus two is"}, {"input": "My favourite colour is"}]
+
+    def built(scale: float | None) -> Plan:
+        steer = {} if scale is None else {"steer": {"site": "target", "pos": {"frame": ":"}, "ops": [
+            {"op": "add", "with": "direction", "scale": scale}]}}
+        return plan({"read": {"kind": "forward", "input": "prompts.input",
+                              "interventions": {"v": {"site": "target", "pos": -1}}},
+                     "direction": {"kind": "op", "op": "mean", "of": "read.v"},
+                     "answer": {"kind": "generate", "input": "prompts.input", "max_new_tokens": 8, "do_sample": False,
+                                "interventions": {**steer, "head": {"site": {"component": "logits"},
+                                                                    "pos": {"frame": "1:"}}}}},
+                    ["answer", "answer.head"], data={"prompts": {"rows": rows}},
+                    sites={"target": {"component": "layer_output", "layers": LAYER}})
+    clean, null, steered = run(engine, built(None)), run(engine, built(0.0)), run(engine, built(4.0))
+    assert same(clean.results, null.results)
+    assert not torch.equal(clean.results["answer"], steered.results["answer"])
+    assert steered.results["answer.head"].shape[:2] == (4, 7) and not steered.results["answer.head"].isnan().any()
+
+
 def test_transformers_agrees_within_vllms_kernels_rounding(engines):
     """vLLM computes the same model with other kernels: the top token agrees, the logits to vLLM's rounding."""
     built = patching_plan()
@@ -215,11 +238,18 @@ def test_what_vllm_cannot_do_is_refused_by_name(engines):
         load("vllm", model.model_copy(update={"dtype": "nf4"}))
     with pytest.raises(ValueError, match=r"^memory 2: the fraction of each GPU's memory"):
         load("vllm", model, memory=2)
-    with pytest.raises(ValueError, match=r"^answer: generate rejected 'penalty_alpha': 'penalty_alpha': the vllm "
-                                         r"engine's generate maps "):
+    with pytest.raises(ValueError, match=r"^answer: generate rejected 'penalty_alpha': the vllm engine's generate maps "):
         engine.execute(plan({"answer": {"kind": "generate", "input": "pairs.input", "max_new_tokens": 2,
                                         "do_sample": False, "penalty_alpha": 0.5, "interventions": {}}},
                             ["answer"]), batch_size=BATCH_SIZE)
+    with pytest.raises(ValueError, match=r"^answer: generate rejected 'max_new_tokens': the vllm engine needs the step"):
+        engine.execute(plan({"answer": {"kind": "generate", "input": "pairs.input", "do_sample": False,
+                                        "interventions": {}}}, ["answer"]), batch_size=BATCH_SIZE)
+    with pytest.raises(ValueError, match=r"^answer: pairs.input's longest row has 7 tokens, and the step generates up "
+                                         r"to 600 more, past the 512 the vllm engine serves \(its max_len; raise it "
+                                         r"with -o max_len, up to the checkpoint's context\)$"):
+        engine.execute(plan({"answer": {"kind": "generate", "input": "pairs.input", "max_new_tokens": 600,
+                                        "do_sample": False, "interventions": {}}}, ["answer"]), batch_size=BATCH_SIZE)
 
 
 def test_the_run_record_says_what_served_it(engines):
@@ -227,7 +257,7 @@ def test_the_run_record_says_what_served_it(engines):
     record = filled.run
     assert record is not None
     assert record.engine == "vllm" and record.device == "cuda:0" and record.devices == ["cuda:0"]
-    assert record.dtype == ["float32"] and record.threads is not None
+    assert record.dtype == ["float32"] and record.threads is not None and record.versions["vllm"]
     assert all(c["memory"] is None for c in record.costs.values())
     # 4 rows at the pinned batch size of 2: two traces, 7 tokens a row
     assert record.costs["patched"]["forwards"] == 2 and record.costs["patched"]["real"] == 28

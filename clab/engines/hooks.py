@@ -38,8 +38,6 @@ class HooksEngine:
     name: str
     remote: bool | str = False          # it runs in this process
     stops: bool = True                  # a forward ends right after the schedule's stop site (`_Stopped`)
-    unwritable: dict[str, str] = {}     # every component it serves, it serves whole (`Engine`)
-    last_only: dict[str, str] = {}
 
     def __init__(self, model: Model, *, device: str = "cpu") -> None:
         """The checkpoint `model` pins, as `AutoModelForCausalLM` in its dtype (`loading`) placed by `device`

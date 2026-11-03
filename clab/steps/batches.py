@@ -360,16 +360,19 @@ def schedule_for_row(bound: dict[str, Any], r: int) -> dict[str, Any]:
 def record_for_row(record: dict[str, Any], r: int) -> dict[str, Any]:
     """A bound record at row `r` alone: its `positions` and `tok` `[1, n]`, its `keep` and the `kept` pairs counted
     from it, its `keys` index and own, an online write's texts, and its ops' and `per_call` ops' arguments that hold
-    a rows axis (`rowed`, `bind_ops`'s) with the op's `rows` (`op_for_row`); every other field as it is."""
+    a rows axis (`rowed`, `bind_ops`'s) with the op's `rows` (`op_for_row`); every other field as it is. Each slice
+    is a copy (`row_of`): a view travels with its whole storage, the batch's, where the row is pickled into a
+    request."""
     out = dict(record)
     for key in ("positions", "tok"):
         if key in record:
-            out[key] = record[key][r:r + 1]
+            out[key] = row_of(record[key], r)
     if "keep" in record:
-        keep = record["keep"][r:r + 1]
+        keep = row_of(record["keep"], r)
         out["keep"], out["kept"] = keep, keep.nonzero().T
     if "keys" in record:
-        out["keys"] = {**record["keys"], "index": record["keys"]["index"][r:r + 1], "own": record["keys"]["own"][r:r + 1]}
+        out["keys"] = {**record["keys"], "index": row_of(record["keys"]["index"], r),
+                       "own": row_of(record["keys"]["own"], r)}
     if "online" in record:
         out["online"] = {**record["online"], "texts": record["online"]["texts"][r:r + 1]}
     for key in ("ops", "per_call"):
@@ -381,11 +384,17 @@ def record_for_row(record: dict[str, Any], r: int) -> dict[str, Any]:
 def op_for_row(op: dict[str, Any], r: int) -> dict[str, Any]:
     """A bound op at row `r` alone: its `rowed` arguments (a tensor or a list per row) and its `rows` taken at
     `r`, an `encode`'s inner ops the same way."""
-    out = {**op, "args": {k: v[r:r + 1] if k in op["rowed"] else v for k, v in op["args"].items()},
-           "rows": op["rows"][r:r + 1]}
+    out = {**op, "args": {k: row_of(v, r) if k in op["rowed"] else v for k, v in op["args"].items()},
+           "rows": row_of(op["rows"], r)}
     if "inner" in op:
         out["inner"] = [op_for_row(inner, r) for inner in op["inner"]]
     return out
+
+
+def row_of(value: Any, r: int) -> Any:
+    """Row `r` of a per-row value as a `[1, ...]` tensor of its own, or a list of the one element: a tensor's slice is
+    cloned, since a view pickles with its whole storage."""
+    return value[r:r + 1].clone() if isinstance(value, Tensor) else value[r:r + 1]
 
 
 def layers_made_at(record: Intervention) -> list[int] | list[None]:

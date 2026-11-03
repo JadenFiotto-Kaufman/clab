@@ -9,31 +9,40 @@ on the value nnterp serves there (`[1, tokens, ...]`, a private copy) padded on 
 the bound records' indices into the padded batch hold as they are, `batches.visit_site` doing the site's records, and
 the value handed back unpadded where a record wrote. Each row's reads come home and are joined along rows (`joined`)
 into what the nnterp engine's one forward returns, NaN (-1 in ids) at a decode call a row never made. Nothing is
-decided here that the schedule does not say; the model never sees a padding token, so a row's numbers depend on
-neither its batch companions nor the run's `padding`.
+decided here that the schedule does not say; the model never sees a padding token, so under the batch-invariant
+kernels (`invariant`) a row's numbers depend on neither its batch companions nor the run's `padding`.
 
 What vLLM makes different, each refused by name before anything runs, or recorded:
 
 - The head is computed at the last position alone: `logits` (and `lm_head_output`, which this engine serves as the
   logits where the model does nothing after the head, no `final_logit_softcapping`, `logit_scale` or `logits_scaling`
   in its config, the two being one value then) is read or written at the prompt's last position only (`last_only`;
-  preflight refuses any other).
-- The attention pattern and the scores are recomputed from the queries and keys: read-only (`unwritable`); a read
-  of them beyond the prefill, which compile refuses on every engine, a decode call could not serve here either.
+  preflight refuses any other, once the schedule says where each record is done).
+- The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
+  refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
+  not serve here either.
 - No gradient: a fit and a `grad` entry are refused in `execute`. A quantized `dtype` too: vLLM's quantizations are
   not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's attention backend is its own.
+- The engine serves sequences up to its `max_len` (`longest`, vLLM's `max_model_len`): preflight refuses a step whose
+  longest row, plus what a generation adds, does not fit, since vLLM would cut the generation short with no EOS.
 - A forward runs whole (`stops`): nothing ends a request's forward inside the worker.
 - `readout` runs the model's final norm, head and logits processor in the worker (`project_on_vocab`), in a trace of
   its own: the model's own, as the nnterp engine's is. Under `--readout at-reads` it meets the stream alone where
   the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits
-  (1e-5 on SmolLM2 in float32), as `at-reads` promises, not to the bit.
+  (2e-5 in the logits on SmolLM2 in float32), as `at-reads` promises, not to the bit.
 - vLLM's default kernels are not run-to-run stable: two identical request sets differ in the last bits (in bfloat16
   by whole ulps). The engine runs vLLM's batch-invariant kernels (`VLLM_BATCH_INVARIANT`) unless `invariant` is
-  false, so that a run reproduces to the bit and a null is exact, and has Triton run a float32 matmul in float32
-  (`TRITON_F32_DEFAULT=ieee`, where nothing set it), not in TF32 as it would by default.
+  false, so that the model's values reproduce to the bit and a null is exact (an entry's own ops after its last edit
+  still run per batch on the client's GPU, as on every engine), and has Triton run a float32 matmul in float32
+  (`TRITON_F32_DEFAULT=ieee`, where nothing set it), not in TF32 as it would by default. Both are set as the worker
+  starts (`ready`), which is when it reads them.
+- A generation's options are mapped onto vLLM's sampling (`sampling`), what the step leaves out taken from the
+  generation config as transformers takes it, and a row stops on clab's stop ids alone (`ignore_eos`, so that vLLM's
+  own EOS does not widen the set); a row's new ids are what vLLM sampled, padded past the row's end with the
+  generation config's pad token, as transformers pads.
 - The worker's memory is vLLM's: a step's `cost.memory` is None (`nvidia-smi` says), and `cost.tokens` counts the
   batch's padding the model never saw (`real` is what it fed). The run record's `devices` and `dtype` are the
-  worker's (the client holds a meta tree).
+  worker's (the client holds a meta tree), and its `versions` name vLLM's.
 - The run's traces are not inside a session (`execute` says why): each batch is one request to vLLM, in plain
   Python, as the hooks engine's calls are.
 """
@@ -41,6 +50,7 @@ What vLLM makes different, each refused by name before anything runs, or recorde
 from __future__ import annotations
 
 import functools
+import importlib.metadata
 import os
 import time
 from typing import Any
@@ -48,17 +58,17 @@ from typing import Any
 import nnsight
 import torch
 from torch import Tensor
+from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.nnterp import NnterpEngine
-from clab.engines.standard import build, envoy, loading, nnterp_name, stops
+from clab.engines.standard import build, envoy, loading, nnterp_name, served, stops
 from clab.format.address import COMPONENTS
-from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk
+from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk, writes
 from clab.steps import batches
 from clab.steps.batches import acting_at_call, stamped_at_call
 
-# The attention values nnterp recomputes from the queries and keys on vLLM.
+# The attention values nnterp recomputes from the queries and keys on vLLM: read-only there.
 RECOMPUTED = ("attention_scores", "attention_probabilities")
 # The head, which vLLM computes at the last position alone.
 HEAD = ("logits", "lm_head_output")
@@ -67,17 +77,26 @@ TOKEN_AXES = ("seq", "query", "key")
 # The HuggingFace generate options the engine maps onto vLLM's sampling, each with vLLM's name for it, or None where
 # the engine maps it itself (`sampling`).
 GENERATE = {"max_new_tokens": "max_tokens", "min_new_tokens": "min_tokens", "temperature": "temperature",
-            "top_p": "top_p", "top_k": "top_k", "repetition_penalty": "repetition_penalty", "do_sample": None,
-            "eos_token_id": None, "pad_token_id": None}
+            "top_p": "top_p", "top_k": "top_k", "min_p": "min_p", "repetition_penalty": "repetition_penalty",
+            "do_sample": None, "eos_token_id": None, "pad_token_id": None}
+# The generation config's fields transformers turns into a logits processor whatever the step says, which vLLM's
+# sampling has no name for, each with the value that turns it off: a config that sets one is refused by name.
+UNMAPPED = {"no_repeat_ngram_size": 0, "typical_p": 1.0, "epsilon_cutoff": 0.0, "eta_cutoff": 0.0, "bad_words_ids": None,
+            "suppress_tokens": None, "begin_suppress_tokens": None, "forced_bos_token_id": None,
+            "forced_eos_token_id": None, "sequence_bias": None, "encoder_repetition_penalty": 1.0,
+            "exponential_decay_length_penalty": None}
+# clab's reason for a mixture's values on vLLM, whose fused kernel serves none of them.
+FUSED = ("vLLM runs the mixture of experts inside its fused MoE kernel, which serves no routing value; the mixture's "
+         "output is mlp_output")
 
 
 @engine("vllm")
-class VllmEngine(NnterpEngine):
-    stops = False                   # a request's forward runs whole in the worker
-    unwritable = {c: "vLLM's attention kernel serves nothing between its inputs and its output, so nnterp recomputes "
-                     "it from the queries and keys, read-only; write attention_queries, attention_keys or "
-                     "attention_head_outputs instead" for c in RECOMPUTED}
+class VllmEngine:
+    name: str
+    remote: bool | str = False      # its traces run in this process
+    stops: bool = False             # a request's forward runs whole in the worker
     last_only = {c: "vLLM computes the head at the prompt's last position alone" for c in HEAD}
+    config: dict[str, Any]          # what it read off the model: its `sizes`, and once the worker is up, `longest`
 
     def __init__(self, model: Model, *, device: str = "cuda:0", tp: int = 1, memory: float = 0.9,
                  max_len: int | None = None, invariant: bool = True) -> None:
@@ -88,8 +107,8 @@ class VllmEngine(NnterpEngine):
         quantized model in its own formats, not bitsandbytes'.
 
         device: "cuda:0", the first of the GPUs vLLM runs the model on (CUDA_VISIBLE_DEVICES names them), where the run keeps its values; no other
-        tp: how many GPUs vLLM shards the model over (its tensor_parallel_size)
-        memory: the fraction of each GPU's memory vLLM reserves for the weights and its cache (its gpu_memory_utilization)
+        tp: how many GPUs vLLM shards the model over (its tensor_parallel_size); measured at 1 only
+        memory: the fraction of each GPU's memory vLLM reserves for the weights and its cache (its gpu_memory_utilization); the run's own values live outside it
         max_len: the longest sequence, prompt and new tokens, the engine serves (its max_model_len); null for the checkpoint's
         invariant: true runs vLLM's batch-invariant kernels, so that a run reproduces to the bit; false its fastest, whose last bits move between runs
         """
@@ -111,11 +130,6 @@ class VllmEngine(NnterpEngine):
             raise ValueError(f"memory {memory}: the fraction of each GPU's memory vLLM reserves is above 0 and at most 1")
         if max_len is not None and max_len < 1:
             raise ValueError(f"max_len {max_len}: the longest sequence the engine serves is one token or more")
-        # Both read when the worker starts. Triton runs a float32 `tl.dot` in TF32 unless told otherwise, and the
-        # batch-invariant matmul is one: in float32 it moved SmolLM2's logits by 6e-3 against transformers', and by
-        # 8e-6 once IEEE; a value set outside stands.
-        os.environ["VLLM_BATCH_INVARIANT"] = "1" if invariant else "0"
-        os.environ.setdefault("TRITON_F32_DEFAULT", "ieee")
         self.spec, self.device, self.options = model, device, {"tp": tp, "memory": memory, "max_len": max_len,
                                                                "invariant": invariant}
         # The forward order and the generation config are a transformers meta shell's: StandardizedVLLM has neither,
@@ -135,20 +149,32 @@ class VllmEngine(NnterpEngine):
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset",
                 readout: str = "full") -> Plan:
         """The whole plan in this process, as the hooks engine runs it: what vLLM cannot do refused by name first (a
-        fit, which trains through the model's gradient, and a `grad` entry), the model `ready` before the clock where
-        the run calls it, then `steps.run` with each batch its own trace, outside any session. Not inside one, as the
-        nnterp engine's is: nnsight marks what a trace saved by object id in a set a session keeps across its traces,
-        and reads that set when it serializes a request, so a row's dict of a later batch that reuses the address of
-        an earlier batch's freed, saved dict would travel home as saved, and the root envoy in it cannot (a run of
-        many batches met that); outside a session each trace clears the set. The run record's `devices` and `dtype`
-        are the worker's, which the client's meta tree does not say."""
+        fit, which trains through the model's gradient; a `grad` entry; a write at the recomputed pattern or scores;
+        a generate step whose options vLLM's sampling cannot take, `sampling`), the model `ready` before the clock
+        where the run calls it, then `steps.run` with each batch its own trace, outside any session. Not inside one,
+        as the nnterp engine's is: nnsight marks what a trace saved by object id in a set a session keeps across its
+        traces, and reads that set when it serializes a request, so a row's dict of a later batch that reuses the
+        address of an earlier batch's freed, saved dict would travel home as saved, and the root envoy in it cannot
+        (a run of many batches met that); outside a session each trace clears the set. The run record's `devices`,
+        `dtype` and vLLM's version are then the worker's, which the client's meta tree does not say."""
         for name, step in walk(plan.steps):
             if step.kind == "fit":
                 raise ValueError(f"{name}: a fit trains through the model's gradient, which vLLM's kernels do not "
                                  "take; run it on the nnterp or hooks engine")
-            for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
-                raise ValueError(f"{name}.{key}: a grad entry takes the model's gradient, which vLLM's kernels do not "
-                                 "take; run it on the nnterp or hooks engine")
+            for key, e in entries(step).items():
+                if gradient_of(e) is not None:
+                    raise ValueError(f"{name}.{key}: a grad entry takes the model's gradient, which vLLM's kernels "
+                                     "do not take; run it on the nnterp or hooks engine")
+                if writes(e) and e.site.component in RECOMPUTED:
+                    raise ValueError(f"{name}.{key}: the vllm engine does not write {e.site.component}: vLLM's "
+                                     "attention kernel serves nothing between its inputs and its output, so nnterp "
+                                     "recomputes it from the queries and keys, read-only; write attention_queries, "
+                                     "attention_keys or attention_head_outputs instead")
+            if step.kind == "generate":
+                try:
+                    self.sampling(dict(step.model_extra or {}))
+                except ValueError as e:
+                    raise ValueError(f"{name}: generate rejected {e}") from None
         started = steps.start_run(self, plan, batch_size, padding, readout)
         if calls_model(plan.steps):          # before the clock: `seconds` is the run, not vLLM's start
             self.ready()
@@ -158,16 +184,34 @@ class VllmEngine(NnterpEngine):
         if self.model.dispatched:
             dtype = str(self.model.vllm_entrypoint.llm_engine.model_config.dtype).removeprefix("torch.")
             plan.run.dtype, plan.run.devices = [dtype], [f"cuda:{i}" for i in range(self.options["tp"])]
+            plan.run.versions["vllm"] = importlib.metadata.version("vllm")
         plan.run.seconds = round(time.time() - started, 3)
         return plan
 
     def ready(self) -> None:
         """Starts vLLM's worker and loads the weights (`dispatch`), once, before the first step of a run that calls
-        the model, a key the loader rejects refused by name as `build` refuses one. The order and the mixture
-        interiors the nnterp engine's `ready` prepares are not this engine's: the shell answers the order, and no
-        mixture interior is served here."""
-        if not self.model.dispatched:
-            build(self.spec, self.name, lambda extra: self.model.dispatch())
+        the model, a key the loader rejects refused by name as `build` refuses one; the kernel switches the worker
+        reads as it starts are set just before (the batch-invariant kernels per `invariant`, and IEEE float32 for
+        Triton's matmul where nothing set it: in TF32, its default, the batch-invariant matmul moved SmolLM2's
+        float32 logits by 6e-3 against transformers', and by 8e-6 once IEEE). Then the longest sequence the worker
+        serves is known (`longest`)."""
+        if self.model.dispatched:
+            return
+        os.environ["VLLM_BATCH_INVARIANT"] = "1" if self.options["invariant"] else "0"
+        os.environ.setdefault("TRITON_F32_DEFAULT", "ieee")
+        build(self.spec, self.name, lambda extra: self.model.dispatch())
+        self.config["longest"] = int(self.model.vllm_entrypoint.llm_engine.model_config.max_model_len)
+
+    @property
+    def longest(self) -> int | None:
+        """The longest sequence, prompt and new tokens, the worker serves (vLLM's `max_model_len`), which preflight
+        checks each step's rows against; None until the worker is up, which it is before any step that calls the
+        model."""
+        return self.config.get("longest")
+
+    @property
+    def tokenizer(self) -> PreTrainedTokenizerBase:
+        return self.model.tokenizer
 
     @property
     def eos(self) -> list[int]:
@@ -178,16 +222,28 @@ class VllmEngine(NnterpEngine):
         """None: the model is in vLLM's worker, whose memory is its own to account."""
         return []
 
+    def sizes(self) -> dict[str, int]:
+        return self.config["sizes"]
+
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """nnterp's answer for the vLLM engine (`standard.unserved` over StandardizedVLLM's `support()`), but
         `lm_head_output`, served as the logits where the model does nothing after the head (`after_head`), the two
-        being one value then, and refused naming what it does otherwise."""
+        being one value then, and refused naming what it does otherwise; and a mixture's values, which vLLM's fused
+        kernel serves none of, refused with that reason at the blocks the transformers shell says have a mixture
+        (`FUSED`), since nnterp's vLLM answer does not name them and clab's reading of its silence would call the
+        model dense."""
         reasons = standard.unserved(self.model)
         if isinstance(reasons.get("lm_head_output"), str):
             after = self.after_head()
             reasons["lm_head_output"] = None if after is None else (
                 f"vLLM never calls lm_head, and this model's {after} after the head keeps its logits from standing in "
                 "for the head's own projection; read logits")
+        theirs, n = standard.unserved(self.shell), self.shell.num_layers
+        for component in standard.mixed():
+            mixed = served(component, theirs[component], n)
+            if mixed and isinstance(reasons.get(component), str):
+                reasons[component] = {layer: FUSED if layer in mixed else (theirs[component] or {})[layer]
+                                      for layer in range(n)}
         return standard.own(reasons)
 
     def after_head(self) -> str | None:
@@ -207,30 +263,24 @@ class VllmEngine(NnterpEngine):
 
     def requests(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> tuple[list[list[int]], list[dict]]:
         """The batch as vLLM takes it: each row's own token ids, the padding left off, and each row's half of the
-        bound schedule (`batches.schedule_for_row`) with the site's envoy, the batch's width and the row's padding,
-        which the worker pads the row's values back to (`visit_request`). A record at the head that meets another
-        prefill position than the row's last is refused here, naming it, where preflight let it through (under
-        `--readout at-reads` a read the readout could not move stays at the head)."""
+        bound schedule (`batches.schedule_for_row`) with the site's envoy and the batch's width, which the worker pads
+        the row's values back to (`visit_request`); a record at the head, which preflight holds to the row's last
+        position, indexes the one position vLLM serves there (-1), so the head is never padded."""
         ids, mask = batch["input_ids"], batch["attention_mask"]
         width = ids.shape[1]
         prompts = [int(m.sum()) for m in mask]
-        for site in bound["sites"]:
-            for record in site["records"] if site["component"] in HEAD else []:
-                if "calls" in record:
-                    continue                    # a decode call's one position, the head's
-                for r, p in enumerate(prompts):
-                    met = sorted({int(t) for t in record["tok"][r].tolist() if t not in (-1, p - 1)})
-                    if met:
-                        what = f"read {record['name'].partition('@')[0]!r}" if "name" in record else "write"
-                        raise ValueError(f"{site['component']} {what}: the vllm engine serves {site['component']} at "
-                                         f"the prompt's last position alone, and this {what.split()[0]} meets "
-                                         f"position{'s' if len(met) > 1 else ''} {met} on a row of {p} tokens; name "
-                                         "pos -1, or read layer_output at the last block and apply the readout op")
         rows = []
-        for r, p in enumerate(prompts):
+        for r in range(len(prompts)):
             own = batches.schedule_for_row(bound, r)
-            rows.append({"width": width, "pad": width - p, "sites": [
-                {**site, "host": envoy(self.model, site["component"], site["layer"])} for site in own["sites"]]})
+            sites = []
+            for site in own["sites"]:
+                records = site["records"]
+                if site["component"] in HEAD:
+                    records = [{**record, "positions": torch.full_like(record["positions"], -1)}
+                               for record in records]
+                sites.append({**site, "records": records,
+                              "host": envoy(self.model, site["component"], site["layer"])})
+            rows.append({"width": width, "sites": sites})
         return [ids[r, width - p:].tolist() for r, p in enumerate(prompts)], rows
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
@@ -253,11 +303,12 @@ class VllmEngine(NnterpEngine):
         every step of each request (`tracer.all()`, the prefill then one per new token) visits the row's sites
         where the schedule's `loop` names the call (`visit_request`, from the inputs the row has been fed so far
         where a write is found `online`) and takes the token the step sampled, the row's new ids; a row's steps end
-        at its EOS, and its ids are padded past it to the batch's longest with the first stop id, as the hooks
-        engine's are. The new ids `[rows, new]`, and each read joined along rows."""
+        at its EOS, and its ids are padded past it to the batch's longest with the pad token (`sampling`), as
+        transformers pads. The new ids `[rows, new]`, and each read joined along rows."""
         tokens, rows = self.requests(batch, bound)
         sampling, loop, online = self.sampling(options), bound["loop"], bound["online"]
-        model, stop = self.model, (self.spec.key, self.spec.revision,
+        pad = sampling.pop("pad_token_id")
+        model, spec = self.model, (self.spec.key, self.spec.revision,
                                    bool((self.spec.model_extra or {}).get("trust_remote_code", False)))
         try:
             with self.model.trace(**sampling) as tracer:
@@ -265,7 +316,7 @@ class VllmEngine(NnterpEngine):
                     with tracer.invoke(ids):
                         mine = nnsight.save({"got": {}, "ids": []})
                         seen: list[Tensor] = []
-                        tokenizer = worker_tokenizer(*stop) if online else None
+                        tokenizer = worker_tokenizer(*spec) if online else None
                         for step in tracer.all():
                             if online and step > 0:
                                 seen.append(torch.tensor([[mine["ids"][-1]]]))
@@ -275,16 +326,21 @@ class VllmEngine(NnterpEngine):
         except RuntimeError as e:
             raise refusal(e) from None
         per = listed(mine)                  # pyright: ignore[reportPossiblyUnboundVariable]  (bound by the trace)
-        new, pad = max(len(p["ids"]) for p in per), sampling["stop_token_ids"][0]
+        new = max(len(p["ids"]) for p in per)
         return torch.tensor([p["ids"] + [pad] * (new - len(p["ids"])) for p in per]), joined([p["got"] for p in per])
 
     def sampling(self, options: dict[str, Any]) -> dict[str, Any]:
-        """A generate step's options as vLLM's sampling parameters (`GENERATE`): `max_new_tokens`, which the step
-        must give (vLLM's own default, 16 tokens, is not the generation config's), and `min_new_tokens` as vLLM
-        spells them; `do_sample` false (or the generation config's, where the step says nothing) as temperature 0,
-        true as the step's temperature, top_p and top_k, each the generation config's where the step leaves it out;
-        `repetition_penalty` as it is; the step's `eos_token_id` where it gives one, else the engine's stop ids
-        (`eos`), as the ids a request stops on. Any other option is refused by name: nothing maps it."""
+        """A generate step's options as vLLM's sampling parameters (`GENERATE`), what the step leaves out taken from
+        the generation config as transformers takes it: `max_new_tokens`, which the step must give (vLLM's own
+        default length, 16 tokens, is not the config's), and `min_new_tokens` as vLLM spells them; `do_sample` false
+        (or the config's) as temperature 0, true as the step's temperature, top_p, top_k and min_p, each the config's
+        where the step leaves it out; `repetition_penalty`, which transformers applies under greedy decoding too; the
+        step's `eos_token_id` where it gives one, else the engine's stop ids (`eos`), as the only ids a row stops on
+        (`ignore_eos`: vLLM would add its own EOS to the set); and `pad_token_id`, the step's, else the config's, else
+        the first stop id, which `generate` pads the rows' ids with and pops. Refused by name: an option vLLM's
+        sampling has no name for, and a config that sets a field transformers turns into a logits processor and
+        vLLM's sampling has no name for (`UNMAPPED`), which the other engines would apply."""
+        config = self.shell.generation_config
         for key in options:
             if key not in GENERATE:
                 raise ValueError(f"{key!r}: the vllm engine's generate maps {', '.join(GENERATE)} onto vLLM's "
@@ -292,17 +348,28 @@ class VllmEngine(NnterpEngine):
         if "max_new_tokens" not in options:
             raise ValueError("'max_new_tokens': the vllm engine needs the step to give it: vLLM's own default length "
                              "(16 tokens) is not the generation config's")
-        config = self.shell.generation_config
+        for key, default in UNMAPPED.items():
+            value = getattr(config, key, default)
+            if value is not None and value != default:
+                raise ValueError(f"'{key}': the checkpoint's generation config sets {key} {value!r}, which the nnterp "
+                                 "and hooks engines apply as transformers does and vLLM's sampling has no name for; "
+                                 "run the step on them")
         out = {GENERATE[k]: v for k, v in options.items() if GENERATE.get(k)}
         if not options.get("do_sample", bool(getattr(config, "do_sample", False))):
-            out = {k: v for k, v in out.items() if k not in ("temperature", "top_p", "top_k")}
+            out = {k: v for k, v in out.items() if k not in ("temperature", "top_p", "top_k", "min_p")}
             out["temperature"] = 0.0
         else:
-            for key in ("temperature", "top_p", "top_k"):
+            for key in ("temperature", "top_p", "top_k", "min_p"):
                 if key not in out and getattr(config, key, None) is not None:
                     out[key] = getattr(config, key)
+        penalty = options.get("repetition_penalty", getattr(config, "repetition_penalty", None))
+        if penalty not in (None, 1, 1.0):
+            out["repetition_penalty"] = penalty
         given = options.get("eos_token_id")
         out["stop_token_ids"] = self.eos if given is None else [given] if isinstance(given, int) else list(given)
+        out["ignore_eos"] = True
+        pad = options.get("pad_token_id", getattr(config, "pad_token_id", None))
+        out["pad_token_id"] = out["stop_token_ids"][0] if pad is None else pad
         return out
 
     def readout(self, hidden: Tensor) -> Tensor:
@@ -324,23 +391,9 @@ def visit_request(row: dict, got: dict, call: int = 0, seen: list[Tensor] | None
     site of the row's schedule in its order, doing there what `acting_at_call` says and, at a decode call,
     `stamped_at_call` from the inputs `seen` so far (`tokenizer` decodes them where a write is found online), as
     `NnterpEngine.visited` does, on nnterp's value for the request padded on the left to the batch's width in the
-    prefill (`padded`), so that the records' indices hold, and set back unpadded where `visit_site` says to.
-    `lm_head_output` is the logits (the engine serves it where the two are one value). An error other than a
-    refusal (a ValueError, which travels as it is) or nnsight's own (a read the run never served, which cuts the
-    block short as nnsight means it to) is raised again as text: vLLM pickles a request's error home, and one that
-    holds a torch object cannot be pickled, which would hide it."""
-    try:
-        visit_sites(row, got, call, seen, tokenizer)
-    except ValueError:
-        raise
-    except Exception as e:
-        if type(e).__module__.partition(".")[0] == "nnsight":
-            raise               # nnsight's own, and its to handle: a read the run never served cuts the block short
-        raise RuntimeError(f"{type(e).__name__}: {e}") from None
-
-
-def visit_sites(row: dict, got: dict, call: int, seen: list[Tensor] | None, tokenizer: Any) -> None:
-    """`visit_request`'s visits."""
+    prefill (`padded`), so that the records' indices hold, and set back unpadded where `visit_site` says to; the
+    head's one position is indexed as it is. `lm_head_output` is the logits (the engine serves it where the two are
+    one value)."""
     for site in row["sites"]:
         here = acting_at_call(site["records"], call)
         here = stamped_at_call(here, seen or [], tokenizer, call) if call > 0 else here
@@ -349,11 +402,11 @@ def visit_sites(row: dict, got: dict, call: int, seen: list[Tensor] | None, toke
         component, host = site["component"], site["host"]
         name = "logits" if component == "lm_head_output" else component
         value = getattr(host, name)
-        shape = value.shape
-        value, wrote = batches.visit_site(padded(value, component, row["width"]) if call == 0 else value, component,
-                                          here, got)
+        shape, whole = value.shape, call == 0 and component not in HEAD
+        value, wrote = batches.visit_site(padded(value, component, row["width"]) if whole else value, component, here,
+                                          got)
         if wrote:
-            setattr(host, name, unpadded(value, component, shape) if call == 0 else value)
+            setattr(host, name, unpadded(value, component, shape) if whole else value)
 
 
 def padded(value: Tensor, component: str, width: int) -> Tensor:
@@ -421,7 +474,12 @@ def stacked(values: list) -> Any:
 def refusal(error: RuntimeError) -> BaseException:
     """An error raised in the worker, which nnsight re-raises as a RuntimeError naming the original type and
     carrying its traceback: a refusal (a ValueError, `visit_site`'s and the ops') as the ValueError it was, its
-    message alone, so that it is reported as every refusal is; anything else as it came."""
+    message alone, so that it is reported as every refusal is; a CUDA out-of-memory as torch's, so that the run
+    stops as it does on every engine (`steps.run`); anything else as it came."""
     head = str(error).split("\n\nIntervention traceback", 1)[0]
     kind, _, message = head.partition(": ")
-    return ValueError(message) if kind == "ValueError" else error
+    if kind == "ValueError":
+        return ValueError(message)
+    if kind.rpartition(".")[2] == "OutOfMemoryError":
+        return torch.OutOfMemoryError(message)
+    return error
