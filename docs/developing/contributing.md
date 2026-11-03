@@ -55,7 +55,7 @@ And the rules particular to clab's docs:
 
 - **FORMAT.md is the spec.** Link its section (`../../FORMAT.md#ops`) and add what it cannot say: the task, the choice, the recipe, the trap. Never restate its fields or ops.
 - **Current truth only.** Present tense; no version pins, no history, no bug or issue references, no roadmap. Odd behavior is stated neutrally, with how to work with it.
-- **Cite by path and symbol**, in backticks: `clab/compile/positions.py` `landing`. Never by line number.
+- **Cite by path and symbol**, in backticks: `clab/compile/positions.py` `lands_at_call`. Never by line number.
 - **Examples compile.** A fenced `json` document with both `model` and `steps` is compiled by the docs test, so it uses the corpus's pinned tiny checkpoint and datasets under `data/`; anything else is a fragment, without `model`. Prefer pointing at a corpus document by path and quoting the part that matters.
 - **Front matter** on every page: `title`, `one_liner` (quoted when it holds `: `), `tags`, and `related` and `sources` naming repo files that exist. Leaf pages run 60 to 200 lines.
 

@@ -8,7 +8,7 @@ sources: [clab/compile/positions.py, clab/compile/preflight.py]
 
 # A Position Does Not Fit a Row
 
-In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `indices`). An index with an open end that picks none of a short row's tokens is not refused, nor is any miss beyond the prefill: the row is `alignment_missing`, as [alignment-missing.md](alignment-missing.md) explains, and only a write there is refused.
+In the prefill (frame 0, and the one call of every `forward` step), the data alone decides where a `pos` lands on each row. So clab resolves every row before any forward and refuses a text, an occurrence or a static index that a row does not have, naming the entry and the row (`clab/compile/positions.py` `prefill_positions`). An index with an open end that picks none of a short row's tokens is not refused, nor is any miss beyond the prefill: the row is `alignment_missing`, as [alignment-missing.md](alignment-missing.md) explains, and only a write there is refused.
 
 ## See the row's tokens
 
