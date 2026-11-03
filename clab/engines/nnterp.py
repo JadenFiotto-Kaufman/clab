@@ -180,7 +180,7 @@ class NnterpEngine:
         """Where the component falls in this checkpoint's forward: nnterp's measured order (under `tp` measured on
         a meta shell at load, since a probe of the sharded model reads values the ranks cannot reassemble)."""
         if self.order is not None:
-            return self.order[component, None if layer is None else range(self.model.num_layers)[layer]]
+            return self.order[component, layer]
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
