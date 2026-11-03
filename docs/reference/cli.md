@@ -53,7 +53,7 @@ clab: the nnterp engine takes no 'foo'; its options: tp (where the model runs is
 clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts: `torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; this process is not one of them (WORLD_SIZE is unset)
 ```
 
-Offline, a checkpoint whose `revision` the cache lacks is refused as the engine loads it: `clab: model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first (…)`.
+Offline, a checkpoint whose `revision` the cache lacks is refused as the engine loads it (the nnterp engine's weights, and a model key its loader rejects, at the first run that calls the model): `clab: model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first (…)`.
 
 On success it prints one line naming the run with its engine options, one line per saved file (the file, the step that made it, the value's shape, counted over its points when swept) and the manifest's path:
 

@@ -129,7 +129,8 @@ class NnterpEngine:
     def ready(self) -> None:
         """What the model does once, done before the first step of a run that calls the model so that no step's
         cost holds it: a meta shell (the nnterp engine's at `tp` 1, ndif's under `remote="local"`) loads its
-        weights, which it would at its first trace, frozen as they load (here; a server's are the server's); a
+        weights, which it would at its first trace, a key its loader rejects refused by name as `build` refuses one,
+        and frozen as they load (here; a server's are the server's); a
         mixture of experts' module whose forward nnterp reads a value inside (the module the path of nnterp's key for
         the value names before its first `source`, at every block that serves the value: JetMoE's router, Mixtral's
         router and experts) has that forward instrumented (its `.source` touched, as nnterp's docs say to outside a
@@ -137,7 +138,8 @@ class NnterpEngine:
         the trace has read a child module of it first (JetMoE's router logits, the router's projection, before its
         indices); and nnterp measures its forward order (`rank`), which it would at the first site a step ranks (under
         `tp` the engine measured it at load, on a meta shell). Each is a no-op once done."""
-        self.model.dispatch()
+        if not self.model.dispatched:      # a key the loader rejects is refused by name here, as at a load's
+            build(self.spec, self.name, lambda extra: self.model.dispatch())
         if self.remote is not True:
             self.model.requires_grad_(False)    # the weights dispatch loaded, which the shell's freeze did not reach
         reasons = standard.unserved(self.model)
