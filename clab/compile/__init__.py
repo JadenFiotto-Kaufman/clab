@@ -53,6 +53,7 @@ from clab.plan import (
     adapts,
     arguments,
     corpus_root,
+    documented,
     entries,
     entry_of,
     fail,
@@ -354,6 +355,9 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
     columns), and an op takes one dataset's rows.
     """
     assert not isinstance(spec, list), "a point holds one step under each name"
+    derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
+    for key in sorted(spec.model_fields_set & derived):
+        fail(f"{path}.{key}", f"{key!r} is a derived field, which compile writes; a step sets none")
     return {"forward": compile_forward, "generate": compile_forward, "op": compile_op, "fit": compile_fit,
             "load": compile_load}[spec.kind](cx, path, name, spec, plan, at)
 
@@ -445,9 +449,6 @@ def compile_forward(cx: Compiling, path: str, name: str, spec: Forward | Generat
         if (of := gradient_of(records[k])) is not None:
             axes[f"{name}.{k}"] |= axes[f"{name}.{of}"]
             records[k].axes = in_axis_order(cx, axes[f"{name}.{k}"])
-    if spec.batch_size is not None:     # derived: a fit's eval step's, which compile_fit writes
-        fail(f"{path}.batch_size", "a step runs in batches of the run's --batch-size, and in a fit of the fit's "
-             "'batch_size'; a step sets none")
     fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                   dataset=dataset, at=at, schedule={"axes": in_axis_order(cx, forward_axes)})
     if spec.kind == "generate":

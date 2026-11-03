@@ -91,19 +91,22 @@ def test_a_root_featurizer_is_not_a_save():
 
 
 
+@pytest.mark.parametrize("field, value", [("batch_size", 1), ("at", {"seed": 0}),
+                                          ("schedule", {"stop": ["layer_output", 0]})])
 @pytest.mark.parametrize("name, path", [("patching", ("counterfactual",)), ("generated_contains", ("answer",)),
                                         ("lora_train", ("fit", "steps", "adapted"))])
-def test_a_steps_batch_size_is_refused_as_the_runs_or_its_fits(name, path):
-    """`batch_size` on a forward or a generate (a fit body's too) is a field compile writes for a fit's eval steps
-    alone, so a document's is refused by name, where it ran at its own size whatever the run's `--batch-size`."""
+def test_a_derived_field_a_step_sets_is_refused_by_name(name, path, field, value):
+    """A field compile derives, on a forward or a generate (a fit body's too), is refused by name where a document
+    sets it, which compile would write over: `batch_size` (which it writes for a fit's eval steps alone, so a
+    document's ran at its own size whatever the run's `--batch-size`), `at` and `schedule`."""
     def change(d):
         step = d["steps"][path[0]]
         for key in path[1:]:
             step = step[key]
-        step["batch_size"] = 1
-    where = re.escape(".".join(("steps", *path, "batch_size")))
-    with pytest.raises(PlanError, match=rf"^{where}: a step runs in batches of the run's --batch-size, and in a fit of "
-                                        r"the fit's 'batch_size'; a step sets none$"):
+        step[field] = value
+    where = re.escape(".".join(("steps", *path, field)))
+    with pytest.raises(PlanError, match=rf"^{where}: '{field}' is a derived field, which compile writes; a step sets "
+                                        r"none$"):
         edited(name, change).compile()
 
 
