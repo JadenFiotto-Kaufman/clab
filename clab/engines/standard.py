@@ -59,6 +59,19 @@ def inside(value: Any, host: Envoy) -> bool:
     return "source" in value.path(host).lstrip("./").split(".")
 
 
+def reached(host: Any, key: str) -> tuple[Any, str]:
+    """The module nnterp's key for a value on `host` reaches, and how the value is read there: up a parent for each
+    `../`, then down its children to the `source` segment (inside that module's forward) or to its last, the module
+    boundary (`input`, `output`)."""
+    while key.startswith("../"):
+        host, key = host.parent, key[3:]
+    parts = key.split(".")
+    end = parts.index("source") if "source" in parts else len(parts) - 1
+    for child in parts[:end]:
+        host = getattr(host, child)
+    return host, parts[end]
+
+
 def sizes(model: StandardizedTransformer) -> dict[str, int]:
     """The model's sizes by name (`SIZES`): nnterp's model's own, and `num_experts` and `top_k` off nnterp's `Moe` at
     the first block whose MLP is a mixture of experts, absent where none is, so that a `select` of them there is

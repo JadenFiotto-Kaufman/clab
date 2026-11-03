@@ -141,13 +141,7 @@ class NnterpEngine:
                 value = getattr(type(host), c)
                 if not standard.inside(value, host):
                     continue
-                key = value.path(host)
-                while key.startswith("../"):
-                    host, key = host.parent, key[3:]
-                parts = key.split(".")
-                for child in parts[:parts.index("source")]:
-                    host = getattr(host, child)
-                host.source
+                standard.reached(host, value.path(host))[0].source
         self.rank("layer_output", 0)
 
     @property
@@ -339,14 +333,8 @@ def split(model: StandardizedTransformer, component: str, layer: int | None) -> 
         return _get_parameter_plan(name, plan, is_weight=False) if name else None
 
     host: Any = envoy(model, component, layer)
-    value = getattr(type(host), component)
-    key, inside = value.path(host), standard.inside(value, host)
-    while key.startswith("../"):
-        host, key = host.parent, key[3:]
-    parts = key.split(".")
-    children, side = (parts[:parts.index("source")], "inside") if inside else (parts[:-1], parts[-1])
-    for child in children:
-        host = getattr(host, child)
+    host, side = standard.reached(host, getattr(type(host), component).path(host))
+    inside = side == "source"
     name = host.path.partition(".")[2]           # the module as transformers names it, "" for the root
     if not inside and style(name):
         return (None if (style(name), side) != ("embedding_rowwise", "output") else
