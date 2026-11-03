@@ -341,6 +341,22 @@ def test_an_option_the_engine_rejects_fails_naming_the_step(engines, monkeypatch
         engine.execute(plan, batch_size=BATCH_SIZE)
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_read_at_decode_calls_that_holds_fewer_values_than_the_calls_made_fails_naming_it(engines, monkeypatch, kind):
+    """A read at decode calls holds one value per call the batch made; an engine that returns fewer (a read out of
+    forward order shifts calls) fails the step naming the read and both counts."""
+    plan, engine = plan_of("generate_probe"), engines(kind, plan_of("generate_probe").model)
+    generate = engine.generate
+
+    def short(batch, bound_schedule, options):
+        ids, got = generate(batch, bound_schedule, options)
+        return ids, {name: value[:-1] if isinstance(value, list) else value for name, value in got.items()}
+    monkeypatch.setattr(engine, "generate", short)
+    with pytest.raises(RuntimeError, match=r"^patched\.logits@None@frame=1: the engine read 0 of the 1 decode calls it "
+                                           r"made; a read out of forward order shifts calls$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
+
+
 def test_a_steps_own_eos_token_id_is_where_its_rows_stop(engines):
     """`eos_token_id` is forwarded and is that step's EOS: 25148 (`▁substr`), the second token every row says,
     so every row stops at call 1, whose one position is token 0, and detokenize stops before it."""
