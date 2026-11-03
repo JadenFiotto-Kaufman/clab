@@ -194,15 +194,6 @@ def cut_word(texts: Sequence[tuple], words: str) -> str | None:
     return None
 
 
-def index_picks(index: Selector, tokens: list[int], width: int | None) -> list[int]:
-    """Stage three: the positions `index` picks among the scope's tokens; a record with a static width must
-    hold all of them."""
-    picks = [tokens[i] for i in select(index, len(tokens))]
-    if width is not None and len(picks) != width:
-        raise UnreachedRow(f"tokens {index} do not fit its {len(tokens)} scope tokens")
-    return picks
-
-
 def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]], head_only: bool = False,
             texts: Sequence[tuple] = (), encoded: dict = EMPTY_PROMPT) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, what it generated up to its first
@@ -218,8 +209,10 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
         tokens = [p for call in calls for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
-        positions = index_picks(pos["index"], scope_tokens(pos["scope"], tokens, occurrences, texts, encoded),
-                                width(pos))
+        tokens = scope_tokens(pos["scope"], tokens, occurrences, texts, encoded)
+        positions = [tokens[i] for i in select(pos["index"], len(tokens))]         # stage three
+        if (static := width(pos)) is not None and len(positions) != static:         # a static width holds all of them
+            raise UnreachedRow(f"tokens {pos['index']} do not fit its {len(tokens)} scope tokens")
         positions = [t - 1 for t in positions] if before else positions
     except ValueError as e:
         if prefill_only(pos):
