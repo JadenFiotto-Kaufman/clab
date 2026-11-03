@@ -38,7 +38,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing_point, coordinate, coordinate_spelling, find_sweeps, points, projection
+from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps, points, projection
 
 
 class PlanError(ValueError):
@@ -1424,13 +1424,6 @@ def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
         at = projection(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
         runs.setdefault(tuple(at.items()), []).append(q)
     return [(served[0], served) for served in runs.values()]
-
-
-def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
-    """A saved value per point of its own axes: each point's coordinates (none for a value on no axis) and its
-    value."""
-    return [({label: plan.sweeps[label].values[i] for label, i in at.items()},
-             plan.results[name][coordinate(plan, at)] if at else plan.results[name]) for at, _ in projections(plan, name)]
 
 
 def scope(plan: Plan, where: str) -> dict[str, Entry]:
