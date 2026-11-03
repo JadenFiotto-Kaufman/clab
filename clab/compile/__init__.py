@@ -681,7 +681,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
     within, view = replace(cx, steps={**cx.steps, name: fit}), rewritten(plan, own, {})
     body: dict[str, Any] = {}
     harvests: dict[str, str] = {}   # each value made before the fit, with rows, that the body uses, by its first user
-    trained = set(spec.train) | set(own.values())       # what the fit trains, by either of its names
+    trained = set(spec.train) | set(own.values())   # bare in an objective's scalar, `<fit>.<f>` in the body
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")

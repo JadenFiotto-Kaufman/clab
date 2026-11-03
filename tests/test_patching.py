@@ -542,7 +542,8 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
 
 def test_the_oom_refusal_lists_a_dicts_tensors_and_says_when_nothing_is_held():
     """`sized` lists a `top_k` value's `ids` and `probs` (its `tokens` are strings), and `exhausted` with nothing
-    held says so without the clause about the device."""
+    held says so without the clause about the device; for a fit or one of its eval steps, which run in batches of the
+    fit's `batch_size` whatever the run's, it names that batch size and says to lower it."""
     from collections import ChainMap
 
     from clab.steps import exhausted, sized
@@ -558,3 +559,8 @@ def test_the_oom_refusal_lists_a_dicts_tensors_and_says_when_nothing_is_held():
     assert exhausted(plan, "clean", {}, 2, ChainMap(), error) == (
         "steps.clean: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the run "
         "holds no value yet; run with a smaller --batch-size, or name and save fewer values")
+    fitted = plan_of("lora_train")           # a fit's batches, and its eval steps', are its batch_size of 2
+    for name in ("fit", "fit.held_out.adapted"):
+        assert exhausted(fitted, name, {}, 8, ChainMap(), error) == (
+            f"steps.{name}: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the "
+            "run holds no value yet; give steps.fit a smaller batch_size, or name and save fewer values")

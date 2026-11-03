@@ -32,7 +32,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     hold a gradient. The featurizers are made where the model is, so the optimizer runs there. Every run of its
     body adds the model calls it made and the tokens they fed to the fit's `cost`. It ends with each trained
     featurizer scoring, as `<fit>.<featurizer>` in `state`, where the fit's eval steps after it find it."""
-    source = (body_view(plan, name, step.at), replace(found, said={}))
+    view, found = body_view(plan, name, step.at), replace(found, said={})
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
     trained = {f: instance(plan, spec, cast(int, spec.width), seed, home(engine))
@@ -55,7 +55,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
             with torch.enable_grad():
                 for f in trained.values():
                     f.settle()
-            body = body_run(engine, name, step, state, trained, source, order[lo:lo + size], cost, reading)
+            body = body_run(engine, name, step, state, trained, view, found, order[lo:lo + size], cost, reading)
             with torch.enable_grad():
                 loss = sum(cast(float, weight) * term(body, trained, t, step.at)
                            for t, weight in step.objective.items())
@@ -68,7 +68,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
                 f.project()
         for f in trained.values():
             f.settle()
-        scored = body_run(engine, name, step, state, trained, source, None, cost, reading)
+        scored = body_run(engine, name, step, state, trained, view, found, None, cost, reading)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
@@ -94,16 +94,14 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
 
 
-def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind],
-             source: tuple[Plan, Found], ids: list[int] | None, cost: dict[str, Any],
-             reading: dict[str, dict]) -> ChainMap:
-    """A fit's body over every training row, or the minibatch of dataset row ids `ids`, in the plan and over what
-    preflight found as `source` gives them, in a scope of its own that falls back to `state` and carries those ids
+def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind], plan: Plan,
+             found: Found, ids: list[int] | None, cost: dict[str, Any], reading: dict[str, dict]) -> ChainMap:
+    """A fit's body over every training row, or the minibatch of dataset row ids `ids`, in `plan` (as the body sees
+    it) over what preflight `found`, in a scope of its own that falls back to `state` and carries those ids
     (`batches.ROWS`: what its values' rows are), each trained featurizer under `<fit>.<name>`, each body forward
     given the one point it serves, itself, and what it reads (`reading`, by name). With a minibatch it trains:
     gradients on, gates soft; otherwise it scores. Returns the body's namespace; the model calls its steps made and
     the tokens they fed add to the fit's `cost`."""
-    plan, found = source
     body = state.new_child({ROWS: ids} if ids is not None else {})
     for f, inst in trained.items():
         inst.training = ids is not None

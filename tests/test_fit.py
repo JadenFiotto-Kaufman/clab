@@ -739,8 +739,8 @@ def test_inside_the_body_a_trained_featurizers_two_names_are_one_space(engines):
 def test_a_swept_fit_whose_body_names_its_featurizer_bare_runs_as_its_fit_name_does(engines):
     """Compile writes a trained featurizer's bare name in its fit's body as `<fit>.<featurizer>`, so the two are one
     featurizer at every point of a sweep: das with `rot`'s `k` swept over 4 and 8 and its body naming `rot` bare
-    compiles to the body that names `fit.rot`, and runs to its numbers to the bit, where the body once took the
-    untrained instance the run made for `rot` and failed on a gradient nothing used."""
+    compiles to the body that names `fit.rot`, and runs to its numbers to the bit, each point's body training that
+    point's instance."""
     def swept(d):
         d["featurizers"]["rot"]["k"] = {"sweep": [4, 8]}
         d["steps"]["fit"]["epochs"] = 3

@@ -294,8 +294,9 @@ def command(args: argparse.Namespace) -> int:
     print(f"{stem} on {args.engine} (batch size {args.batch_size}, {how(filled.run)}) -> {out}")
     with open(os.path.join(out, "manifest.json")) as f:
         described = json.load(f)["results"]
-    for d in described.values():
-        print(f"  {d['file']:28} {d['step']:16} {shaped(d['shape'], bool(d['axes']))}")
+    rows = [[d["file"], d["step"], shaped(d["shape"], bool(d["axes"]))] for d in described.values()]
+    for line in aligned(rows) if rows else []:        # each column as wide as its longest cell: an eval's are long
+        print("  " + line)
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
 

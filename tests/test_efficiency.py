@@ -87,11 +87,10 @@ def das(epochs: int = 3):
 def test_a_fit_counts_every_forward_its_body_makes(engines):
     """A fit's calls are its body's: per epoch, each minibatch through the body's forward (2 × 1) and the
     training rows scored after it (two rows, a batch of one each: 2). The `train` eval is steps after the fit, each
-    with its own cost: its forward's two rows in batches of the fit's one (2 calls), its ops none; together they
-    make the calls the fit's body made before its evals were steps. Each pass over a dataset feeds each of its rows'
-    tokens once: two passes over the training prompts an epoch, one of them scoring, then one in the eval, each row
-    padded to the longest, 11 tokens; the counterfactual prompts, harvested before the fit, are fed there once, in
-    one call."""
+    with its own cost: its forward's two rows in batches of the fit's one (2 calls), its ops none, so the fit and its
+    eval make 14. Each pass over a dataset feeds each of its rows' tokens once: two passes over the training prompts
+    an epoch, one of them scoring, then one in the eval, each row padded to the longest, 11 tokens; the
+    counterfactual prompts, harvested before the fit, are fed there once, in one call."""
     plan = das()
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     train = lengths(run, "train.input")

@@ -25,7 +25,7 @@ import platform
 import subprocess
 import time
 from collections import ChainMap
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import torch
 from torch import Tensor
@@ -37,7 +37,7 @@ from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put
+from clab.format.sweeps import agreeing, by_coordinate, coordinate, labelled, lookup, projected, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         serving)
 from clab.steps import fit, generate
@@ -128,17 +128,23 @@ def ended(engine: Engine, plan: Plan, state: ChainMap, costs: dict, found: Found
 
 
 def exhausted(plan: Plan, name: str, at: dict, batch_size: int, state: ChainMap, error: BaseException) -> str:
-    """The refusal for a step that ran out of CUDA memory: the step and its point, the batch size, what torch said
-    (its first sentences), and every value the run holds (`state`: each bound value stays on the model's device
-    until the run ends) with its shape, dtype and device, then what to do."""
+    """The refusal for a step that ran out of CUDA memory: the step and its point, the batch size (a fit's, and its
+    eval steps', the fit's `batch_size`), what torch said (its first sentences), and every value the run holds
+    (`state`: each bound value stays on the model's device until the run ends) with its shape, dtype and device,
+    then what to do."""
     where = f"steps.{name}" + (f" at {labelled(plan, at)}" if at else "")
+    head = name.partition(".")[0]
+    owner = agreeing(plan.steps[head], at)             # the step itself, or the fit whose eval step it is
+    if owner.kind == "fit":
+        batch_size = cast(int, owner.batch_size)
     said = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
     held = [f"{n}{f'[{labelled(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
             if isinstance(by_point, dict) for c, v in by_point.items() if (s := sized(v))]
     holds = (f"holds {', '.join(held)}, each on the model's device until the run ends" if held else
              "holds no value yet")
-    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run {holds}; run with a smaller "
-            "--batch-size, or name and save fewer values")
+    smaller = f"give steps.{head} a smaller batch_size" if owner.kind == "fit" else "run with a smaller --batch-size"
+    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run {holds}; {smaller}, or name "
+            "and save fewer values")
 
 
 def sized(value: Any) -> str | None:

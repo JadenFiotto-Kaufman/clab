@@ -10,8 +10,8 @@ from clab import ops
 from clab.compile import materialized, positions
 from clab.format import data
 from clab.format.sweeps import agreeing, labelled, projected
-from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, points,
-                        projections, record_of)
+from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, made_by, points,
+                        projections, record_of, runnable)
 
 # The column a value's example and token axes are tabled under.
 COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
@@ -234,13 +234,10 @@ def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
     arguments name, back to the read (a load's, the one it carries; none where it carries none), then the read's
     input columns first and the columns its entry's ops name."""
     used: list[str] = []
+    steps = runnable(plan.steps)
     while True:
-        thing, _, member = name.partition(".")
-        step = agreeing(plan.steps[thing], at)
-        if step.kind == "fit":              # an eval's member: its eval step's
-            label, _, rest = member.partition(".")
-            thing, _, member = rest.partition(".")
-            step = step.evals[label][thing]
+        made = made_by(plan, name)          # an eval's member's: its eval step
+        step, member = agreeing(steps[made], at), name[len(made) + 1:]
         if step.kind == "op":
             used += columns(plan, arguments(step))
             name = step.of
