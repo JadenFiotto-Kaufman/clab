@@ -339,7 +339,7 @@ def test_a_window_write_and_three_single_writes_are_one_tensor():
 def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
     steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "dims": DIMS}])
-    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}])
+    restore = {**record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}]), "takes": {"original"}}
     out = batches.visit_site(value, "layer_output", [steer, restore], {})[0]
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])

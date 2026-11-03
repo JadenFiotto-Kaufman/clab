@@ -15,7 +15,7 @@ from clab.compile import positions
 from clab.compile.answers import answer_ids, refkey, texts_of
 from clab.compile.positions import reads_head, scope_texts
 from clab.compile.state import Findings
-from clab.format import address, data, selectors
+from clab.format import address, data, registry, selectors
 from clab.format.sweeps import lookup, put
 from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
                         held_rows, kind_of, record_of)
@@ -136,6 +136,14 @@ def op_binding(plan: Plan, record: Intervention, at: dict, layer: int | None,
     return binding
 
 
+def supplied_to(nodes: list[dict]) -> set[str]:
+    """The values the run supplies an op (`ops.SUPPLIED`) that an entry's ops take (`op_binding`'s nodes, or bound):
+    those an op's function names (`renormalize` its `original`, `noise` its `positions`), and those the ops an
+    `encode` holds take, which it hands them (`original` encoded)."""
+    return {name for node in nodes for name in (*registry.signature(ops.OPS[node["op"]]).parameters,
+                                                *supplied_to(node.get("inner", []))) if name in ops.SUPPLIED}
+
+
 def bind_ops(plan: Plan, binding: list[dict], state: ChainMap, ids: list[int], findings: Findings,
              device: str = "cpu", shared: dict | None = None) -> list[dict]:
     """An entry's ops bound to one batch from their binding (`op_binding`, the step's), as `visit_site` runs them:
@@ -222,7 +230,8 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
     of the value it is, `values_read`, `schedule.values_read_by`, with the point it is read for, `point`, and the key
     it is returned by, `binds`), whether it reads the head alone (`head_only`), what records alike share its selection
     by (`reached`, but for the rows' positions), the fields of its bound record no batch changes (`fields`: its layer,
-    its decode `calls`, on a component of ids the size they are under, a read's name and, a `grad` entry's, `capture`),
+    its decode `calls`, a write's ops' supplied values (`takes`, `supplied_to`) and on a component of ids the size they
+    are under, a read's name and, a `grad` entry's, `capture`),
     a write's ops (`op_binding`, at the operand points the schedule resolved) and, found `online`, its scope and the
     ids its rows stop on, and a read's ops at each call (`per_call`, `op_binding` at the point it is read for)."""
     sites = []
@@ -241,6 +250,7 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                 operands = {v["name"]: v for o in site_record["ops"] for v in o.values()
                             if isinstance(v, dict) and "name" in v}
                 bound["ops"] = op_binding(plan, record, step.at, site["layer"], operands)
+                bound["fields"]["takes"] = supplied_to(bound["ops"])
                 if axis := address.COMPONENTS[cast(Site, record.site).component].get("ids"):
                     bound["fields"]["ids"] = {"entry": f"{name}.{key}", "axis": axis, "size": engine.sizes()[axis]}
                 if site_record.get("online"):
@@ -570,7 +580,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     where it requires none, so that the graph starts at the shallowest such site; `differentiate` takes its gradient
     after the forward, and a later write here works on a copy of it, so that its gradient passes through the write.
 
-    `original` is a write's selection as it was before any of these writes. An argument bound to an entry of
+    `original` is a write's selection as it was before any of these writes, taken where its ops take it (`takes`,
+    `bind_schedule`'s: `supplied_to`; `renormalize`, an `encode` around one). An argument bound to an entry of
     the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
     An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
     each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
@@ -609,10 +620,11 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
             site_value, wrote, copied = site_value.clone(), True, True
         indices = record["positions"].to(site_value.device)
         current = site_value[row_indices, indices]
-        new, original = own_keys(current, record), own_keys(before[row_indices, indices], record)
-        whole = new
+        new = whole = own_keys(current, record)
+        original = own_keys(before[row_indices, indices], record) if "original" in record.get("takes", ()) else None
         for dim, index in record["select"].items():
-            new, original = index_along(new, dim, index), index_along(original, dim, index)
+            new = index_along(new, dim, index)
+            original = None if original is None else index_along(original, dim, index)
         token_positions = record["tok"] + record.get("call", 0) if "tok" in record else None
         new = apply_bound_ops(new.float() if "ids" in record else new, original, record["ops"], got, token_positions)
         if "ids" in record:
@@ -659,11 +671,11 @@ def check_written_ids(new: Tensor, component: str, record: dict, token_positions
                      f"0 to {ids['size'] - 1} (the model's {ids['axis']}, {ids['size']}), which the model indexes with")
 
 
-def apply_bound_ops(new: Tensor, original: Tensor, bound_ops: list[dict], got: dict,
+def apply_bound_ops(new: Tensor, original: Tensor | None, bound_ops: list[dict], got: dict,
                     token_positions: Tensor | None) -> Tensor:
     """`new` after a write's bound ops, each on the current value in turn. An `encode` runs the ops its `decode`
     closes over (`inner`) on the value's coordinates, on the features its `select` keeps, and writes the change
-    back (`Kind.within`); `original` goes in with them, encoded the same way."""
+    back (`Kind.within`); `original` goes in with them, encoded the same way (None, where no op takes it)."""
     for op in bound_ops:
         args = {k: live_operand(got, v) if isinstance(v, dict) and "live" in v else v for k, v in op["args"].items()}
         if op["op"] != "encode":
@@ -672,8 +684,8 @@ def apply_bound_ops(new: Tensor, original: Tensor, bound_ops: list[dict], got: d
             continue
         featurizer: Any = args["featurizer"]
         features = op.get("features")
-        start = featurizer.encode(original)
-        start = start if features is None else start.index_select(-1, features.to(start.device))
+        start = None if original is None else featurizer.encode(original)
+        start = start if features is None or start is None else start.index_select(-1, features.to(start.device))
         new = featurizer.within(new, lambda z, start=start, inner=op["inner"]: apply_bound_ops(z, start, inner, got,
                                                                                               token_positions),
                                 features)

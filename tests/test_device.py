@@ -49,7 +49,7 @@ def writes() -> list[dict]:
          "keys": {"dim": 2, "index": torch.tensor([[1, 2, 3, 4, 5, 6, 7, 0], [3, 4, 5, 6, 7, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4]]),
                   "own": torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1]]).bool()},
          "ops": [{"op": "sub", "args": {"with": 1.0}, "dims": DIMS}]},
-        {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3),
+        {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3), "takes": {"original"},
          "ops": [{"op": "renormalize", "args": {}, "dims": DIMS}]},
         {"positions": torch.tensor([[4], [4], [4]]), "select": {},
          "ops": [{"op": "apply", "args": {"featurizer": over, "with": OTHER[:, :1]}, "dims": DIMS, "layers": 0}]},
