@@ -237,12 +237,3 @@ def markdown() -> str:
               "## Saves and the output\n", doc(output) + "\n", doc(table.table) + "\n",
               "## A worked document\n", "`documents/patching.json`:\n", "```json\n" + example + "```\n"]
     return "\n".join(parts)
-
-
-def write_markdown() -> str:
-    """`clab describe --markdown`: `markdown()` written as FORMAT.md beside the package, at the repo root, from
-    whatever directory the command runs in; returns the path written."""
-    path = os.path.join(ROOT, "FORMAT.md")
-    with open(path, "w") as f:
-        f.write(markdown())
-    return path

@@ -22,9 +22,9 @@ import os
 import sys
 from typing import Any
 
-from clab import output
+from clab import docs, output
 from clab.compile import positions
-from clab.docs import WHAT, as_json, describe, write_markdown
+from clab.docs import WHAT, as_json, describe
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, coordinate_text
 from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, serving
@@ -253,8 +253,10 @@ def main(argv: list[str] | None = None) -> int:
 def command(args: argparse.Namespace) -> int:
     """The parsed command, run: its exit status, a refusal said in one `clab:` line on stderr."""
     if args.command == "describe":
-        if args.markdown:
-            path = write_markdown()
+        if args.markdown:                   # at the repo root, from whatever directory the command runs in
+            path = os.path.join(docs.ROOT, "FORMAT.md")
+            with open(path, "w") as f:
+                f.write(docs.markdown())
             if args.verbose:
                 print(f"wrote {path}")
         else:
