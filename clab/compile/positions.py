@@ -26,10 +26,6 @@ HEAD = ("lm_head_output", "logits")      # what a generation's prefill computes 
 EMPTY_PROMPT = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
-class UnreachedRow(ValueError):
-    """A row the record does not reach, and why: `alignment_missing` beyond the prefill, a refusal in it."""
-
-
 def parse(pos: Swept[int | Pos]) -> dict:
     """A `pos` (an int, or a `Pos`) as `{"frame", "scope", "index"}`."""
     assert not isinstance(pos, Sweep), "a point's pos is one value"
@@ -155,24 +151,24 @@ def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[in
         short = not picked or fixed(which) is not None and len(picked) != fixed(which)
         through = tokens if short else [t for t in tokens if t <= max(max(matches[i]) for i in picked)]
         if scope.get("before") and 0 in through:
-            raise UnreachedRow(f"{what} with until runs from the frame's first token, position 0, which no position "
-                               "comes before")
+            raise ValueError(f"{what} with until runs from the frame's first token, position 0, which no position "
+                             "comes before")
         return through
     if not matches and "turn" in scope:
         first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
         header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
-        raise UnreachedRow(f"the row has no {scope['turn']!r} message" + (
+        raise ValueError(f"the row has no {scope['turn']!r} message" + (
             f"; the template wrote a {scope['turn']!r} header of its own, whose tokens are positions, not a message: "
             "locate its words with a {'text': ...} scope" if header else ""))
     if not matches:
         cut = cut_word(texts, encoded["text"])
-        raise UnreachedRow(f"{what} is not in its input" + (
+        raise ValueError(f"{what} is not in its input" + (
             f"; it occurs only inside {cut!r}, cutting a word, and an occurrence lies on word boundaries" if cut else ""))
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise UnreachedRow(f"{what} occurs {len(matches)} time{'s' * (len(matches) != 1)} in the row's input; it has "
-                           f"no occurrence {which}")
+        raise ValueError(f"{what} occurs {len(matches)} time{'s' * (len(matches) != 1)} in the row's input; it has "
+                         f"no occurrence {which}")
     if scope.get("before") and any(0 in matches[i] for i in picked):
-        raise UnreachedRow(f"{what} begins the row, at position 0, which no position comes before")
+        raise ValueError(f"{what} begins the row, at position 0, which no position comes before")
     return [t for t in tokens if any(t in matches[i] for i in picked)]
 
 
@@ -212,7 +208,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
         tokens = scope_tokens(pos["scope"], tokens, occurrences, texts, encoded)
         positions = [tokens[i] for i in select(pos["index"], len(tokens))]         # stage three
         if (static := width(pos)) is not None and len(positions) != static:         # a static width holds all of them
-            raise UnreachedRow(f"tokens {pos['index']} do not fit its {len(tokens)} scope tokens")
+            raise ValueError(f"tokens {pos['index']} do not fit its {len(tokens)} scope tokens")
         positions = [t - 1 for t in positions] if before else positions
     except ValueError as e:
         if prefill_only(pos):
