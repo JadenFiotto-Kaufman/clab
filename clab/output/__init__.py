@@ -19,7 +19,8 @@ value depends on, so that a result links back to the step that made it and says 
 records the document's path relative to the corpus root, and each dataset's `n_rows`. The plan's `steps` hold
 each record with its labels and, on every read and write, the positions it resolved to per row, which `table` uses
 to label positions, and each forward's and generation's `schedule`, which forward served each point and what it
-did; its `featurizers` each one's width; its `run` holds the batch size and `padding` it ran at, the model's sizes,
+did; its `featurizers` each one's width; its `run` holds the batch size and `padding` it ran at (the padding even
+where it is the default), the thread count torch computed with (`threads`), the model's sizes,
 and what each run of each step cost (`costs`: its seconds, its peak memory on each CUDA device, its model calls,
 the tokens they fed, padding included, and of those the rows' own, `real`, and the points it served). Values are
 never in the manifest. `tokens.json` beside it is the run's `tokens`, how each input tokenized and what each
@@ -76,6 +77,7 @@ def dump(plan: Plan, out: str) -> None:
                            "dtype": shape_or_dtype(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
+    manifest["run"]["padding"] = run.padding                       # so is the padding
     for d in manifest["data"].values():
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there

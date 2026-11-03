@@ -11,12 +11,13 @@ keys, as many as the input's longest row has, whatever the batch's width. The ru
 """
 
 import copy
+import json
 import os
 from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, INSIDE, NAMES, edited, placed, same
+from conftest import BATCH_SIZE, INSIDE, NAMES, THREADS, edited, placed, same
 
 from clab import Plan
 from clab.cli import main
@@ -223,6 +224,19 @@ def test_the_run_records_its_padding_and_show_prints_it(engines, tmp_path, capsy
     shown = capsys.readouterr().out.splitlines()
     assert ", batch size 2, padding sorted, started " in shown[0]
     assert shown[3].split()[-2:] == ["tokens", "real"]
+
+
+@pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])
+def test_the_manifest_records_the_default_padding_and_the_thread_count(engines, tmp_path, kind, options):
+    """T12's record: the manifest's run holds `padding` under the default too, where it was left out as a default,
+    and `threads`, torch's thread count where the model ran (the suite's pinned 12), on every engine."""
+    plan = reach(GROWING)
+    engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    with open(tmp_path / "manifest.json") as f:
+        run = json.load(f)["run"]
+    assert torch.get_num_threads() == THREADS and (run["padding"], run["threads"]) == ("dataset", THREADS)
+    back = Plan.load(str(tmp_path)).run
+    assert back is not None and (back.padding, back.threads) == ("dataset", THREADS)
 
 
 def test_padding_is_refused_by_name_unless_it_is_one_of_the_three(engines, capsys):

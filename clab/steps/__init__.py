@@ -84,13 +84,14 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     fit's every one), over the plan with its rows (`plan_with_rows`), without gradients except where a fit trains, a
     forward's batches of `batch_size` rows unless its record fixes another (a fit's eval step's: the fit's), each
     run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then what `record_results`
-    records, each saved value into `plan.results` among it, and the model's sizes. Where each read and write
+    records, each saved value into `plan.results` among it, and the model's sizes and torch's thread count where the
+    model is, at the start (`Run.threads`). Where each read and write
     resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A step
     that runs out of CUDA memory stops the run: its refusal (`out_of_memory_refusal`) is recorded as
     `plan.run.stopped`, and the steps that finished are recorded and saved as if the run had ended there."""
     plan = plan_with_rows(plan)
     assert plan.run is not None
-    plan.run.versions, plan.run.sizes = versions(), engine.sizes()
+    plan.run.versions, plan.run.sizes, plan.run.threads = versions(), engine.sizes(), torch.get_num_threads()
     findings = preflight(engine, plan)
     state = state_at_start(plan, model_device(engine))
     devices, costs = engine.cuda, {}

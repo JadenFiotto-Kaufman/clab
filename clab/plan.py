@@ -1083,11 +1083,13 @@ class Axis(Record):
 
 class Run(Record):
     """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `padding`, how its batches were
-    padded, one of `data.PADDINGS`, `device`, None where the engine does not place the model, as on an NDIF server,
-    and every engine option after its defaults in `options`), what served it (`versions`: clab's version with its
-    commit, the packages it runs on and python, where the model is: the server's, under `ndif`). `dtype` and
-    `devices` are the
-    distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
+    padded, one of `data.PADDINGS`, which a manifest records even where it is the default, `device`, None where the
+    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
+    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
+    where the model is: the server's, under `ndif`; `threads`, torch's intra-op thread count there at the run's
+    start, which with the batch shape sets a CPU matmul's last bits; null in a record from before it was kept).
+    `dtype` and `devices` are the distinct dtypes and devices of the model's parameters there, in the order first
+    met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
     bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
@@ -1112,6 +1114,7 @@ class Run(Record):
     device: str | None
     options: dict[str, Any] = {}
     versions: dict[str, str] = {}
+    threads: int | None = None
     dtype: list[str] = []
     devices: list[str] = []
     sizes: dict[str, int] = {}

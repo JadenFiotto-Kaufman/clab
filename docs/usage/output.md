@@ -141,6 +141,7 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 | `engine`, `batch_size`, `padding`, `device`, `options` | how it was asked to run; `device` is None when an NDIF server placed the model, and `options` holds the engine's options after their defaults |
 | `dtype`, `devices` | the distinct dtypes and devices of the model's parameters where it ran |
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
+| `threads` | torch's intra-op thread count on that machine at the run's start (`torch.get_num_threads()`), which with the batch size sets a CPU run's last bits; null in a manifest written before it was recorded |
 | `started`, `seconds` | when the run began and how long it took |
 | `sizes` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which a site's `layers` and `select` count among |
 | `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name (an eval's generation under its eval step's, `fit.<eval>.<gen>`); written to `tokens.json`, not the manifest |
