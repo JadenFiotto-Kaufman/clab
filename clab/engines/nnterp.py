@@ -56,8 +56,9 @@ class NnterpEngine:
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
         """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over
         `tp` ranks (`sharded`); the block's other keys go to the loader as they are. At `tp` 1 it is a meta shell
-        until a run calls the model (`plan.calls_model`), whose `ready` loads the weights: a document of loads and
-        op steps loads none, and takes the tokenizer and the config's sizes from the shell.
+        until a run calls the model (`plan.calls_model`) or places it by a device map, whose `ready` loads the
+        weights: a document of loads and op steps on one torch device loads none, and takes the tokenizer and the
+        config's sizes from the shell.
 
         device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"
         tp: how many ranks tensor parallelism shards the model over, one process each under `torchrun --nproc-per-node=<tp>`; 1 does not shard it
@@ -105,7 +106,9 @@ class NnterpEngine:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
             torch.manual_seed(seed[0])
-        calls = calls_model(plan.steps)     # decided here: the session's body names no function a server lacks
+        # Decided here, since the session's body names no function a server lacks; under a device map the weights
+        # load whatever the plan calls, since only they say where the map puts the run's tensors (`model_device`).
+        calls = calls_model(plan.steps) or self.device in standard.COMPUTED
         with self.model.session(remote=self.remote):
             if calls:
                 self.ready()

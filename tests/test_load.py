@@ -496,3 +496,15 @@ def test_a_document_of_loads_and_op_steps_loads_no_weights(engines, root):
     assert same(filled.results["m"], engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["m"])
     fresh.execute(plan_of("patching"), batch_size=BATCH_SIZE)
     assert shell.dispatched and not any(p.requires_grad for p in shell.parameters())
+
+
+def test_a_document_of_loads_and_op_steps_under_a_device_map_loads_the_weights(root):
+    """Under a device map (`auto`) only the loaded weights say where the run's tensors go, so a document of loads and
+    op steps loads them before its first step and its load's value goes where the map put the first parameter, where
+    the meta shell's device, `auto`, is no torch device and the load step crashed in `Tensor.to`."""
+    from clab.engines import load as load_engine
+
+    plan = written(root, "mean_of_loaded_auto", loading(corpus("pca_harvest"), {
+        "acts": LOAD, "m": {"kind": "op", "op": "mean", "of": "acts", "over": ["rows", "pos"]}}, ["m"]))
+    filled = load_engine("nnterp", plan.model, "auto").execute(plan, batch_size=BATCH_SIZE)
+    assert filled.run is not None and filled.run.devices == ["cpu"]
