@@ -47,7 +47,7 @@ Under `strip` that row scores 1, and a scope finds a word said at token 0. A byt
 
 ## Options
 
-Every key other than `kind`, `input` and `interventions` goes to the engine's `generate` unchanged.
+Every key other than `kind`, `input` and `interventions` goes to the engine's `generate` unchanged (on the vllm engine, mapped onto vLLM's sampling, where `max_new_tokens` is required: [engines.md](engines.md#running-on-vllm)).
 
 - **`do_sample`.** An option you leave out comes from the checkpoint's generation config, and some checkpoints sample by default. Nothing seeds sampling, so two runs with `do_sample: true` give different ids. `do_sample: false` decodes greedily and gives the same ids on every run. Write it on every generate step. Within one run, points of a step that differ only in what they read share one generation, so they read one sample ([sweeps.md](sweeps.md#what-a-sweep-costs)).
 - **`max_new_tokens`** is the most new tokens a row gets. A write whose frame runs to the end of the row (`"2:"`, `"1::2"`) needs it, because it fixes how many calls the write lands at.

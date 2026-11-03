@@ -1,4 +1,4 @@
-"""The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`. The nnterp engine's `readout` is the
+"""The engine protocol, and the engines clab ships: `nnterp`, `hooks`, `ndif` and `vllm`. The nnterp engine's `readout` is the
 model's own; the hooks engine's is the standard form (final norm, head, the config's softcap), which agrees on the
 corpus (the agreement matrix pins it, tiny Gemma-2's softcap included) and is not promised beyond it.
 
@@ -37,7 +37,11 @@ the schedule has the read's site first. An engine holds its model and its config
 model (whatever it runs, with `.parameters()`), `spec` the model block it loaded, `name` the name it registered under,
 `device` and `options` how it loaded, `remote` what its session's `remote=` is (False for a run in this process),
 `stops` whether it honours the schedule's stop, and `cuda` the CUDA devices a step's cost measures the peak memory of:
-the model's, or none where the run is remote (the server's process is its own to account).
+the model's, or none where the run is remote (the server's process is its own to account). Two attributes an engine
+may add, which preflight reads where present: `last_only`, the components it serves at the prompt's last position
+alone, each mapped to the reason (the vllm engine's head), any other prefill position refused by name; and `longest`,
+the longest sequence it serves, prompt and new tokens (the vllm engine's `max_len`), a step whose rows do not fit
+refused by name.
 """
 
 import inspect
@@ -113,12 +117,15 @@ def options(name: str) -> dict[str, inspect.Parameter]:
     return registry.spelled(ENGINES[name].__init__, SUPPLIED)
 
 
-def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
-    """Engine `name` loaded for `model`, on `device`, with its options `given`: an unknown engine, an option it
-    does not declare, one of another type, and torchrun's processes for an engine without `tp` are refused before
-    anything loads (a `device` no engine can place a model on, every constructor refuses: `standard.loading`)."""
+def load(name: str, model: Model, device: str | None = None, **given: Any) -> Engine:
+    """Engine `name` loaded for `model`, on `device` (None: the engine's own default, its constructor's, `cpu` but
+    for the vllm engine's `cuda:0`), with its options `given`: an unknown engine, an option it does not declare, one
+    of another type, and torchrun's processes for an engine without `tp` are refused before anything loads (a
+    `device` no engine can place a model on, every constructor refuses: `standard.loading`)."""
     if name not in ENGINES:
         raise ValueError(f"unknown engine {name!r}; valid: {', '.join(ENGINES)}")
+    if device is None:
+        device = registry.signature(ENGINES[name].__init__).parameters["device"].default
     for key in given:
         if key not in options(name):
             raise ValueError(f"the {name} engine takes no {key!r}; its options: {', '.join(options(name)) or 'none'} "
@@ -131,4 +138,4 @@ def load(name: str, model: Model, device: str = "cpu", **given: Any) -> Engine:
     return ENGINES[name](model, device=device, **given)
 
 
-from clab.engines import nnterp, hooks, ndif  # noqa: E402,F401,I001  (the order the tables list them)
+from clab.engines import nnterp, hooks, ndif, vllm  # noqa: E402,F401,I001  (the order the tables list them)

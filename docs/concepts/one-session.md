@@ -27,7 +27,7 @@ Five design constraints keep it so. Each is a rule a change to clab keeps, and e
 
 The run never leaves the session between steps, so it costs one request, one queue wait and one download, however many steps and sweep points the document has. Nothing the engine does depends on whether the session is local or remote. That is why `remote="local"` is a faithful rehearsal, and why a document needs no changes to move to a server.
 
-The hooks engine runs the same `steps.run` without a session, as plain Python in your process. That makes it a second way of reaching the model to compare against, and it is also why hooks cannot run remotely.
+The hooks engine runs the same `steps.run` without a session, as plain Python in your process. That makes it a second way of reaching the model to compare against, and it is also why hooks cannot run remotely. The vllm engine runs it without a session too: each batch is one trace, which is one request to vLLM's worker in this machine, and a session would keep nnsight's record of what earlier traces saved open across them ([engines.md](../usage/engines.md#running-on-vllm)).
 
 ## The compiled plan is pure data
 

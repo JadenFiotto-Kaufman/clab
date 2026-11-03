@@ -21,8 +21,9 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     """`Plan(path)` -> `compile` -> `execute` on `engine` -> `dump` into `out` (default `out/<document name>`).
     Returns the filled plan. `padding` is how each batch is padded (`format.data.PADDINGS`: `dataset`, the exact
     default, `batch` or `sorted`), and `readout` how a forward computes `logits` (`compile.schedule.READOUTS`: `full`,
-    the exact default, or `at-reads`). `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
-    hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
+    the exact default, or `at-reads`). `engine` is a registered name, loaded on `device` (default the engine's own,
+    `cpu`, or `cuda:0` for vllm; for nnterp and hooks one torch device or a device map transformers computes,
+    `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
     engine was configured, its device among it, when it loaded, so it takes no `device` or option here. Under torchrun
     (the nnterp engine's `tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`. A run
@@ -34,7 +35,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     check_run_options(batch_size, padding, readout)
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):
-        engine = load(engine, compiled.model, device or "cpu", **options)
+        engine = load(engine, compiled.model, device, **options)
     elif options or (device is not None and device != engine.device):
         raise ValueError(f"the loaded {engine.name} engine runs on {engine.device} with {engine.options}; device "
                          "and options are given when an engine loads")

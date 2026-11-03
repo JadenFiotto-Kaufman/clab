@@ -260,8 +260,8 @@ def test_an_option_the_engine_does_not_declare_is_refused_before_anything_loads(
     model = plan_of("patching").model
     for where in ("nnterp", "ndif"):
         monkeypatch.setattr(f"clab.engines.{where}.StandardizedTransformer", lambda *a, **k: pytest.fail("loaded"))
-    with pytest.raises(ValueError, match="unknown engine 'vllm'; valid: nnterp, hooks, ndif"):
-        load("vllm", model)
+    with pytest.raises(ValueError, match="unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm"):
+        load("bogus", model)
     assert list(options("nnterp")) == ["tp"] and list(options("ndif")) == ["remote"]
     where = r" \(where the model runs is `device`, given as --device\)$"
     with pytest.raises(ValueError, match="the nnterp engine takes no 'remote'; its options: tp" + where):

@@ -310,13 +310,13 @@ def refuse_unserved(engine: Engine, plan: Plan) -> None:
     reasons = engine.unserved()
     for name, step in walk(plan.steps):
         for key, record in entries(step).items():
-            reason, layers = reasons.get(record.site.component), record.site.layers
+            component = record.site.component
+            reason, layers = reasons.get(component), record.site.layers
             if isinstance(reason, dict):
                 named = picked(f"{name}.{key}", layers, engine.sizes()["num_layers"])
                 reason = next((r for layer, r in reason.items() if r and layer in named), None)
             if reason:
-                raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {record.site.component}: "
-                                 f"{reason}")
+                raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {component}: {reason}")
 
 
 def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward | Generate, record: Intervention,

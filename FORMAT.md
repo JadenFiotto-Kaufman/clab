@@ -932,7 +932,7 @@ Ops: `apply`(with: Value or null = null) gives its version of the value, in the 
 
 ## Engines and run options
 
-The engine protocol, and the engines clab ships: `nnterp`, `hooks` and `ndif`. The nnterp engine's `readout` is the
+The engine protocol, and the engines clab ships: `nnterp`, `hooks`, `ndif` and `vllm`. The nnterp engine's `readout` is the
 model's own; the hooks engine's is the standard form (final norm, head, the config's softcap), which agrees on the
 corpus (the agreement matrix pins it, tiny Gemma-2's softcap included) and is not promised beyond it.
 
@@ -1027,6 +1027,62 @@ them, in reference cycles out of the engine's reach, so the stop waits for nnsig
 travels in the request, inside the plan, as a bundle's tensors do, under either `remote`, so `remote="local"` runs
 what a server runs and a server reads no file of the client's; a document whose loads hold more than 512 MiB of
 tensors is refused before anything is sent.
+
+### `vllm`
+
+- `device: str = "cuda:0"`: "cuda:0", the first of the GPUs vLLM runs the model on (CUDA_VISIBLE_DEVICES names them), where the run keeps its values; no other
+- `tp: int = 1`: how many GPUs vLLM shards the model over (its tensor_parallel_size); measured at 1 only
+- `memory: float = 0.9`: the fraction of each GPU's memory vLLM reserves for the weights and its cache (its gpu_memory_utilization); the run's own values live outside it
+- `max_len: int | None = null`: the longest sequence, prompt and new tokens, the engine serves (its max_model_len); null for the checkpoint's
+- `invariant: bool = true`: true runs vLLM's batch-invariant kernels, so that a run reproduces to the bit; false its fastest, whose last bits move between runs
+
+The vLLM engine: nnterp's StandardizedVLLM, every row of a batch its own request inside one trace per batch.
+
+vLLM runs the model in a worker process of its own, where a request's activations are its own tokens, `[tokens,
+...]`, with no batch axis and no padding, and where a traced block runs once per request. So this engine takes the
+batches `steps.run` hands it as every engine does and executes each batch's bound schedule row by row: one trace per
+batch, one invoke per row, carrying the row's own token ids and the half of the bound schedule that is the row's
+(`batches.schedule_for_row`). In the worker, `visit_request` visits each site as the nnterp engine's `visited` does,
+on the value nnterp serves there (`[1, tokens, ...]`, a private copy) padded on the left to the batch's width, so that
+the bound records' indices into the padded batch hold as they are, `batches.visit_site` doing the site's records, and
+the value handed back unpadded where a record wrote. Each row's reads come home and are joined along rows (`joined`)
+into what the nnterp engine's one forward returns, NaN (-1 in ids) at a decode call a row never made. Nothing is
+decided here that the schedule does not say; the model never sees a padding token, so under the batch-invariant
+kernels (`invariant`) a row's numbers depend on neither its batch companions nor the run's `padding`.
+
+What vLLM makes different, each refused by name before anything runs, or recorded:
+
+- The head is computed at the last position alone: `logits` (and `lm_head_output`, which this engine serves as the
+  logits where the model does nothing after the head, no `final_logit_softcapping`, `logit_scale` or `logits_scaling`
+  in its config, the two being one value then) is read or written at the prompt's last position only (`last_only`;
+  preflight refuses any other, once the schedule says where each record is done).
+- The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
+  refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
+  not serve here either.
+- No gradient: a fit and a `grad` entry are refused in `execute`. A quantized `dtype` too: vLLM's quantizations are
+  not bitsandbytes' weights. `attn_implementation` in the model block is dropped: vLLM's attention backend is its own.
+- The engine serves sequences up to its `max_len` (`longest`, vLLM's `max_model_len`): preflight refuses a step whose
+  longest row, plus what a generation adds, does not fit, since vLLM would cut the generation short with no EOS.
+- A forward runs whole (`stops`): nothing ends a request's forward inside the worker.
+- `readout` runs the model's final norm, head and logits processor in the worker (`project_on_vocab`), in a trace of
+  its own: the model's own, as the nnterp engine's is. Under `--readout at-reads` it meets the stream alone where
+  the forward's final norm fuses it with the last residual add, another kernel, so the two agree to the last bits
+  (2e-5 in the logits on SmolLM2 in float32), as `at-reads` promises, not to the bit.
+- vLLM's default kernels are not run-to-run stable: two identical request sets differ in the last bits (in bfloat16
+  by whole ulps). The engine runs vLLM's batch-invariant kernels (`VLLM_BATCH_INVARIANT`) unless `invariant` is
+  false, so that the model's values reproduce to the bit and a null is exact (an entry's own ops after its last edit
+  still run per batch on the client's GPU, as on every engine), and has Triton run a float32 matmul in float32
+  (`TRITON_F32_DEFAULT=ieee`, where nothing set it), not in TF32 as it would by default. Both are set as the worker
+  starts (`ready`), which is when it reads them.
+- A generation's options are mapped onto vLLM's sampling (`sampling`), what the step leaves out taken from the
+  generation config as transformers takes it, and a row stops on clab's stop ids alone (`ignore_eos`, so that vLLM's
+  own EOS does not widen the set); a row's new ids are what vLLM sampled, padded past the row's end with the
+  generation config's pad token, as transformers pads.
+- The worker's memory is vLLM's: a step's `cost.memory` is None (`nvidia-smi` says), and `cost.tokens` counts the
+  batch's padding the model never saw (`real` is what it fed). The run record's `devices` and `dtype` are the
+  worker's (the client holds a meta tree), and its `versions` name vLLM's.
+- The run's traces are not inside a session (`execute` says why): each batch is one request to vLLM, in plain
+  Python, as the hooks engine's calls are.
 
 ## Names and scoping
 
