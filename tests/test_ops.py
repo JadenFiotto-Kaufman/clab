@@ -106,7 +106,7 @@ def test_normalize_and_project_out():
 
 def test_a_rows_pos_factor_scales_each_positions_vector_by_its_own_number(engines):
     """`scale` with a `[rows, pos]` factor, a probability read at three positions, broadcasts over `hidden_size`
-    (Ops' one rule, `batches.bind_arguments`): the written value is the stream times each position's own number."""
+    (Ops' one rule, `batches.argument_binding`): the written value is the stream times each position's own number."""
     from conftest import BATCH_SIZE, edited
 
     def change(d):
