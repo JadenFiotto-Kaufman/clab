@@ -159,14 +159,26 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     holds the same weights and computes in the same dtype on each by construction: `dtype`, torch's (the compute
     dtype, `Model.computes`, under a quantization), and for a quantization the `quantization_config` nnsight builds
     for its name: bitsandbytes 4-bit in that quant type computing in that dtype (without double quantization),
-    LLM.int8(), or transformers' FP8. Refused by name before anything loads: a `device` no engine can place a model
-    on (`placeable`: every engine's constructor comes through here before its loader), a bitsandbytes format without
+    LLM.int8(), or transformers' FP8. Refused by name before anything loads (every engine's constructor comes through
+    here before its loader): a `device` that is neither a device map transformers computes (`COMPUTED`) nor one torch
+    device, a CUDA device where none is visible or one beyond those that are, a bitsandbytes format without
     bitsandbytes installed, and `fp8` off a GPU of compute capability 8.9 or later (below it transformers would load
     bfloat16)."""
     import torch
     from transformers import BitsAndBytesConfig, FineGrainedFP8Config
 
-    placeable(device)
+    if device not in COMPUTED:
+        try:
+            where = torch.device(device)
+        except RuntimeError:
+            raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
+                             f"computes ({', '.join(map(repr, COMPUTED))})") from None
+        if where.type == "cuda" and not torch.cuda.is_available():
+            raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
+                             "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
+        if where.type == "cuda" and where.index is not None and where.index >= torch.cuda.device_count():
+            n = torch.cuda.device_count()
+            raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
     dtype = getattr(torch, model.computes)
     if model.dtype not in QUANTIZED:
         return {"dtype": dtype}
@@ -187,29 +199,6 @@ def loading(model: Model, engine: str, device: str) -> dict[str, Any]:
     config = (BitsAndBytesConfig(load_in_8bit=True) if model.dtype == "int8" else
               BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=model.dtype, bnb_4bit_compute_dtype=dtype))
     return {"dtype": dtype, "quantization_config": config}
-
-
-def placeable(device: str) -> None:
-    """`device` as every engine takes it: a device map transformers computes (`COMPUTED`), or one torch device.
-    Refused by name before anything loads: a string that is neither, a CUDA device where none is visible, and
-    one beyond those that are."""
-    import torch
-
-    if device in COMPUTED:
-        return
-    try:
-        where = torch.device(device)
-    except RuntimeError:
-        raise ValueError(f"device {device!r}: not a torch device ('cpu', 'cuda:0') or a device map transformers "
-                         f"computes ({', '.join(map(repr, COMPUTED))})") from None
-    if where.type != "cuda":
-        return
-    if not torch.cuda.is_available():
-        raise ValueError(f"device {device!r}: no CUDA device is visible (torch.cuda.is_available() is False); run "
-                         "on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)")
-    if where.index is not None and where.index >= torch.cuda.device_count():
-        n = torch.cuda.device_count()
-        raise ValueError(f"device {device!r}: {n} CUDA device{'s' * (n != 1)} visible, cuda:0 to cuda:{n - 1}")
 
 
 def placing(model: Model, device: str) -> dict[str, str]:
