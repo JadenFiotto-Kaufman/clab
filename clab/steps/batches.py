@@ -115,9 +115,9 @@ def op_binding(plan: Plan, record: Intervention, at: dict, layer: int | None,
     ops) at one of the layers it is made at (`layer`) that depends on the step alone, made once per step run and
     completed for each batch by `bind_ops`: each op as its brackets nest (`bracketed`), with the layout of the value
     it meets there (`dims`: the op before it left it, as its record says; the site's selection before the first), the
-    layer, the consumer's point `at`, its arguments' binding at that layer (`argument_binding`, each named operand as
-    the schedule resolved it, `operands`, by name: a producer's point, or the name of a read of the same forward, for
-    the forward to fill), which of them are a column (`tokens`) and which a value an edit takes (`numbers`), and an
+    layer, its arguments' binding at that layer and the consumer's point `at` (`argument_binding`, each named operand
+    as the schedule resolved it, `operands`, by name: a producer's point, or the name of a read of the same forward,
+    for the forward to fill), which of them are a column (`tokens`) and which a value an edit takes (`numbers`), and an
     `encode`'s `select` and the ops its `decode` closes over (`inner`), bound the same way."""
     first, last = span or (0, len(record.ops) - len(gathers(record)))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
@@ -127,7 +127,7 @@ def op_binding(plan: Plan, record: Intervention, at: dict, layer: int | None,
         for node in nodes:
             op, dims, args = node["op"], laid[node["at"]], arguments(node["op"])
             params, editing = ops.parameters(op.op), ops.DECLARED[op.op]["group"] == "edits"
-            out.append({"op": op.op, "at": at, "dims": dims, "layers": layer,
+            out.append({"op": op.op, "dims": dims, "layers": layer,
                         "args": argument_binding(plan, op.op, args, at, operands=operands, dims=dims, layers=layer),
                         "tokens": [k for k in args if params[k].annotation == ops.Tokens],
                         "numbers": [k for k in args if editing and params[k].annotation == ops.Value]})
