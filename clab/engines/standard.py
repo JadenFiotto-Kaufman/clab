@@ -19,14 +19,17 @@ if TYPE_CHECKING:
 
     from clab.plan import Model
 
+# The model's sizes: nnterp's model's own, then a mixture of experts' two, which nnterp's `Moe` holds (`sizes`).
 SIZES = ("num_layers", "hidden_size", "num_heads", "num_kv_heads", "head_dim", "qk_head_dim", "intermediate_size",
-         "vocab_size")
+         "vocab_size", "num_experts", "top_k")
 
-# The per-layer components nnterp serves below the block, on its attention or its MLP.
+# The per-layer components nnterp serves below the block, on its attention or its MLP (a mixture of experts' values
+# among the MLP's: nnterp's `Moe` is an MLP).
 BELOW = {
     "self_attn": ("attention_queries", "attention_keys", "attention_values", "attention_scores",
                   "attention_probabilities", "attention_head_outputs", "attention_premix", "attention_output"),
-    "mlp": ("mlp_activation", "mlp_neurons", "mlp_output"),
+    "mlp": ("mlp_activation", "mlp_neurons", "router_logits", "expert_weights", "expert_indices", "expert_outputs",
+            "routed_output", "shared_expert_output", "mlp_output"),
 }
 
 
@@ -56,43 +59,86 @@ def inside(value: Any, host: Envoy) -> bool:
     return "source" in value.path(host).lstrip("./").split(".")
 
 
+def sizes(model: StandardizedTransformer) -> dict[str, int]:
+    """The model's sizes by name (`SIZES`): nnterp's model's own, and `num_experts` and `top_k` off nnterp's `Moe` at
+    the first block whose MLP is a mixture of experts, absent where none is, so that a `select` of them there is
+    refused with the component it narrows."""
+    from nnterp.components.moe import Moe
+
+    own = {k: getattr(model, k) for k in SIZES if k not in ("num_experts", "top_k")}
+    moe = next((m for m in (getattr(block, "mlp", None) for block in model.layers)
+                if isinstance(m, Moe) and m.no_mixture() is None), None)
+    return own if moe is None else {**own, "num_experts": moe.num_experts, "top_k": moe.top_k}
+
+
 # nnterp's reason for a dense MLP's values at a block whose MLP is a mixture of experts (`nnterp.components.moe`
-# `ROUTED`), which points at nnterp's own `Moe` component; clab addresses no mixture's routers or experts, so it says
-# what it does serve there instead (`mixture`).
+# `ROUTED`), which points at nnterp's own `Moe` component; clab names that component's values, so it says which of
+# them, and of the MLP's, the engine serves there instead (`mixture`).
 ROUTED = "routed experts; read per-expert via the Moe component"
+
+# clab's reason for a mixture's value on a model none of whose blocks has one, which nnterp's answer does not name.
+DENSE = "no block of this model has a mixture of experts"
+
+# clab's reason for a mixture's value on a model nnterp has no family for and reads under its default one, which
+# names no mixture's values but says a block's MLP is a mixture (`nnterp.families.default.MIXTURE`, its reason for
+# the activation there); `mixture` adds what the engine serves of the MLPs.
+UNADDRESSED = ("nnterp has no family for this architecture (it reads the model under its default family), so its "
+               "mixture of experts is not addressed")
+
+
+def mixed() -> set[str]:
+    """A mixture of experts' values: those nnterp's `Moe` adds to an MLP's, each under its name, which is clab's."""
+    from nnterp.components.mlp import Mlp
+    from nnterp.components.moe import Moe
+
+    return set(Moe.values().keys() - Mlp.values().keys())
 
 
 def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] | None]:
-    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`, with
-    clab's own reason where nnterp's sends the reader to a component clab does not address (`mixture`). A
-    component nnterp's answer does not name at all is refused by name, since nothing says it is served: a
-    component is one nnterp serves, under nnterp's name for it (`nnterp_name`)."""
+    """nnterp's `support()` of each component: None, a reason for the whole component, or `{layer: reason}`; a
+    mixture's value (one nnterp's `Moe` adds to an MLP's) that it does not name is refused on a model with no mixture
+    (`DENSE`), and on one whose mixture nnterp's default family finds but cannot address (`UNADDRESSED`). Any other
+    component nnterp's answer does not name at all is refused by name, since nothing says it is served: a component
+    is one nnterp serves, under nnterp's name for it (`nnterp_name`). An engine says its answer with `own`, which
+    replaces nnterp's advice to read its `Moe` component."""
+    from nnterp.families import default
+
     support = shell.support()
-    unnamed = [c for c in COMPONENTS if nnterp_name(c) not in support]
+    unnamed = [c for c in COMPONENTS if nnterp_name(c) not in support and c not in mixed()]
     if unnamed:
         raise ValueError(f"nnterp's support() does not name {', '.join(nnterp_name(c) for c in unnamed)}, so nothing "
                          f"says whether it serves {', '.join(unnamed)}; a component of address.COMPONENTS is one "
                          "nnterp serves under that name")
-    answer = {c: support[nnterp_name(c)] for c in COMPONENTS}
-
-    def own(why: str, layer: int | None) -> str:
-        return mixture(answer, layer) if why == ROUTED else why
-    return {c: {layer: own(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
-            refused and own(refused, None) for c, refused in answer.items()}
+    activation = support[nnterp_name("mlp_activation")]
+    found = default.MIXTURE in (activation.values() if isinstance(activation, dict) else [activation])
+    return {c: support.get(nnterp_name(c), UNADDRESSED if found else DENSE) for c in COMPONENTS}
 
 
-def mixture(answer: dict[str, Any], layer: int | None) -> str:
-    """clab's reason for a dense MLP's value at block `layer` (None: at every block) whose MLP is a mixture of
-    experts, in place of nnterp's (`ROUTED`): that clab addresses no router or expert, and the MLP's components
-    nnterp's `answer` serves there."""
-    mlp = [c for c in COMPONENTS if c.startswith("mlp_")
+def own(answer: dict[str, str | dict[int, str] | None]) -> dict[str, str | dict[int, str] | None]:
+    """An engine's `answer` (`unserved`'s, or the engine's own from it) with clab's reason where nnterp's sends the
+    reader to its `Moe` component (`ROUTED`), or where nnterp's default family leaves a mixture unaddressed
+    (`UNADDRESSED`): `mixture`, which names what the engine's answer serves there."""
+    def said(why: str, layer: int | None) -> str:
+        return mixture(answer, layer, why) if why in (ROUTED, UNADDRESSED) else why
+    return {c: {layer: said(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
+            refused and said(refused, None) for c, refused in answer.items()}
+
+
+def mixture(answer: dict[str, Any], layer: int | None, why: str = ROUTED) -> str:
+    """clab's reason, in place of `why`, for a value at block `layer` (None: at every block) whose MLP is a mixture of
+    experts: for a dense MLP's value (nnterp's `ROUTED`) that a mixture has no single activation or down projection,
+    for a mixture's own value under nnterp's default family `UNADDRESSED`; and the MLP's components, its routing and
+    experts', the engine's `answer` serves there."""
+    mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp")
            and (answer[c] is None or isinstance(answer[c], dict) and layer is not None and not answer[c].get(layer))]
     named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
+    if why == UNADDRESSED:
+        return f"{UNADDRESSED}; its MLPs are served as {named}"
     if layer is None:
-        return (f"this model's MLPs are mixtures of experts, whose routers and experts clab does not address; its "
+        return (f"this model's MLPs are mixtures of experts, which have no single activation or down projection; its "
                 f"MLPs are served as {named}")
-    return (f"block {layer}'s MLP is a mixture of experts, whose routers and experts clab does not address; at block "
-            f"{layer} its MLP is served as {named}")
+    return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
+            f"block {layer} its MLP is served as {named}")
 
 
 def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:

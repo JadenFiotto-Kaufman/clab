@@ -28,7 +28,7 @@
 | Load a quantized model, or shard one over GPUs with `tp` | [usage/engines.md](docs/usage/engines.md#quantized-and-sharded-models), [usage/running.md](docs/usage/running.md#sharding-a-model--o-tp) |
 | Run on an NDIF server | [usage/engines.md](docs/usage/engines.md), [concepts/one-session.md](docs/concepts/one-session.md) |
 | Read a run back | [usage/output.md](docs/usage/output.md) |
-| Run a technique (patching, path patching, ablation, logit lens, steering, DAS, head masking, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
+| Run a technique (patching, path patching, ablation, expert ablation, logit lens, steering, DAS, head masking, SAEs, probes, LoRA) | [patterns/index.md](docs/patterns/index.md) |
 | Fix a refusal | [errors/index.md](docs/errors/index.md) |
 | Find out why the numbers are wrong when nothing was refused | [errors/symptom-index.md](docs/errors/symptom-index.md) |
 | Look up an exact field, op, component or option | [FORMAT.md](FORMAT.md), [reference/index.md](docs/reference/index.md) |

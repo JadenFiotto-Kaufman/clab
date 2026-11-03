@@ -31,6 +31,11 @@ CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
 | `yujiepan/qwen3-next-moe-tiny-random` | `ec636a93e953ed50d2ecebda99b04673b5f1e248` | a hybrid whose blocks are of two kinds: `tests/test_engines.py`, and `tests/test_tp.py` where it is cached |
 | `trl-internal-testing/tiny-CohereForCausalLM` | `90bc56bd12c642f6bf5e710ebd7c626dd7c0201c` | one test in `tests/test_engines.py` (the readouts differing on a model that scales its logits), which skips without it |
 | `yujiepan/llama-3.2-tiny-random` | `0bf108f80b7c6cdf6e7e85698f0464bfbf7f9ce5` | one test in `tests/test_plan.py` (a chat template that reads the clock), which skips without it |
+| `hf-internal-testing/tiny-random-MixtralForCausalLM` | `ccb12fe2fc142cb752085506c3db22572290e90c` | `documents/expert_knockout.json`, `tests/test_moe.py` (as the next four are: tiny mixtures of experts, 4 experts routing each token to 2) and one test in `tests/test_tp.py` |
+| `hf-internal-testing/tiny-random-OlmoeForCausalLM` | `99e4bc8eb1a024e46da438c410d7e707ed49d15a` | a softmax router that does not renormalize its top 2 |
+| `trl-internal-testing/tiny-Qwen3MoeForCausalLM` | `6db57163fa56fa0e00d4b820169908ac0d3a219d` | a softmax router that renormalizes |
+| `trl-internal-testing/tiny-Glm4MoeForCausalLM` | `19b382257595016963b60289ba295e33abad6834` | a dense block 0, and at block 1 a sigmoid router with a shared expert |
+| `hf-tiny-v2/tiny-random-JetMoeForCausalLM` | `236ca328ccfedeb09989bfb2188b6fbb0cae5afc` | a router that computes the indices before the weights, whose logits are a module's output |
 | `meta-llama/Llama-3.2-1B`, gated | `4e20de362430cd3b72f300e6b0f18e50e7166e08` | `documents/real/`, through `tests/test_real.py` on a GPU, and the GPU case of `tests/test_quantized.py` |
 - One file, or tests by name: `uv run pytest tests/test_ops.py -q`, `uv run pytest tests/test_ops.py -k clamp -q`. In the files that run the corpus, a module-scoped fixture (`filled`, `ran`) runs all of the file's documents for the first selected test that asks for it, so selecting one such test still runs them all.
 
@@ -105,6 +110,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 |---|---|
 | `tests/test_plan.py` | each document compiles to its snapshot; the plan as pure data; errors name the document path |
 | `tests/test_engines.py` | a component means one thing on every engine; each engine's readout and its refusals layer by layer |
+| `tests/test_moe.py` | a mixture of experts' components on the tiny mixtures: their layouts and identities, usage, the knockout and its null, what each engine serves |
 | `tests/test_shared.py` | one forward shared by the points that differ only in what they read, and the schedule the engines execute |
 | `tests/test_efficiency.py` | what a run costs (`run.costs`), and where a forward ends |
 | `tests/test_refusals.py` | what cannot be served, or would change a document's meaning, refused by name before any forward |

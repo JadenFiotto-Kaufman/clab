@@ -97,11 +97,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     the document decides them (`layers_of`, `kept_of`, the static width of its `pos`), and its ops walked once for
     their layouts and coordinates (each op's recorded on it) and for their operands, each checked against the value
     the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
-    follows an op that changed the layout unless that was an `encode` its `decode` closes, and every encode before
-    the write-back is closed by then. `live` holds the forward's earlier entries by name (`<step>.<entry>`); `own`
-    names every entry of the step; `where` is this one's name; `at` the step's point. Beyond a generation's prefill
-    the leading ops after the last edit that are positionwise, keep `pos` and take no operand with a `pos` axis are
-    counted into `per_call`, the ops the run applies at each call."""
+    follows an op that changed the layout unless that was an `encode` its `decode` closes, every encode before the
+    write-back is closed by then, and on a component of ids (`address.COMPONENTS`' `ids`) the one edit is `swap`,
+    whose ids preflight holds to the model's size and the run to it again as they land. `live` holds the forward's
+    earlier entries by name (`<step>.<entry>`); `own` names every entry of the step; `where` is this one's name; `at`
+    the step's point. Beyond a generation's prefill the leading ops after the last edit that are positionwise, keep
+    `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:
@@ -179,6 +180,10 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             fail(here, f"{o.op!r} is an edit, which writes back, and it follows {changed!r}, which turned the value "
                  f"into {dims}: there is no live value to write; an edit comes before it, or put the transform in "
                  "a later entry at this site")
+        if write and edits(o) and o.op != "swap" and (ids := address.COMPONENTS[site.component].get("ids")):
+            fail(here, f"{o.op!r} would compute on {site.component}, the ids the model indexes its {ids} with, as "
+                 "numbers, and the write would cast the result back to ids, truncated; an index takes a swap, "
+                 "{'op': 'swap', 'with': <an id, or a named value of ids>}")
         ref = args.get("featurizer")
         mine = next((n for n in outer if arguments(n["op"])["featurizer"] == ref), None) if i not in closes else None
         if mine is not None:

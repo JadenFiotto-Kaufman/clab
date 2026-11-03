@@ -44,9 +44,9 @@ An engine that ignores `clab.steps` has everything `steps.run` does to do itself
 | `forward(batch, bound)` | one forward of the batch (`input_ids`, `attention_mask`, `position_ids`, already padded) with the bound schedule executed; each read's value by its name |
 | `generate(batch, bound, options)` | the model's `generate` over the batch with the step's own keys as keyword arguments, the bound schedule executed at the forward calls its `loop` names; a pair: the new ids (the prompt cut off), then each read by name |
 | `readout(hidden)` | a residual-stream value's logits: on nnterp the model's own (`project_on_vocab`), on hooks the standard form, the final norm, the head and the config's `final_logit_softcapping`, which agree on the corpus |
-| `unserved()` | each component in `COMPONENTS` mapped to None (served), the reason it is not, or `{layer: reason}`; the shipped engines start from nnterp's answer (`clab/engines/standard.py` `unserved`) |
+| `unserved()` | each component in `COMPONENTS` mapped to None (served), the reason it is not, or `{layer: reason}`; the shipped engines start from nnterp's answer (`clab/engines/standard.py` `unserved`) and say it with `own`, which names what the engine serves where nnterp's reason points at its own `Moe` component |
 | `rank(component, layer)` | any sortable value placing the component in the forward, which preflight reads to sort the schedule's sites; sites at one module boundary may rank alike |
-| `sizes()` | the model's sizes, the keys in `clab/engines/standard.py` `SIZES` |
+| `sizes()` | the model's sizes, the keys in `clab/engines/standard.py` `SIZES` (`num_experts` and `top_k` only on a model with a mixture of experts: `sizes`) |
 | `tokenizer`, `eos` | a Hugging Face tokenizer (`PreTrainedTokenizerBase`), with which the steps tokenize inputs and answers, render chats with `apply_chat_template`, pad batches and name tokens with `convert_ids_to_tokens`; the ids generation stops on (`clab/engines/standard.py` `stops`) |
 
 Preflight uses `unserved`, `sizes`, `rank` and the tokenizer before any forward; the steps use the rest. The batch's tensors go where the model's first parameter is, or to the engine's `device` while that parameter is on `meta`, as in a shell that loads its weights at its first forward (`clab/steps/batches.py` `home`).
@@ -87,7 +87,7 @@ An engine refuses what it cannot do, by name, before any forward:
 ## Adding an engine
 
 1. A module under `clab/engines/`, one class with `@engine("<name>")`, added to the import line at the end of `clab/engines/__init__.py`.
-2. The constructor as above, each option documented on its own docstring line; build the model with `build`, and reuse what `clab/engines/standard.py` shares (`loading`, `placing`, `unserved`, `envoy`, `inputs`, `stops`, `SIZES`).
+2. The constructor as above, each option documented on its own docstring line; build the model with `build`, and reuse what `clab/engines/standard.py` shares (`loading`, `placing`, `unserved`, `own`, `envoy`, `inputs`, `stops`, `sizes`).
 3. `execute` through `begin` and `run`, the members in the table, and `remote`, `stops` and `cuda`.
 4. Regenerate FORMAT.md (`uv run clab describe --markdown`) so its engines section lists the new one.
 5. Prove agreement: the corpus documents on the new engine give the nnterp engine's results to the bit. The engine loops to extend are `SERVED` in `tests/test_documents.py`, the `ran` fixture in `tests/test_fit.py` and the `filled` fixture in `tests/test_generate.py`; `tests/test_refusals.py` `test_a_loader_refuses_a_model_key_it_cannot_honor` lists the engines its refusals cover. Running the suite is [testing.md](testing.md).

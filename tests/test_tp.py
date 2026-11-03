@@ -11,12 +11,12 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, ROOT, document, edited, plan_of, same
+from conftest import BATCH_SIZE, MIXTRAL, ROOT, document, edited, plan_of, same
 from huggingface_hub import try_to_load_from_cache
 
 import clab
 from clab.cli import main
-from clab.engines import load
+from clab.engines import load, standard
 from clab.engines.nnterp import split
 from clab.format.address import COMPONENTS
 from tp_ranks import HYBRID, planned
@@ -155,11 +155,25 @@ def test_split_reads_which_components_are_whole_off_the_models_plan():
     assert {plan["model.layers.*.self_attn.o_proj"], plan["model.layers.*.mlp.down_proj"]} == {"rowwise"}
     assert plan["lm_head"] == "colwise_gather_output"
     embedding = {"token_embeddings"} if plan.get("model.embed_tokens") == "embedding_rowwise" else set()
+    served = [c for c, why in standard.unserved(tiny).items() if why is None]     # all but a mixture's values
     for layer in (0, 1):
-        assert {c for c in COMPONENTS if split(tiny, c, layer if COMPONENTS[c]["per_layer"] else None)} == \
+        assert {c for c in served if split(tiny, c, layer if COMPONENTS[c]["per_layer"] else None)} == \
             PIECES | embedding
     assert split(tiny, "attention_scores", 1) == ("it is computed inside model.layers.1.self_attn, whose forward runs "
                                                   "on each rank's piece (model.layers.1.self_attn.q_proj is 'colwise')")
+
+
+def test_split_holds_a_mixtures_routing_whole_and_its_slots_in_pieces():
+    """On the tiny Mixtral's plan the experts are sharded (`moe_tp_experts`, their gate and up `packed_colwise`) and
+    the router is not: the router's logits, the experts' arguments (the weights and indices) and their summed output
+    are whole on every rank, and each slot's output, computed inside the sharded experts' forward, is in pieces."""
+    tiny = shell(MIXTRAL["key"], MIXTRAL["revision"])
+    plan: Any = tiny._module.tp_plan              # transformers' plan, one style per module
+    assert plan["model.layers.*.mlp.experts"] == "moe_tp_experts"
+    mixture = ("router_logits", "expert_weights", "expert_indices", "expert_outputs", "routed_output", "mlp_output")
+    assert {c for c in mixture if split(tiny, c, 1)} == {"expert_outputs"}
+    assert split(tiny, "expert_outputs", 1) == ("it is computed inside model.layers.1.mlp.experts, which is sharded "
+                                                "'moe_tp_experts'")
 
 
 @pytest.mark.skipif(not HYBRID_CACHED, reason=f"needs {HYBRID['key']} in the local Hugging Face cache")
@@ -186,7 +200,8 @@ def test_split_refuses_a_vocab_parallel_embeddings_output():
     """Llama-3.2-1B's plan shards its tied embedding by vocabulary (`embedding_rowwise`), whose output nnsight
     cannot reassemble: `token_embeddings` is refused too, and `layer_input` at layer 0, the same tensor, is whole."""
     llama = shell("meta-llama/Llama-3.2-1B", "4e20de362430cd3b72f300e6b0f18e50e7166e08")
-    assert {c for c in COMPONENTS if split(llama, c, 0 if COMPONENTS[c]["per_layer"] else None)} == \
+    served = [c for c, why in standard.unserved(llama).items() if why is None]
+    assert {c for c in served if split(llama, c, 0 if COMPONENTS[c]["per_layer"] else None)} == \
         PIECES | {"token_embeddings"}
     assert split(llama, "token_embeddings", None) == ("model.embed_tokens is a vocab-parallel embedding, whose "
                                                       "output nnsight cannot reassemble")

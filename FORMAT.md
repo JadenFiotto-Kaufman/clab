@@ -453,27 +453,28 @@ once it is taken off the model (an entry nothing uses is not taken off, so they 
 
 A row a read beyond the prefill did not reach is missing all the way down, and so is a position past a row's own
 where rows hold different numbers of them: NaN, every metric, edit and elementwise transform of it NaN, `argmax` and
-`top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN, of a -1 id
-too: a comparison of a hole is a hole. Reductions skip it: `mean` is the mean over the rows and positions that have a
-value, `count` counts only them, and `pca` is fitted on them. A featurizer's math sees none of it: a missing vector
-goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a missing element). An attention
-pattern's keys past a row's own are missing the same way, NaN, in a read and to a write's ops: an edit that mixes a
-vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that are there, so a row's own keys
-are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax` and `top_k` over `key` rank a
-row's own keys, a vector missing only where it has none.
+`top_k` giving it id -1 (`top_k` NaN `probs` or `values` and no token text), and a comparison of it NaN. In ids (an
+integer value: `argmax`'s, `top_k`'s `ids`, `expert_indices`) the hole is -1, and it is missing as NaN is: a
+comparison, an elementwise transform or a reduction of it is a hole too. Reductions skip it: `mean` is the mean over
+the rows and positions that have a value, `count` counts only them, and `pca` is fitted on them. A featurizer's math
+sees none of it: a missing vector goes in as zeros and comes out missing (to an elementwise `apply`, a gate's, a
+missing element). An attention pattern's keys past a row's own are missing the same way, NaN, in a read and to a
+write's ops: an edit that mixes a vector's entries (`normalize`, `renormalize`, `project_out`) takes the entries that
+are there, so a row's own keys are edited as the row has them, and its tail stays NaN, as a gate leaves it; `argmax`
+and `top_k` over `key` rank a row's own keys, a vector missing only where it has none.
 
 Ops come in four groups: **metrics** score each example (one number per row and position: `match` is 0 or 1, and the
 accuracy is a `mean` step after it; `contains` scores a detokenized generation's text); **reductions** remove axes,
 by default the rows and positions, a `layers` axis kept (`over` names them; over `pos`, one value per row), `norm`
-and `dot` by default `hidden_size` and `count` `pos`; **edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and
-change its contents, and inside an entry are what writes back; **transforms** turn each example's value into another
-of a different layout (logits from a residual stream, coordinates from a value, tokens from logits, text from ids),
-or, `grad`, into its gradient, or of the same one entry by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`,
-`neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`, `gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where
-not), which, unlike an edit, writes nothing back. An edit comes before any op of its entry that changes the layout (a
-transform that does, a metric, a reduction), or, after an `encode`, before the `decode` that closes it; an
-elementwise transform may come before an edit, and acts on the live value that edit writes back (`[{"op": "sign"},
-{"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
+and `dot` by default `hidden_size`, `count` `pos` and `entropy` (of a softmax) `vocab_size`, else `num_experts`;
+**edits** (`swap`, `add`, `sub`, `scale`, `renormalize`, `normalize`, `project_out`, `decode`, `apply`, `noise`, `clamp`) keep the value's layout and change its contents, and inside an entry are what writes
+back; **transforms** turn each example's value into another of a different layout (logits from a residual stream,
+coordinates from a value, tokens from logits, text from ids), or, `grad`, into its gradient, or of the same one entry
+by entry (`abs`, `exp`, `log`, `sign`, `sqrt`, `square`, `neg`, `mul`, `div`, `pow`, and the comparisons `eq`, `ne`,
+`gt`, `ge`, `lt`, `le`, 1 where they hold and 0 where not), which, unlike an edit, writes nothing back. An edit comes
+before any op of its entry that changes the layout (a transform that does, a metric, a reduction), or, after an
+`encode`, before the `decode` that closes it; an elementwise transform may come before an edit, and acts on the live
+value that edit writes back (`[{"op": "sign"}, {"op": "scale", "factor": 0.1}]` writes a tenth of each entry's sign).
 
 `grad` is the first op of an entry of a `forward`, and the entry writes nothing: every op after it, an edit too,
 acts on the gradient once it is off the model, as the ops after a read's last edit act on the read, so `[{"op":
@@ -579,7 +580,7 @@ stays missing: NaN.
 
 | op | arguments | axes | what |
 | --- | --- | --- | --- |
-| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The mean over the axes `over` names, of the values that are there (a missing one is NaN); by default over the rows and positions, a `layers` axis kept. |
+| `mean` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The mean over the axes `over` names, of the values that are there (a missing one is NaN, in ids -1); by default over the rows and positions, a `layers` axis kept. |
 | `sum` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The sum over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is (a missing row). |
 | `min` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The least value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
 | `max` | `over: list of str or null = null` | Removes the axes `over` names, by default the rows and positions: a `layers` axis stays unless `over` names it. One that would remove no axis of the value is refused. | The greatest value over the axes `over` names, as `mean` takes them, of the values that are there; NaN where none is. |
@@ -587,6 +588,7 @@ stays missing: NaN.
 | `count` | `over: list of str or null = null` | Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one count per position of those it keeps (a read's count over `pos` is one number per row). | How many positions along the axes `over` names (by default `pos`) hold the value, in float32: a position is held where any of its entries is there (not NaN; in ids, not -1), its vector counted once, so a read's count is each row's own number of positions (a generation's read at `{"frame": "1:"}`, the decode calls the row made) and 0 where it has none. |
 | `norm` | `over: list of str or null = null`, `p: float = 2.0` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The Lp norm over the axes `over` names, by default `hidden_size`: `sum(|x|^p)^(1/p)` of the entries that are there, as `sum` takes them (at `p` 2, `sqrt` of the `sum` of the `square`, to the bit); NaN where none is. |
 | `dot` | `with: Value`, `over: list of str or null = null` | Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`. | The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with` (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is. |
+| `entropy` | `over: list of str or null = null` | Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with neither names them in `over`. | The entropy in nats of the softmax over the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`: `-sum(p log p)`, `p` the float32 softmax of the entries that are there (a missing one has no share, and a vector with none is NaN), a `p` of 0 adding 0; routing entropy is `entropy` of `router_logits` on a softmax router, ln of the experts' count where it routes evenly. |
 | `pca` | `k: int` | needs hidden_size; removes layers, rows, pos; adds k | The top-`k` principal directions (`basis`, `[hidden_size, k]`, orthonormal columns, the largest variance first) and the `mean` they are centred on, float32 whatever the value's dtype, as a fit's trained featurizers are: the bundle a `pca` featurizer loads. |
 
 ### Edits
@@ -648,7 +650,9 @@ int `layers` drops its axis. `key` is each row's own keys, its positions as `pos
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
 `"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
 shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
-`stream` marks the residual-stream values `readout` may project.
+`stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
+entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
+whole number from 0 below that size, since the model indexes with them.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
@@ -674,6 +678,12 @@ component is that engine's business; the name says only what the value is.
 | `mlp_input` | rows, pos, hidden_size | layers, hidden_size | no | what the MLP is called with |
 | `mlp_activation` | rows, pos, intermediate_size | layers, intermediate_size | no | act(gate_proj x) on a gated MLP, act(up_proj x) on a plain one |
 | `mlp_neurons` | rows, pos, intermediate_size | layers, intermediate_size | no | what the down projection sums |
+| `router_logits` | rows, pos, num_experts | layers, num_experts | no | a mixture of experts' router logits, one per expert, before its scoring |
+| `expert_weights` | rows, pos, top_k | layers, top_k | no | the weight each routing slot's expert output is scaled by |
+| `expert_indices` | rows, pos, top_k | layers, top_k | no | the expert each routing slot sends the token to, int64 |
+| `expert_outputs` | rows, pos, top_k, hidden_size | layers, top_k, hidden_size | no | each slot's expert output times its weight, before the slots are summed |
+| `routed_output` | rows, pos, hidden_size | layers, hidden_size | no | the routed experts' sum, without the shared expert |
+| `shared_expert_output` | rows, pos, hidden_size | layers, hidden_size | no | the shared expert's output, where the mixture has one |
 | `mlp_output` | rows, pos, hidden_size | layers, hidden_size | yes | what the MLP adds to the stream |
 | `layer_output` | rows, pos, hidden_size | layers, hidden_size | yes | the residual stream leaving block i |
 | `final_norm_output` | rows, pos, hidden_size | hidden_size | no | the final norm's output, what the head projects |
@@ -895,7 +905,9 @@ It executes only `AutoModelForCausalLM` (its forward and its `generate`) with `r
 each component is (the module whose output or input nnterp's key for it names), the sizes, the final norm and head
 its `readout` runs in the standard form (not the model's own, as nnterp's is), and what the checkpoint supports,
 layer by layer, which this engine refuses by name before anything runs, as well as a value nnterp reads inside a
-module's forward (`.source`) wherever the module is. `device` is one torch device, which the loaded model moves to
+module's forward (`.source`) or among a module's call arguments (`.inputs`) wherever the module is. A value nnterp
+holds flat over tokens at its module (a mixture of experts' routing and routed sum, `[batch * seq, ...]`) is served
+as nnterp serves it, `[batch, seq, ...]`. `device` is one torch device, which the loaded model moves to
 (a quantized one, which cannot move, loads there), or a device map transformers computes (`auto`, `balanced`, ...),
 which `from_pretrained` takes as its `device_map` and may spread over several GPUs; the batch's inputs go where the
 model's first parameter is, and transformers moves them on from there.

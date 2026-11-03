@@ -1,0 +1,1669 @@
+{
+ "description": "Expert knockout on a mixture of experts, and the forced route. At block 0 of the tiny Mixtral (4 experts, each token routed to 2) `clean` reads, at the prompts' 8 tokens, which slots did not choose expert e (`ne` of `expert_indices`, 1 or 0 per slot, swept over the four experts), the same mask for expert 4, which no slot holds (the null), how many slots chose e on each row (`eq`, summed over positions and slots), and the routing entropy of each token (`entropy` of `router_logits`, over `num_experts`). `knockout` scales every slot's weight by its mask, so expert e's slots add nothing to `routed_output` there; the routing at block 0 is the clean run's, since nothing before it changed, so the mask read in `clean` is this forward's. `null` scales by the null's mask, all ones, and must give the clean numbers to the bit. `forced` writes -1e9 into expert e's router logit, so the router chooses the next expert instead. Each scores the KL of the last token's next-token distribution from the clean run's. The masks are read at a static index, the 8 tokens every prompt has: an operand from another forward pairs with the write position by position.",
+ "model": {
+  "key": "hf-internal-testing/tiny-random-MixtralForCausalLM",
+  "revision": "ccb12fe2fc142cb752085506c3db22572290e90c"
+ },
+ "data": {
+  "pairs": {
+   "path": "weekdays/train",
+   "sha256": "b85f6b9fff9680ed35e5257dfcaf3ff7362ee13f9f8369745505c650aed5dc55",
+   "n_rows": 4
+  }
+ },
+ "steps": {
+  "clean": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "mask": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 0,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.mask",
+      "width": 8,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "none": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 4,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.none",
+      "width": 8,
+      "gathered": true
+     },
+     "chosen": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "eq",
+        "with": 0,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       },
+       {
+        "op": "sum",
+        "over": [
+         "pos",
+         "top_k"
+        ],
+        "dims": [
+         "rows"
+        ]
+       }
+      ],
+      "dims": [
+       "rows"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.chosen",
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "routing": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "entropy",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.routing",
+      "gathered": true
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "dataset": "pairs",
+      "read": "clean.logits",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 0
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": []
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "mask": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 1,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.mask",
+      "width": 8,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "none": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 4,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.none",
+      "width": 8,
+      "gathered": true
+     },
+     "chosen": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "eq",
+        "with": 1,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       },
+       {
+        "op": "sum",
+        "over": [
+         "pos",
+         "top_k"
+        ],
+        "dims": [
+         "rows"
+        ]
+       }
+      ],
+      "dims": [
+       "rows"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.chosen",
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "routing": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "entropy",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.routing",
+      "gathered": true
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "dataset": "pairs",
+      "read": "clean.logits",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 1
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "mask": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 2,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.mask",
+      "width": 8,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "none": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 4,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.none",
+      "width": 8,
+      "gathered": true
+     },
+     "chosen": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "eq",
+        "with": 2,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       },
+       {
+        "op": "sum",
+        "over": [
+         "pos",
+         "top_k"
+        ],
+        "dims": [
+         "rows"
+        ]
+       }
+      ],
+      "dims": [
+       "rows"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.chosen",
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "routing": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "entropy",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.routing",
+      "gathered": true
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "dataset": "pairs",
+      "read": "clean.logits",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 2
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "mask": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 3,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.mask",
+      "width": 8,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "none": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "ne",
+        "with": 4,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.none",
+      "width": 8,
+      "gathered": true
+     },
+     "chosen": {
+      "site": {
+       "component": "expert_indices",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "eq",
+        "with": 3,
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       },
+       {
+        "op": "sum",
+        "over": [
+         "pos",
+         "top_k"
+        ],
+        "dims": [
+         "rows"
+        ]
+       }
+      ],
+      "dims": [
+       "rows"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.chosen",
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     },
+     "routing": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0
+      },
+      "ops": [
+       {
+        "op": "entropy",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "clean.routing",
+      "gathered": true
+     },
+     "logits": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "dims": [
+       "rows",
+       "pos",
+       "vocab_size"
+      ],
+      "dataset": "pairs",
+      "read": "clean.logits",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 3
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   }
+  ],
+  "knockout": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.mask",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "knockout.kill",
+      "width": 8,
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "knockout.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 0
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.mask",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "knockout.kill",
+      "width": 8,
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "knockout.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 1
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.mask",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "knockout.kill",
+      "width": 8,
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "knockout.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 2
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.mask",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "knockout.kill",
+      "width": 8,
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "knockout.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 3
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   }
+  ],
+  "null": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.none",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "null.kill",
+      "width": 8
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "null.kl",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 0
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": []
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.none",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "null.kill",
+      "width": 8
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "null.kl",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 1
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.none",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "null.kill",
+      "width": 8
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "null.kl",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 2
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "kill": {
+      "site": {
+       "component": "expert_weights",
+       "layers": 0
+      },
+      "pos": {
+       "index": ":8"
+      },
+      "ops": [
+       {
+        "op": "scale",
+        "factor": "clean.none",
+        "dims": [
+         "rows",
+         "pos",
+         "top_k"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "top_k"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "null.kill",
+      "width": 8
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "null.kl",
+      "width": 1,
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 3
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "serving": {
+      "expert": 0
+     }
+    }
+   }
+  ],
+  "forced": [
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "away": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0,
+       "select": {
+        "num_experts": 0
+       }
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "with": -1000000000.0,
+        "dims": [
+         "rows",
+         "pos",
+         "num_experts"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_experts"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "forced.away",
+      "kept": {
+       "num_experts": [
+        0
+       ]
+      },
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "forced.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 0
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "away": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0,
+       "select": {
+        "num_experts": 1
+       }
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "with": -1000000000.0,
+        "dims": [
+         "rows",
+         "pos",
+         "num_experts"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_experts"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "forced.away",
+      "kept": {
+       "num_experts": [
+        1
+       ]
+      },
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "forced.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 1
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "away": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0,
+       "select": {
+        "num_experts": 2
+       }
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "with": -1000000000.0,
+        "dims": [
+         "rows",
+         "pos",
+         "num_experts"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_experts"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "forced.away",
+      "kept": {
+       "num_experts": [
+        2
+       ]
+      },
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "forced.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 2
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   },
+   {
+    "kind": "forward",
+    "input": "pairs.input",
+    "interventions": {
+     "away": {
+      "site": {
+       "component": "router_logits",
+       "layers": 0,
+       "select": {
+        "num_experts": 3
+       }
+      },
+      "ops": [
+       {
+        "op": "swap",
+        "with": -1000000000.0,
+        "dims": [
+         "rows",
+         "pos",
+         "num_experts"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos",
+       "num_experts"
+      ],
+      "dataset": "pairs",
+      "layers": [
+       0
+      ],
+      "read": "forced.away",
+      "kept": {
+       "num_experts": [
+        3
+       ]
+      },
+      "axes": [
+       "expert"
+      ]
+     },
+     "kl": {
+      "site": {
+       "component": "lm_head_output"
+      },
+      "pos": -1,
+      "ops": [
+       {
+        "op": "kl",
+        "against": "clean.logits",
+        "dims": [
+         "rows",
+         "pos"
+        ]
+       }
+      ],
+      "dims": [
+       "rows",
+       "pos"
+      ],
+      "dataset": "pairs",
+      "read": "forced.kl",
+      "width": 1,
+      "axes": [
+       "expert"
+      ],
+      "gathered": true
+     }
+    },
+    "at": {
+     "expert": 3
+    },
+    "dataset": "pairs",
+    "schedule": {
+     "axes": [
+      "expert"
+     ]
+    }
+   }
+  ],
+  "usage": [
+   {
+    "kind": "op",
+    "op": "sum",
+    "of": "clean.chosen",
+    "over": [
+     "rows"
+    ],
+    "dims": [],
+    "dataset": "pairs",
+    "layers": [
+     0
+    ],
+    "read": "clean.chosen",
+    "axes": [
+     "expert"
+    ],
+    "at": {
+     "expert": 0
+    }
+   },
+   {
+    "kind": "op",
+    "op": "sum",
+    "of": "clean.chosen",
+    "over": [
+     "rows"
+    ],
+    "dims": [],
+    "dataset": "pairs",
+    "layers": [
+     0
+    ],
+    "read": "clean.chosen",
+    "axes": [
+     "expert"
+    ],
+    "at": {
+     "expert": 1
+    }
+   },
+   {
+    "kind": "op",
+    "op": "sum",
+    "of": "clean.chosen",
+    "over": [
+     "rows"
+    ],
+    "dims": [],
+    "dataset": "pairs",
+    "layers": [
+     0
+    ],
+    "read": "clean.chosen",
+    "axes": [
+     "expert"
+    ],
+    "at": {
+     "expert": 2
+    }
+   },
+   {
+    "kind": "op",
+    "op": "sum",
+    "of": "clean.chosen",
+    "over": [
+     "rows"
+    ],
+    "dims": [],
+    "dataset": "pairs",
+    "layers": [
+     0
+    ],
+    "read": "clean.chosen",
+    "axes": [
+     "expert"
+    ],
+    "at": {
+     "expert": 3
+    }
+   }
+  ]
+ },
+ "saves": [
+  "usage",
+  "clean.routing",
+  "knockout.kl",
+  "forced.kl",
+  "null.kl"
+ ],
+ "document": "documents/expert_knockout.json",
+ "compiled": true,
+ "sweeps": {
+  "expert": {
+   "values": [
+    0,
+    1,
+    2,
+    3
+   ]
+  }
+ }
+}

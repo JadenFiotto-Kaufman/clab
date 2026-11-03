@@ -38,13 +38,27 @@ FIT = ["das", "das_apply", "dbm", "head_gates", "lora_apply", "lora_train", "pca
 GENERATE = ["generate_probe", "generated_answer", "generated_confidence", "generated_contains", "generated_steer"]
 FORWARD = [n for n in NAMES if n not in FIT and n not in GENERATE]
 # The documents the hooks engine refuses by name: the engines differ only where nnterp reads a value inside a module's
-# forward, and each of these reads one.
-INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query"}
+# forward or among a module's call arguments, and each of these reads one.
+INSIDE = {"attention_knockout", "attention_pattern_patching", "attention_query", "expert_knockout"}
 # The one tiny model that softcaps its logits, and a tiny hybrid: blocks 0 to 2 have linear attention, block 3 full
 # attention (tests/test_engines.py says how to fetch them).
 GEMMA2 = {"key": "hf-internal-testing/tiny-random-Gemma2ForCausalLM",
           "revision": "de7c11b6c25d26ddd1bf4324fcf479b61d18e440", "dtype": "float32"}
 HYBRID = {"key": "yujiepan/qwen3-next-moe-tiny-random", "revision": "ec636a93e953ed50d2ecebda99b04673b5f1e248"}
+# The tiny mixtures of experts (tests/test_moe.py says how to fetch them), each 2 blocks of 4 experts routing each
+# token to 2: Mixtral (`documents/expert_knockout.json`'s), OLMoE and Qwen3-MoE (softmax routers, no shared expert),
+# GLM-4-MoE (a dense block 0 and at block 1 a sigmoid router with a shared expert), and JetMoE (a router that takes the
+# top 2 of its logits, then their softmax, computing the indices before the weights).
+MIXTRAL = {"key": "hf-internal-testing/tiny-random-MixtralForCausalLM",
+           "revision": "ccb12fe2fc142cb752085506c3db22572290e90c", "dtype": "float32"}
+OLMOE = {"key": "hf-internal-testing/tiny-random-OlmoeForCausalLM",
+         "revision": "99e4bc8eb1a024e46da438c410d7e707ed49d15a", "dtype": "float32"}
+QWEN3_MOE = {"key": "trl-internal-testing/tiny-Qwen3MoeForCausalLM",
+             "revision": "6db57163fa56fa0e00d4b820169908ac0d3a219d", "dtype": "float32"}
+GLM4_MOE = {"key": "trl-internal-testing/tiny-Glm4MoeForCausalLM",
+            "revision": "19b382257595016963b60289ba295e33abad6834", "dtype": "float32"}
+JETMOE = {"key": "hf-tiny-v2/tiny-random-JetMoeForCausalLM",
+          "revision": "236ca328ccfedeb09989bfb2188b6fbb0cae5afc", "dtype": "float32"}
 
 
 def document(name: str) -> str:

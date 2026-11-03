@@ -44,11 +44,9 @@ A metric over next-token logits declares the vocabulary axis it scores:
 
 ```python
 @op("metrics", needs=(VOCABULARY,), removes=VOCABULARY)
-def entropy(of: Tensor) -> Tensor:
-    """The entropy of the next-token distribution, in nats."""
-    logp = of.float().log_softmax(-1)
-    p = logp.exp()
-    return -(p * logp.masked_fill(p == 0, 0.0)).sum(-1)
+def top_prob(of: Tensor) -> Tensor:
+    """The probability of the most likely next token."""
+    return of.float().softmax(-1).amax(-1)
 ```
 
 A tuple inside `needs` is any one of its axes. `clab/ops/__init__.py` `VOCABULARY` is `vocab_size` or a probe's `classes`, so this metric scores logits and probe scores alike, and `removes=VOCABULARY` takes away whichever the value has.
@@ -80,7 +78,7 @@ class Shift(Kind):
 
 A component is a row of `clab/format/address.py` `COMPONENTS`: its `meaning`, whether it is `per_layer`, its `dims` and whether it is a residual-stream value `readout` may project (`stream`). Its name is nnterp's name for the value, and its `dims` are nnterp's layout of it (`batch` first, the token axis `seq`, or `query` on an attention pattern); a site's `select` may narrow every other axis.
 
-The engines reach a component only through nnterp, so nnterp must serve that name. The nnterp and ndif engines read and set it on the envoy that hosts it (`clab/engines/standard.py` `envoy`), ask nnterp's `support()` whether it is served and nnterp's `rank` where it falls; one nnterp serves on the attention or the MLP is also listed in `clab/engines/standard.py` `BELOW`, under its host. The hooks engine resolves, at load, the module boundary nnterp's key for it names, and refuses by name one nnterp reads inside a module's forward. A name nnterp's `support()` does not answer for is refused by name for every document, whether it uses the component or not (`clab/engines/standard.py` `unserved`): the hooks engine when it loads, the nnterp engine in preflight. Check that nnterp's `StandardizedTransformer.support()` lists the name before adding the row.
+The engines reach a component only through nnterp, so nnterp must serve that name. The nnterp and ndif engines read and set it on the envoy that hosts it (`clab/engines/standard.py` `envoy`), ask nnterp's `support()` whether it is served and nnterp's `rank` where it falls; one nnterp serves on the attention or the MLP is also listed in `clab/engines/standard.py` `BELOW`, under its host (a mixture of experts' values are the MLP's, nnterp's `Moe` being one). The hooks engine resolves, at load, the module boundary nnterp's key for it names, serving a value nnterp holds flat over tokens as nnterp does, and refuses by name one nnterp reads inside a module's forward or among a module's call arguments. An axis a new component carries that is a size of the model joins `clab/engines/standard.py` `SIZES`, which `sizes` reads off nnterp (`num_experts` and `top_k` off its `Moe`, and absent on a model without one). A name nnterp's `support()` does not answer for is refused by name for every document, whether it uses the component or not (`clab/engines/standard.py` `unserved`): the hooks engine when it loads, the nnterp engine in preflight. Check that nnterp's `StandardizedTransformer.support()` lists the name before adding the row.
 
 ## Adding a step kind
 

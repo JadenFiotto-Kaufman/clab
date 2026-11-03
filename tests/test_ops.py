@@ -22,10 +22,10 @@ DIMS = ["rows", "pos", "hidden_size"]
 def test_every_op_is_listed_once_in_order_under_its_own_name():
     assert list(ops.OPS) == ["swap", "add", "sub", "scale", "renormalize", "normalize", "project_out", "decode",
                              "apply", "noise", "clamp", "readout", "encode", "grad", "mean", "sum", "min", "max", "std",
-                             "count", "norm", "dot", "pca", "match", "logit_diff", "token_prob", "token_logit",
-                             "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize", "abs", "exp",
-                             "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne", "gt", "ge", "lt",
-                             "le", "cosine"]
+                             "count", "norm", "dot", "entropy", "pca", "match", "logit_diff", "token_prob",
+                             "token_logit", "cross_entropy", "contains", "kl", "js", "top_k", "argmax", "detokenize",
+                             "abs", "exp", "log", "sign", "sqrt", "square", "neg", "mul", "div", "pow", "eq", "ne",
+                             "gt", "ge", "lt", "le", "cosine"]
     assert all(fn.__name__ == name for name, fn in ops.OPS.items())
     assert set(ops.DECLARED) == set(ops.OPS)
 
@@ -36,7 +36,7 @@ def test_each_op_declares_its_group_and_bundle():
                                                                "normalize", "project_out", "decode", "apply", "noise",
                                                                "clamp"}
     assert {n for n, g in groups.items() if g == "reductions"} == {"mean", "sum", "min", "max", "std", "count", "norm",
-                                                                    "dot", "pca"}
+                                                                    "dot", "entropy", "pca"}
     assert {n for n, g in groups.items() if g == "transforms"} == {"readout", "encode", "grad", "top_k", "argmax",
                                                                     "detokenize", "abs", "exp", "log", "sign", "sqrt",
                                                                     "square", "neg", "mul", "div", "pow", "eq", "ne",
@@ -533,6 +533,11 @@ def test_comparisons_give_0_or_1_in_the_values_dtype_and_nan_where_either_side_i
     expected = torch.zeros_like(X)
     expected[..., 1] = NAN
     assert same(transforms.eq(X, torch.tensor([3, -1, 0, 1, 2])), expected)     # ids as the operand: its -1 a hole too
+    d = ["rows", "pos"]                                    # a reduction and arithmetic leave the hole out too
+    assert reductions.sum(ids, d).item() == 12 and reductions.min(ids, d).item() == 2 and reductions.mean(ids, d) == 4
+    assert same(transforms.square(ids), torch.tensor([[9.0, NAN, 49.0, 4.0]]))
+    assert same(transforms.mul(torch.ones(1, 4), ids), torch.tensor([[3.0, NAN, 7.0, 2.0]]))     # a named operand's
+    assert reductions.dot(torch.ones(1, 4), ids, d, over=["pos"]).item() == 12 and transforms.mul(ids, -1)[0, 0] == -3
     half = torch.tensor([1.0039]).bfloat16()               # 1.0039 in bfloat16 is 1.0, which float32 compares exactly
     assert transforms.eq(half, 1.0).item() == 1 and transforms.gt(half, 0.999).item() == 1
 
@@ -603,6 +608,37 @@ def test_count_counts_the_positions_that_hold_the_value_a_vector_once():
     with pytest.raises(ValueError, match=r"count counts along 'pos' unless 'over' names the axes it counts along, and "
                                          r"the value is laid out \['rows', 'hidden_size'\]"):
         ops.out_dims("count", ["rows", "hidden_size"], {})
+
+
+def test_entropy_is_of_the_softmax_over_the_vocabulary_or_the_experts_unless_over_names_other_axes():
+    """`-sum(p log p)` of the float32 softmax over `vocab_size` where the value has it, else `num_experts`, else the
+    axes `over` names: ln n where the softmax is uniform, a missing entry with no share and a vector with none
+    missing, an entry of -inf (a probability of 0) adding 0; a value with neither axis and no `over` is refused."""
+    p = LOGITS.softmax(-1)
+    torch.testing.assert_close(reductions.entropy(LOGITS, ["rows", "pos", "vocab_size"]), -(p * p.log()).sum(-1))
+    routed = ["rows", "pos", "num_experts"]
+    assert reductions.entropy(torch.zeros(2, 3, 4), routed).sub(math.log(4)).abs().max() < 1e-6
+    x = X.clone()
+    x[0, 0] = NAN
+    x[1, 1, 2:] = NAN
+    x[2, 0, 1] = -math.inf
+    got = reductions.entropy(x, routed)
+    q = X[1, 1, :2].softmax(-1)
+    assert got[0, 0].isnan() and not got[1:].isnan().any()
+    torch.testing.assert_close(got[1, 1], -(q * q.log()).sum())
+    torch.testing.assert_close(got[2, 0], reductions.entropy(X[2, 0, [0, 2, 3, 4]][None], ["pos", "num_experts"])[0])
+    pattern = torch.randn(2, 3, 4, 5)
+    flat = pattern.flatten(2).softmax(-1)
+    torch.testing.assert_close(reductions.entropy(pattern, ["rows", "pos", "num_heads", "key"],
+                                                  over=["num_heads", "key"]), -(flat * flat.log()).sum(-1))
+    assert reductions.entropy(LOGITS.bfloat16(), ["rows", "pos", "vocab_size"]).dtype == torch.float32
+    assert ops.out_dims("entropy", ["layers", *routed], {}) == ["layers", "rows", "pos"]
+    assert ops.out_dims("entropy", ["rows", "pos", "vocab_size", "num_experts"], {}) == ["rows", "pos", "num_experts"]
+    assert ops.out_dims("entropy", ["rows", "pos", "num_heads", "key"], {"over": ["key"]}) == \
+        ["rows", "pos", "num_heads"]
+    with pytest.raises(ValueError, match=r"it takes the softmax over vocab_size or num_experts unless 'over' names the "
+                                         r"axes, and the value is laid out \['rows', 'pos', 'hidden_size'\]"):
+        ops.out_dims("entropy", DIMS, {})
 
 
 def arithmetic(d: dict) -> None:
@@ -737,6 +773,29 @@ def test_a_comparison_of_ids_is_missing_at_a_hole_so_an_agreement_is_over_the_po
     assert agree[~hole].sum().item() == 28 and round(r["rate"].item(), 3) == 0.737
     assert r["rate"].item() == pytest.approx(28 / 38, rel=1e-6)
     assert r["n"].tolist() == [11.0, 9.0, 9.0, 9.0]
+
+
+def test_a_reduction_or_an_elementwise_transform_of_ids_takes_their_hole_as_missing(engines):
+    """The ragged read's `argmax` holds -1 at the six positions past the shorter rows' own; `min`, `sum`, `mean`,
+    `std` and `norm` over `pos` of it, and its `square`, are each that op of the ids with the hole as NaN, to the bit,
+    so a row's least id is one of its own tokens', never -1, where counting the hole gave -1 on the three short rows."""
+    def change(d: dict) -> None:
+        agreement(d)
+        d["steps"] = {k: d["steps"][k] for k in ("clean", "top")}
+        for op in ("min", "sum", "mean", "std", "norm"):
+            d["steps"][op] = {"kind": "op", "op": op, "of": "top", "over": ["pos"]}
+        d["steps"]["square"] = {"kind": "op", "op": "square", "of": "top"}
+        d["saves"] = list(d["steps"])[1:]
+    plan = edited("patching", change).compile()
+    r = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+    top = r["top"]
+    floated = top.float().masked_fill(top == -1, NAN)
+    for op in ("min", "sum", "mean", "std", "norm"):
+        assert same(r[op], ops.call(op, floated, {"over": ["pos"]}, dims=["rows", "pos"])), op
+    assert same(r["square"], floated.square()) and int((top == -1).sum()) == 6
+    own = [top[i][top[i] != -1] for i in range(4)]
+    assert r["min"].tolist() == [float(ids.min()) for ids in own] and (r["min"] >= 0).all()
+    assert r["sum"].tolist() == [float(ids.sum()) for ids in own]
 
 
 def test_the_new_reductions_are_refused_by_name_where_they_cannot_mean_anything():

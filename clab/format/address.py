@@ -12,7 +12,9 @@ int `layers` drops its axis. `key` is each row's own keys, its positions as `pos
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
 `"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
 shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
-`stream` marks the residual-stream values `readout` may project.
+`stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
+entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
+whole number from 0 below that size, since the model indexes with them.
 
 A selection of a component (what an entry takes, and what its ops see) is
 laid out `(rows, pos, *the remaining axes in order)`: a `layers` axis comes
@@ -65,6 +67,18 @@ COMPONENTS: dict[str, dict] = {
     "mlp_neurons": {"meaning": "what the down projection sums", "per_layer": True,
                     "dims": ["batch", "seq", "intermediate_size"],
                     "stream": False},
+    "router_logits": {"meaning": "a mixture of experts' router logits, one per expert, before its scoring",
+                      "per_layer": True, "dims": ["batch", "seq", "num_experts"], "stream": False},
+    "expert_weights": {"meaning": "the weight each routing slot's expert output is scaled by", "per_layer": True,
+                       "dims": ["batch", "seq", "top_k"], "stream": False},
+    "expert_indices": {"meaning": "the expert each routing slot sends the token to, int64", "per_layer": True,
+                       "dims": ["batch", "seq", "top_k"], "stream": False, "ids": "num_experts"},
+    "expert_outputs": {"meaning": "each slot's expert output times its weight, before the slots are summed",
+                       "per_layer": True, "dims": ["batch", "seq", "top_k", "hidden_size"], "stream": False},
+    "routed_output": {"meaning": "the routed experts' sum, without the shared expert", "per_layer": True,
+                      "dims": R, "stream": False},
+    "shared_expert_output": {"meaning": "the shared expert's output, where the mixture has one", "per_layer": True,
+                             "dims": R, "stream": False},
     "mlp_output": {"meaning": "what the MLP adds to the stream", "per_layer": True,
                    "dims": R, "stream": True},
     "layer_output": {"meaning": "the residual stream leaving block i", "per_layer": True,

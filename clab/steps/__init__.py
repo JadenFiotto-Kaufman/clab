@@ -269,7 +269,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     order: list[int] = []
     for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
         order += ids
-        bound, binds = bind(engine, plan, step, state, found, ids, pads, reading)
+        bound, binds = bind(engine, plan, name, step, state, found, ids, pads, reading)
         got = engine.forward(batch, bound)
         missing = [r["name"] for s in bound["sites"] for r in s["records"] if "name" in r and r["name"] not in got]
         if missing:
