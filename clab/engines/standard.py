@@ -225,17 +225,20 @@ def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict
 
 
 def build(model: Model, engine: str, call: Callable[[dict[str, Any]], Any]) -> Any:
-    """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as
-    they are. A key in
-    `OWNED` is refused by name, and one the loader rejects is reported as that key. A checkpoint the loader cannot
-    get (its `OSError`) is refused as `model.key`, saying whether the run is offline and the cache lacks it."""
+    """`call` with the model block's keys other than `key`, `revision` and `dtype` (which `loading` reads), as they
+    are, once the `pad_token_id` warning (`PADDED`) is filtered off the transformers logger that emits it, the filter
+    (`unpadded`) added once and passing every other message of that logger. A key in `OWNED` is refused by name, and
+    one the loader rejects is reported as that key. A checkpoint the loader cannot get (its `OSError`) is refused as
+    `model.key`, saying whether the run is offline and the cache lacks it."""
     from huggingface_hub.constants import HF_HUB_OFFLINE
 
     extra = dict(model.model_extra or {})
     for key in extra:
         if key in OWNED:
             raise ValueError(f"model.{key}: the {engine} engine cannot honor it: {OWNED[key]}")
-    quiet()
+    logger = logging.getLogger("transformers.configuration_utils")
+    if unpadded not in logger.filters:
+        logger.addFilter(unpadded)
     try:
         return call(extra)
     except OSError as e:                   # before ValueError: the hub's not-found error is both
@@ -264,14 +267,6 @@ PADDED = "Model config: pad_token_id must be `None` or an integer within the voc
 
 def unpadded(record: logging.LogRecord) -> bool:
     return not record.getMessage().startswith(PADDED)
-
-
-def quiet() -> None:
-    """The `pad_token_id` warning (`PADDED`) filtered off the transformers logger that emits it, once, before a
-    model loads; every other message of that logger passes."""
-    logger = logging.getLogger("transformers.configuration_utils")
-    if unpadded not in logger.filters:
-        logger.addFilter(unpadded)
 
 
 def stops(config: GenerationConfig, tokenizer: PreTrainedTokenizerBase) -> list[int]:
