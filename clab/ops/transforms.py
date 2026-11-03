@@ -184,13 +184,6 @@ def argmax(of: Tensor, dims: list[str], over: str = RANKED) -> Tensor:
 # -- elementwise: each entry on its own, the layout kept -------------------------------------------------------------
 
 
-def operand(x: Value, like: Tensor) -> Tensor:
-    """An operand (a number, or a named value laid out as the value is) on `like`'s device, in float32 where it is
-    floating."""
-    x = torch.as_tensor(x, device=like.device)
-    return x.float() if x.is_floating_point() else x
-
-
 @op("transforms", positionwise=True)
 def abs(of: Tensor) -> Tensor:
     """`|of|`, each entry's absolute value, in float32."""
@@ -270,7 +263,7 @@ def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]
     """1 where `holds(of, with)`, else 0: a floating value's in its dtype, each side compared in float32, and ids' in
     float32, compared as they are; NaN where either side is missing (`missing`; a number `with` only where it is
     NaN), so a comparison of a hole is a hole, never a 0 or 1 a `mean` takes."""
-    a, b = (of.float() if of.is_floating_point() else of), operand(with_, of)
+    a, b = (x.float() if x.is_floating_point() else x for x in (of, torch.as_tensor(with_, device=of.device)))
     gone = missing(a) | (missing(b) if isinstance(with_, Tensor) else b.isnan())
     return holds(a, b).to(of.dtype if of.is_floating_point() else torch.float32).masked_fill(gone, math.nan)
 
