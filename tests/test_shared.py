@@ -30,7 +30,7 @@ from test_efficiency import at, counting
 
 from clab import Plan
 from clab.compile import schedule
-from clab.format.sweeps import coordinate, find_sweeps, labelled, points, projected
+from clab.format.sweeps import coordinate, coordinate_text, find_sweeps, points, projection
 from clab.plan import Fit, Forward, entries, horizon, record_of, runnable, serving
 from clab.steps import batches, fit
 
@@ -80,7 +80,7 @@ def each_its_own(shared: Plan, alone: dict[tuple, Plan]) -> bool:
     for name in shared.saves:
         entry = shared.steps[name.partition(".")[0]]
         for p in points(entry):
-            own = projected(p.at, record_of(shared.steps, name, p.at).axes)
+            own = projection(p.at, record_of(shared.steps, name, p.at).axes)
             mine = shared.results[name][coordinate(shared, own)] if own else shared.results[name]
             theirs = next(v for k, v in alone.items() if all(dict(k).get(a) == i for a, i in p.at.items()))
             if not same(mine, theirs.results[name]):
@@ -115,11 +115,11 @@ def total(plan: Plan) -> int:
 
 def served(plan: Plan, name: str) -> list[list[str]]:
     """Which points each forward of step `name` serves, in point order, by coordinate."""
-    return [[labelled(plan, q.at) for q in s] for p, s in serving(plan, name) if isinstance(p, Forward)]
+    return [[coordinate_text(plan, q.at) for q in s] for p, s in serving(plan, name) if isinstance(p, Forward)]
 
 
 def all_points(plan: Plan, name: str) -> list[str]:
-    return [labelled(plan, p.at) for p in points(plan.steps[name])]
+    return [coordinate_text(plan, p.at) for p in points(plan.steps[name])]
 
 
 def sharing(plan: Plan) -> bool:
@@ -186,7 +186,7 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     shared, ran = counted(engine, plan, 4)
     deepest = [4] * 5 if kind == "ndif" else [0, 1, 2, 3, 4] if axis == "layers" else [2] * 5
     assert ran == [*range(max(deepest) + 1)]
-    first = labelled(plan, lens[0].at)
+    first = coordinate_text(plan, lens[0].at)
     assert costs(shared, "lens") == {first: (1, all_points(plan, "lens"))}
     assert shared.run is not None and shared.run.costs["lens"][first]["memory"] is None
     theirs = {}
@@ -593,8 +593,8 @@ def test_an_op_whose_swept_operand_names_values_on_other_axes_gives_each_point_i
     assert [p.axes for p in points(plan.steps["cos"])] == [["other"], ["pos", "other"]] * 2
     runs = [['pos=-1,other="read.one"', 'pos=-2,other="read.one"'], ['pos=-1,other="read.many"'],
             ['pos=-2,other="read.many"']]
-    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "cos")] == runs
-    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "avg")] == runs
+    assert [[coordinate_text(plan, q.at) for q in s] for _, s in serving(plan, "cos")] == runs
+    assert [[coordinate_text(plan, q.at) for q in s] for _, s in serving(plan, "avg")] == runs
     engine = engines("nnterp", plan.model)
     assert each_its_own(engine.execute(plan, batch_size=BATCH_SIZE), alone(engine, "pos_sweep", doc))
 

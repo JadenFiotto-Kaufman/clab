@@ -19,7 +19,7 @@ from clab.plan import (
     OpStep,
     Plan,
     Site,
-    agreeing,
+    agreeing_point,
     arguments,
     bracketed,
     declared,
@@ -47,7 +47,7 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Intervention, dict, Op | OpSte
         ref = arguments(step).get("featurizer") if step.kind == "op" else None
         if ref is not None:                 # a body's step sees the body's steps beside the root's
             fit = name.rpartition(".")[0]
-            steps = {**plan.steps, **agreeing(plan.steps[fit], step.at).steps} if fit else plan.steps
+            steps = {**plan.steps, **agreeing_point(plan.steps[fit], step.at).steps} if fit else plan.steps
             read = record_of(steps, cast(str, step.read), step.at)
             assert isinstance(read, Intervention), f"{name}: an encode or apply step is over a read"
             by_featurizer.setdefault(declared(plan, ref), []).append((name, read, step.at, step,
@@ -68,7 +68,7 @@ def check_bundle_sites(plan: Plan) -> None:
     preflight checks each layer."""
     for name, records in uses(plan).items():
         for where, read, at, _, _ in records:
-            site, f = cast(Site, read.site), agreeing(plan.featurizers[name], at)
+            site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
             if f.header is None:
                 continue
             known = site.layers is None or isinstance(site.layers, int) and site.layers >= 0
@@ -116,7 +116,7 @@ def check_gate_axes(plan: Plan) -> None:
                      "it keeps on each axis")
     for name, records in uses(plan).items():
         for where, read, at, o, around in records:
-            over = over_of(agreeing(plan.featurizers[name], at))
+            over = over_of(agreeing_point(plan.featurizers[name], at))
             if over is None:
                 continue
             path, site, laid = f"featurizers.{name}.over", cast(Site, read.site), layout_at_use(read, o)
@@ -183,7 +183,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
     for name, used in uses(plan).items():
         for where, read, at, o, around in used:
             site, kept = cast(Site, read.site), read.kept
-            f = agreeing(plan.featurizers[name], at)
+            f = agreeing_point(plan.featurizers[name], at)
             over = over_of(f)
             if over is not None:
                 units_kept = units(where, name, f, read, over, sizes)
@@ -201,7 +201,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
                                  f"featurizer {name!r} needs a feature axis")
             for outer in around:                # the coordinates of each encode it is inside, outermost first
                 ref = declared(plan, arguments(outer)["featurizer"])
-                width = instance(plan, agreeing(plan.featurizers[ref], at), width, None).size()
+                width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
                 chosen = (arguments(outer).get("select") or {}).get("features")
                 width = width if chosen is None else len(selectors.select(chosen, width))
             if out.setdefault(name, width) != width:

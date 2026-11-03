@@ -15,7 +15,7 @@ from huggingface_hub import try_to_load_from_cache
 from clab import Plan, ops
 from clab.compile import make_dataset_rows, positions
 from clab.format import data, registry, selectors
-from clab.format.sweeps import agreeing, lookup, points
+from clab.format.sweeps import agreeing_point, lookup, points
 from clab.plan import Data, PlanError
 
 
@@ -239,8 +239,8 @@ def test_a_point_is_found_by_its_index_on_each_axis_not_by_a_scan():
     patched, counterfactual = points(plan.steps["patched"]), points(plan.steps["counterfactual"])
     assert [p.at for p in patched] == [{"src": s, "pos": i} for s in range(2) for i in range(3)]
     for p in patched:
-        assert agreeing(Unscanned(patched), p.at) is p and agreeing(patched[::-1], p.at) is p
-        assert agreeing(Unscanned(counterfactual), p.at) is counterfactual[p.at["src"]]
+        assert agreeing_point(Unscanned(patched), p.at) is p and agreeing_point(patched[::-1], p.at) is p
+        assert agreeing_point(Unscanned(counterfactual), p.at) is counterfactual[p.at["src"]]
 
 
 def test_a_value_is_found_by_the_consumers_coordinates_on_its_axes_not_by_a_scan():

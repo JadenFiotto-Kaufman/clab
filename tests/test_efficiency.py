@@ -27,7 +27,7 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 from clab import Plan
 from clab.cli import main
 from clab.compile.state import Findings
-from clab.format.sweeps import labelled, points, put
+from clab.format.sweeps import coordinate_text, points, put
 from clab.plan import entries, runnable
 from clab.steps.batches import bind_ops
 
@@ -49,7 +49,8 @@ def test_every_run_of_a_step_has_a_cost_and_a_forward_one_call_per_batch(engines
     assert list(run.costs) == list(plan.steps)
     assert list(run.costs["lens"]) == ["layers=0"] and run.costs["lens"]["layers=0"]["serves"] == ["layers=0", "layers=1"]
     for name in ("p_answer", "top1"):
-        assert list(run.costs[name]) == [labelled(plan, p.at) for p in points(plan.steps[name])] == ["layers=0", "layers=1"]
+        assert list(run.costs[name]) == [coordinate_text(plan, p.at) for p in points(plan.steps[name])] == \
+            ["layers=0", "layers=1"]
         assert [c["serves"] for c in run.costs[name].values()] == [["layers=0"], ["layers=1"]]
     for costs in run.costs.values():
         for cost in costs.values():

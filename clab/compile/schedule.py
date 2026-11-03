@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from clab import ops
 from clab.compile import positions
 from clab.format import address
-from clab.format.sweeps import agreeing, labelled, points, projected
+from clab.format.sweeps import agreeing_point, coordinate_text, points, projection
 from clab.plan import (Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, gradient_of, horizon,
                         record_of, writes)
 
@@ -27,7 +27,7 @@ def share_forwards(plan: Plan) -> None:
         first: dict[tuple, Forward] = {}
         for step in points(entry):
             if isinstance(step, Forward):
-                key = tuple(projected(step.at, step.schedule["axes"]).items())
+                key = tuple(projection(step.at, step.schedule["axes"]).items())
                 if key in first:
                     step.schedule = {"serving": first[key].at}
                 else:
@@ -70,7 +70,7 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
             for layer in theirs.layers or [None]:       # its own record: a value is read at its positions and calls
                 for part in parts(step, theirs)[1]:
                     read = f"{key}@{layer}" + ("#0" if part.get("prompt") else "") + \
-                        ("" if p is step else f"@{labelled(plan, own)}")
+                        ("" if p is step else f"@{coordinate_text(plan, own)}")
                     each = {"per_call": theirs.per_call} if theirs.per_call else {}
                     sites.setdefault((component, layer), []).append({"read": key, "at": own, "name": read, **part,
                                                                      **each})
@@ -104,7 +104,7 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
     differentiated: dict[tuple, dict[str, list[str]]] = {}
     for (key, own), (theirs, _, p) in values_read.items():
         if (of := gradient_of(theirs)) is not None:
-            value = (of, tuple(projected(p.at, entries(p)[of].axes).items()))
+            value = (of, tuple(projection(p.at, entries(p)[of].axes).items()))
             item = differentiated.setdefault(value, {"of": [n for n, _ in reads_by_value[value]], "wrt": []})
             item["wrt"] += [n for n, _ in reads_by_value[key, own]]
     if differentiated:
@@ -124,7 +124,7 @@ def values_read_by(served: list[Forward]) -> dict[tuple[str, tuple], tuple[Inter
     for p in served:
         for key, record in entries(p).items():
             if record.gathered:
-                own = projected(p.at, record.axes)
+                own = projection(p.at, record.axes)
                 out.setdefault((key, tuple(own.items())), (record, own, p))
     return out
 
@@ -160,9 +160,9 @@ def resolve_operands(plan: Plan, name: str, record: Intervention, layer: int | N
                 stacked = "layers" in (record_of(plan.steps, value, at).dims or [])
                 listed[key] = {"name": value, "live": names[value][layer] if stacked else next(iter(names[value].values()))}
             elif value in plan.featurizers:
-                listed[key] = {"name": value, "at": agreeing(plan.featurizers[value], at).at}
+                listed[key] = {"name": value, "at": agreeing_point(plan.featurizers[value], at).at}
             else:
-                listed[key] = {"name": value, "at": projected(at, record_of(plan.steps, value, at).axes)}
+                listed[key] = {"name": value, "at": projection(at, record_of(plan.steps, value, at).axes)}
         out.append(listed)
     return out
 

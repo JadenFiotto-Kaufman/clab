@@ -8,15 +8,15 @@ their headers' keys sorted: the same bytes on every run."""
 
 import torch
 
-from clab.output import write
+from clab.output import write_safetensors
 
 if __name__ == "__main__":
     g = torch.Generator().manual_seed(1)
-    write("documents/artifacts/sae_gemma_scope.safetensors", {
+    write_safetensors("documents/artifacts/sae_gemma_scope.safetensors", {
         "W_enc": torch.randn(16, 32, generator=g) / 4, "W_dec": torch.randn(32, 16, generator=g) / 4,
         "b_enc": torch.randn(32, generator=g) / 100, "b_dec": torch.randn(16, generator=g) / 100,
         "threshold": torch.rand(32, generator=g) / 50})
     g = torch.Generator().manual_seed(2)
-    write("documents/artifacts/sae_saelens.safetensors", {
+    write_safetensors("documents/artifacts/sae_saelens.safetensors", {
         "W_enc": torch.randn(16, 32, generator=g) / 4, "W_dec": torch.randn(32, 16, generator=g) / 4,
         "b_enc": torch.zeros(32), "b_dec": torch.randn(16, generator=g) / 100})

@@ -38,7 +38,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected, spelled
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_spelling, find_sweeps, points, projection
 
 
 class PlanError(ValueError):
@@ -1249,16 +1249,17 @@ class Plan(Record):
 
 def loaded_value(plan: Plan, step: Load, files: dict[tuple[str, str], tuple[list[str], Any]]) -> Any:
     """Load `step`'s value at its point, as the file of its run's directory under the corpus root holds it (the
-    output directory's one reader, `output.read`, once per value into `files`, with the axes its record names): a
-    swept value's point is the one keyed by the point's coordinate on those axes, spelled in the order of the run that
-    saved it, whose labels and values are this plan's sweeps (compile checked them)."""
-    from clab.output import manifest, read          # the output directory's one reader, a later stage's
+    output directory's one reader, `output.read_saved_value`, once per value into `files`, with the axes its record
+    names): a swept value's point is the one keyed by the point's coordinate on those axes, spelled in the order of the
+    run that saved it, whose labels and values are this plan's sweeps (compile checked them)."""
+    from clab.output import manifest, read_saved_value          # the output directory's one reader, a later stage's
     if (step.from_, step.value) not in files:
         out = os.path.join(corpus_root(plan), step.from_)
         d = manifest(out)[1][step.value]
-        files[step.from_, step.value] = d["axes"], read(out, step.value, d)
+        files[step.from_, step.value] = d["axes"], read_saved_value(out, step.value, d)
     axes, value = files[step.from_, step.value]
-    return value[spelled({a: plan.sweeps[a].values for a in axes}, {a: step.at[a] for a in axes})] if axes else value
+    return value[coordinate_spelling({a: plan.sweeps[a].values for a in axes}, {a: step.at[a] for a in axes})] \
+        if axes else value
 
 
 def corpus_root(plan: Plan) -> str:
@@ -1344,7 +1345,7 @@ def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[For
     that fit's eval steps; or a load's read, the forward and entry it carries), at the step's point that agrees
     with `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
-    step = agreeing(steps[thing], at)
+    step = agreeing_point(steps[thing], at)
     if step.kind == "fit":
         label, _, rest = member.partition(".")
         return entry_of(step.evals[label], rest, step.at)
@@ -1360,7 +1361,7 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     load's own (`<step>`), or a fit member's: an eval step's value (`<fit>.<eval>.<member>`, its record among the
     fit's `evals`), a term's history (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
     thing, _, member = ref.partition(".")
-    step = agreeing(steps[thing], at)
+    step = agreeing_point(steps[thing], at)
     if step.kind != "fit":
         host = step.source if step.kind == "load" else step            # a load's member is the read it carries
         found = entries(host)[member] if member else step
@@ -1388,7 +1389,7 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     for a value that depends on no axis."""
     found: dict[tuple, tuple[dict[str, int], Step]] = {}
     for p in points(plan.steps[name.partition(".")[0]]):
-        at = projected(p.at, record_of(plan.steps, name, p.at).axes)
+        at = projection(p.at, record_of(plan.steps, name, p.at).axes)
         found.setdefault(tuple(at.items()), (at, p))
     return list(found.values())
 
@@ -1430,7 +1431,7 @@ def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
         return [(p, [p]) for p in steps]
     runs: dict[tuple, list[Step]] = {}
     for q in steps:
-        at = projected(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
+        at = projection(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
         runs.setdefault(tuple(at.items()), []).append(q)
     return [(served[0], served) for served in runs.values()]
 
@@ -1469,7 +1470,7 @@ def held_rows(plan: Plan, name: str) -> list[dict]:
 def body_view(plan: Plan, fit: str, at: dict[str, int]) -> Plan:
     """The plan as fit `fit`'s body sees it at the fit's point `at`: the body's steps beside the root's, which
     they shadow."""
-    return plan.model_copy(update={"steps": {**plan.steps, **agreeing(plan.steps[fit], at).steps}})
+    return plan.model_copy(update={"steps": {**plan.steps, **agreeing_point(plan.steps[fit], at).steps}})
 
 
 # -- an entry's brackets ---------------------------------------------------------------------------------

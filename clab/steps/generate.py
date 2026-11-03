@@ -14,7 +14,7 @@ from clab.compile.positions import reads_head, resolve_row, scope_texts
 from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.format import address, data
-from clab.format.sweeps import projected, put
+from clab.format.sweeps import projection, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
 from clab.steps.batches import (apply_bound_ops, apply_ops_after_edit, bind_schedule, in_run_order, input_batches,
                                 join_batches, layers_made_at, scope_ids, stack_layers, stop_ids, value_in_prefill)
@@ -54,8 +54,8 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     for point in served:
         for key, record in entries(point).items():
             if not positions.prefill_only(positions.parse(record.pos)):
-                beyond_prefill.setdefault((key, tuple(projected(point.at, record.axes).items())),
-                                          (record, projected(point.at, record.axes), point))
+                beyond_prefill.setdefault((key, tuple(projection(point.at, record.axes).items())),
+                                          (record, projection(point.at, record.axes), point))
     parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
     beyond_positions: dict[tuple[str, tuple], list] = {k: [] for k in beyond_prefill}
     new, batched_ids = [], []
@@ -90,14 +90,14 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     beyond_positions = {k: in_run_order(state, v, batched_ids) for k, v in beyond_positions.items()}
     for k, (record, own, _) in values_read.items():
         join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
-    put(state, name, projected(step.at, step.axes), tokens)
+    put(state, name, projection(step.at, step.axes), tokens)
     if scope_ids(state) is None:          # a run over every row records where each record landed, on every record
         for point in served:
             for key, record in entries(point).items():
-                k = (key, tuple(projected(point.at, record.axes).items()))
+                k = (key, tuple(projection(point.at, record.axes).items()))
                 if k in beyond_prefill:
                     record.positions = {**record.positions, cast(str, step.dataset): beyond_positions[k]}
-        put(findings.said, name, projected(step.at, step.axes),
+        put(findings.said, name, projection(step.at, step.axes),
             [engine.tokenizer.convert_ids_to_tokens(positions.continuation(x, eos)) for x in tokens.tolist()])
 
 

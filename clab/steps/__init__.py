@@ -37,7 +37,7 @@ from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import agreeing, by_coordinate, coordinate, labelled, lookup, projected, put
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, keyed_by_coordinate, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         serving)
 from clab.steps import fit, generate
@@ -100,7 +100,8 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
         for name in runnable(plan.steps):
             for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0, "real": 0,
-                                        **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
+                                        **({"serves": [coordinate_text(plan, p.at) for p in served]}
+                                           if step.at else {})}
                 rows = step.batch_size if isinstance(step, Forward) and step.batch_size is not None else batch_size
                 try:
                     measure_cost(devices, cost, lambda: KINDS[step.kind](
@@ -119,13 +120,13 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fin
     every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
     coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
     assert plan.run is not None
-    plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
+    plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
     for name in (n for n in plan.saves if made_by(plan, n) in done):
         ats = [at for at, _ in projections(plan, name)]
         plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(saved(plan, state, name, at)) for at in ats}
                               if ats != [{}] else detached_cpu_clone(saved(plan, state, name, {})))
-    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
+    plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
 
@@ -135,13 +136,13 @@ def out_of_memory_refusal(plan: Plan, name: str, at: dict, batch_size: int, stat
     eval steps', the fit's `batch_size`), what torch said (its first sentences), and every value the run holds
     (`state`: each bound value stays on the model's device until the run ends) with its shape, dtype and device,
     then what to do."""
-    where = f"steps.{name}" + (f" at {labelled(plan, at)}" if at else "")
+    where = f"steps.{name}" + (f" at {coordinate_text(plan, at)}" if at else "")
     head = name.partition(".")[0]
-    owner = agreeing(plan.steps[head], at)             # the step itself, or the fit whose eval step it is
+    owner = agreeing_point(plan.steps[head], at)             # the step itself, or the fit whose eval step it is
     if owner.kind == "fit":
         batch_size = cast(int, owner.batch_size)
     message = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
-    listed = [f"{n}{f'[{labelled(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
+    listed = [f"{n}{f'[{coordinate_text(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
               if isinstance(by_point, dict) for c, v in by_point.items() if (s := value_text(v))]
     holds = (f"holds {', '.join(listed)}, each on the model's device until the run ends" if listed else
              "holds no value yet")
@@ -327,7 +328,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
                      eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
         value["tokens"] = token_strings(engine.tokenizer, value["ids"])
-    put(state, name, projected(step.at, step.axes), value)
+    put(state, name, projection(step.at, step.axes), value)
 
 
 def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, findings: Findings,
@@ -336,7 +337,7 @@ def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, bat
     travels with it, in a request too), put where the model is (`model_device`), every tensor of it, at the point's
     coordinates on the value's own axes. It calls no model and reads no file."""
     assert step.loaded is not None, f"{name}: a compiled plan holds each load's value until it has run"
-    put(state, name, projected(step.at, step.axes), move_to_device(step.loaded, model_device(engine)))
+    put(state, name, projection(step.at, step.axes), move_to_device(step.loaded, model_device(engine)))
 
 
 def move_to_device(value: Any, device: str) -> Any:

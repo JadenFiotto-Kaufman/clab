@@ -35,7 +35,7 @@ from clab.compile.state import Compiling
 from clab.compile.uses import check_bundle_sites, check_gate_axes
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
-from clab.format.sweeps import agreeing, find_sweeps, spelled
+from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps
 from clab.plan import (
     Data,
     Entry,
@@ -216,7 +216,7 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
             if not at:
                 raise
             path, _, why = str(e).partition(": ")
-            raise PlanError(f"{path} at {spelled(cx.values, at)}: {why}") from None
+            raise PlanError(f"{path} at {coordinate_spelling(cx.values, at)}: {why}") from None
     return built if labels else built[0]
 
 
@@ -534,7 +534,7 @@ def compile_load(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
     record = record_of(ran.steps, spec.value, there)
-    made = agreeing(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
+    made = agreeing_point(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
     if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
             made.kind == "op" and ops.DECLARED[made.op]["bundle"]:

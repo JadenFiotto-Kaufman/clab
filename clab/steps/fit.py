@@ -14,7 +14,7 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, body_view, held_rows
+from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing_point, body_view, held_rows
 from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
     trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine))
-               for f in step.train for spec in [agreeing(plan.featurizers[f], step.at)]}
+               for f in step.train for spec in [agreeing_point(plan.featurizers[f], step.at)]}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
