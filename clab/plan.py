@@ -1373,16 +1373,6 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     return record_of(step.evals[label], rest, step.at)
 
 
-def own_read(record: Labelled) -> bool:
-    """Whether a value is a read's own, at the site it was read at and in its layout: an entry's, or a load's whose
-    record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such a
-    load (the chain carries the entry the first run read), not an op's over one."""
-    if isinstance(record, Load):
-        carried = next(iter(entries(record.source).values())) if record.source is not None else None
-        return carried is not None and all(getattr(record, f) == getattr(carried, f) for f in Labelled.model_fields)
-    return isinstance(record, Intervention)
-
-
 def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     """The points of the value `name`, in order: each point of its step projected onto the value's own axes
     (`Labelled.axes`), each once, with the first point of the step it is the projection of; `[({}, <the step>)]`

@@ -62,7 +62,6 @@ from clab.plan import (
     kind_of,
     made_by,
     open_encodes,
-    own_read,
     points,
     produced,
     record_of,
@@ -492,9 +491,15 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     if spec.op == "contains" and not text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = featurizer_kind(cx, plan, path, spec.op, args)
-    if "featurizer" in args and not own_read(of):
-        fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
-             f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
+    if "featurizer" in args:        # a read's own value, at its site and in its layout: an entry's, or a load's whose
+        # record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such
+        # a load; not an op's over one
+        carried = next(iter(entries(of.source).values())) if isinstance(of, Load) and of.source is not None else None
+        if not (isinstance(of, Intervention) or carried is not None
+                and all(getattr(of, f) == getattr(carried, f) for f in Labelled.model_fields)):
+            fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} "
+                 f"acts on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry "
+                 "that reads")
     assert of.dims is not None
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
