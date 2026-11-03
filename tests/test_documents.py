@@ -113,7 +113,7 @@ def test_a_rows_numbers_do_not_depend_on_its_batch_companions(engines, kind):
     a = engine.execute(together, batch_size=BATCH_SIZE).results
     b = engine.execute(regrouped, batch_size=BATCH_SIZE).results
     for key in a:
-        assert torch.equal(a[key][order], b[key]), key
+        assert same(a[key][order], b[key]), key
 
 
 def test_the_suite_runs_at_the_thread_count_the_snapshots_were_made_with():
