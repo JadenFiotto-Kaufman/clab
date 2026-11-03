@@ -463,15 +463,6 @@ def own_keys(value: Tensor, record: dict) -> Tensor:
     return value.masked_fill(~expanded_row_indices(value, dim, keys["own"].to(value.device)), float("nan"))
 
 
-def back_in_batch_order(current: Tensor, new: Tensor, record: dict) -> Tensor:
-    """`new`, a selection in each row's own key order (`own_keys`), back in the batch's order over `current`: the
-    row's own keys from `new`, its padding's as `current` has them; the keys past the batch's width (`own_keys`'s,
-    up to the input's longest row) are no row's own, and go nowhere."""
-    dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
-    index, own = (expanded_row_indices(current, dim, keys[k][:, :n].to(current.device)) for k in ("index", "own"))
-    return current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
-
-
 def index_along(value: Tensor, dim: int, index: Tensor) -> Tensor:
     """`value` at `index` along `dim`, the same indices on every row."""
     return value.index_select(dim, index.to(value.device))
@@ -506,7 +497,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
     padded to one width; only the positions its `keep` marks are written (a write whose rows are equal has no
     `keep` and writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`own_keys`), to a
-    read and to a write's ops alike, and a write writes those alone (`back_in_batch_order`). A write of ids (`ids`,
+    read and to a write's ops alike, and a write writes those alone, its padding's keys as they were and the keys
+    past the batch's width (up to the input's longest row) nowhere, being no row's own. A write of ids (`ids`,
     `bind_schedule`'s) runs its ops in float32 and is refused by its entry where what would land is no id under the
     model's size (`check_written_ids`), before the model reads it. Every index, mask and result moves to the value's
     device, and a result to its dtype, where it meets the value: no move for the indices `bind_schedule` made, which are
@@ -549,7 +541,11 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
         new = new.to(device=current.device, dtype=current.dtype)
         for dim, index in record["select"].items():
             new = whole.index_copy(dim, index.to(current.device), new)
-        new = back_in_batch_order(current, new, record) if "keys" in record else new
+        if "keys" in record:        # back in the batch's order over `current`
+            dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
+            index, own = (expanded_row_indices(current, dim, keys[k][:, :n].to(current.device))
+                          for k in ("index", "own"))
+            new = current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
         new = new.to(device=site_value.device, dtype=site_value.dtype)
         if "keep" in record:
             keep = record["keep"].to(site_value.device)
