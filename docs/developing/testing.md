@@ -118,7 +118,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 4. The checkpoints and the dataset of the table above, fetched with hub access where the cache lacks them and cached under a hash of the table's rows, so that a new row fetches what is new, each repository's `main` set to its pinned revision as in a cache filled by hand (nnsight's meta load, the hooks engine's, reads the tokenizer at `main`); the gated checkpoint is not fetched, so the test of its tensor-parallel plan in `tests/test_tp.py` skips.
 5. The suite, offline, at the pinned 12 threads, which on the runner's 4 CPUs give the snapshots' bits (see [Running the suite](#running-the-suite)). `ATEN_CPU_CAPABILITY=avx2` holds torch's kernels to the AVX2 of the host that made the snapshots, in case the runner has AVX-512.
 
-`.github/workflows/gpu.yml` runs `tests/test_real.py` and `tests/test_device.py` on a self-hosted runner labelled `gpu`, with the commands of [GPU real-model tests](#gpu-real-model-tests). It is dispatched by hand and runs only once the repository variable `GPU_RUNNER` is `true`; until a runner exists, run the files by hand.
+`.github/workflows/gpu.yml` runs `tests/test_real.py`, `tests/test_device.py` and `tests/test_vllm.py` (which skips where the runner's python has no vLLM) on a self-hosted runner labelled `gpu`, with the commands of [GPU real-model tests](#gpu-real-model-tests). It is dispatched by hand and runs only once the repository variable `GPU_RUNNER` is `true`; until a runner exists, run the files by hand.
 
 ## Where a test goes
 

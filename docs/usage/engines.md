@@ -17,7 +17,7 @@ An engine loads the document's checkpoint and runs the compiled plan on it. clab
 | `nnterp` (default) | here, as nnterp's standardized model inside one nnsight session | every component nnterp serves on the checkpoint, the attention interior included | everything, by default |
 | `hooks` | here, as a plain `AutoModelForCausalLM` with forward hooks, no nnsight at run time | components at a module boundary only | a second implementation to cross-check a result |
 | `ndif` | on an NDIF server; the client holds a model with no weights | what nnterp serves on the server's model | models too large to load yourself |
-| `vllm` | here, in vLLM's worker, as nnterp's standardized model over nnsight's vLLM engine: one request per row, no padding, continuous batching | what nnterp serves on vLLM: the stream, the sublayers, the attention interior (its pattern read-only, in the prefill), the head at the last position; no gradient | many rows and long generations on a GPU, without fits or `grad` |
+| `vllm` | here, in vLLM's worker, as nnterp's standardized model over nnsight's vLLM engine: one request per row, no padding | what nnterp serves on vLLM: the stream, the sublayers, the attention interior (its pattern read-only), the head at the last position; no gradient | cross-checking nnterp against vLLM's kernels, or a run on the stack you serve from; slower than nnterp on the card measured ([below](#the-cost)) |
 
 ```text
 clab run documents/patching.json                                   # nnterp, on cpu
@@ -162,4 +162,17 @@ Also refused: a quantized `dtype` (`model.dtype 'nf4': the vllm engine cannot ho
 
 ### The cost
 
-A batch is one trace with a request per row, and the row's share of the schedule travels with its request: a read of the head (`logits`, `lm_head_output`) or of a generation's samples references the model's root, which nnsight ships with each request, about 9 ms a row; a read or write of a block's value ships the block's envoy by reference and costs far less. The worker's memory is vLLM's own: a step's `cost.memory` is null (`nvidia-smi` says), and `cost.tokens` counts the batch's padding, which the model never saw (`real` is what it fed). The run record's `devices` and `dtype` are the worker's; `clab show` prints `served: float32 on cuda:0`. `plan.run.options` records `tp`, `memory`, `max_len` and `invariant`.
+**On the one card measured, the vllm engine is slower than nnterp.** Steering Llama-3.1-8B in bfloat16 through 5,000 64-token prompts on one RTX A6000 (the wave-3 card: the direction added at block 16 at every position, the top-5 next tokens read at the last; then 32 greedy tokens):
+
+| version | forward, batch 64 | forward, batch 256 | generation, batch 64 | generation, batch 256 |
+|---|---|---|---|---|
+| clab, vllm engine | 95.7 s | 100.6 s | 236 s | 183 s |
+| clab, nnterp engine | 53.6 s | 51.2 s | 146 s | 99.6 s |
+| plain nnsight on vLLM, the steer as one `model.edit()` | 45.9 s | | 84.7 s | |
+| plain vLLM, no intervention | 41.5 s | | 76.2 s | |
+
+The numbers agree as two bfloat16 stacks do: against the nnterp engine the top token agrees on 98.4% of rows, the ordered top 5 on 82.6%, and 65.7% of the 32-token generations are identical (the same rates as plain nnsight on vLLM against transformers); batch 64 and batch 256 give the same bits; the null (the direction at scale 0) is exact in the top 5, their probabilities and the generations.
+
+Where the time goes, by construction of nnsight's vLLM engine: every row is a request, and a request's block is serialized with the request and runs in the worker on its own, once per step. A block that reads the head (`logits`, `lm_head_output`) or a generation's samples references the model's root, which travels by value with each request, about 9 ms a row (nnsight ships a block's layer envoys by reference, the root by value): some 50 s of the 96 s forward. At each decode step every request's block runs `visit_site` on its own row, a millisecond or so a request a step, of which about 40% is clab's block and 60% nnsight's per-request path against its `edit()` path (measured on Llama-3.2-1B: 64 rows by 32 tokens take 0.52 s with no block, 0.87 s as an edit, 1.12 s as one block per request, 1.55 s through this engine); the nnterp engine does each step's work once for the whole batch. So this engine pays per row and per step where the others pay per batch, and no batch size recovers it. What would change the picture is an nnsight that ships the root by reference, and running a batch as one `model.edit()`, both open items; until then run a document on vllm to cross-check the nnterp engine with another stack's kernels, or where vLLM is the stack you serve from.
+
+The worker's memory is vLLM's own: a step's `cost.memory` is null (`nvidia-smi` says), and `cost.tokens` counts the batch's padding, which the model never saw (`real` is what it fed). The run record's `devices` and `dtype` are the worker's; `clab show` prints `served: float32 on cuda:0`. `plan.run.options` records `tp`, `memory`, `max_len` and `invariant`.
