@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 def shared(plan: Plan) -> None:
     """Who serves whom, as compile decides it: of the points of a forward or generate step that agree on the
     forward's axes (`axes`, which `compile.forward` wrote), the first runs the forward, and each other's `schedule`
-    is `serving`, that point's coordinates, alone. A fit body's step is one point per fit point, which runs its
-    own."""
+    is `serving`, that point's coordinates, alone. A fit body's step, and a fit's eval step, is one point per fit
+    point, which runs its own."""
     for entry in plan.steps.values():
         first: dict[tuple, Forward] = {}
         for step in points(entry):
