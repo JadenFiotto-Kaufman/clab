@@ -112,10 +112,10 @@ def noise(of: Tensor, scale: Value, dims: list[str], seed: int = 0, rows: Tensor
     device. So batch size, sweep point and forward call never change it, no two rows or positions share one, a write
     across layers draws the same bits at each of them (as one entry per layer with one seed does), and a document draws
     the same bits on any device. A value with no rows is one draw from `seed`."""
-    lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     scale = torch.as_tensor(scale, device=of.device)
-    if rows is None or not lead:
+    if rows is None:
         return of + scale * torch.randn(of.shape, generator=seeded(seed)).to(device=of.device, dtype=of.dtype)
+    lead = [i for i, a in enumerate(dims) if a in ("rows", "pos")]
     shape = [of.shape[i] for i in lead]
     rest = [n for i, n in enumerate(of.shape) if i not in lead]
     draws = []
