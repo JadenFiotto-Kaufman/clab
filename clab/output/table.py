@@ -10,7 +10,8 @@ from clab import ops
 from clab.compile import materialized, positions
 from clab.format import data
 from clab.format.sweeps import agreeing, labelled, projected
-from clab.plan import Intervention, Labelled, Plan, arguments, body_view, by_point, entries, entry_of, points, projections, record_of, walk
+from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, points,
+                        projections, record_of)
 
 # The column a value's example and token axes are tabled under.
 COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
@@ -118,23 +119,21 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
-    if step.kind == "fit":
-        if member.partition(".")[0] in ("history", *step.train):
-            dims = record_of(plan.steps, name, {}).dims or []
-            if member in step.train:
-                raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
-                                 "from plan.results")
-            return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
-                    for row in elements(value, dims, None)]
-        return rows_of(evaluated(plan, thing, name), member.partition(".")[2], columns)
+    if step.kind == "fit" and member.partition(".")[0] in ("history", *step.train):
+        dims = record_of(plan.steps, name, {}).dims or []
+        if member in step.train:
+            raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
+                             "from plan.results")
+        return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
+                for row in elements(value, dims, None)]
     out = []
     for (_, p), (at, value) in zip(projections(plan, name), by_point(plan, name)):
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
         if isinstance(value, dict) and "rows" not in dims:
-            what = (f"a bundle (a {step.op}'s value)" if ops.DECLARED[step.op]["bundle"] else
-                    f"laid out {dims}, a {step.op} over a value with no rows axis, its ids and probabilities one list each"
-                    ) if step.kind == "op" else f"laid out {dims}"
+            what = (f"a bundle (a {record.op}'s value)" if ops.DECLARED[record.op]["bundle"] else
+                    f"laid out {dims}, a {record.op} over a value with no rows axis, its ids and probabilities one "
+                    "list each") if isinstance(record, OpStep) else f"laid out {dims}"
             raise ValueError(f"{name!r} has no rows to table: it is {what}; read it from plan.results")
         examples = materialized(plan, record.dataset) if record.dataset else []
         place = located(plan, record, p.at) if record.read else None
@@ -150,37 +149,9 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
 
 
 def dataset_of(plan: Plan, name: str) -> str | None:
-    """The dataset a saved value has a row per example of, if any, as its record says (a member of a fit's named
-    eval: the one its body's step read under that eval)."""
+    """The dataset a saved value has a row per example of, if any, as its record says."""
     record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
     return record.dataset if "rows" in (record.dims or []) else None
-
-
-def evaluated(plan: Plan, fit: str, name: str) -> Plan:
-    """The plan as the fit's named eval saw it, for tabling its member `name` (`<fit>.<eval>.<member>`): its
-    body's view under that eval's substitution, the run record of the body's inputs under the names the body
-    gives them, and the body's records with their positions under those names too (the eval's dataset read as
-    the body's)."""
-    label, _, member = name.partition(".")[2].partition(".")
-    swap = points(plan.steps[fit])[0].eval[label]
-    assert plan.run is not None
-    tokens = dict(plan.run.tokens)
-    for _, step in walk(points(plan.steps[fit])[0].steps):
-        if step.kind in ("forward", "generate") and data.input_name(step.input, swap) in plan.run.tokens:
-            tokens[data.input_name(step.input)] = plan.run.tokens[data.input_name(step.input, swap)]
-    view = body_view(plan, fit, swap=swap)
-
-    def under(step: Any) -> Any:
-        if step.kind not in ("forward", "generate"):
-            return step
-        read = swap.get(step.dataset, step.dataset)
-        return step.model_copy(update={"interventions": {
-            k: e.model_copy(update={"positions": {step.dataset: e.positions[read]} if read in e.positions else {}})
-            for k, e in entries(step).items()}})
-    body = {n: [under(p) for p in s] if isinstance(s, list) else under(s)
-            for n, s in view.steps.items() if n in points(plan.steps[fit])[0].steps}
-    return view.model_copy(update={"steps": {**view.steps, **body}, "run": plan.run.model_copy(update={"tokens": tokens}),
-                                   "results": {member: plan.results[name]}, "saves": [member]})
 
 
 def elements(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
@@ -263,13 +234,13 @@ def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
     arguments name, back to the read (a load's, the one it carries; none where it carries none), then the read's
     input columns first and the columns its entry's ops name."""
     used: list[str] = []
-    steps = plan.steps
     while True:
         thing, _, member = name.partition(".")
-        step = agreeing(steps[thing], at)
-        if step.kind == "fit":
-            steps, name, at = step.steps, member.partition(".")[2], step.at
-            continue
+        step = agreeing(plan.steps[thing], at)
+        if step.kind == "fit":              # an eval's member: its eval step's
+            label, _, rest = member.partition(".")
+            thing, _, member = rest.partition(".")
+            step = step.evals[label][thing]
         if step.kind == "op":
             used += columns(plan, arguments(step))
             name = step.of
@@ -294,7 +265,7 @@ def located(plan: Plan, record: Labelled, at: dict[str, int]) -> dict[str, Any]:
     producer, _ = entry_of(plan.steps, record.read, at)
     read = cast(Intervention, record_of(plan.steps, record.read, at))
     prompt = plan.run.tokens[data.input_name(producer.input)]
-    said = plan.run.tokens.get(record.read.partition(".")[0]) if producer.kind == "generate" else None
+    said = plan.run.tokens.get(record.read.rpartition(".")[0]) if producer.kind == "generate" else None
     if said is not None and projected(producer.at, cast(Labelled, producer).axes):
         said = said[labelled(plan, projected(producer.at, cast(Labelled, producer).axes))]
     return {"prompt": prompt, "tokens": [p + s for p, s in zip(prompt, said)] if said else prompt,

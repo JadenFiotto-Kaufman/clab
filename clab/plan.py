@@ -688,8 +688,7 @@ class Intervention(Labelled):
     positions: dict[str, list] = derived({}, "the positions the entry resolved to, per row (as `pos` counts them: an "
                                              "index into the row's prompt tokens, BOS first, then its generated ones; "
                                              "`alignment_missing` for a row it does not reach), under the dataset whose "
-                                             "rows they are (a fit body's entry has them under each dataset an eval "
-                                             "reads it over); the prefill's set by preflight, a generation's decode "
+                                             "rows they are; the prefill's set by preflight, a generation's decode "
                                              "calls' by the run")
 
     @field_validator("pos", mode="before")
@@ -1467,16 +1466,10 @@ def held_rows(plan: Plan, name: str) -> list[dict]:
     return rows
 
 
-def body_view(plan: Plan, fit: str, at: dict[str, int] | None = None, swap: dict[str, str] | None = None) -> Plan:
-    """The plan as fit `fit`'s body sees it: the body's steps beside the root's, which they shadow (the body
-    at the fit's point `at`; without one, a list of each step's points when the fit is swept), and each
-    dataset a substitution `swap` maps read under the body's name for it."""
-    entry = plan.steps[fit]
-    fits = [agreeing(entry, at)] if at is not None else points(entry)
-    one = at is not None or not isinstance(entry, list)
-    steps = {n: fits[0].steps[n] if one else [p.steps[n] for p in fits] for n in fits[0].steps}
-    return plan.model_copy(update={"steps": {**plan.steps, **steps},
-                                   "data": {**plan.data, **{a: plan.data[b] for a, b in (swap or {}).items()}}})
+def body_view(plan: Plan, fit: str, at: dict[str, int]) -> Plan:
+    """The plan as fit `fit`'s body sees it at the fit's point `at`: the body's steps beside the root's, which
+    they shadow."""
+    return plan.model_copy(update={"steps": {**plan.steps, **agreeing(plan.steps[fit], at).steps}})
 
 
 # -- an entry's brackets ---------------------------------------------------------------------------------

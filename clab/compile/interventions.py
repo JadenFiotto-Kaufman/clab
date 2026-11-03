@@ -271,13 +271,12 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
             for axis, s in (select or {}).items()}
 
 
-def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
-    """The positions per row the read `read` holds at `at`, under the dataset the run reads it over (`swap`, a
-    fit body's substitution), where they are known: the prefill's before any forward, a generation's decode
-    calls' once it ran; else None."""
+def resolved(steps: dict, read: str, at: dict[str, int]) -> list | None:
+    """The positions per row the read `read` holds at `at`, under its dataset, where they are known: the
+    prefill's before any forward, a generation's decode calls' once it ran; else None."""
     record = record_of(steps, read, at)
     assert isinstance(record, Intervention), f"{read} is no read"
-    return record.positions.get(swap.get(cast(str, record.dataset), cast(str, record.dataset)))
+    return record.positions.get(cast(str, record.dataset))
 
 
 # -- what preflight checks of the entries against the model ---------------------------------------------
@@ -326,7 +325,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
         if same and (adapter and key == "with" or None in (theirs.width, record.width)):
-            ours, at = (resolved(plan.steps, n, step.at, found.swap) or [] for n in (where, value))
+            ours, at = (resolved(plan.steps, n, step.at) or [] for n in (where, value))
             for row, (a, b) in enumerate(zip(at, ours)):
                 if adapter and key == "with" and a != b:
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
@@ -340,7 +339,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                                      "forward without one width on every row is read at as many on each")
         producer_input, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer_input != consumer:
-            for row, (a, b) in enumerate(zip(encoded(found, producer_input), encoded(found, consumer))):
+            for row, (a, b) in enumerate(zip(found.inputs[producer_input]["rows"], found.inputs[consumer]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer_input}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
@@ -348,13 +347,6 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         written = positions.parse(record.pos)
         if producer_input != consumer and written["scope"] is None and positions.parse(read.pos) == written:
             windowed(engine, plan, where, value, producer_input, consumer, found, step.at)
-
-
-def encoded(found: Found, input: str) -> list[dict]:
-    """An input's encoded rows as preflight found them: the scope's own; in a fit's body, for a value the body
-    takes from a step before the fit, the root's (`Found.root`), which a body's own `inputs` do not hold. No eval
-    reads the dataset of such a value as another, so the root's rows are the ones it was read on."""
-    return (found.inputs[input] if input in found.inputs else found.root[input])["rows"]
 
 
 def unreached(where: str, value: str, row: int, lands: list[int]) -> str:
@@ -372,11 +364,11 @@ def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, 
     a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
     from the start within the tokens both prompts begin with alike, or from the end within those they end with
     alike (the first token past either counted in); any other pair may be two different tokens and is refused."""
-    ours, theirs = (resolved(plan.steps, n, at, found.swap) for n in (where, value))
+    ours, theirs = (resolved(plan.steps, n, at) for n in (where, value))
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
     texts = vocabulary(engine.tokenizer)
-    for row, (a, b) in enumerate(zip(encoded(found, producer), encoded(found, consumer))):
+    for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
             continue

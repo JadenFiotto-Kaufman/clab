@@ -122,12 +122,9 @@ def resolved(filled: Plan) -> list[list[str]]:
 
 def placed(step: str, p: Any) -> list[tuple[str, list | None]]:
     """Each entry of step `step`'s point `p` by name with its positions per row under the step's dataset (a load's,
-    the read it carries); a fit body's under each eval, read as the eval reads it."""
-    if p.kind != "fit":
-        host = p.source if p.kind == "load" else p
-        return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(host).items()]
-    return [(f"{step}.{label}.{n}.{k}", e.positions.get(swap.get(s.dataset, s.dataset)))
-            for label, swap in p.eval.items() for n, s in p.steps.items() for k, e in entries(s).items()]
+    the read it carries); a fit's none, its eval steps' their own."""
+    host = p.source if p.kind == "load" else p
+    return [(f"{step}.{k}", e.positions.get(p.dataset)) for k, e in entries(host).items()]
 
 
 # The most rows, and the most positions in a row, that `show` prints one by one; past it, the first three and the
