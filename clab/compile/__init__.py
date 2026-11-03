@@ -60,6 +60,7 @@ from clab.plan import (
     gradient_of,
     kind_of,
     made_by,
+    open_encodes,
     own_read,
     points,
     produced,
@@ -712,14 +713,8 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            reads = []                      # the body's open encodes of it: entries, which the run gathers, and steps
-            for n, s in body.items():
-                if isinstance(s, OpStep) and s.op == "encode" and arguments(s)["featurizer"] == own[thing]:
-                    reads.append(n)
-                for k, e in entries(s).items():
-                    if any(o.op == "encode" and arguments(o)["featurizer"] == own[thing] for o in gathers(e)):
-                        cx.used.add(f"{n}.{k}")
-                        reads.append(f"{n}.{k}")
+            reads = open_encodes(body, own[thing])
+            cx.used.update(r for r in reads if "." in r)        # the entries among them, which the run gathers
             if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not reads:
                 fail(f"{path}.objective.{term}", f"{scalar!r} is over the coordinates the body reads of {thing!r}, an "
                      f"encode no decode closes (an entry whose ops end in {{'op': 'encode', 'featurizer': {thing!r}}}, "

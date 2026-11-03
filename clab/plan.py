@@ -721,6 +721,16 @@ def gathers(entry: Intervention) -> list[Op]:
     return entry.ops[last + 1:]
 
 
+def open_encodes(steps: dict[str, Any], featurizer: str) -> list[str]:
+    """The steps and entries of `steps` (a fit's body) that read `featurizer`'s coordinates with an encode no decode
+    closes, by name: an encode step, and an entry whose ops hold one after its last edit (`gathers`). What they
+    encode is what the body shows the featurizer (`Kind.seen`), which an sae's scalars are over."""
+    def encodes(o: Any) -> bool:
+        return o.op == "encode" and arguments(o)["featurizer"] == featurizer
+    return [n for n, s in steps.items() if isinstance(s, OpStep) and encodes(s)] + \
+        [f"{n}.{k}" for n, s in steps.items() for k, e in entries(s).items() if any(map(encodes, gathers(e)))]
+
+
 class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
     `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
@@ -958,8 +968,9 @@ class Fit(Record):
     dtype. Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
     optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
     After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
-    op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
-    `<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+    op's mean and each trained featurizer's scalar the body computes (an sae's only over an encode of it no decode
+    closes) is that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and
+    `early_stop` is judged on it. The best epoch's featurizer tensors
     (without `early_stop`, the last's) are restored, and the fit ends with them scoring (gates hard). Each named
     substitution of `eval` is the body once more as ordinary steps after the fit (`evals`), in listed order, each
     over every row of its dataset: `{"held_out": {"train": "test"}, "train": {}}` is the body with dataset `train`
@@ -1287,7 +1298,7 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
     """Every value `steps` produce, by name, in order: an op step's or a generation's own, each entry's
     `<step>.<entry>`, and a fit's members (`<fit>.history.<term>` and its eval members, `<fit>.<eval>.<member>`);
     not a trained featurizer, which is no value. `declared` are the plan's featurizers, whose kinds say the scalars
-    a fit's history holds."""
+    a fit's history holds: those its body computes (an sae's over its `open_encodes`)."""
     out: list[str] = []
     for name, entry in steps.items():
         step = points(entry)[0]
@@ -1296,8 +1307,9 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
             out += [f"{name}.{k}" for k in entries(step)]
             continue
         out += [f"{name}.history.{n}" for n, s in step.steps.items() if s.kind == "op"]
-        out += [f"{name}.history.{f}.{scalar}" for f in step.train
-                for scalar in featurizers.KINDS[points(declared[f])[0].kind].scalars]
+        kinds = {f: featurizers.KINDS[points(declared[f])[0].kind] for f in step.train}
+        out += [f"{name}.history.{f}.{scalar}" for f in step.train for scalar in kinds[f].scalars
+                if scalar not in kinds[f].over_encodes or open_encodes(step.steps, f"{name}.{f}")]
         out += [f"{name}.{label}.{member}" for label in step.eval for member in produced(step.steps, declared)]
     return out
 

@@ -14,7 +14,7 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing_point, body_view, held_rows
+from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing_point, body_view, held_rows, open_encodes
 from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:
@@ -46,7 +46,9 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     # refuses one).
     n = len(held_rows(plan, min(s.dataset for s in cast("dict[str, Forward | OpStep]", step.steps).values()
                                 if s.dataset is not None)))
-    scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
+    # The scalars the body computes: an sae's are over its open encodes, which a body that applies it alone has none of.
+    scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars
+               if sc not in inst.over_encodes or open_encodes(step.steps, f"{name}.{f}")]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
     for epoch in range(epochs):
