@@ -105,8 +105,9 @@ class NnterpEngine:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
             torch.manual_seed(seed[0])
+        calls = calls_model(plan.steps)     # decided here: the session's body names no function a server lacks
         with self.model.session(remote=self.remote):
-            if calls_model(plan.steps):
+            if calls:
                 self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run, "steps": {
@@ -140,8 +141,8 @@ class NnterpEngine:
         `tp` the engine measured it at load, on a meta shell). Each is a no-op once done."""
         if not self.model.dispatched:      # a key the loader rejects is refused by name here, as at a load's
             build(self.spec, self.name, lambda extra: self.model.dispatch())
-        if self.remote is not True:
-            self.model.requires_grad_(False)    # the weights dispatch loaded, which the shell's freeze did not reach
+            if self.remote is not True:
+                self.model.requires_grad_(False)    # the weights it loaded, which the shell's freeze did not reach
         reasons = standard.unserved(self.model)
         for c in [c for c in COMPONENTS if c in standard.mixed()]:
             for layer in served(c, reasons[c], self.model.num_layers):
