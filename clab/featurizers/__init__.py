@@ -6,14 +6,14 @@ and `header` (the tensors and header of the bundle its `file_path` names) suppli
 `labels` (its class list), and for a gate over named axes `kept` (the indices its units keep on each of them).
 An instance holds plain tensors, never an `nn.Module`, made where the model is: a declared featurizer before the
 run's first step, one a fit trains at the fit's start. It is drawn from its `seed` (else the seed of the fit that
-trains it, else 0), or loaded from its bundle, which compile reads into the plan and checks key by key against the
-document; a loaded one is fixed. Three ops reach it: `encode` gives
+trains it, else 0), or loaded from its bundle, which compile reads into the plan; a loaded one is fixed. Three
+ops reach it: `encode` gives
 its coordinates of a value `h` (the last axis becomes the kind's axis: `features`, or a probe's `classes`),
 `decode` writes a change of them back into `h` as a delta (`replace`), so an op between them that changes
 nothing changes nothing to the bit, and a sparse autoencoder's error term is kept exactly; and `apply` gives
 its version of `h` in `h`'s own layout (a subspace's projection, a dictionary's reconstruction, a gate's
-masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit trains an
-instance's `trains` tensors; its objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
+masked value or, given `with`, its interpolation toward that value, an adapter's adapted value). A fit's
+objective may name a featurizer's scalar as `<featurizer>.<scalar>` (a gate's
 `mask` is the mean of its soft mask; an sae's `reconstruction` and `l1` are over the coordinates the body read of
 it in that run of the body, its `encode`s no `decode` closes, which the instance keeps while a fit trains it). Its
 math runs on the value's device and dtype, with autocast off: a model served in bfloat16 under autocast leaves a
@@ -28,24 +28,20 @@ one is checked against it key by key: the tensors and the kind, its fields and t
 the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
 the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
 header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
-file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope), whose shapes are
-checked against each other and the site's width: nothing in it says what model or site it was made at, so the
-document states the layer, which every use is checked against.
+file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
 Each kind is one class, in a module of its own, registered under its name in lower case. It declares as class
 attributes what its bundle holds (`saves`), what a fit trains (`trains`), the axis its coordinates are on
 (`axis`), the fields its bundle's header records (`header`), the fields one drawn without a `file_path` needs
-(`drawn`), what a header field left unstated is where the kind rather than its signature decides it
-(`unstated`: an sae's `activation` and `centered`, a drawn dictionary's unless the document says, which a
-published file must state), the scalars a fit's objective may name (`scalars`; those of them over what the
-body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
-fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s
-`with` is its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is
-elementwise (`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind
-loses its whole vector; its constructor makes an
-instance. The ops it serves are its methods `encode(h)`, `replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and
-`apply(h, ...)`, a kind defining only those it has; the rest is the protocol `Kind` declares, with a default for
-what a kind need not have.
+(`drawn`), what a header field left unstated is where the kind rather than its signature decides it (`unstated`:
+an sae's `activation` and `centered`), the scalars a fit's objective may name (`scalars`; those of them over what
+the body's encodes of it saw, `over_encodes`, which compile refuses on a body with no open encode of it) and the
+fields that count directions of the value, so are at most its width (`counts`), whether its `apply`'s `with` is
+its input (`adapts`: an adapter's) or an operand of the value (a gate's), and whether its `apply` is elementwise
+(`elementwise`: a gate's), which keeps a missing element of the value missing where any other kind loses its
+whole vector; its constructor makes an instance. The ops it serves are its methods `encode(h)`,
+`replace(h, z, new)` (what `decode` runs, so a kind serves `decode` when it has both) and `apply(h, ...)`, a kind
+defining only those it has; the rest is the protocol `Kind` declares, with a default for what a kind need not have.
 """
 
 import functools
