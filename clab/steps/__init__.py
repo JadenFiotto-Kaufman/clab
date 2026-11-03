@@ -122,9 +122,14 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fin
     plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
     for name in (n for n in plan.saves if made_by(plan, n) in done):
+        thing, _, member = name.partition(".")
+        step = points(plan.steps[thing])[0]
         ats = [at for at, _ in projections(plan, name)]
-        plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(saved(plan, state, name, at)) for at in ats}
-                              if ats != [{}] else detached_cpu_clone(saved(plan, state, name, {})))
+        values = [lookup(state, name, at) for at in ats]
+        if step.kind == "fit" and member in step.train:
+            values = [v.tensors() for v in values]
+        plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(v) for at, v in zip(ats, values)}
+                              if ats != [{}] else detached_cpu_clone(values[0]))
     plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
@@ -205,13 +210,6 @@ def dtypes_and_devices(model: Parameterized) -> tuple[list[str], list[str]]:
     for parameter in model.parameters():
         dtypes[str(parameter.dtype).removeprefix("torch.")] = devices[str(parameter.device)] = None
     return list(dtypes), list(devices)
-
-
-def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
-    thing, _, member = name.partition(".")
-    step = points(plan.steps[thing])[0]
-    value = lookup(state, name, at)
-    return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
 def state_at_start(plan: Plan, device: str) -> ChainMap:
