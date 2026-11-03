@@ -306,17 +306,21 @@ def read_positions(steps: dict, read: str, at: dict[str, int]) -> list | None:
 
 def refuse_unserved(engine: Engine, plan: Plan) -> None:
     """Every component the plan reads or writes that the engine cannot serve, by name (`engine.unserved()` maps
-    a component to None, why not, or why not per layer)."""
+    a component to None, why not, or why not per layer); then a write to a component the engine serves for reads
+    alone (`engine.unwritable`), by the reason the engine declares."""
     reasons = engine.unserved()
     for name, step in walk(plan.steps):
         for key, record in entries(step).items():
-            reason, layers = reasons.get(record.site.component), record.site.layers
+            component = record.site.component
+            reason, layers = reasons.get(component), record.site.layers
             if isinstance(reason, dict):
                 named = picked(f"{name}.{key}", layers, engine.sizes()["num_layers"])
                 reason = next((r for layer, r in reason.items() if r and layer in named), None)
             if reason:
-                raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {record.site.component}: "
-                                 f"{reason}")
+                raise ValueError(f"{name}.{key}: the {engine.name} engine does not serve {component}: {reason}")
+            if writes(record) and component in engine.unwritable:
+                raise ValueError(f"{name}.{key}: the {engine.name} engine does not write {component}: "
+                                 f"{engine.unwritable[component]}")
 
 
 def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward | Generate, record: Intervention,

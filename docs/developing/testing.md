@@ -86,7 +86,7 @@ uv pip install --python <venv>/bin/python --no-deps -e .
 CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest tests/test_real.py -q
 ```
 
-`tests/test_device.py`, the device test in `tests/test_featurizers.py`, the CUDA and Llama-3.2-1B cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py` also need CUDA devices, and skip under the suite's default of none. The rest of `tests/test_tp.py` starts its two ranks with torchrun on the CPU, in the suite; the tiny-Llama cases of `tests/test_quantized.py` (`nf4`, `fp4`, `int8`) run on the CPU with the dev group's `bitsandbytes`.
+`tests/test_device.py`, the device test in `tests/test_featurizers.py`, the CUDA and Llama-3.2-1B cases of `tests/test_quantized.py` and the two-GPU cases of `tests/test_tp.py` also need CUDA devices, and skip under the suite's default of none. `tests/test_vllm.py` needs a CUDA device, `vllm` importable beside nnsight and nnterp, and `HuggingFaceTB/SmolLM2-135M-Instruct` at the revision it pins in the cache; it runs the vllm engine against plain nnsight on `StandardizedVLLM` to the bit, its nulls, repeats, generation, readouts, refusals and run record, and the nnterp engine's numbers to vLLM's rounding, with the same command as above, `tests/test_vllm.py` in place of `tests/test_real.py`, from a venv that has vLLM; about two minutes, vLLM's start included. The rest of `tests/test_tp.py` starts its two ranks with torchrun on the CPU, in the suite; the tiny-Llama cases of `tests/test_quantized.py` (`nf4`, `fp4`, `int8`) run on the CPU with the dev group's `bitsandbytes`.
 
 ## The FORMAT drift test
 
@@ -147,6 +147,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_quantized.py` | quantized `dtype`s on both engines |
 | `tests/test_tp.py` | the nnterp engine's `tp` under torchrun: its refusals, what every rank holds whole, rank 0 writing |
 | `tests/test_device.py` | on a GPU, every tensor clab builds meets an activation on its device |
+| `tests/test_vllm.py` | on a GPU with vLLM, the vllm engine is plain nnsight on `StandardizedVLLM` to the bit, exact in its nulls and repeats, and refuses what vLLM cannot do by name |
 | `tests/test_cli.py` | `clab show` and `clab table`, and what `clab run` prints and refuses |
 | `tests/test_table.py` | `table`: values joined on the keys they share, and what has no rows to table |
 

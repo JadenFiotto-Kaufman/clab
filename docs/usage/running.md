@@ -24,7 +24,7 @@ It prints each file it wrote with the step that made it and the value's shape (a
 
 Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says the generation flag `pad_token_id` is not valid and may be ignored. It can be: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
 
-`--engine`, `--device` and `-o key=value` choose where and how the model runs, `--batch-size` and `--padding` how its rows are batched ([below](#batch-size-and-reproducibility)), and `--readout` where a forward computes the logits it reads ([below](#the-head-at-the-positions-read)): `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
+`--engine`, `--device` and `-o key=value` choose where and how the model runs, `--batch-size` and `--padding` how its rows are batched ([below](#batch-size-and-reproducibility)), and `--readout` where a forward computes the logits it reads ([below](#the-head-at-the-positions-read)): `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server, `--engine vllm` for vLLM's worker on a GPU ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
 ## Check before you run
 

@@ -151,6 +151,18 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                 if positions.prefill_only(pos) or step.kind == "forward":    # a forward's one call is its prefill
                     row_positions = prefill_positions(where, record, step, rows, encoded, tokenizer, alike)
                     record.positions = {**record.positions, step.dataset: row_positions}
+                    # Served at the row's last position alone (the vllm engine's head); a read the run's readout
+                    # `at-reads` moves to the last block's output is the readout's to serve (`read_out_at_reads`),
+                    # and one it leaves at the head the engine refuses when it meets it.
+                    why = engine.last_only.get(site.component)
+                    if why and not (plan.run.readout == "at-reads" and not writes(record)):
+                        for row, e in zip(row_positions, encoded):
+                            if isinstance(row, list) and row != [len(e["ids"]) - 1]:
+                                raise ValueError(f"{where}: the {engine.name} engine serves {site.component} at the "
+                                                 f"prompt's last position alone ({why}); this entry meets "
+                                                 f"position{'s' if len(row) != 1 else ''} {row} on a row of "
+                                                 f"{len(e['ids'])} tokens: name pos -1, or read layer_output at the "
+                                                 "last block and apply the readout op")
                     counts = {len(p) if isinstance(p, list) else 0 for p in row_positions}  # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
                 probe = None                        # past a probe's encode, a column names its classes

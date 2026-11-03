@@ -83,7 +83,7 @@ Load the model with eager attention, in the `model` block, as `documents/attenti
 "model": {"key": "...", "revision": "...", "dtype": "float32", "attn_implementation": "eager"}
 ```
 
-`attention_premix`, the output projection's input, needs no eager; on the corpus Llama it equals `attention_head_outputs` to the bit. Under eager the hooks engine still refuses these six, since it reaches module boundaries only; `attention_premix` and the MLP's interior it serves ([engines.md](engines.md#cross-checking-with-hooks)).
+`attention_premix`, the output projection's input, needs no eager; on the corpus Llama it equals `attention_head_outputs` to the bit. Under eager the hooks engine still refuses these six, since it reaches module boundaries only; `attention_premix` and the MLP's interior it serves ([engines.md](engines.md#cross-checking-with-hooks)). The vllm engine needs no eager either: vLLM's attention backend is its own, the queries, keys, values and head outputs are what goes into and comes out of its kernel, and the scores and the pattern are recomputed from the queries and keys, read-only and in the prefill alone ([engines.md](engines.md#running-on-vllm)).
 
 ## The layout of a site's value
 

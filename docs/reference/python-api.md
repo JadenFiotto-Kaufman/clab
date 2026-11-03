@@ -69,9 +69,9 @@ engine = load(name, model, device="cpu", **options)
 filled = engine.execute(plan, batch_size=8, padding="dataset", readout="full")
 ```
 
-`ENGINES` maps each registered engine's name to its class: `nnterp`, `hooks`, `ndif`.
+`ENGINES` maps each registered engine's name to its class: `nnterp`, `hooks`, `ndif`, `vllm`.
 
-`load` builds engine `name` for `model`, a plan's model block (`compiled.model`), on `device`, with the engine's own `options`, and loads the checkpoint. It refuses, before anything loads, an unknown engine (`unknown engine 'bogus'; valid: nnterp, hooks, ndif`), an option the engine does not declare, and one of the wrong type (`remote: 'yes' is not one of True, 'local'`).
+`load` builds engine `name` for `model`, a plan's model block (`compiled.model`), on `device`, with the engine's own `options`, and loads the checkpoint. It refuses, before anything loads, an unknown engine (`unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm`), an option the engine does not declare, and one of the wrong type (`remote: 'yes' is not one of True, 'local'`).
 
 | engine attribute | holds |
 |---|---|

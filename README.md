@@ -130,7 +130,7 @@ Across techniques:
 - [Generation](docs/usage/generate.md): a `generate` step reads and writes at the prefill and at each decode call.
 - [Fits](docs/usage/fit.md): a `fit` step trains featurizers inside the run, through the frozen model.
 - [Bundles](docs/usage/bundles.md): a trained featurizer is saved as a file that another document loads, its header checked against that document before anything runs.
-- [Engines](docs/usage/engines.md): `nnterp` (the default), `hooks` (plain transformers with forward hooks, to cross-check) and `ndif`.
+- [Engines](docs/usage/engines.md): `nnterp` (the default), `hooks` (plain transformers with forward hooks, to cross-check), `ndif` and `vllm` (vLLM's worker, one request per row, without gradients).
 - [Quantized and sharded models](docs/usage/engines.md#quantized-and-sharded-models): a `model.dtype` of `nf4`, `fp4`, `int8` or `fp8`, and `-o tp=N` under torchrun to shard a model over N ranks.
 
 ## Install

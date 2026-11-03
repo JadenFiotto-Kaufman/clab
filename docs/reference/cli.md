@@ -23,13 +23,13 @@ Compiles the document, loads the engine, runs every step, and writes the output 
 | argument | default | meaning |
 |---|---|---|
 | `DOCUMENT` | required | the document's JSON file. Data paths and bundles resolve against the nearest directory above it that holds `data/` |
-| `--engine` | `nnterp` | the engine: `nnterp`, `hooks`, `ndif`, or one registered beside them ([engines.md](../usage/engines.md)); another name is refused by name |
+| `--engine` | `nnterp` | the engine: `nnterp`, `hooks`, `ndif`, `vllm`, or one registered beside them ([engines.md](../usage/engines.md)); another name is refused by name |
 | `--out` | `out/<document file name>` in the current directory | the output directory, created when missing and never cleared |
 | `--batch-size` | `8` | how many rows go through the model per forward or generation call; a positive integer |
 | `--padding` | `dataset` | how each batch is padded: `dataset`, to the input's longest row, the exact run; `batch`, to its own longest row; `sorted`, the rows batched longest first, each batch to its own longest row, every value put back in row order ([running.md](../usage/running.md#batch-size-and-reproducibility)) |
 | `--readout` | `full` | how a forward computes the logits it reads: `full`, the model's head over every position, the exact run; `at-reads`, a forward's reads of `logits` that name fewer than every position read out from the last block's output at those positions alone ([running.md](../usage/running.md#the-head-at-the-positions-read)) |
-| `--device` | `cpu` | where the engine places the model: one torch device (`cuda:0`) or a device map transformers computes (`auto`, `balanced`, ...); under `-o tp`, `cuda` or `cpu`. Under `--engine ndif` with a real server the server places it, and any value but `cpu` is refused |
-| `-o KEY=VALUE` | none | one of the engine's own options, repeatable. `VALUE` is read as JSON (`true`, `2`, `{"a": 1}`) and otherwise as text (`local`). `clab describe engines` lists each engine's options: `nnterp` has `tp`, `ndif` has `remote`, `hooks` has none |
+| `--device` | the engine's own: `cpu`, or `cuda:0` under `--engine vllm` | where the engine places the model: one torch device (`cuda:0`) or a device map transformers computes (`auto`, `balanced`, ...); under `-o tp`, `cuda` or `cpu`. Under `--engine ndif` with a real server the server places it, and any value but `cpu` is refused; under `--engine vllm` it is `cuda:0`, the first of the GPUs vLLM runs on, and any other is refused |
+| `-o KEY=VALUE` | none | one of the engine's own options, repeatable. `VALUE` is read as JSON (`true`, `2`, `{"a": 1}`) and otherwise as text (`local`). `clab describe engines` lists each engine's options: `nnterp` has `tp`, `ndif` has `remote`, `vllm` has `tp`, `memory`, `max_len` and `invariant`, `hooks` has none |
 
 `-o tp=N` shards the model over N ranks, one process each, which torchrun starts; every rank runs the plan and rank 0 alone writes the output and prints ([engines.md](../usage/engines.md#quantized-and-sharded-models)):
 
@@ -51,7 +51,7 @@ clab: -o batch_size: it is given as --batch-size
 clab: -o padding: it is given as --padding
 clab: -o readout: it is given as --readout
 clab: -o 'foo': an option is KEY=VALUE
-clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif
+clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif, vllm
 clab: the nnterp engine takes no 'foo'; its options: tp (where the model runs is `device`, given as --device)
 clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts: `torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; this process is not one of them (WORLD_SIZE is unset)
 ```

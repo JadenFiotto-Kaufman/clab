@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--readout", default="full", metavar="|".join(READOUTS),
                      help="how a forward computes logits: full (the default, exact) or at-reads (the head at the "
                           "positions read alone, numbers moved in the last bits)")
-    run.add_argument("--device", help="where the engine places the model (default cpu)")
+    run.add_argument("--device", help="where the engine places the model (default the engine's own: cpu, or cuda:0 for vllm)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
     look = commands.add_parser("show", help="print what a run's output directory holds")

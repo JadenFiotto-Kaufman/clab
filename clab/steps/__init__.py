@@ -5,7 +5,7 @@ This assumes only the engine protocol (`engines.Engine`): it asks the engine for
 its tokenizer, its sizes, its readout and the ids its generation stops on (EOS), and does everything else
 itself, in plain torch: positions in the prefill from the encoded rows, and beyond it from the ids each row
 generated, up to its first EOS. Under the nnterp and ndif engines it runs inside one session (on the server,
-under ndif); under the hooks engine, in plain Python. The cross-step state is a `ChainMap` (a fit's body runs in
+under ndif); under the hooks and vllm engines, in plain Python. The cross-step state is a `ChainMap` (a fit's body runs in
 a child of it, carrying the minibatch's row ids: `batches.ROWS`) that never leaves the run: each value under its
 name, by its coordinates on its own axes (`Labelled.axes`).
 The steps run in the order `plan.runnable` lists them, a fit's eval steps after it. A forward or generate step

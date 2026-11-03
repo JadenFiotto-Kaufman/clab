@@ -169,7 +169,9 @@ def bind_ops(plan: Plan, binding: list[dict], state: ChainMap, ids: list[int], f
             for k in node["numbers"]:
                 if isinstance(v := args[k], (int, float)):
                     args[k] = make_once(shared, ("number", repr(v)), lambda v=v: tensor_on_device(v, device))
-            out.append({"op": node["op"], "args": args, "rows": rows, "dims": node["dims"], "layers": node["layers"]})
+            out.append({"op": node["op"], "args": args, "rows": rows, "dims": node["dims"], "layers": node["layers"],
+                        "rowed": [k for k, how in node["args"].items()
+                                  if "tokens" in how or "text" in how or "name" in how and "rows" in how["dims"]]})
             if node["op"] == "encode":
                 if node["select"] is not None:
                     out[-1]["features"] = tensor_on_device(selectors.select(node["select"]["features"],
@@ -345,6 +347,45 @@ def bind_schedule(engine: Engine, plan: Plan, step: Forward, binding: list[dict]
              "wrt": [named[n][0] for n in g["wrt"]]} for g in schedule.get("grad", [])]
     return {"sites": sites, "stop": schedule["stop"], "grad": grad, "loop": schedule.get("loop"),
             "online": schedule.get("online", False)}, binds
+
+
+def schedule_for_row(bound: dict[str, Any], r: int) -> dict[str, Any]:
+    """A bound schedule's half that is row `r`'s (`r` the row's index in the batch), as an engine that runs each row
+    as a request of its own hands it (the vllm engine): each record's indices, masks, keys and texts at that row
+    alone, `[1, ...]`, and a write's operands with a rows axis taken at it (`record_for_row`); the rest shared."""
+    return {**bound, "sites": [{**site, "records": [record_for_row(record, r) for record in site["records"]]}
+                               for site in bound["sites"]]}
+
+
+def record_for_row(record: dict[str, Any], r: int) -> dict[str, Any]:
+    """A bound record at row `r` alone: its `positions` and `tok` `[1, n]`, its `keep` and the `kept` pairs counted
+    from it, its `keys` index and own, an online write's texts, and its ops' and `per_call` ops' arguments that hold
+    a rows axis (`rowed`, `bind_ops`'s) with the op's `rows` (`op_for_row`); every other field as it is."""
+    out = dict(record)
+    for key in ("positions", "tok"):
+        if key in record:
+            out[key] = record[key][r:r + 1]
+    if "keep" in record:
+        keep = record["keep"][r:r + 1]
+        out["keep"], out["kept"] = keep, keep.nonzero().T
+    if "keys" in record:
+        out["keys"] = {**record["keys"], "index": record["keys"]["index"][r:r + 1], "own": record["keys"]["own"][r:r + 1]}
+    if "online" in record:
+        out["online"] = {**record["online"], "texts": record["online"]["texts"][r:r + 1]}
+    for key in ("ops", "per_call"):
+        if key in record:
+            out[key] = [op_for_row(op, r) for op in record[key]]
+    return out
+
+
+def op_for_row(op: dict[str, Any], r: int) -> dict[str, Any]:
+    """A bound op at row `r` alone: its `rowed` arguments (a tensor or a list per row) and its `rows` taken at
+    `r`, an `encode`'s inner ops the same way."""
+    out = {**op, "args": {k: v[r:r + 1] if k in op["rowed"] else v for k, v in op["args"].items()},
+           "rows": op["rows"][r:r + 1]}
+    if "inner" in op:
+        out["inner"] = [op_for_row(inner, r) for inner in op["inner"]]
+    return out
 
 
 def layers_made_at(record: Intervention) -> list[int] | list[None]:
