@@ -153,11 +153,18 @@ def read_out_at_reads(engine: Engine, served: list[Forward], values_read: dict, 
     takes the stream at each read's positions and reads it out there with the engine's `readout`: the final norm, the
     head, and what the model does after the head), so that the head runs at the positions read alone and the forward can
     stop before it; `sites` is changed in place where they do. They move where every record at `logits` is a read that
-    names fewer than every position of the prompt and that no `grad` entry takes or differentiates, and where the engine
-    serves the last block's `layer_output`, at whose end they are done, after every record there."""
+    names fewer than every position of the prompt and that no `grad` entry takes or differentiates, where nothing writes
+    at a site the engine reaches after the last block's output (the final norm's, the head's), whose write the readout
+    would not see, and where the engine serves the last block's `layer_output`, at whose end they are done, after every
+    record there."""
     reads, last = sites.get(("logits", None), []), engine.sizes()["num_layers"] - 1
     differentiated = {gradient_of(r) for p in served for r in entries(p).values()}
     refused = engine.unserved()["layer_output"]
+    if not reads or isinstance(refused, str) or last in (refused or {}):
+        return False
+    end = engine.rank("layer_output", last)
+    if any("write" in r for site, records in sites.items() if engine.rank(*site) > end for r in records):
+        return False
 
     def narrow(r: dict) -> bool:
         if "read" not in r:
@@ -166,7 +173,7 @@ def read_out_at_reads(engine: Engine, served: list[Forward], values_read: dict, 
         pos = positions.parse(record.pos)
         return gradient_of(record) is None and r["read"] not in differentiated and not (
             pos["scope"] is None and selectors.every(pos["index"]))
-    if not reads or not all(map(narrow, reads)) or isinstance(refused, str) or last in (refused or {}):
+    if not all(map(narrow, reads)):
         return False
     sites.setdefault(("layer_output", last), []).extend({**r, "readout": True} for r in sites.pop(("logits", None)))
     return True

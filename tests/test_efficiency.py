@@ -397,6 +397,24 @@ def test_under_readout_at_reads_the_engines_agree_to_the_bit(engines):
     assert all(same(g.results, got[0].results) for g in got[1:])
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+@pytest.mark.parametrize("component", ["final_norm_output", "lm_head_output"])
+def test_under_readout_at_reads_a_write_after_the_last_block_keeps_the_head(engines, kind, component):
+    """A write at the final norm's output or at the head's own projection changes the logits a forward reads after
+    it, which a readout of the last block's output would not see: under `at-reads` such a read stays at `logits`,
+    and the run is the default's to the bit."""
+    def change(d):
+        d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input", "interventions": {
+            "w": {"site": {"component": component}, "pos": -1, "ops": [{"op": "scale", "factor": 2.0}]},
+            "logits": {"site": {"component": "logits"}, "pos": -1}}}}
+        d["saves"] = ["lens.logits"]
+    engine = engines(kind, edited("gpt2_reach", change).model)
+    full, narrow = (engine.execute(edited("gpt2_reach", change).compile(), batch_size=BATCH_SIZE, readout=readout)
+                    for readout in ("full", "at-reads"))
+    assert [s["component"] for s in points(narrow.steps["lens"])[0].schedule["sites"]] == [component, "logits"]
+    assert same(full.results, narrow.results)
+
+
 def test_a_readout_is_refused_by_name_unless_it_is_one_of_the_two(engines, capsys):
     plan = logits_at(-1)
     with pytest.raises(ValueError, match=r"^readout 'last': one of 'full', 'at-reads' \(--readout\)$"):
