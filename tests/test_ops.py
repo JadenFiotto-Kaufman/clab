@@ -142,6 +142,24 @@ def test_mean_over_the_example_axes_by_default():
     assert torch.equal(reductions.mean(X, dims=["rows", "pos", "hidden_size"], over=["pos"]), X.mean(dim=1))
 
 
+def test_a_mean_skips_the_missing_and_otherwise_has_the_plain_means_bits():
+    """With none missing a mean is the plain mean to the bit, with some the mean of those there, the NaN-skipping
+    mean's; a value nothing is there of is missing. The same with a gradient through it, which reaches each value
+    that is there as the plain mean's or the NaN-skipping mean's does."""
+    holed = X.clone()
+    holed[1, 0] = math.nan
+    for value in (X, holed, torch.full((2, 3), math.nan)):
+        dims = ["rows", "pos", "hidden_size"][:value.dim()]
+        want = value.nanmean(dim=[0, 1]) if value.isnan().any() else value.mean(dim=[0, 1])
+        assert same(reductions.mean(value, dims=dims), want)
+        leaf, theirs = value.clone().requires_grad_(), value.clone().requires_grad_()
+        got = reductions.mean(leaf, dims=dims)
+        assert same(got.detach(), want)
+        (theirs.nanmean(dim=[0, 1]) if value.isnan().any() else theirs.mean(dim=[0, 1])).sum().backward()
+        got.sum().backward()
+        assert same(leaf.grad, theirs.grad)
+
+
 def test_metrics_on_logits():
     d = ["rows", "pos", "vocab_size"]
     assert torch.equal(metrics.match(LOGITS, LOGITS.argmax(-1)[:, :1], d), torch.ones(3, 1))
