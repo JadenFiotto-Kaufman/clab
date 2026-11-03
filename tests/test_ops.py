@@ -106,7 +106,7 @@ def test_normalize_and_project_out():
 
 def test_a_rows_pos_factor_scales_each_positions_vector_by_its_own_number(engines):
     """`scale` with a `[rows, pos]` factor, a probability read at three positions, broadcasts over `hidden_size`
-    (Ops' one rule, `batches.argument_binding`): the written value is the stream times each position's own number."""
+    (Ops' one rule, `batches.bind_arguments`): the written value is the stream times each position's own number."""
     from conftest import BATCH_SIZE, edited
 
     def change(d):
@@ -298,14 +298,13 @@ def test_a_capture_hands_on_a_leaf_whose_gradient_differentiate_takes():
 
 def test_a_ragged_write_writes_only_the_positions_it_keeps():
     value = torch.randn(2, 4, 5)
-    keep = torch.tensor([[True, True], [True, False]])
-    ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": keep, "kept": keep.nonzero().T,
+    ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
               "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "dims": DIMS}]}
     out = batches.visit_site(value, "layer_output", [ragged], {})[0]
     assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
     unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
     assert torch.equal(out[unwritten], value[unwritten])
-    empty = {**ragged, "keep": torch.zeros(2, 2, dtype=torch.bool), "kept": torch.zeros(2, 2).nonzero().T}
+    empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
     assert torch.equal(batches.visit_site(value, "layer_output", [empty], {})[0], value)
 
 
@@ -322,11 +321,9 @@ def test_a_batch_of_equal_rows_binds_no_mask_and_writes_as_an_all_true_one():
     even = batches.selection_in_batch(record, {}, [[1], [2], [0]], [0, 1, 2], 4, False)
     ragged = batches.selection_in_batch(record, {}, [[1, 2], [3], "missing"], [0, 1, 0], 4, False)
     assert "keep" not in even and ragged["keep"].tolist() == [[True, True], [True, False], [False, False]]
-    assert "kept" not in even and ragged["kept"].tolist() == [[0, 0, 1], [0, 1, 0]]         # rows, then positions
     value, other = torch.randn(3, 4, 5), torch.randn(3, 1, 5)
     write = {**even, "ops": [{"op": "swap", "args": {"with": other}, "dims": DIMS}]}
-    keep = torch.ones(3, 1, dtype=torch.bool)
-    masked = batches.visit_site(value, "layer_output", [{**write, "keep": keep, "kept": keep.nonzero().T}], {})[0]
+    masked = batches.visit_site(value, "layer_output", [{**write, "keep": torch.ones(3, 1, dtype=torch.bool)}], {})[0]
     assert torch.equal(batches.visit_site(value, "layer_output", [write], {})[0], masked)
 
 
@@ -342,7 +339,7 @@ def test_a_window_write_and_three_single_writes_are_one_tensor():
 def test_writes_compose_in_order_and_renormalize_sees_the_value_before_them():
     value = torch.randn(3, 4, 5)
     steer = record(3, 1, None, [{"op": "add", "args": {"with": torch.ones(5), "scale": 4.0}, "dims": DIMS}])
-    restore = {**record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}]), "takes": {"original"}}
+    restore = record(3, 1, None, [{"op": "renormalize", "args": {}, "dims": DIMS}])
     out = batches.visit_site(value, "layer_output", [steer, restore], {})[0]
     torch.testing.assert_close(out[:, 3].norm(dim=-1), value[:, 3].norm(dim=-1))
     assert not torch.equal(out[:, 3], value[:, 3])

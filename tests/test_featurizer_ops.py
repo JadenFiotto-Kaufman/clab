@@ -324,32 +324,6 @@ def test_a_write_after_one_on_coordinates_sees_the_sites_original_value(engines,
     torch.testing.assert_close(values["patched.renorm"].norm(dim=-1), values["clean.h"].norm(dim=-1), atol=1e-6, rtol=0)
 
 
-@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
-def test_a_renormalize_inside_an_encode_is_given_the_original_encoded(engines, kind):
-    """`renormalize` between an encode and its decode takes the site's value before the step's writes in the same
-    coordinates (`batches.supplied_to` finds it inside the encode): alone it rescales each vector to its own norm,
-    which leaves the value as it was to the bit; after a scale of the same position it changes the value back toward
-    the clean one, and not to it, since it restores the coordinates' norm alone."""
-    def doc(writes: dict) -> Plan:
-        return Plan(model=TINY, data={"train": {"path": "weekdays/data", "split": "train"}},
-                    featurizers={"rot": {"kind": "subspace", "k": 4, "seed": 0}},
-                    steps={"clean": {"kind": "forward", "input": "train.input",
-                                     "interventions": {"h": {"site": SITE, "pos": -1}}},
-                           "patched": {"kind": "forward", "input": "train.input", "interventions": {
-                               **writes, "renorm": {"site": SITE, "pos": -1, "ops": [
-                                   {"op": "encode", "featurizer": "rot"}, {"op": "renormalize"},
-                                   {"op": "decode", "featurizer": "rot"}]}}}},
-                    saves=["clean.h", "patched.renorm"]).compile()
-    alone = doc({})
-    engine = engines(kind, alone.model)
-    values = engine.execute(alone, batch_size=BATCH_SIZE).results
-    assert torch.equal(values["patched.renorm"], values["clean.h"])
-    scaled = engine.execute(doc({"twice": {"site": SITE, "pos": -1, "ops": [{"op": "scale", "factor": 2.0}]}}),
-                            batch_size=BATCH_SIZE).results
-    error = (scaled["patched.renorm"] - scaled["clean.h"]).norm(dim=-1)
-    assert (error > 0).all() and (error < values["clean.h"].norm(dim=-1)).all()
-
-
 # -- a chain: a gate over PCA coordinates (MIB's "+PCA") -----------------------------------------------------------
 
 

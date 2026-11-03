@@ -31,15 +31,14 @@ OTHER = torch.randn(3, 2, 8, generator=G)
 
 
 def writes() -> list[dict]:
-    """Writes built as a batch binds them, on the CPU: a ragged swap with its `keep` and `kept`, an add of a CPU
-    operand on the features a gate's encode keeps, a narrowing to two hidden units, each row's own key indices, a
+    """Writes built as a batch binds them, on the CPU: a ragged swap with its `keep`, an add of a CPU operand
+    on the features a gate's encode keeps, a narrowing to two hidden units, each row's own key indices, a
     renormalize, and a gate over the hidden units interpolating toward a CPU operand."""
     gate = featurizers.make("gate", {}, 8, {"theta": torch.linspace(-1, 1, 8)}, None, None)
     over = featurizers.make("gate", {"over": ["hidden_size"]}, 8, {"theta": torch.linspace(1, -1, 8)}, None, None,
                             kept={"hidden_size": list(range(8))})
-    keep = torch.tensor([[1, 1], [1, 0], [1, 1]]).bool()
     return [
-        {"positions": torch.tensor([[1, 2], [3, 3], [4, 5]]), "keep": keep, "kept": keep.nonzero().T,
+        {"positions": torch.tensor([[1, 2], [3, 3], [4, 5]]), "keep": torch.tensor([[1, 1], [1, 0], [1, 1]]).bool(),
          "select": {}, "ops": [{"op": "swap", "args": {"with": OTHER}, "dims": DIMS}]},
         {"positions": torch.tensor([[0], [0], [0]]), "select": {}, "ops": [
             {"op": "encode", "args": {"featurizer": gate}, "features": torch.tensor([1, 6]), "dims": DIMS, "inner": [
@@ -50,7 +49,7 @@ def writes() -> list[dict]:
          "keys": {"dim": 2, "index": torch.tensor([[1, 2, 3, 4, 5, 6, 7, 0], [3, 4, 5, 6, 7, 0, 1, 2], [5, 6, 7, 0, 1, 2, 3, 4]]),
                   "own": torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0], [1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1]]).bool()},
          "ops": [{"op": "sub", "args": {"with": 1.0}, "dims": DIMS}]},
-        {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3), "takes": {"original"},
+        {"positions": torch.tensor([[3], [3], [3]]), "select": {}, "rows": torch.arange(3),
          "ops": [{"op": "renormalize", "args": {}, "dims": DIMS}]},
         {"positions": torch.tensor([[4], [4], [4]]), "select": {},
          "ops": [{"op": "apply", "args": {"featurizer": over, "with": OTHER[:, :1]}, "dims": DIMS, "layers": 0}]},
@@ -114,9 +113,8 @@ def test_metrics_and_edits_take_cpu_ids_and_operands():
 def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(monkeypatch):
     """What a batch bound on the GPU hands the engine (each record's positions, its selection and a key axis's
     indices, made there from pinned memory), the inputs fed to the model (one non-blocking copy) and an operand's
-    rows looked up by id get there without the host waiting for the GPU, and an equal-width write, a ragged one (by
-    the indices of the positions it keeps, `kept`, which the host counted) and a read through `visit_site` make no
-    host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
+    rows looked up by id get there without the host waiting for the GPU, and an equal-width write and a read
+    through `visit_site` make no host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
     whether or not one is), toward a value or toward a number, and a scale by a number, each number as `bind_ops` binds
     it (on the device, once per batch): under torch's sync debug mode set to raise, none of it raises, and each value
     is the CPU's. A mean taken off the model makes its one sync, asking whether any value is missing (`asking`)."""
@@ -137,8 +135,7 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
         picked = batches.selection_in_batch(record, {"hidden_size": [0, 7]}, rows, [0, 1, 0], 6, False, device)
         whole = batches.selection_in_batch(record, {}, rows, [0, 1, 0], 6, False, device)
         keyed = batches.selection_in_batch(pattern, {}, rows, [0, 1, 0], 6, False, device)
-        ragged = batches.selection_in_batch(record, {}, [[1, 2], [3], [4, 5]], [0, 1, 0], 6, False, device)
-        return picked, whole, keyed, ragged
+        return picked, whole, keyed
 
     narrow = [{**swap[0], "args": {"with": other[..., [0, 7]]}}]           # a write on a selection
     probs_there = probs.cuda()
@@ -150,13 +147,12 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     torch.cuda.synchronize()
     torch.cuda.set_sync_debug_mode("error")
     try:
-        picked, whole, keyed, ragged = bound("cuda:0")
+        picked, whole, keyed = bound("cuda:0")
         fed = standard.inputs(batch, ("input_ids", "attention_mask", "position_ids"), "cuda:0")
         looked = data.by_id(value, [2, 0])
         got: dict = {}
         out = batches.visit_site(value, "layer_output", [{**picked, "name": "r"}, {**whole, "ops": swap}], got)[0]
         chosen = batches.visit_site(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
-        uneven = batches.visit_site(value, "layer_output", [{**ragged, "ops": swap}], {})[0]
         seen: dict = {}
         batches.visit_site(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
         factor = [{"op": "scale", "args": {"factor": batches.tensor_on_device(3.0, "cuda:0")}, "dims": DIMS}]
@@ -179,9 +175,6 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     chosen_cpu = batches.visit_site(VALUE, "layer_output", [
         {**here[0], "ops": [{**narrow[0], "args": {"with": OTHER[:, :1, [0, 7]]}}]}], {})[0]
     assert torch.equal(chosen.cpu(), chosen_cpu)
-    uneven_cpu = batches.visit_site(VALUE, "layer_output", [
-        {**here[3], "ops": [{**swap[0], "args": {"with": OTHER[:, :1]}}]}], {})[0]
-    assert ragged["kept"].device.type == "cuda" and torch.equal(uneven.cpu(), uneven_cpu)
     keys_cpu: dict = {}
     batches.visit_site(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
     assert torch.equal(seen["k"].cpu().nan_to_num(-9), keys_cpu["k"].nan_to_num(-9))      # NaN past a row's own keys

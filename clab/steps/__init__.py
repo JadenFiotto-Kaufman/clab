@@ -41,9 +41,8 @@ from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, look
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         saved_value_axes, serving)
 from clab.steps import fit, generate
-from clab.steps.batches import (argument_binding, bind_arguments, bind_schedule, input_batches, join_batches,
-                                layers_made_at, model_device, schedule_binding, scope_ids, stack_layers, stop_ids,
-                                value_at, value_in_prefill)
+from clab.steps.batches import (bind_arguments, bind_schedule, input_batches, join_batches, layers_made_at,
+                                model_device, scope_ids, stack_layers, stop_ids, value_at, value_in_prefill)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -272,27 +271,24 @@ def version() -> str:
 
 
 def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, findings: Findings,
-            cost: dict[str, Any], served: list[Forward], values_read: dict | None = None,
-            binding: list[dict] | None = None) -> None:
+            cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
     """The step's input in batches of dataset row ids padded as the run says (`input_batches`, `plan.run.padding`), each
-    through `engine.forward` with the point's schedule bound to it (`bind_schedule`, from the half of its binding that
-    depends on the step alone, `binding`: `schedule_binding`'s, made once for every batch); each value the forward
-    reads (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each
-    distinct point on its axes among them) joined along rows from its own reads, in the run's row order. A fit gives
-    both once for its every run of the body. Adds to `cost` the model calls it made, one per batch, the prompt tokens
-    they fed, padding included, and the rows' own of them (`real`).
+    through `engine.forward` with the point's schedule bound to it (`bind_schedule`); each value the forward reads
+    (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each distinct
+    point on its axes among them, which a fit gives once for its every run of the body) joined along rows from its own
+    reads, in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
+    padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
     positions is as wide as the widest, NaN past a row's own."""
     assert plan.run is not None
     values_read = values_read_by(served) if values_read is None else values_read
-    binding = schedule_binding(engine, plan, name, step, values_read) if binding is None else binding
     parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
     batched_ids: list[int] = []
     for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
-        bound_schedule, binds = bind_schedule(engine, plan, step, binding, state, findings, ids, pads)
+        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, findings, ids, pads, values_read)
         got = engine.forward(batch, bound_schedule)
         missing = [r["name"] for s in bound_schedule["sites"] for r in s["records"]
                    if "name" in r and r["name"] not in got]
@@ -316,7 +312,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
        cost: dict[str, Any]) -> None:
     """The op over the value `of` names at the rows the run is over (`scope_ids`, else every row of its dataset),
     given each one's dataset row, at the layers `of`'s record says it is at (its `layers` axis's labels, or the one
-    layer it was read at), to which an operand's `layers` axis is aligned (`argument_binding`); a `classes` axis's
+    layer it was read at), to which an operand's `layers` axis is aligned (`bind_arguments`); a `classes` axis's
     vocabulary is the probe its coordinates are in. `top_k`'s value over a vocabulary's tokens also holds them, decoded.
     It calls no model, and its value is put at the point's coordinates on its own axes."""
     of, record = value_at(plan, state, step.of, step.at, scope_ids(state)), record_of(plan.steps, step.of, step.at)
@@ -327,9 +323,8 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     rows = None if ids is None else torch.tensor(ids)
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
-    binding = argument_binding(plan, step.op, arguments(step), step.at, dims=dims, layers=acts)
-    value = ops.call(step.op, of, bind_arguments(plan, binding, state, scope_ids(state), findings, of, vocabulary,
-                                                 dims=dims),
+    value = ops.call(step.op, of, bind_arguments(plan, step.op, arguments(step), state, step.at, scope_ids(state),
+                                                 findings, of, vocabulary, dims=dims, layers=acts),
                      engine=engine, dims=dims, layers=acts,
                      eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:

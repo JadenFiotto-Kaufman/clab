@@ -15,7 +15,7 @@ from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import agreeing_point, lookup, put
 from clab.plan import Fit, Forward, OpStep, Plan, Step, body_view, held_rows, open_encodes
-from clab.steps.batches import ROWS, model_device, schedule_binding
+from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -40,11 +40,8 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     params = [getattr(f, t).requires_grad_() for f in trained.values() for t in f.trains]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
-    # What each body forward reads and the half of binding its schedule that depends on the step alone, once for every
-    # run of the body: a body step is one point, which serves itself.
+    # What each body forward reads, once for every run of the body: a body step is one point, which serves itself.
     values_read = {n: values_read_by([s]) for n, s in step.steps.items() if isinstance(s, Forward)}
-    bindings = {n: schedule_binding(engine, view, n, s, values_read[n]) for n, s in step.steps.items()
-                if isinstance(s, Forward)}
     # The rows of the first of the body's datasets, which have as many as each other; a body holds no fit (compile
     # refuses one).
     n = len(held_rows(plan, min(s.dataset for s in cast("dict[str, Forward | OpStep]", step.steps).values()
@@ -64,7 +61,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
                 for f in trained.values():
                     f.settle()
             body = run_body(engine, name, step, state, trained, view, findings, shuffled_ids[lo:lo + size], cost,
-                            values_read, bindings)
+                            values_read)
             with torch.enable_grad():
                 loss = sum(cast(float, weight) * term(body, trained, t, step.at)
                            for t, weight in step.objective.items())
@@ -77,7 +74,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
                 f.project()
         for f in trained.values():
             f.settle()
-        scored = run_body(engine, name, step, state, trained, view, findings, None, cost, values_read, bindings)
+        scored = run_body(engine, name, step, state, trained, view, findings, None, cost, values_read)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
@@ -104,13 +101,11 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
 
 
 def run_body(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind], plan: Plan,
-             findings: Findings, ids: list[int] | None, cost: dict[str, Any], values_read: dict[str, dict],
-             bindings: dict[str, list[dict]]) -> ChainMap:
+             findings: Findings, ids: list[int] | None, cost: dict[str, Any], values_read: dict[str, dict]) -> ChainMap:
     """A fit's body over every training row, or the minibatch of dataset row ids `ids`, in `plan` (as the body sees
     it) over what preflight found (`findings`), in a scope of its own that falls back to `state` and carries those ids
     (`batches.ROWS`: what its values' rows are), each trained featurizer under `<fit>.<name>`, each body forward
-    given the one point it serves, itself, what it reads (`values_read`, by name) and the half of binding its schedule
-    that depends on the step alone (`bindings`, by name: `batches.schedule_binding`'s). With a minibatch it trains:
+    given the one point it serves, itself, and what it reads (`values_read`, by name). With a minibatch it trains:
     gradients on, gates soft; otherwise it scores. Returns the body's namespace; the model calls its steps made and
     the tokens they fed add to the fit's `cost`."""
     body = state.new_child({ROWS: ids} if ids is not None else {})
@@ -122,7 +117,7 @@ def run_body(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
     with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
             KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, findings, cost,
-                                      *([[s], values_read[n], bindings[n]] if n in values_read else []))
+                                      *([[s], values_read[n]] if n in values_read else []))
     return body
 
 

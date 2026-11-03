@@ -17,8 +17,7 @@ from clab.format import address, data
 from clab.format.sweeps import projection, put
 from clab.plan import Forward, Generate, Intervention, Plan, Site, entries, gathers, held_rows, writes
 from clab.steps.batches import (apply_bound_ops, apply_ops_after_edit, bind_schedule, in_run_order, input_batches,
-                                join_batches, layers_made_at, schedule_binding, scope_ids, stack_layers, stop_ids,
-                                value_in_prefill)
+                                join_batches, layers_made_at, scope_ids, stack_layers, stop_ids, value_in_prefill)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -27,14 +26,12 @@ if TYPE_CHECKING:
 
 
 def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: ChainMap, batch_size: int,
-             findings: Findings, cost: dict[str, Any], served: list[Forward], values_read: dict | None = None,
-             binding: list[dict] | None = None) -> None:
+             findings: Findings, cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
     """The step's input in batches of dataset row ids padded as the run says (`input_batches`, `plan.run.padding`), each
-    through `engine.generate` with the point's schedule bound to it (`bind_schedule`, from `binding`, as a forward's)
-    and the step's own keys as its options; each value the generation reads (`values_read`, `values_read_by` over the
-    points it serves, `served`, as a forward's) joined along rows from its own reads, and the new ids, one
-    generation's, put as the step's value, each in the run's row order, as where each entry landed is
-    (`in_run_order`).
+    through `engine.generate` with the point's schedule bound to it (`bind_schedule`) and the step's own keys as its
+    options; each value the generation reads (`values_read`, `values_read_by` over the points it serves, `served`, as a
+    forward's) joined along rows from its own reads, and the new ids, one generation's, put as the step's value, each in
+    the run's row order, as where each entry landed is (`in_run_order`).
 
     An entry in the prefill (`frame: 0`) reads as a forward's (`value_in_prefill`); one beyond it is bound in parts (a
     part over the prompt, where its frame holds it, and its decode calls: `schedule.parts`) and resolves after the
@@ -51,7 +48,6 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     eos, rows = set(stop_ids(engine, step)), held_rows(plan, cast(str, step.dataset))
     encoded = findings.inputs[data.input_name(step.input)]["rows"]
     values_read = values_read_by(served) if values_read is None else values_read
-    binding = schedule_binding(engine, plan, name, step, values_read) if binding is None else binding
     # Every entry beyond the prefill lands somewhere on each row, gathered or not: by entry and the point's
     # coordinates on the entry's axes, the record it is at the first such point.
     beyond_prefill: dict[tuple[str, tuple], Intervention] = {}
@@ -64,7 +60,7 @@ def generate(engine: Engine, plan: Plan, name: str, step: Generate, state: Chain
     new, batched_ids = [], []
     for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
-        bound_schedule, binds = bind_schedule(engine, plan, step, binding, state, findings, ids, pads)
+        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, findings, ids, pads, values_read)
         tokens, got = run_engine_generate(engine, name, batch, bound_schedule, dict(step.model_extra or {}))
         inputs, batch_rows = data.by_id(encoded, ids), data.by_id(rows, ids)
         said = [positions.continuation(x, eos) for x in tokens.tolist()]

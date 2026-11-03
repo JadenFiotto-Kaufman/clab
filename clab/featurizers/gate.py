@@ -59,7 +59,7 @@ class Gate(Kind):
 
     def mask(self, dims: list[str] | None = None, layers: int | list[int] | None = None) -> Tensor:
         """The mask: soft while a fit trains it, hard when scored. Over axes, laid out against a value laid out
-        `dims` at `layers` as an operand is (`batches.argument_binding`): at one layer its slice labelled with it, at
+        `dims` at `layers` as an operand is (`batches.bind_arguments`): at one layer its slice labelled with it, at
         several its slices in their order, then a singleton axis wherever the value has an axis it leaves out."""
         m = torch.sigmoid(self.theta / self.T) if self.training else (self.theta > 0).to(self.theta.dtype)
         if self.over is None or dims is None:
