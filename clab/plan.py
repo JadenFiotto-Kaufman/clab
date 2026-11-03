@@ -917,10 +917,10 @@ class Load(Labelled):
     from_: str = Field(alias="from")
     value: str
     at: dict[str, int] = derived({}, AT)
-    source: "Forward | None" = derived(None, "the read whose positions the value holds, where it holds any: the "
-                                             "forward that made it as the source's manifest records it, with that "
-                                             "entry alone and its positions under the value's dataset, the entry "
-                                             "named as the value's `read` names it (`<this step>.<entry>`)")
+    source: Forward | None = derived(None, "the read whose positions the value holds, where it holds any: the "
+                                           "forward that made it as the source's manifest records it, with that "
+                                           "entry alone and its positions under the value's dataset, the entry "
+                                           "named as the value's `read` names it (`<this step>.<entry>`)")
     loaded: Any = derived(None, "the value at this point, read from the source's file into a compiled plan that "
                                 "has not run (`loaded_value`), which carries it wherever the run is, in a request "
                                 "too, and the run puts where the model is; never in a document or a manifest",
@@ -1038,7 +1038,6 @@ Step = Annotated[Union[Annotated[Forward, Tag("~forward")], Annotated[Generate, 
                  Discriminator(_kind, custom_error_type="kind", custom_error_message="unknown step kind")]
 Entry = Annotated[Union[Annotated[Step, Tag("~one")], Annotated[list[Step], Tag("~points")]], Discriminator(_points)]
 Fit.model_rebuild()
-Load.model_rebuild()
 
 
 class Featurizer(Record):
