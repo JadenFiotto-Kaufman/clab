@@ -127,7 +127,7 @@ From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/
 | `tests/test_featurizers.py`, `tests/test_featurizer_ops.py` | featurizer math on any device and under autocast, published SAEs; `encode`, `decode` and `apply` per kind |
 | `tests/test_lora.py` | the `lora` kind |
 | `tests/test_hub.py` | hub datasets held by reference |
-| `tests/test_load.py` | a value one run saved, loaded into another document: the numbers of the document that made it to the bit, on each engine and under `remote="local"`, and what a load refuses |
+| `tests/test_load.py` | a value one run saved, loaded into another document: the numbers of the document that made it to the bit, on each engine, under `remote="local"` and through the stand-in server, which the value reaches inside the plan, and what a load refuses |
 | `tests/test_quantized.py` | quantized `dtype`s on both engines |
 | `tests/test_tp.py` | the nnterp engine's `tp` under torchrun: its refusals, what every rank holds whole, rank 0 writing |
 | `tests/test_device.py` | on a GPU, every tensor clab builds meets an activation on its device |

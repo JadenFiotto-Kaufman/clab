@@ -75,22 +75,25 @@ class NnterpEngine:
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
         picks the same tokens on every rank, and the run record lists every rank's device; a `grad` entry is
         refused by name there before anything runs, since a value the ranks shard has its gradient in pieces. Under a
-        remote session a load's value stays out of the request, the run reading its file where it runs, and an NDIF
-        server, which cannot see this machine's directories, is refused one before anything is sent."""
+        remote session a load's value travels in the request, inside the plan, and a document whose loads hold more
+        than `LOADED` bytes of tensors is refused by name before anything is sent; it does not come home, where the
+        client keeps its own."""
         started = steps.begin(self, plan, batch_size, padding)
         ranks = self.options.get("tp", 1)
         for name, step in walk(plan.steps) if ranks > 1 else ():
             for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
                 raise ValueError(f"{name}.{key}: the nnterp engine takes no gradient under tp {ranks}, whose ranks "
                                  "hold a sharded value's gradient in pieces; run it at tp 1")
+        carried: dict[str, int] = {}
         for name, step in walk(plan.steps) if self.remote else ():
-            if step.kind != "load":
-                continue
-            if self.remote is True:
-                raise ValueError(f"{name}: a load reads {step.from_} where the run is, and an NDIF server cannot see "
-                                 "this machine's directories; run the document on the nnterp or hooks engine, or "
-                                 "under remote=\"local\"")
-            step.loaded = None          # the request carries no tensor: the run reads the file where it runs
+            if step.kind == "load":
+                carried[name] = carried.get(name, 0) + nbytes(step.loaded)
+        if sum(carried.values()) > LOADED:
+            raise ValueError(f"{', '.join(carried)}: the values this document loads hold "
+                             f"{sum(carried.values()) / 2**20:.1f} MiB of tensors (" + ", ".join(
+                                 f"{n} {b / 2**20:.1f} MiB" for n, b in carried.items()) + f"), and a request carries "
+                             f"at most {LOADED // 2**20} MiB inside its plan; run it where the file is, on the nnterp "
+                             "or hooks engine")
         if ranks > 1:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
@@ -98,10 +101,12 @@ class NnterpEngine:
         with self.model.session(remote=self.remote):
             self.ready()
             steps.run(self, plan, batch_size)
-            home = nnsight.save({"results": plan.results, "run": plan.run, "steps": plan.steps,
+            home = nnsight.save({"results": plan.results, "run": plan.run, "steps": {
+                n: e for n, e in plan.steps.items() if points(e)[0].kind != "load"},
                                  "featurizers": {n: [f.model_copy(update={"bundle": None}) for f in points(e)]
                                                  for n, e in plan.featurizers.items()}})
-        plan.results, plan.run, plan.steps = home["results"], home["run"], home["steps"]
+        plan.results, plan.run = home["results"], home["run"]
+        plan.steps = {n: home["steps"].get(n, e) for n, e in plan.steps.items()}      # a load's, the client's own
         for name, completed in home["featurizers"].items():      # its width; the client keeps its own bundle
             for mine, theirs in zip(points(plan.featurizers[name]), completed):
                 mine.width, mine.kept = theirs.width, theirs.kept
@@ -226,6 +231,18 @@ class NnterpEngine:
     def readout(self, hidden: Tensor) -> Tensor:
         """nnterp's `project_on_vocab`: the final norm, the head, and whatever the model does after the head."""
         return self.model.project_on_vocab(hidden)
+
+
+# The bytes of loaded tensors a request to a session elsewhere carries inside its plan, over every `load` of the
+# document (`Load.loaded`): a cached operand for a large model fits, and a harvest of many rows runs where its file is.
+LOADED = 512 * 2**20
+
+
+def nbytes(value: Any) -> int:
+    """The bytes of every tensor in a value, all the way down."""
+    if isinstance(value, Tensor):
+        return value.numel() * value.element_size()
+    return sum(nbytes(v) for v in value.values()) if isinstance(value, dict) else 0
 
 
 def sourced(model: StandardizedTransformer) -> None:

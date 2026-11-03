@@ -36,8 +36,8 @@ from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put, spelled
-from clab.plan import Forward, Load, OpStep, Plan, Run, arguments, corpus_root, points, projections, record_of, serving
+from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put
+from clab.plan import Forward, Load, OpStep, Plan, Run, arguments, points, projections, record_of, serving
 from clab.steps import fit, generate
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, over, read, stacked, stops, value_at
 
@@ -311,18 +311,11 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
 
 def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, found: Found,
          cost: dict[str, Any]) -> None:
-    """The saved value compile read from its run's file (`Load.loaded`), or, in a plan that came without it (a
-    request to a session elsewhere carries none), read from that file here, where the run is; put where the model is
-    (`home`), every tensor of it, at the point's coordinates on the value's own axes. It calls no model."""
-    value = step.loaded
-    if value is None:
-        from clab.output import manifest, read          # the output directory's one reader, a later stage's
-        out = os.path.join(corpus_root(plan), step.from_)
-        d = manifest(out)[1][step.value]
-        value = read(out, step.value, d)
-        at = {a: step.at[a] for a in d["axes"]}            # in the axis order of the run that saved it, as its file
-        value = value[spelled({a: plan.sweeps[a].values for a in at}, at)] if at else value
-    put(state, name, projected(step.at, step.axes), moved(value, home(engine)))
+    """The saved value the plan carries (`Load.loaded`, which the compiled plan read from its run's file and which
+    travels with it, in a request too), put where the model is (`home`), every tensor of it, at the point's
+    coordinates on the value's own axes. It calls no model and reads no file."""
+    assert step.loaded is not None, f"{name}: a compiled plan holds each load's value until it has run"
+    put(state, name, projected(step.at, step.axes), moved(step.loaded, home(engine)))
 
 
 def moved(value: Any, device: str) -> Any:

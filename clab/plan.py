@@ -38,7 +38,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected
+from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected, spelled
 
 
 class PlanError(ValueError):
@@ -907,9 +907,10 @@ class Load(Labelled):
     `file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
     source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
     tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are
-    the value's move to the model's device (under `ndif`, its read). The value never travels in a request: under
-    `ndif` the run reads the file where it runs (`remote="local"`), and an NDIF server, which cannot see this
-    machine's directories, is refused before anything is sent."""
+    the value's move to the model's device. The value travels inside the compiled plan, as a bundle's tensors do,
+    wherever the run is: under `ndif`, in the request, so a server runs it as `remote="local"` does and reads no
+    file of this machine's; a request carries at most 512 MiB of loaded tensors over a document's loads, and a
+    document that loads more is refused by name before anything is sent."""
     model_config = ConfigDict(serialize_by_alias=True)
     kind: Literal["load"]
     from_: str = Field(alias="from")
@@ -919,9 +920,10 @@ class Load(Labelled):
                                              "forward that made it as the source's manifest records it, with that "
                                              "entry alone and its positions under the value's dataset, the entry "
                                              "named as the value's `read` names it (`<this step>.<entry>`)")
-    loaded: Any = derived(None, "the value as compile read it from the source's file, which the run puts where the "
-                                "model is; never in a manifest, and left out of a request to a session elsewhere, "
-                                "where the run reads the file itself", exclude=True)
+    loaded: Any = derived(None, "the value at this point, read from the source's file into a compiled plan that "
+                                "has not run (`loaded_value`), which carries it wherever the run is, in a request "
+                                "too, and the run puts where the model is; never in a document or a manifest",
+                          exclude=True)
 
 
 class Optimizer(Record):
@@ -1170,7 +1172,14 @@ class Plan(Record):
     def _bundles(self) -> "Plan":
         # A bundle's file is its source of truth, and tensors never go in a document: a compiled plan read back
         # without its bundles loads them again from their `file_path`. A manifest holds no rows a dataset read from
-        # a file, so a probe's classes are then its bundle's header's, which the run checked.
+        # a file, so a probe's classes are then its bundle's header's, which the run checked. A load's value is read
+        # so too, into a compiled plan that has not run (compile's own, or one read back), which then carries it
+        # wherever it runs; a run's plan keeps the load's record alone.
+        files: dict[tuple[str, str], tuple[list[str], Any]] = {}
+        for entry in self.steps.values() if self.compiled and self.run is None else []:
+            for s in points(entry):
+                if isinstance(s, Load) and s.loaded is None:
+                    s.loaded = loaded_value(self, s, files)
         for entry in self.featurizers.values() if self.compiled else []:
             for f in points(entry):
                 fields = f.model_extra or {}
@@ -1228,6 +1237,20 @@ class Plan(Record):
         """The saved values `names` as rows, joined wide on their shared axes (see `table.table`)."""
         from clab.output.table import table
         return table(self, names, columns)
+
+
+def loaded_value(plan: Plan, step: Load, files: dict[tuple[str, str], tuple[list[str], Any]]) -> Any:
+    """Load `step`'s value at its point, as the file of its run's directory under the corpus root holds it (the
+    output directory's one reader, `output.read`, once per value into `files`, with the axes its record names): a
+    swept value's point is the one keyed by the point's coordinate on those axes, spelled in the order of the run that
+    saved it, whose labels and values are this plan's sweeps (compile checked them)."""
+    from clab.output import manifest, read          # the output directory's one reader, a later stage's
+    if (step.from_, step.value) not in files:
+        out = os.path.join(corpus_root(plan), step.from_)
+        d = manifest(out)[1][step.value]
+        files[step.from_, step.value] = d["axes"], read(out, step.value, d)
+    axes, value = files[step.from_, step.value]
+    return value[spelled({a: plan.sweeps[a].values for a in axes}, {a: step.at[a] for a in axes})] if axes else value
 
 
 def corpus_root(plan: Plan) -> str:

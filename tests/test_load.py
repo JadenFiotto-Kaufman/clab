@@ -14,7 +14,7 @@ import shutil
 from typing import Any, cast
 
 import pytest
-from conftest import BATCH_SIZE, ROOT, document, same
+from conftest import BATCH_SIZE, ROOT, TRIP, document, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
@@ -183,26 +183,68 @@ def test_a_loaded_chat_read_renders_with_the_runs_template(engines, root, monkey
         "with template {'add_generation_prompt': True}, and this document's 'chats' has None")
 
 
-def test_a_load_under_remote_local_agrees_and_carries_no_tensor(engines, root):
-    """Under `remote="local"` the request holds the load's record without its value, and the run reads the file
-    where it runs: the same basis as on nnterp, to the bit. A load costs no model call."""
+def test_a_loads_value_travels_inside_the_plan_and_the_run_reads_no_file(engines, root, monkeypatch):
+    """Under `remote="local"` and through the stand-in server the request carries the load's value inside the plan,
+    as it carries a bundle's tensors: the plan the server deserializes holds the client's value, no run reads a
+    file, and the basis is the nnterp engine's to the bit. A load costs no model call, and the request's value does
+    not come home: the client keeps its own."""
+    from nnsight.schema.request import RequestModel
+
+    from clab import output
     plan = from_cache(root)
     here = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results.copy()
-    plan = from_cache(root)
-    assert cast(Load, plan.steps["harvest"]).loaded is not None
-    there = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE)
+    local, served = from_cache(root), from_cache(root)
+    mine = cast(Load, served.steps["harvest"])
+    sent, serialize = [], RequestModel.serialize
+
+    def kept(cls, tracer, compress=False):
+        sent.append(serialize(tracer, compress))
+        return sent[-1]
+    monkeypatch.setattr(output, "read", lambda *args: pytest.fail("the run read a file"))
+    there = engines("ndif", local.model, remote="local").execute(local, batch_size=BATCH_SIZE)
     assert same(there.results, here)
-    assert cast(Load, there.steps["harvest"]).loaded is None
     assert {k: v for k, v in there.run.costs["harvest"].items() if k != "seconds"} == \
         {"memory": None, "forwards": 0, "tokens": 0, "real": 0}
+    monkeypatch.setattr(RequestModel, "serialize", classmethod(kept))
+    home, trip = stand_in(engines, served, monkeypatch)
+    assert trip == TRIP and same(home.results, here)
+    shipped = RequestModel.deserialize(sent[0], engines("nnterp", served.model).model._remoteable_persistent_objects(),
+                                       compress=False).info.frame.f_locals["plan"]
+    assert mine.loaded is not None and same(cast(Load, shipped.steps["harvest"]).loaded, mine.loaded)
+    assert home.steps["harvest"] is mine
 
 
-def test_a_load_is_refused_by_an_ndif_server_before_anything_is_sent(engines, root):
+def test_a_request_carries_at_most_512_mib_of_loaded_values(engines, root, monkeypatch):
+    """A document whose loads hold more than 512 MiB of tensors (stubbed: the tiny model's harvest holds a few KiB)
+    is refused by name before anything is sent, under either `remote`, with each load's size; the nnterp engine,
+    where the file is, runs it."""
+    from clab.engines import nnterp
+    monkeypatch.setattr(nnterp, "nbytes", lambda value: 600 * 2**20)
+    for remote in (True, "local"):
+        plan = from_cache(root)
+        with pytest.raises(ValueError) as e:
+            engines("ndif", plan.model, remote=remote).execute(plan, batch_size=BATCH_SIZE)
+        assert str(e.value) == (
+            "harvest: the values this document loads hold 600.0 MiB of tensors (harvest 600.0 MiB), and a request "
+            "carries at most 512 MiB inside its plan; run it where the file is, on the nnterp or hooks engine")
     plan = from_cache(root)
-    with pytest.raises(ValueError, match=r"^harvest: a load reads out/pca_harvest where the run is, and an NDIF "
-                                         r"server cannot see this machine's directories; run the document on the "
-                                         r"nnterp or hooks engine, or under remote=\"local\"$"):
-        engines("ndif", plan.model, remote=True).execute(plan, batch_size=BATCH_SIZE)
+    assert "basis" in engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results
+
+
+def test_a_compiled_plan_read_back_reads_its_loads_values_again(root):
+    """A compiled plan written as JSON holds no tensor, and read back, or rebuilt from its fields, reads each load's
+    value again from its run's file at each point, as it reads a bundle's; a run's plan (`Plan.load`) keeps the
+    load's record alone."""
+    compiled = written(root, "swept_back", loading(corpus("pca_harvest"), {"harvest": {**LOAD, "from": "out/swept"}},
+                                                   ["harvest"]))
+    path = os.path.join(root, "documents", "swept_back.compiled.json")
+    compiled.write(path)
+    with open(path) as f:
+        assert all("loaded" not in p for p in json.load(f)["steps"]["harvest"])
+    for again in (Plan(path), Plan(**compiled.model_dump())):
+        assert [same(p.loaded, q.loaded) for p, q in zip(points(again.steps["harvest"]),
+                                                         points(compiled.steps["harvest"]))] == [True, True]
+    assert cast(Load, load(os.path.join(root, "out", "chained")).steps["cached"]).loaded is None
 
 
 def test_a_swept_value_loads_at_each_point_of_its_axes(engines, root):

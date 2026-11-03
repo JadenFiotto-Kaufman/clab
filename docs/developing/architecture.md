@@ -46,7 +46,7 @@ From `grep -rn '^from clab\|^import clab' clab/`, each layer imports only the la
 
 The chain runs format, featurizers, ops, plan, compile, steps, engines; output sits beside steps (it reads and writes a plan and never runs one), with docs and the entry points on top. A reference that points back up the chain is deferred, so the direction holds at import time:
 
-- A `Plan` method that belongs to a later stage imports it inside the method: `Plan.compile` imports `clab.compile`; `Plan.dump`, `Plan.load` and `Plan.table` import `clab.output`. A `load` step reads a run's directory through output's one reader, imported inside the functions that read it: `clab/compile/__init__.py` `source` and `load_step`, and `clab/steps/__init__.py` `load`.
+- A `Plan` method that belongs to a later stage imports it inside the method: `Plan.compile` imports `clab.compile`; `Plan.dump`, `Plan.load` and `Plan.table` import `clab.output`. A `load` step reads a run's directory through output's one reader, imported inside the functions that read it: `clab/compile/__init__.py` `source`, its manifest, and `clab/plan.py` `loaded_value`, its value.
 - The entry points import the engines inside the function that loads one: `run` in `clab/__init__.py`; `main` in `clab/cli.py`; `describe`, `markdown` and `run_options` in `clab/docs.py`.
 - A type needed only in annotations is imported under `TYPE_CHECKING`: the `Engine` that `compile` and `steps` functions take, the `Kind` in `clab/format/registry.py`.
 

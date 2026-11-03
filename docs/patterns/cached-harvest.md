@@ -72,10 +72,10 @@ is rows 20,000 to 29,999 of the order `shuffle` gives. A document loads one shar
 
 ## Under `ndif`
 
-The loaded value never travels in the request. Under `-o remote=local` the run reads the file where it runs, and the result equals the nnterp engine's to the bit. An NDIF server cannot see the client's directories, so a document that loads is refused before anything is sent:
+The loaded value travels in the request, inside the plan, as a loaded bundle's tensors do, so the server reads no file of yours, and `-o remote=local` runs what a server runs: the result equals the nnterp engine's to the bit. A small cached operand therefore serves a model you cannot load yourself, as a counterfactual read saved from one NDIF run and patched into another. A request carries at most 512 MiB of loaded tensors over a document's loads; a document that loads more is refused before anything is sent, with each load's size:
 
 ```text
-clab: harvest: a load reads out/prompts_l0 where the run is, and an NDIF server cannot see this machine's directories; run the document on the nnterp or hooks engine, or under remote="local"
+clab: harvest, held: the values this document loads hold 600.0 MiB of tensors (harvest 400.0 MiB, held 200.0 MiB), and a request carries at most 512 MiB inside its plan; run it where the file is, on the nnterp or hooks engine
 ```
 
 ## Pitfalls

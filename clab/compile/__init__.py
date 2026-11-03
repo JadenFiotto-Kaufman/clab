@@ -512,7 +512,8 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
     found declared alike), with the record its run's manifest holds for it: refused unless that run ran this
     document's model and the value's dataset has the same rows here (`Load`). Its read, where it holds positions,
     comes with it as the forward that made it with that entry alone, named after this step (`<step>.<entry>`, the
-    value's `read`)."""
+    value's `read`). The value itself the compiled plan reads from the file, as it reads a bundle's
+    (`plan.loaded_value`)."""
     src, d = saved(cx, path, spec.from_, spec.value)
     ran, here = src["plan"], f"{path}.value"
     theirs, ours = ran.model.model_dump(), plan.model.model_dump()
@@ -558,24 +559,17 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
         carried = Forward(kind="forward", input=producer.input, dataset=record.dataset, interventions={
             read.partition(".")[2]: entry.model_copy(update={
                 "read": read, "positions": {str(record.dataset): entry.positions[str(record.dataset)]}, "axes": axes})})
-    if spec.value not in src["values"]:
-        from clab.output import read as stored      # the output directory's one reader, a later stage's
-        try:
-            src["values"][spec.value] = stored(src["out"], spec.value, d)
-        except FileNotFoundError:
-            fail(here, f"{os.path.join(spec.from_, d['file'])} is missing, which its manifest says holds "
-                 f"{spec.value!r}")
-    value = src["values"][spec.value]
+    if not os.path.exists(os.path.join(src["out"], d["file"])):       # its value the compiled plan reads
+        fail(here, f"{os.path.join(spec.from_, d['file'])} is missing, which its manifest says holds {spec.value!r}")
     return Load(**spec.model_dump(exclude_defaults=True), at=at, dims=record.dims, dataset=record.dataset,
-                layers=record.layers, read=read, width=record.width, kept=record.kept, axes=axes, source=carried,
-                loaded=value[spelled(cx.values, there)] if there else value)
+                layers=record.layers, read=read, width=record.width, kept=record.kept, axes=axes, source=carried)
 
 
 def source(cx: Compiling, path: str, out: str) -> dict:
     """The run a load reads, its output directory `out` under the corpus root, read once per directory
     (`Compiling.sources`): the plan its manifest records, without its featurizers (a load needs its records, not the
-    bundles they loaded), each saved value's record by name (`described`), and each value its file holds, once
-    read (`values`). A directory with no manifest, or one this clab cannot read, is refused by name."""
+    bundles they loaded), and each saved value's record by name (`described`). A directory with no manifest, or one
+    this clab cannot read, is refused by name."""
     if out not in cx.sources:
         from clab.output import manifest          # the output directory's one reader, a later stage's
         where = os.path.join(cx.root, out)
@@ -588,7 +582,7 @@ def source(cx: Compiling, path: str, out: str) -> dict:
             ran = Plan(**{**held, "featurizers": {}})
         except PlanError as e:
             fail(f"{path}.from", f"{out}/manifest.json is not a run this clab reads: {e}")
-        cx.sources[out] = {"out": where, "plan": ran, "described": described, "values": {}}
+        cx.sources[out] = {"out": where, "plan": ran, "described": described}
     return cx.sources[out]
 
 
