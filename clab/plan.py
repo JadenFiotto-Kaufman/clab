@@ -1351,7 +1351,7 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     thing, _, member = ref.partition(".")
     step = agreeing_point(steps[thing], at)
     if step.kind != "fit":
-        host = step.source if step.kind == "load" else step            # a load's member is the read it carries
+        host = step.source if step.kind == "load" else step
         found = entries(host)[member] if member else step
         assert isinstance(found, Labelled), f"{ref} names no value"
         return found
