@@ -4,6 +4,7 @@ say, a set is any of its members, a scope that is `before` is the positions that
 
 import json
 import os
+import re
 
 import pytest
 import torch
@@ -493,3 +494,22 @@ def test_a_literal_names_a_probes_class_as_a_constant_column_does(engines):
     assert same(got, want) and not got.isnan().any()
     with pytest.raises(ValueError, match=r"token is the literal ' Monday', not one of the classes of probe 'probe'"):
         run(engines, probed({"text": " Monday"}))
+
+
+@pytest.mark.parametrize("token, written", [("days.end", "days.end"), ({"text": " Friday"}, '{"text": " Friday"}')])
+@pytest.mark.parametrize("probe", [False, True])
+def test_an_answer_is_laid_against_rows_so_a_value_without_them_is_refused_it(token, written, probe):
+    """A metric's answer, a column's or a literal's alike, is laid against the rows of the value it scores, so over a
+    value reduced over its rows (logits, or a probe's scores) both are refused at compile by the one rule an operand
+    keeps, where a literal compiled and failed after the forward on the missing `rows` axis."""
+    probed = {"featurizers": {"probe": {"kind": "linear", "classes": "days.answer"}}} if probe else {}
+    site = {"component": "layer_output", "layers": 0} if probe else HEAD
+    steps = {"f": {"kind": "forward", "input": "days.input", "interventions": {"x": {"site": site, "pos": -1}}},
+             **({"z": {"kind": "op", "op": "encode", "of": "f.x", "featurizer": "probe"}} if probe else {}),
+             "avg": {"kind": "op", "op": "mean", "of": "z" if probe else "f.x", "over": ["rows"]},
+             "p": {"kind": "op", "op": "token_prob", "of": "avg", "token": token}}
+    axis = "classes" if probe else "vocab_size"
+    with pytest.raises(PlanError, match=rf"^steps\.p\.token: '{re.escape(written)}' is laid out \['rows'\]; 'token_prob' "
+                                        rf"scores a value laid out \['pos', '{axis}'\], and an operand's axes are among "
+                                        r"the value's, in its order \(those it leaves out it broadcasts over\)$"):
+        Plan(model=TINY, data={"days": {"rows": CONSTANT}}, steps=steps, saves=["p"], **probed).compile()

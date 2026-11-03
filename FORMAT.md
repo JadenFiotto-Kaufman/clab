@@ -67,23 +67,25 @@ JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `h
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
 several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
 rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-keeps neither), a derived column's source that is not text on a row or that lacks its literal there, a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
-a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
+keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
+`template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
+template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
 
 ### A derived column
 
 - `from: str`
-- `after: literal or null = null`
-- `before: literal or null = null`
+- `after: text or null = null`
+- `before: text or null = null`
 - `strip: bool = false`
 
 `{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
 bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
-computation on its values: the text of column `from` after the first occurrence of `after`'s literal, then
-before the first occurrence of `before`'s in what is left (each optional), then, under `strip`, without its
-surrounding whitespace. `{"from": "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's
-number. `from` stays under its own name. Refused by name: a row whose `from` is not text, and one on which
-`after`'s or `before`'s literal does not occur, naming the row.
+computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
+before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
+one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+"answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
+name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
+occur, naming the row.
 
 ### `sites.<name>`, or a `site` inline
 
@@ -123,7 +125,8 @@ lowercased, and `strip` makes its surrounding whitespace optional.
 Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
 column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
 same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
-(tokenized as written, the flags as here); a scope's literal is its own `text`.
+(tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
+list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
 
 A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
 whitespace, its positions the original's.
@@ -138,11 +141,13 @@ the last without trailing, a one-token answer's without either (` Yes`, ` yes`, 
 flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
 `▁New ▁York`, `▁New` standing for `New` too).
 
-### A literal text
+### A text
 
 - `text: str`
 
-`{"text": "<literal>"}`: literal text, in a list `input` and as a derived column's `after` or `before`.
+`{"text": "<text>"}`: a text, written as it is, in a list `input` and as a derived column's `after` or
+`before`: one string, its only field (no `strip` or `lower`, and no list, which a literal in an op's argument
+takes).
 
 ### An entry of `interventions`
 
@@ -303,12 +308,12 @@ A record has a static width (the same number of positions on every row, `(rows, 
 names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
 index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
 `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
-row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
-that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
-row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
-name, since it has no token to write.
+the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide
+as the widest row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a
+static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a
+result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a
+shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused
+by name, since it has no token to write.
 
 ## Step kinds
 
@@ -316,12 +321,12 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`.
 
 ### `forward`
 
-- `input: str or list of str or literal`
+- `input: str or list of str or text`
 - `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
-literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
+of one dataset, joined per row as they are, with nothing between (`["days.input",
 "days.answer"]` appends each row's answer to its prompt: teacher forcing); `interventions` (a bundle's
 name, a dict of entries, or a list of either) are what it reads and writes, each entry binding
 `<step>.<name>`, in the order written.
@@ -350,7 +355,7 @@ batch size, padding and thread count.
 
 ### `generate`
 
-- `input: str or list of str or literal`
+- `input: str or list of str or text`
 - `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
@@ -584,8 +589,9 @@ An argument is filled by a document as its type says: `Value` is a named value o
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
 `vocab_size` or a `classes` axis); `Text` a column read as text; either one may be a literal in the column's place,
 `{"text": "</think>"}` (with `strip` and `lower` as a column's reference has them, a list a set), read as a column
-holding that text on every row is; `Featurizer` a featurizer's name; anything else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
-its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+holding that text on every row is; `Featurizer` a featurizer's name; anything else is the value as written.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
 
@@ -692,8 +698,9 @@ in their order, and the axis stays in the layout, so that a site has one layout 
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
 int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
-`"0:3"`), or, in a read, keys relative to each query position, `{"offset": -1}`; unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
-shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
+`"0:3"`), or, in a read, keys relative to each query position, `{"offset": -1}`; unselected, the axis is as
+wide as the input's longest row, key j the row's token j, and past a shorter row's own keys a read is NaN and a
+write changes nothing (its padding's keys stay as they are).
 `stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
 entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
 whole number from 0 below that size, since the model indexes with them.

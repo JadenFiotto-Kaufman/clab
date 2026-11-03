@@ -480,7 +480,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     space = of.space + space_of(cx.aliases, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = carried(of, dims)
     dataset = of.dataset if of.dataset is not None else \
-        next((t.dataset for _, t in found.values() if "rows" in (t.dims or [])), None)
+        next((t.dataset for _, t in found.values() if "rows" in (t.dims or []) and t.dataset is not None), None)
     axes = under(cx, pathed(path)) | named_axes(cx, spec.of, at) | operand_axes(cx, [spec], at, {})
     return OpStep(**spec.model_dump(exclude_defaults=True), at=at, dataset=dataset, dims=dims, layers=layers,
                   read=of.read, kept=kept, width=width, space=space, axes=ordered(cx, axes))

@@ -53,7 +53,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | history | A fit's per-epoch record of each body op's mean and each trained featurizer's scalar, `<fit>.history.<name>`. | [fit.md](../usage/fit.md#history) |
 | hooks | The engine that drives a plain Hugging Face model with forward hooks and reaches module-boundary components only; the cross-check for nnterp. | [engines.md](../usage/engines.md#cross-checking-with-hooks) |
 | index | The third stage of a `pos`: which positions, counted over the tokens the frame and scope left. | [concepts/positions.md](../concepts/positions.md#three-stages-frame-scope-index) |
-| input | The column, or list of columns and literals, that a `forward` or `generate` step runs over, one prompt per row. | [data.md](../usage/data.md#inputs) |
+| input | The column, or list of columns and texts, that a `forward` or `generate` step runs over, one prompt per row. | [data.md](../usage/data.md#inputs) |
 | kind | Which featurizer a declaration is (`subspace`, `gate`, `pca`, `sae`, `linear`, `lora`), or which a step is (`forward`, `generate`, `op`, `fit`). | [featurizers.md](../usage/featurizers.md) |
 | label | The name of a sweep's axis: its `label`, else the swept field's own key; sweeps with one label zip, with different labels cross. | [sweeps.md](../usage/sweeps.md#labels-zip-or-cross) |
 | layers axis | The leading axis a slice or list of `layers` gives a value, labelled with the model's layers it picks, by which ops align operands. | [values-and-layout.md](../concepts/values-and-layout.md#the-layers-axis) |

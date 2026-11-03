@@ -121,8 +121,9 @@ An argument is filled by a document as its type says: `Value` is a named value o
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
 `vocab_size` or a `classes` axis); `Text` a column read as text; either one may be a literal in the column's place,
 `{"text": "</think>"}` (with `strip` and `lower` as a column's reference has them, a list a set), read as a column
-holding that text on every row is; `Featurizer` a featurizer's name; anything else is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
-its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+holding that text on every row is; `Featurizer` a featurizer's name; anything else is the value as written.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
 

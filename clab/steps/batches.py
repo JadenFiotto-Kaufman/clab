@@ -79,7 +79,8 @@ def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu",
     relative = record.kept.get("key")
     if isinstance(relative, dict):
         assert queries is not None, "a read's selection is bound with its positions"
-        valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row] for row, pad in zip(queries, pads)]
+        valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row]
+                 for row, pad in zip(queries, pads)]
         index = [[[p + k + pad if ok else 0 for k, ok in zip(relative["offset"], oks)] for p, oks in zip(row, okay)]
                  for row, pad, okay in zip(queries, pads, valid)]
         return {"keys": {"dim": layout.index("key"), "index": placed(index, device), "own": placed(valid, device)}}

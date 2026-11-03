@@ -82,8 +82,9 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
     """How compile resolves an op's named arguments (`references`) at `path`, at the consumer's point `at`: a value
     to its record (`value_of`, an entry of the forward being compiled among `live`), a column to a row per example
     of its dataset once it is checked to hold text on every row, or, scored against a probe's `classes`, its
-    labels, whatever they are (`classes`), a literal to no axis at all, the same on every row, once it is checked to
-    be one (`literal`), and a featurizer to nothing, once it is checked to exist."""
+    labels, whatever they are (`classes`), a literal to a row per example of whatever dataset the value it goes with
+    has rows of, the same text on each, once it is checked to be one (`literal`), and a featurizer to nothing, once it
+    is checked to exist."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
@@ -92,7 +93,7 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
             featurizer_ref(cx, value, where)
             return None
         if literal(value, where):
-            return Labelled(dims=[])
+            return Labelled(dims=["rows"])          # an answer is laid against rows, a column's and a literal's alike
         ref = data.column_of(value)
         dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
             else text_ref(cx, value, where, None)
@@ -189,11 +190,11 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
-    in the value's order, with the same label (`layers` by model layer, `rows` by dataset, `pos` by the read whose
-    positions both hold or by `width`, a selected axis by the indices kept in order, `features` by the encodes it is
-    in); a `layers` axis it has covers the layers the op acts at and is aligned by id. A number broadcasts in any
-    coordinates; an adapter's `with` (`adapter`: the op is an `apply` of one, `plan.adapts`) is compared on its rows
-    and positions alone. `write` says the op is one of an
+    in the value's order, with the same label (`layers` by model layer, `rows` by dataset, a literal's, which names
+    none, by any one, `pos` by the read whose positions both hold or by `width`, a selected axis by the indices kept
+    in order, `features` by the encodes it is in); a `layers` axis it has covers the layers the op acts at and is
+    aligned by id. A number broadcasts in any coordinates; an adapter's `with` (`adapter`: the op is an `apply` of
+    one, `plan.adapts`) is compared on its rows and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
@@ -228,7 +229,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             return (f"{written!r} holds layers {theirs.layers}, and this op acts at layers {ours.layers}; at each "
                     f"layer it takes the operand's slice of that layer, and it holds none of {missing}: read it at "
                     "those layers too")
-    if "rows" in their_axes and theirs.dataset != ours.dataset:
+    if "rows" in their_axes and theirs.dataset is not None and theirs.dataset != ours.dataset:
         return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
                 "takes one dataset's rows")
     if "pos" in their_axes and theirs.read != ours.read:

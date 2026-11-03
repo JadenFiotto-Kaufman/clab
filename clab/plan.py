@@ -175,18 +175,21 @@ class Model(Record):
 
 
 class TextPart(Record):
-    """`{"text": "<literal>"}`: literal text, in a list `input` and as a derived column's `after` or `before`."""
+    """`{"text": "<text>"}`: a text, written as it is, in a list `input` and as a derived column's `after` or
+    `before`: one string, its only field (no `strip` or `lower`, and no list, which a literal in an op's argument
+    takes)."""
     text: str
 
 
 class Derived(Record):
     """`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
     bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
-    computation on its values: the text of column `from` after the first occurrence of `after`'s literal, then
-    before the first occurrence of `before`'s in what is left (each optional), then, under `strip`, without its
-    surrounding whitespace. `{"from": "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's
-    number. `from` stays under its own name. Refused by name: a row whose `from` is not text, and one on which
-    `after`'s or `before`'s literal does not occur, naming the row."""
+    computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
+    before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
+    one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+    "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
+    name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
+    occur, naming the row."""
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, use_attribute_docstrings=True,
                               serialize_by_alias=True)
     source: str = Field(alias="from")
@@ -196,8 +199,8 @@ class Derived(Record):
 
     @field_validator("after", "before", mode="before")
     @classmethod
-    def _literal(cls, given: Any) -> Any:
-        """A literal is the object, as it is wherever a text is taken: a bare string is refused with it."""
+    def _text(cls, given: Any) -> Any:
+        """A text is the object, as it is in a list `input`: a bare string is refused with it."""
         if isinstance(given, str):
             raise ValueError(f"{given!r} is a string; text written as it is is {{'text': {given!r}}}")
         return given
@@ -228,8 +231,9 @@ class Data(Record):
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
     rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), a derived column's source that is not text on a row or that lacks its literal there, a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
-    a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
+    keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
+    `template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
+    template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None
@@ -327,7 +331,8 @@ class Column(Record):
     Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
     column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
     same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
-    (tokenized as written, the flags as here); a scope's literal is its own `text`.
+    (tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
+    list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
 
     A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
     whitespace, its positions the original's.
@@ -522,12 +527,12 @@ class Pos(Record):
     names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
     index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
     `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-    the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
-    row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
-    that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-    is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
-    row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
-    name, since it has no token to write.
+    the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide
+    as the widest row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a
+    static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a
+    result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a
+    shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused
+    by name, since it has no token to write.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None
@@ -734,8 +739,8 @@ def gathers(entry: Intervention) -> list[Op]:
 
 class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-    `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
-    literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+    `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
+    of one dataset, joined per row as they are, with nothing between (`["days.input",
     "days.answer"]` appends each row's answer to its prompt: teacher forcing); `interventions` (a bundle's
     name, a dict of entries, or a list of either) are what it reads and writes, each entry binding
     `<step>.<name>`, in the order written.

@@ -88,16 +88,16 @@ def renamed(rows: list[dict], columns: dict[str, Any]) -> list[dict]:
 
 def cut(text: str, derived: Any) -> str | None:
     """A derived column's text on one row (`plan.Derived`): `text` after the first occurrence of its `after`'s
-    literal, then before the first occurrence of its `before`'s in what is left, then stripped under its `strip`;
-    None where either literal does not occur."""
+    text, then before the first occurrence of its `before`'s in what is left, then stripped under its `strip`;
+    None where either does not occur."""
     for side in ("after", "before"):
-        literal = getattr(derived, side)
-        if literal is None:
+        part = getattr(derived, side)
+        if part is None:
             continue
-        at = text.find(literal.text)
+        at = text.find(part.text)
         if at < 0:
             return None
-        text = text[at + len(literal.text):] if side == "after" else text[:at]
+        text = text[at + len(part.text):] if side == "after" else text[:at]
     return text.strip() if derived.strip else text
 
 
@@ -137,12 +137,12 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
 
 
 def input_columns(input: str | list[str | TextPart]) -> list[str]:
-    """The columns an input names: itself, or a list's that are not `{"text": ...}` literals."""
+    """The columns an input names: itself, or a list's that are not `{"text": ...}` texts."""
     return [input] if isinstance(input, str) else [part for part in input if isinstance(part, str)]
 
 
 def input_name(input: str | list[str | TextPart], swap: dict[str, str] | None = None) -> str:
-    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a literal as JSON),
+    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a text as JSON),
     each column's dataset as `swap` renames it."""
     parts = [input] if isinstance(input, str) else input
     swap = swap or {}
