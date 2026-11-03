@@ -62,7 +62,7 @@ def test_values_over_different_sweep_axes_join_on_the_axes_they_share(engines):
 
 
 def test_rowless_values_with_a_layers_axis_join_by_layer_and_a_rowed_one_beside_them_too(engines):
-    """Two means over everything but `layers` are keyed by `layer`, as `elements` prints it: joined, one row per
+    """Two means over everything but `layers` are keyed by `layer`, as `value_rows` prints it: joined, one row per
     layer with each value's; a value laid out `[layers, rows, pos]` beside one of them takes its layer's number on
     every row."""
     def site(component: str) -> dict:

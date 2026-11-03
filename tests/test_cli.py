@@ -213,7 +213,7 @@ def test_show_keeps_apart_points_whose_positions_differ_only_in_rows_it_does_not
     at = {"pos=-1": 0, "pos=-2": 1, "pos=-3": 2}
 
     def placed(step, p):
-        return [(f"{step}.patch", [[7]] * 25 + [[at[cli.labelled(plan, p.at)]]] + [[7]] * 24)] \
+        return [(f"{step}.patch", [[7]] * 25 + [[at[cli.coordinate_text(plan, p.at)]]] + [[7]] * 24)] \
             if step == "patched" else []
     monkeypatch.setattr(cli, "placed", placed)
     rows = cli.resolved(plan)

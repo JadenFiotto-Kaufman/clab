@@ -49,7 +49,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
     forward or generate step run one forward exactly when they agree on the forward's axes (`schedule`): a sweep
     on what a step reads runs one forward, a sweep on what it writes one per point.
     """
-    found: dict[tuple, str] = {}
+    labels: dict[tuple, str] = {}
     first: dict[str, tuple[str, list]] = {}         # each label's first sweep: where it stands and its values
 
     def walk(value: Any, path: tuple) -> None:
@@ -71,7 +71,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
                                  "since its points are keyed `<label>=<value>`, joined by commas")
             if holds_sweep(value["sweep"]):
                 raise ValueError(f"{where}: a sweep's values hold no sweep")
-            scalars(where, field, value["sweep"])
+            check_scalars(where, field, value["sweep"])
             if label in first and json.dumps(first[label][1]) != json.dumps(value["sweep"]):
                 other, values = first[label]
                 raise ValueError(f"{where}: label {label!r} is also the sweep at {other}, over {values}; one label "
@@ -79,7 +79,7 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
                                  f"cross them ({{'sweep': [...], 'label': '<name>'}}), or the same values to pair "
                                  "them")
             first.setdefault(label, (where, value["sweep"]))
-            found[path] = label
+            labels[path] = label
         elif isinstance(value, dict):
             for k, v in value.items():
                 if path or k not in ("results", "run", "sweeps"):        # a plan's own derived fields hold none
@@ -89,10 +89,10 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
                 walk(v, path + (i,))
 
     walk(document, ())
-    return found
+    return labels
 
 
-def scalars(where: str, field: str, values: Any) -> None:
+def check_scalars(where: str, field: str, values: Any) -> None:
     """A sweep's values are numbers, strings, booleans or lists of them, since each point is keyed by its value: an
     object is refused with an example that sweeps a scalar inside it, its first scalar leaf, or, standing for a
     `pos`, one of the fields a pos takes a sweep on (its frame, its index, a scope's occurrence)."""
@@ -127,7 +127,7 @@ def points(entry: Any) -> list:
     return entry if isinstance(entry, list) else [entry]
 
 
-def agreeing(entry: Any, at: dict[str, int]) -> Any:
+def agreeing_point(entry: Any, at: dict[str, int]) -> Any:
     """The point of `entry` that agrees with the point `at` on the entry's own axes. A swept entry's points are
     the product of its axes in axis order, the last fastest (`compile.expand`), so that point is the one at `at`'s
     index on each axis, each axis as long as the last point's index on it plus one: found without a scan of the
@@ -147,12 +147,12 @@ def coordinate(plan: Plan, at: dict[str, int]) -> Any:
     return values[0] if len(values) == 1 else tuple(values)
 
 
-def labelled(plan: Plan, at: dict[str, int]) -> str:
+def coordinate_text(plan: Plan, at: dict[str, int]) -> str:
     """A point's coordinate as text: `pos=-1`, `layers=0,pos=-1`."""
-    return spelled({label: axis.values for label, axis in plan.sweeps.items()}, at)
+    return coordinate_spelling({label: axis.values for label, axis in plan.sweeps.items()}, at)
 
 
-def spelled(values: dict[str, list], at: dict[str, int]) -> str:
+def coordinate_spelling(values: dict[str, list], at: dict[str, int]) -> str:
     """A point's coordinate as text, given each axis's `values`: the one spelling of a point, in the run record,
     a saved file's keys and a refusal at one point of a sweep."""
     return ",".join(f"{label}={json.dumps(values[label][i], separators=(',', ':'))}" for label, i in at.items())
@@ -179,12 +179,12 @@ def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
     raise KeyError(f"{name} at {at}")
 
 
-def projected(at: dict[str, int], axes: list[str]) -> dict[str, int]:
+def projection(at: dict[str, int], axes: list[str]) -> dict[str, int]:
     """The point `at` projected onto `axes`: its index on each of them, in axis order."""
     return {label: at[label] for label in axes if label in at}
 
 
-def by_coordinate(plan: Plan, by_point: dict) -> Any:
+def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
     """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
     the point's coordinate as text."""
-    return by_point[()] if () in by_point else {labelled(plan, dict(c)): v for c, v in by_point.items()}
+    return by_point[()] if () in by_point else {coordinate_text(plan, dict(c)): v for c, v in by_point.items()}

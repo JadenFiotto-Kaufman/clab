@@ -245,7 +245,7 @@ def test_a_loads_value_travels_inside_the_plan_and_the_run_reads_no_file(engines
     def kept(cls, tracer, compress=False):
         sent.append(serialize(tracer, compress))
         return sent[-1]
-    monkeypatch.setattr(output, "read", lambda *args: pytest.fail("the run read a file"))
+    monkeypatch.setattr(output, "read_saved_value", lambda *args: pytest.fail("the run read a file"))
     there = engines("ndif", local.model, remote="local").execute(local, batch_size=BATCH_SIZE)
     assert same(there.results, here)
     assert {k: v for k, v in there.run.costs["harvest"].items() if k != "seconds"} == \

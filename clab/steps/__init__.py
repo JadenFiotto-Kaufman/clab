@@ -10,9 +10,9 @@ a child of it, carrying the minibatch's row ids: `batches.ROWS`) that never leav
 name, by its coordinates on its own axes (`Labelled.axes`).
 The steps run in the order `plan.runnable` lists them, a fit's eval steps after it. A forward or generate step
 runs at the points no other point's forward serves (`plan.serving`), executing the point's schedule batch by batch
-(`batches.bind`); an op step once per distinct point on its value's axes, and a load as one, putting a saved value
-where the model is; each adds the model calls it made and the tokens they fed to its `cost`, which `run` records with
-its time and memory (`measured`).
+(`batches.bind_schedule`); an op step once per distinct point on its value's axes, and a load as one, putting a saved
+value where the model is; each adds the model calls it made and the tokens they fed to its `cost`, which `run` records
+with its time and memory (`measure_cost`).
 """
 
 from __future__ import annotations
@@ -31,17 +31,18 @@ import torch
 from torch import Tensor
 
 from clab import ops
-from clab.compile import materialized
+from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
-from clab.compile.schedule import gathered
-from clab.compile.state import Found
+from clab.compile.schedule import values_read_by
+from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import agreeing, by_coordinate, coordinate, labelled, lookup, projected, put
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, keyed_by_coordinate, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         serving)
 from clab.steps import fit, generate
-from clab.steps.batches import bind, bound, chunked, home, joined, layers, over, read, stacked, stops, value_at
+from clab.steps.batches import (bind_arguments, bind_schedule, input_batches, join_batches, layers_made_at,
+                                model_device, scope_ids, stack_layers, stop_ids, value_at, value_in_prefill)
 
 if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
@@ -49,13 +50,13 @@ if TYPE_CHECKING:
     from clab.engines import Engine, Parameterized
 
 
-def begin(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset") -> float:
+def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset") -> float:
     """What every engine's `execute` checks first (a compiled plan, for this engine's checkpoint, at a batch size of
     one row or more and a padding `data.PADDINGS` names), and the run record it starts: the engine, the batch size
     and padding, the device and the options it loaded with; returns the start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
-    batched(batch_size, padding)
+    check_run_options(batch_size, padding)
     ours, theirs = plan.model.model_dump(), engine.spec.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:                  # a loader key written null is one left out
@@ -66,9 +67,9 @@ def begin(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset")
     return time.time()
 
 
-def batched(batch_size: int, padding: str = "dataset") -> int:
+def check_run_options(batch_size: int, padding: str = "dataset") -> int:
     """`batch_size` and `padding` as every run takes them: one row or more per batch, and a padding
-    `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `begin` for an
+    `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `start_run` for an
     engine's `execute` called on its own)."""
     if batch_size < 1:
         raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
@@ -80,84 +81,87 @@ def batched(batch_size: int, padding: str = "dataset") -> int:
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     """Every step in document order, a fit's eval steps after it (`runnable`), at each point of it that runs
     (`serving`: a forward's or generation's serving points, an op's one per distinct point on its value's axes, a
-    fit's every one), over the plan `held`, without gradients except where a fit trains, a forward's batches of
-    `batch_size` rows unless its record fixes another (a fit's eval step's: the fit's), each run's cost `measured` into
-    `plan.run.costs` with the points it served; then (`ended`) each saved value into `plan.results` (a trained
-    featurizer as its bundle's tensors), and what served the run: the model's sizes, and the dtypes and devices of the
-    model's parameters (`placed`). Where each read and write resolved, and each featurizer's width, is on its record,
-    which preflight and the steps complete in place. A step that runs out of CUDA memory stops the run: the refusal
-    (`exhausted`) names the step, the batch size and every value the run holds, is recorded as `plan.run.stopped`, and
-    the steps that finished are recorded and saved as if the run had ended there."""
-    plan = held(plan)
+    fit's every one), over the plan with its rows (`plan_with_rows`), without gradients except where a fit trains, a
+    forward's batches of `batch_size` rows unless its record fixes another (a fit's eval step's: the fit's), each
+    run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then (`record_results`)
+    each saved value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
+    model's sizes, and the dtypes and devices of the model's parameters (`dtypes_and_devices`). Where each read and
+    write resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A
+    step that runs out of CUDA memory stops the run: the refusal (`out_of_memory_refusal`) names the step, the batch
+    size and every value the run holds, is recorded as `plan.run.stopped`, and the steps that finished are recorded
+    and saved as if the run had ended there."""
+    plan = plan_with_rows(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()
-    found = preflight(engine, plan)
-    state = made(plan, home(engine))
+    findings = preflight(engine, plan)
+    state = state_at_start(plan, model_device(engine))
     devices, costs = engine.cuda, {}
     with torch.no_grad():
         for name in runnable(plan.steps):
             for step, served in serving(plan, name):
                 cost: dict[str, Any] = {"seconds": 0.0, "memory": None, "forwards": 0, "tokens": 0, "real": 0,
-                                        **({"serves": [labelled(plan, p.at) for p in served]} if step.at else {})}
+                                        **({"serves": [coordinate_text(plan, p.at) for p in served]}
+                                           if step.at else {})}
                 rows = step.batch_size if isinstance(step, Forward) and step.batch_size is not None else batch_size
                 try:
-                    measured(devices, cost, lambda: KINDS[step.kind](
-                        engine, plan, name, step, state, rows, found, cost,
+                    measure_cost(devices, cost, lambda: KINDS[step.kind](
+                        engine, plan, name, step, state, rows, findings, cost,
                         *([served] if isinstance(step, Forward) else [])), step.kind not in NO_MODEL)
                     put(costs, name, step.at, cost)
                 except torch.OutOfMemoryError as e:
-                    plan.run.stopped = exhausted(plan, name, step.at, rows, state, e)
-                    ended(engine, plan, state, costs, found)
+                    plan.run.stopped = out_of_memory_refusal(plan, name, step.at, rows, state, e)
+                    record_results(engine, plan, state, costs, findings)
                     raise ValueError(plan.run.stopped) from e
-    ended(engine, plan, state, costs, found)
+    record_results(engine, plan, state, costs, findings)
 
 
-def ended(engine: Engine, plan: Plan, state: ChainMap, costs: dict, found: Found) -> None:
+def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
     """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
     every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
     coordinates on its own axes), how each input tokenized, and the dtypes and devices of the model's parameters."""
     assert plan.run is not None
-    plan.run.costs = {name: by_coordinate(plan, by_point) for name, by_point in costs.items()}
+    plan.run.costs = {name: keyed_by_coordinate(plan, by_point) for name, by_point in costs.items()}
     done = {name for name in runnable(plan.steps) if len(costs.get(name, {})) == len(serving(plan, name))}
     for name in (n for n in plan.saves if made_by(plan, n) in done):
         ats = [at for at, _ in projections(plan, name)]
-        plan.results[name] = ({coordinate(plan, at): finished(saved(plan, state, name, at)) for at in ats}
-                              if ats != [{}] else finished(saved(plan, state, name, {})))
-    plan.run.tokens.update({name: by_coordinate(plan, by_point) for name, by_point in found.said.items()})
-    plan.run.dtype, plan.run.devices = placed(engine.model)
+        plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(saved(plan, state, name, at)) for at in ats}
+                              if ats != [{}] else detached_cpu_clone(saved(plan, state, name, {})))
+    plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
+    plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
 
-def exhausted(plan: Plan, name: str, at: dict, batch_size: int, state: ChainMap, error: BaseException) -> str:
+def out_of_memory_refusal(plan: Plan, name: str, at: dict, batch_size: int, state: ChainMap,
+                          error: BaseException) -> str:
     """The refusal for a step that ran out of CUDA memory: the step and its point, the batch size (a fit's, and its
     eval steps', the fit's `batch_size`), what torch said (its first sentences), and every value the run holds
     (`state`: each bound value stays on the model's device until the run ends) with its shape, dtype and device,
     then what to do."""
-    where = f"steps.{name}" + (f" at {labelled(plan, at)}" if at else "")
+    where = f"steps.{name}" + (f" at {coordinate_text(plan, at)}" if at else "")
     head = name.partition(".")[0]
-    owner = agreeing(plan.steps[head], at)             # the step itself, or the fit whose eval step it is
+    owner = agreeing_point(plan.steps[head], at)             # the step itself, or the fit whose eval step it is
     if owner.kind == "fit":
         batch_size = cast(int, owner.batch_size)
-    said = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
-    held = [f"{n}{f'[{labelled(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
-            if isinstance(by_point, dict) for c, v in by_point.items() if (s := sized(v))]
-    holds = (f"holds {', '.join(held)}, each on the model's device until the run ends" if held else
+    message = ". ".join(str(error).strip().split(". ")[:3]).rstrip(".")
+    listed = [f"{n}{f'[{coordinate_text(plan, dict(c))}]' if c else ''} {s}" for n, by_point in state.items()
+              if isinstance(by_point, dict) for c, v in by_point.items() if (s := value_text(v))]
+    holds = (f"holds {', '.join(listed)}, each on the model's device until the run ends" if listed else
              "holds no value yet")
     smaller = f"give steps.{head} a smaller batch_size" if owner.kind == "fit" else "run with a smaller --batch-size"
-    return (f"{where}: out of CUDA memory at batch size {batch_size} ({said}); the run {holds}; {smaller}, or name "
+    return (f"{where}: out of CUDA memory at batch size {batch_size} ({message}); the run {holds}; {smaller}, or name "
             "and save fewer values")
 
 
-def sized(value: Any) -> str | None:
+def value_text(value: Any) -> str | None:
     """A value's shape, dtype and device as a refusal lists it: a tensor's, a dict's per tensor-valued key
     (`top_k`'s `ids` and `probs`, not its token strings); None for anything else (a featurizer instance)."""
     if isinstance(value, Tensor):
         return f"{list(value.shape)} {str(value.dtype).removeprefix('torch.')} on {value.device}"
     if isinstance(value, dict) and any(isinstance(v, Tensor) for v in value.values()):
-        return "{" + ", ".join(f"{k} {sized(v)}" for k, v in value.items() if isinstance(v, Tensor)) + "}"
+        return "{" + ", ".join(f"{k} {value_text(v)}" for k, v in value.items() if isinstance(v, Tensor)) + "}"
     return None
 
 
-def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool = True) -> None:
+def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool = True) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
     which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
     synchronized at both ends where it calls the model (`synced`), and the peak memory allocated on each of them
@@ -179,28 +183,28 @@ def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None],
     cost["memory"] = {d: torch.cuda.max_memory_allocated(d) for d in devices} or None
 
 
-def gpus(engine: Engine) -> list[str]:
+def cuda_devices(engine: Engine) -> list[str]:
     """The CUDA devices the model is on: where its parameters are (a meta shell's, which loads its weights at its
-    first forward, where the engine places it: `home`). What an engine that runs here answers for `cuda`."""
-    devices = dict.fromkeys(home(engine) if d == "meta" else d for d in placed(engine.model)[1])
+    first forward, where the engine places it: `model_device`). What an engine that runs here answers for `cuda`."""
+    devices = dict.fromkeys(model_device(engine) if d == "meta" else d for d in dtypes_and_devices(engine.model)[1])
     return [d for d in devices if d.startswith("cuda")]
 
 
-def held(plan: Plan) -> Plan:
+def plan_with_rows(plan: Plan) -> Plan:
     """The plan as the run reads it: every dataset's rows in it, a hub dataset's loaded here, where the run is (on the
-    server, under `ndif`), and refused unless their digest is the one compile recorded (`materialized`). It is a
+    server, under `ndif`), and refused unless their digest is the one compile recorded (`dataset_rows`). It is a
     view: its `results` and `run` are the plan's own, which the run fills."""
-    return plan.model_copy(update={"data": {n: d.model_copy(update={"rows": materialized(plan, n)})
+    return plan.model_copy(update={"data": {n: d.model_copy(update={"rows": dataset_rows(plan, n)})
                                             for n, d in plan.data.items()}})
 
 
-def placed(model: Parameterized) -> tuple[list[str], list[str]]:
+def dtypes_and_devices(model: Parameterized) -> tuple[list[str], list[str]]:
     """The distinct dtypes and devices of `model`'s parameters, each in the order first met. `run` reads them
     inside the session after the steps, so they are the server's under the ndif engine, and those of a model
     that loads its weights at its first forward once it has."""
     dtypes, devices = {}, {}
-    for p in model.parameters():
-        dtypes[str(p.dtype).removeprefix("torch.")] = devices[str(p.device)] = None
+    for parameter in model.parameters():
+        dtypes[str(parameter.dtype).removeprefix("torch.")] = devices[str(parameter.device)] = None
     return list(dtypes), list(devices)
 
 
@@ -211,7 +215,7 @@ def saved(plan: Plan, state: ChainMap, name: str, at: dict) -> Any:
     return value.tensors() if step.kind == "fit" and member in step.train else value
 
 
-def made(plan: Plan, device: str) -> ChainMap:
+def state_at_start(plan: Plan, device: str) -> ChainMap:
     """The run's state at its start: each declared featurizer used at a site (its record says its `width` there),
     at each of its points, made where the model is (`device`)."""
     state: ChainMap = ChainMap()
@@ -222,14 +226,14 @@ def made(plan: Plan, device: str) -> ChainMap:
     return state
 
 
-def finished(value: Any) -> Any:
+def detached_cpu_clone(value: Any) -> Any:
     """Detached CPU clones all the way down; a result never holds a view of a larger buffer."""
     if isinstance(value, Tensor):
         return value.detach().cpu().clone()
     if isinstance(value, dict):
-        return {k: finished(v) for k, v in value.items()}
+        return {k: detached_cpu_clone(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [finished(v) for v in value]
+        return [detached_cpu_clone(v) for v in value]
     return value
 
 
@@ -265,96 +269,100 @@ def version() -> str:
     return f"{dist.version}+{described}"
 
 
-def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, found: Found,
-            cost: dict[str, Any], served: list[Forward], reading: dict | None = None) -> None:
-    """The step's input in batches of dataset row ids padded as the run says (`chunked`, `plan.run.padding`), each
-    through `engine.forward` with the point's schedule bound to it (`bind`); each value the forward reads
-    (`reading`, `gathered` over the points its run serves, `served`: each gathered entry at each distinct point on
-    its axes among them, which a fit gives once for its every run of the body) joined along rows from its own reads,
-    in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
+def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMap, batch_size: int, findings: Findings,
+            cost: dict[str, Any], served: list[Forward], values_read: dict | None = None) -> None:
+    """The step's input in batches of dataset row ids padded as the run says (`input_batches`, `plan.run.padding`), each
+    through `engine.forward` with the point's schedule bound to it (`bind_schedule`); each value the forward reads
+    (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each distinct
+    point on its axes among them, which a fit gives once for its every run of the body) joined along rows from its own
+    reads, in the run's row order. Adds to `cost` the model calls it made, one per batch, the prompt tokens they fed,
     padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
     positions is as wide as the widest, NaN past a row's own."""
     assert plan.run is not None
-    reading = gathered(served) if reading is None else reading
-    parts: dict[tuple[str, tuple], list] = {k: [] for k in reading}
-    order: list[int] = []
-    for ids, batch, pads in chunked(engine, step, state, found, batch_size, plan.run.padding):
-        order += ids
-        bound, binds = bind(engine, plan, name, step, state, found, ids, pads, reading)
-        got = engine.forward(batch, bound)
-        missing = [r["name"] for s in bound["sites"] for r in s["records"] if "name" in r and r["name"] not in got]
+    values_read = values_read_by(served) if values_read is None else values_read
+    parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
+    batched_ids: list[int] = []
+    for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
+        batched_ids += ids
+        bound_schedule, binds = bind_schedule(engine, plan, name, step, state, findings, ids, pads, values_read)
+        got = engine.forward(batch, bound_schedule)
+        missing = [r["name"] for s in bound_schedule["sites"] for r in s["records"]
+                   if "name" in r and r["name"] not in got]
         if missing:
-            raise RuntimeError(f"{name}: the {engine.name} engine ended the forward at {bound['stop']} without "
-                               f"reading {', '.join(missing)}; the schedule's stop site comes after its last read")
+            raise RuntimeError(f"{name}: the {engine.name} engine ended the forward at {bound_schedule['stop']} "
+                               f"without reading {', '.join(missing)}; the schedule's stop site comes after its last "
+                               "read")
         cost["forwards"] += 1
         cost["tokens"] += batch["input_ids"].numel()
         cost["real"] += batch["input_ids"].numel() - sum(pads)
-        for k, (record, own, p) in reading.items():
-            parts[k].append(stacked(record, [read(engine, plan, record, got[binds[k + (layer,)][0]["name"]],
-                                                  binds[k + (layer,)][0], ids, state, p.at, found, layer)
-                                             for layer in layers(engine, record)]))
-    for k, (record, own, _) in reading.items():
-        joined(state, f"{name}.{k[0]}", record, own, parts[k], order)
+        for k, (record, own, point) in values_read.items():
+            parts[k].append(stack_layers(record, [
+                value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
+                                 state, point.at, findings, layer)
+                for layer in layers_made_at(engine, record)]))
+    for k, (record, own, _) in values_read.items():
+        join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
 
 
-def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, found: Found,
+def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, findings: Findings,
        cost: dict[str, Any]) -> None:
-    """The op over the value `of` names at the rows the run is over (`over`, else every row of its dataset),
+    """The op over the value `of` names at the rows the run is over (`scope_ids`, else every row of its dataset),
     given each one's dataset row, at the layers `of`'s record says it is at (its `layers` axis's labels, or the one
-    layer it was read at), to which an operand's `layers` axis is aligned (`bound`); a `classes` axis's vocabulary
-    is the probe its coordinates are in. `top_k`'s value over a vocabulary's tokens also holds them, decoded. It
-    calls no model, and its value is put at the point's coordinates on its own axes."""
-    of, record = value_at(plan, state, step.of, step.at, over(state)), record_of(plan.steps, step.of, step.at)
+    layer it was read at), to which an operand's `layers` axis is aligned (`bind_arguments`); a `classes` axis's
+    vocabulary is the probe its coordinates are in. `top_k`'s value over a vocabulary's tokens also holds them, decoded.
+    It calls no model, and its value is put at the point's coordinates on its own axes."""
+    of, record = value_at(plan, state, step.of, step.at, scope_ids(state)), record_of(plan.steps, step.of, step.at)
     dims = record.dims or []
     producer = points(runnable(plan.steps)[made_by(plan, step.of)])[0]
-    ids = (over(state) if over(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
+    ids = (scope_ids(state) if scope_ids(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
         if "rows" in dims and record.dataset is not None else None
     rows = None if ids is None else torch.tensor(ids)
     vocabulary = lookup(state, record.space[-1]["featurizer"], step.at).classes if "classes" in dims else None
     acts = record.layers if "layers" in dims else record.layers[0] if record.layers else None
-    value = ops.call(step.op, of, bound(plan, step.op, arguments(step), state, step.at, over(state), found, of,
-                                        vocabulary, dims=dims, layers=acts), engine=engine, dims=dims, layers=acts,
-                     eos=stops(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
+    value = ops.call(step.op, of, bind_arguments(plan, step.op, arguments(step), state, step.at, scope_ids(state),
+                                                 findings, of, vocabulary, dims=dims, layers=acts),
+                     engine=engine, dims=dims, layers=acts,
+                     eos=stop_ids(engine, producer) if producer.kind == "generate" else engine.eos, rows=rows)
     if step.op == "top_k" and arguments(step).get("over", ops.transforms.RANKED) == ops.transforms.RANKED:
-        value["tokens"] = decoded(engine.tokenizer, value["ids"])
-    put(state, name, projected(step.at, step.axes), value)
+        value["tokens"] = token_strings(engine.tokenizer, value["ids"])
+    put(state, name, projection(step.at, step.axes), value)
 
 
-def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, found: Found,
+def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, findings: Findings,
          cost: dict[str, Any]) -> None:
     """The saved value the plan carries (`Load.loaded`, which the compiled plan read from its run's file and which
-    travels with it, in a request too), put where the model is (`home`), every tensor of it, at the point's
+    travels with it, in a request too), put where the model is (`model_device`), every tensor of it, at the point's
     coordinates on the value's own axes. It calls no model and reads no file."""
     assert step.loaded is not None, f"{name}: a compiled plan holds each load's value until it has run"
-    put(state, name, projected(step.at, step.axes), moved(step.loaded, home(engine)))
+    put(state, name, projection(step.at, step.axes), move_to_device(step.loaded, model_device(engine)))
 
 
-def moved(value: Any, device: str) -> Any:
+def move_to_device(value: Any, device: str) -> Any:
     """A value with every tensor in it on `device`, all the way down."""
     if isinstance(value, Tensor):
         return value.to(device)
     if isinstance(value, dict):
-        return {k: moved(v, device) for k, v in value.items()}
+        return {k: move_to_device(v, device) for k, v in value.items()}
     return value
 
 
-def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
+def token_strings(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
     """Each token id as its token string, nested as the ids are; None for a missing one (-1). The tokenizer's
     `convert_ids_to_tokens` is the one spelling of a token wherever a run shows one (`pos_token`, `run.tokens`,
     `detokenize` with `tokens`), so a word-start marker (`▁Fed`, `ĠFed`) stays, where `decode` would drop it."""
     if ids.dim() > 1:
-        return [decoded(tokenizer, x) for x in ids]
+        return [token_strings(tokenizer, x) for x in ids]
     texts = iter(tokenizer.convert_ids_to_tokens([i for i in ids.tolist() if i >= 0]))
     return [next(texts) if i >= 0 else None for i in ids.tolist()]
 
 
-# The step kinds, each run as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls
-# it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take the points their run serves,
-# `served`, and what they read, `reading`).
+# The step kinds, each run as `(engine, plan, name, step, state, batch_size, findings, cost)`, adding the model calls
+# it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take
+# the points their run serves, `served`, and what they read, `values_read`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit, "load": load}
 
-# The step kinds that call no model, whose runs `measured` times without synchronizing the model's devices.
+# The step kinds that call no model, whose runs `measure_cost` times without synchronizing the model's devices.
 NO_MODEL = ("op", "load")

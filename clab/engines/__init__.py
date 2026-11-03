@@ -15,29 +15,28 @@ where it does not place the model: an NDIF server does) and `options` as given, 
 `execute(plan, batch_size=..., padding=...)` is the single entry point and the only method an engine that ignores
 `clab.steps` must have; it returns the filled plan, `padding` (`data.PADDINGS`) recorded in `plan.run` beside the
 batch size, which `steps.run` pads every batch by. A hub dataset's rows are not in the plan: an engine that
-ignores `clab.steps` loads them where it runs with `compile.materialized`, as `steps.run` does (`steps.held`). The
-rest is what `steps.run` asks of an engine: one batch through the model with a bound schedule executed (`forward`),
-a generation (`generate`), the model's own unembedding (`readout`), what it cannot serve, layer by layer
-(`unserved`), where a component falls in its forward (`rank`, any sortable value, which preflight reads once per
-site to write the schedule's order), its sizes, its tokenizer, and the ids its generation stops on (`eos`).
+ignores `clab.steps` loads them where it runs with `compile.dataset_rows`, as `steps.run` does (`steps.plan_with_rows`).
+The rest is what `steps.run` asks of an engine: one batch through the model with a bound schedule executed (`forward`),
+a generation (`generate`), the model's own unembedding (`readout`), what it cannot serve, layer by layer (`unserved`),
+where a component falls in its forward (`rank`, any sortable value, which preflight reads once per site to write the
+schedule's order), its sizes, its tokenizer, and the ids its generation stops on (`eos`).
 
-A bound schedule (`batches.bind`) is a forward's `schedule` bound to one batch: `sites`, each its `component` and
-`layer` and its `records`, the sites in this engine's forward order and the records in the order they are done
-at each, a write (it has `ops`) or a read (it has `name`); `stop`, the site a forward ends at, or None; and for a
-generation `loop`, the forward calls to run the records at (None: every one), and `online`, whether a write is
-found call by call from the inputs fed so far. An engine reaches each site's module in turn and does its records
-there with `batches.visit(value, component, records, got)`, a write on the value as the records before it left
-it and a read taking that value into `got` under its name, and decides nothing: it visits what the schedule
-lists, in its order, gathers nothing a record does not ask for, and ends the forward right after `stop` where it
-declares that it `stops` (a class attribute; an engine that runs on returns the same values, later); a generation
-runs whole, each call doing what `batches.now` and `batches.landed` say of the records. A write's op argument may
-be `{"live": <read name>}`: the value of a read the same call has already made (`got[<read name>]`), which
-`batches.visit` resolves; the schedule has the read's site first. An engine holds its model and
-its configuration, nothing else: `model` is the model (whatever it runs, with `.parameters()`), `spec` the model
-block it loaded, `name` the name it registered under, `device` and `options` how it loaded, `remote` what its
-session's `remote=` is (False for a run in this process), `stops` whether it honours the schedule's stop, and
-`cuda` the CUDA devices a step's cost measures the peak memory of: the model's, or none where the run is remote
-(the server's process is its own to account).
+A bound schedule (`batches.bind_schedule`) is a forward's `schedule` bound to one batch: `sites`, each its `component`
+and `layer` and its `records`, the sites in this engine's forward order and the records in the order they are done at
+each, a write (it has `ops`) or a read (it has `name`); `stop`, the site a forward ends at, or None; and for a
+generation `loop`, the forward calls to run the records at (None: every one), and `online`, whether a write is found
+call by call from the inputs fed so far. An engine reaches each site's module in turn and does its records there with
+`batches.visit_site(value, component, records, got)`, a write on the value as the records before it left it and a read
+taking that value into `got` under its name, and decides nothing: it visits what the schedule lists, in its order,
+gathers nothing a record does not ask for, and ends the forward right after `stop` where it declares that it `stops` (a
+class attribute; an engine that runs on returns the same values, later); a generation runs whole, each call doing what
+`batches.acting_at_call` and `batches.stamped_at_call` say of the records. A write's op argument may be `{"live": <read
+name>}`: the value of a read the same call has already made (`got[<read name>]`), which `batches.visit_site` resolves;
+the schedule has the read's site first. An engine holds its model and its configuration, nothing else: `model` is the
+model (whatever it runs, with `.parameters()`), `spec` the model block it loaded, `name` the name it registered under,
+`device` and `options` how it loaded, `remote` what its session's `remote=` is (False for a run in this process),
+`stops` whether it honours the schedule's stop, and `cuda` the CUDA devices a step's cost measures the peak memory of:
+the model's, or none where the run is remote (the server's process is its own to account).
 """
 
 import inspect

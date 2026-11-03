@@ -541,26 +541,26 @@ def test_an_oom_at_a_later_point_of_a_swept_step_keeps_the_points_before_it_and_
 
 
 def test_the_oom_refusal_lists_a_dicts_tensors_and_says_when_nothing_is_held():
-    """`sized` lists a `top_k` value's `ids` and `probs` (its `tokens` are strings), and `exhausted` with nothing
-    held says so without the clause about the device; for a fit or one of its eval steps, which run in batches of the
-    fit's `batch_size` whatever the run's, it names that batch size and says to lower it."""
+    """`value_text` lists a `top_k` value's `ids` and `probs` (its `tokens` are strings), and `out_of_memory_refusal`
+    with nothing held says so without the clause about the device; for a fit or one of its eval steps, which run in
+    batches of the fit's `batch_size` whatever the run's, it names that batch size and says to lower it."""
     from collections import ChainMap
 
-    from clab.steps import exhausted, sized
+    from clab.steps import out_of_memory_refusal, value_text
 
     top3 = {"ids": torch.zeros(4, 1, 3, dtype=torch.int64), "probs": torch.zeros(4, 1, 3), "tokens": [[["a"]]]}
-    assert sized(top3) == "{ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}"
-    assert sized({"tokens": [[["a"]]]}) is None and sized(object()) is None
+    assert value_text(top3) == "{ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}"
+    assert value_text({"tokens": [[["a"]]]}) is None and value_text(object()) is None
     plan, error = plan_of("readout"), torch.OutOfMemoryError("CUDA out of memory. Tried to allocate 1.00 GiB.")
-    assert exhausted(plan, "p_answer", {}, 2, ChainMap({"top3": {(): top3}}), error) == (
+    assert out_of_memory_refusal(plan, "p_answer", {}, 2, ChainMap({"top3": {(): top3}}), error) == (
         "steps.p_answer: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the run "
         "holds top3 {ids [4, 1, 3] int64 on cpu, probs [4, 1, 3] float32 on cpu}, each on the model's device until "
         "the run ends; run with a smaller --batch-size, or name and save fewer values")
-    assert exhausted(plan, "clean", {}, 2, ChainMap(), error) == (
+    assert out_of_memory_refusal(plan, "clean", {}, 2, ChainMap(), error) == (
         "steps.clean: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the run "
         "holds no value yet; run with a smaller --batch-size, or name and save fewer values")
     fitted = plan_of("lora_train")           # a fit's batches, and its eval steps', are its batch_size of 2
     for name in ("fit", "fit.held_out.adapted"):
-        assert exhausted(fitted, name, {}, 8, ChainMap(), error) == (
+        assert out_of_memory_refusal(fitted, name, {}, 8, ChainMap(), error) == (
             f"steps.{name}: out of CUDA memory at batch size 2 (CUDA out of memory. Tried to allocate 1.00 GiB); the "
             "run holds no value yet; give steps.fit a smaller batch_size, or name and save fewer values")

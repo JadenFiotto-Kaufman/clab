@@ -971,7 +971,7 @@ def the_write(doc: dict) -> dict:
 @pytest.mark.parametrize("doc", [t1, t6], ids=["T1", "T6"])
 def test_a_body_write_takes_an_operand_read_on_another_input_at_its_own_pos(engines, doc):
     """A fit body's write whose operand a step before the fit read on another input, at the write's own `pos`,
-    runs: preflight pairs the two inputs token for token (`interventions.windowed`) over the rows the root encoded,
+    runs: preflight pairs the two inputs token for token (`interventions.check_window`) over the rows the root encoded,
     which the body's own inputs do not hold. Both engines give one result to the bit; it is what the body that
     makes the harvest itself gives (the fit's one minibatch every row, as the harvest's one batch), and what the
     write spelled `{"index": "-1:"}`, the same positions, gives."""
@@ -1037,10 +1037,10 @@ def root_harvest(body: bool, forced_inside: bool = False) -> dict:
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_body_op_over_a_root_harvest_is_held_to_its_input_as_the_root_is(engines, kind):
-    """A metric's answer is checked against what the input says at the read's positions (`preflight.placed`, with
-    the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
-    column the input does not say there is refused naming the token, as the root's own op and the body that makes
-    the harvest itself are; the body prepares into the root's `Found`, which holds the harvest's input."""
+    """A metric's answer is checked against what the input says at the read's positions (`preflight.known_positions`,
+    with the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
+    column the input does not say there is refused naming the token, as the root's own op and the body that makes the
+    harvest itself are; the body prepares into the root's `Findings`, which holds the harvest's input."""
     said = r"predicts ' Monday' in the input, which is not token 0 of ' Friday'"
     for doc in (root_harvest(False), root_harvest(True), root_harvest(True, forced_inside=True)):
         plan = written(doc)

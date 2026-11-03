@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING, cast
 
 from clab import ops
 from clab.compile import positions
-from clab.compile.answers import text_ref, vocabulary
-from clab.compile.arguments import called, layout, mismatch, narrowed_readout, references, resolver, space_of
-from clab.compile.positions import decided
-from clab.compile.state import Compiling, Found
+from clab.compile.answers import check_text_ref, vocabulary
+from clab.compile.arguments import (featurizer_kind, layout, mismatch, narrowed_readout_refusal, references, resolver,
+                                    space_of)
+from clab.compile.positions import check_calls_known
+from clab.compile.state import Compiling, Findings
 from clab.format import address, data, registry, selectors
 from clab.format.selectors import Selector, keyed, keys, picked
 from clab.plan import (
@@ -44,9 +45,10 @@ if TYPE_CHECKING:
     from clab.engines import Engine
 
 
-def items(plan: Plan, path: str, name: str, spec: Forward | Generate) -> list[tuple[str, str, Intervention]]:
+def entries_with_paths(plan: Plan, path: str, name: str,
+                       spec: Forward | Generate) -> list[tuple[str, str, Intervention]]:
     """A step's entries in the order written, each with its document path and name: the items of its
-    `interventions` in turn, a bundle's entries where its name stands, rescoped to the step (`scoped`)."""
+    `interventions` in turn, a bundle's entries where its name stands, rescoped to the step (`rescope_entry`)."""
     value = spec.interventions
     listed = value if isinstance(value, list) else [value]
     out = []
@@ -58,7 +60,8 @@ def items(plan: Plan, path: str, name: str, spec: Forward | Generate) -> list[tu
         if item not in plan.interventions:
             fail(at, f"no intervention bundle {item!r}; declared: {', '.join(plan.interventions) or 'none'}")
         pullers = {n.rpartition(".")[2] for n, s in walk(plan.steps) if item in bundles_of(s)}
-        out += [(f"interventions.{item}.{k}", k, scoped(plan, f"interventions.{item}.{k}", e, item, name, pullers))
+        out += [(f"interventions.{item}.{k}", k,
+                 rescope_entry(plan, f"interventions.{item}.{k}", e, item, name, pullers))
                 for k, e in plan.interventions[item].items()]
     return out
 
@@ -69,7 +72,7 @@ def bundles_of(step: Step) -> list[str]:
     return [i for i in (value if isinstance(value, list) else [value]) if isinstance(i, str)]
 
 
-def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pullers: set) -> Intervention:
+def rescope_entry(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pullers: set) -> Intervention:
     """A bundle's entry with an operand that names one of the bundle's own entries bare (`"premix"`) naming it in
     the step the bundle is pulled into (`"<step>.premix"`). Naming `<a step that pulls the bundle in>.<one of its
     entries>` is refused: pulled into another step it would still mean that step's entry."""
@@ -91,8 +94,8 @@ def scoped(plan: Plan, path: str, spec: Intervention, bundle: str, step: str, pu
     return spec.model_copy(update={"ops": rewritten})
 
 
-def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
-          live: dict[str, Intervention], own: set[str], where: str, at: dict[str, int]) -> Intervention:
+def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forward | Generate, dataset: str,
+                  live: dict[str, Intervention], own: set[str], where: str, at: dict[str, int]) -> Intervention:
     """One entry compiled: its site inlined, its positions checked against the step, its labels written as far as
     the document decides them (`layers_of`, `kept_of`, the static width of its `pos`), and its ops walked once for
     their layouts and coordinates (each op's recorded on it) and for their operands, each checked against the value
@@ -141,19 +144,20 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         fail(f"{path}.pos.scope.before", f"frame {frame!r} holds the prompt, and until with before starts before the "
              f"frame's first token, {first}, so it names no position on any row; with before, until's frame is decode "
              "calls ('1:')")
-    if write and scope.get("before") and not positions.prefill(pos):
+    if write and scope.get("before") and not positions.prefill_only(pos):
         fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
     if write and frame != 0 and step.kind == "generate":
-        decided(f"{path}.pos", pos, horizon(step))
+        check_calls_known(f"{path}.pos", pos, horizon(step))
     if "turn" in scope and not all(isinstance(data.field(r, step.input), list) for r in cx.rows[dataset]):
         fail(f"{path}.pos.scope.turn", f"the input {data.input_name(step.input)} is text, not a chat: a turn scope "
              "names a chat's messages (a column of {'role', 'content'} lists, rendered through the template), and "
              "text has none; locate the message's words with a {'text': ...} or {'column': ...} scope")
     if "column" in scope:
         for i, column in enumerate(scope["column"] if isinstance(scope["column"], list) else [scope["column"]]):
-            text_ref(cx, column, f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
-                     dataset)
+            check_text_ref(cx, column,
+                           f"{path}.pos.scope.column" + (f"[{i}]" if isinstance(scope["column"], list) else ""),
+                           dataset)
     dims = address.dims(site.component)                     # every op acts at each layer the entry is made at
     last = len(spec.ops) - len(gathers(spec)) - 1          # the last edit's index; -1 when none
     try:
@@ -171,7 +175,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     laid: list[Op] = []                                     # each op with the layout and coordinates of its value
     # The ops after the last edit that run at each call a generation reads the entry beyond its prefill: the leading
     # ones whose value at a position is its own to the bit, which keep `pos` and pair no operand by position.
-    per_call, each = 0, step.kind == "generate" and not positions.prefill(pos)
+    per_call, each = 0, step.kind == "generate" and not positions.prefill_only(pos)
     for i, o in enumerate(spec.ops):
         here, args = f"{path}.ops[{i}]", arguments(o)
         outer = around[closes[i]["at"]] if i in closes else around[i]
@@ -184,7 +188,8 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         if o.op == "readout" and (why := ops.transforms.unstreamed(site.component)):
             fail(here, why)
         if o.op == "readout" and "hidden_size" in (site.select or {}) and "hidden_size" in dims:
-            fail(here, narrowed_readout(f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
+            fail(here, narrowed_readout_refusal(
+                f"{site.component} select hidden_size {(site.select or {})['hidden_size']!r}"))
         if edits(o) and changed is not None:
             fail(here, f"{o.op!r} is an edit, which writes back, and it follows {changed!r}, which turned the value "
                  f"into {dims}: there is no live value to write; an edit comes before it, or put the transform in "
@@ -198,7 +203,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
         if mine is not None:
             fail(here, f"{o.op!r} of {ref!r} at ops[{i}] is inside the encode of {ref!r} (ops[{mine['at']}]), so it "
                  f"would act on {ref!r}'s own coordinates; put it before that encode or after the decode that closes it")
-        kind = called(cx, plan, here, o.op, args)
+        kind = featurizer_kind(cx, plan, here, o.op, args)
         if "layers" in (args.get("over") or []):
             fail(f"{here}.over", f"{o.op!r} over 'layers': inside an entry an op acts at each layer the entry is made "
                  "at, so it meets no layers axis; reduce over layers in a step after the forward, {'kind': 'op', "
@@ -271,7 +276,7 @@ def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
             for axis, s in (select or {}).items()}
 
 
-def resolved(steps: dict, read: str, at: dict[str, int]) -> list | None:
+def read_positions(steps: dict, read: str, at: dict[str, int]) -> list | None:
     """The positions per row the read `read` holds at `at`, under its dataset, where they are known: the
     prefill's before any forward, a generation's decode calls' once it ran; else None."""
     record = record_of(steps, read, at)
@@ -282,7 +287,7 @@ def resolved(steps: dict, read: str, at: dict[str, int]) -> list | None:
 # -- what preflight checks of the entries against the model ---------------------------------------------
 
 
-def refuse(engine: Engine, plan: Plan) -> None:
+def refuse_unserved(engine: Engine, plan: Plan) -> None:
     """Every component the plan reads or writes that the engine cannot serve, by name (`engine.unserved()` maps
     a component to None, why not, or why not per layer)."""
     reasons = engine.unserved()
@@ -298,13 +303,13 @@ def refuse(engine: Engine, plan: Plan) -> None:
 
 
 def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward | Generate, record: Intervention,
-                   found: Found) -> None:
+                   findings: Findings) -> None:
     """A write's operands that another entry selected, beyond Ops' one rule (`arguments.mismatch`): from the
     write's own forward, where either holds no one width on every row, as many positions as the write on each row
     (that the forward reaches the operand's site first is checked where the schedule is written); an adapter's
     input (`apply`'s `with`) as wide per position as the value the op acts on, its axes after the positions
     flattened, and from the same forward read at the write's own positions; on a `key` axis, inputs that line up
-    token for token, and an unscoped operand on another input `windowed`."""
+    token for token, and an unscoped operand on another input, its window checked (`check_window`)."""
     args, sizes, site = arguments(o), engine.sizes(), cast(Site, record.site)
     adapter = adapts(plan, o)
     for key, p in ops.parameters(o.op).items():
@@ -325,31 +330,32 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "
                                  f"positions flattened; this write's value is {own}")
         if same and (adapter and key == "with" or None in (theirs.width, record.width)):
-            ours, at = (resolved(plan.steps, n, step.at) or [] for n in (where, value))
+            ours, at = (read_positions(plan.steps, n, step.at) or [] for n in (where, value))
             for row, (a, b) in enumerate(zip(at, ours)):
                 if adapter and key == "with" and a != b:
                     raise ValueError(f"{where}: operand {value!r} is read at positions {a} of row {row} and this "
                                      f"write lands at {b}; {key!r} from the write's own forward is read where it "
                                      "lands")
                 if not isinstance(a, list):
-                    raise ValueError(unreached(where, value, row, b))
+                    raise ValueError(unreached_row_refusal(where, value, row, b))
                 if len(a) != len(b):
                     raise ValueError(f"{where}: operand {value!r} holds {len(a)} position(s) on row {row} and this "
                                      f"write {len(b)}; position i meets position i, so an entry of the write's own "
                                      "forward without one width on every row is read at as many on each")
         producer_input, consumer = data.input_name(producer.input), data.input_name(step.input)
         if "key" in address.COMPONENTS[site.component]["dims"] and producer_input != consumer:
-            for row, (a, b) in enumerate(zip(found.inputs[producer_input]["rows"], found.inputs[consumer]["rows"])):
+            for row, (a, b) in enumerate(zip(findings.inputs[producer_input]["rows"],
+                                             findings.inputs[consumer]["rows"])):
                 if len(a["ids"]) != len(b["ids"]):
                     raise ValueError(f"{where}: operand {value!r} was read on {producer_input}, row {row} of which is "
                                      f"{len(a['ids'])} tokens; {consumer} has {len(b['ids'])} there, so their "
                                      "key axes do not line up")
         written = positions.parse(record.pos)
         if producer_input != consumer and written["scope"] is None and positions.parse(read.pos) == written:
-            windowed(engine, plan, where, value, producer_input, consumer, found, step.at)
+            check_window(engine, plan, where, value, producer_input, consumer, findings, step.at)
 
 
-def unreached(where: str, value: str, row: int, lands: list[int]) -> str:
+def unreached_row_refusal(where: str, value: str, row: int, lands: list[int]) -> str:
     """Why a write cannot take an operand of its own forward that does not reach a row it lands on: it would write
     what the operand has not, NaN. (An operand of another forward without one width on every row is refused at
     compile, Ops' one rule, so only an entry of the write's own forward can be missing on a row.)"""
@@ -358,17 +364,17 @@ def unreached(where: str, value: str, row: int, lands: list[int]) -> str:
             "it lands on")
 
 
-def windowed(engine: Engine, plan: Plan, where: str, value: str, producer: str, consumer: str, found: Found,
-             at: dict) -> None:
+def check_window(engine: Engine, plan: Plan, where: str, value: str, producer: str, consumer: str, findings: Findings,
+                 at: dict) -> None:
     """The same unscoped positions read on one input and written on another pair position i with position i. On
     a row whose two prompts differ in length that is checked conservatively: each pair must sit at one distance
     from the start within the tokens both prompts begin with alike, or from the end within those they end with
     alike (the first token past either counted in); any other pair may be two different tokens and is refused."""
-    ours, theirs = (resolved(plan.steps, n, at) for n in (where, value))
+    ours, theirs = (read_positions(plan.steps, n, at) for n in (where, value))
     if ours is None or theirs is None:
         return                  # beyond the prefill, where positions are calls
     texts = vocabulary(engine.tokenizer)
-    for row, (a, b) in enumerate(zip(found.inputs[producer]["rows"], found.inputs[consumer]["rows"])):
+    for row, (a, b) in enumerate(zip(findings.inputs[producer]["rows"], findings.inputs[consumer]["rows"])):
         x, y = a["ids"], b["ids"]
         if len(x) == len(y):
             continue

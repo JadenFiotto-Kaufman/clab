@@ -180,7 +180,7 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
 
 
 def bracket(f, features=None, between=()) -> list[dict]:
-    """An encode of `f` holding the bound ops `between`, which its decode closes over, as `batches.edit` binds
+    """An encode of `f` holding the bound ops `between`, which its decode closes over, as `batches.bind_ops` binds
     them."""
     return [{"op": "encode", "args": {"featurizer": f}, "dims": DIMS, "inner": [
         {**o, "dims": ["rows", "pos", f.axis]} for o in between], **({} if features is None else {"features": features})}]
@@ -194,14 +194,14 @@ def test_encode_then_decode_is_the_identity_to_the_bit_on_every_kind(kind):
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
     for features in (None, torch.tensor([1, 2])):
         for between in ((), [{"op": "scale", "args": {"factor": 1.0}}]):
-            out, wrote = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
+            out, wrote = batches.visit_site(H, "layer_output", [{**record, "ops": bracket(f, features, between)}], {})
             assert wrote and torch.equal(out, H), (kind, features, between)
 
 
 def test_a_decode_scatters_back_only_the_coordinates_its_encode_kept():
     f = made("subspace")
     record = {"positions": torch.tensor([[0, 1]] * 3), "select": {}}
-    out, _ = batches.visit(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
+    out, _ = batches.visit_site(H, "layer_output", [{**record, "ops": bracket(f, torch.tensor([2]), [
         {"op": "swap", "args": {"with": 0.0}}])}], {})
     z, kept = f.encode(H), f.encode(out)
     torch.testing.assert_close(kept[..., 2], torch.zeros(3, 2), atol=1e-6, rtol=0)

@@ -975,15 +975,16 @@ def test_occurrences_are_ordered_by_where_they_end():
     tokenizer = AutoTokenizer.from_pretrained(LLAMA[0], revision=LLAMA[1])
     scope = {"text": ["a b c", "b"], "occurrence": 0}
     letters = [(i, i + 1) for i in range(9)]           # a token per character, so every one is a boundary
-    assert positions.located(as_written("a b c", "b"), "x a b c x", letters) == [(4, 5), (2, 7)]
-    assert positions.located(as_written("b c", "a b c"), "x a b c x", letters) == [(2, 7), (4, 7)]
+    assert positions.occurrence_spans(as_written("a b c", "b"), "x a b c x", letters) == [(4, 5), (2, 7)]
+    assert positions.occurrence_spans(as_written("b c", "a b c"), "x a b c x", letters) == [(2, 7), (4, 7)]
     ids = tokenizer("x a b c x", add_special_tokens=False)["input_ids"]
     words, chars = positions.char_spans(tokenizer, ids)
-    spans = positions.located(as_written("a b c", "b"), words, chars)
+    spans = positions.occurrence_spans(as_written("a b c", "b"), words, chars)
     assert [words[a:b] for a, b in spans] == ["b", "a b c"]
     def lands_at(k):
         pos = {"frame": "1:", "scope": {**scope, "occurrence": k}, "index": -1}
-        return [j for j in range(len(ids)) if positions.landing(pos, as_written("a b c", "b"), ids[:j + 1], set(), tokenizer)]
+        return [j for j in range(len(ids))
+                if positions.lands_at_call(pos, as_written("a b c", "b"), ids[:j + 1], set(), tokenizer)]
     first, second = lands_at(0), lands_at(1)
     assert len(first) == len(second) == 1 and first[0] < second[0]     # `b` is known before `a b c` is
 
@@ -996,7 +997,8 @@ def test_a_scoped_write_counts_its_occurrences_within_its_frame():
     assert tokenizer.convert_ids_to_tokens(ids) == ["▁Bob", "▁met", "▁Bob", "▁met"]
 
     def calls(pos):
-        return [k for k in range(1, len(ids) + 1) if positions.landing(pos, as_written("Bob"), ids[:k], set(), tokenizer)]
+        return [k for k in range(1, len(ids) + 1)
+                if positions.lands_at_call(pos, as_written("Bob"), ids[:k], set(), tokenizer)]
     at3 = {"frame": 3, "scope": {"text": "Bob", "occurrence": 0}, "index": -1}
     assert calls(at3) == [3]
     assert resolved(at3, ids, tokenizer, "Bob") == [2 + 2]                # call 3's input, after a 2-token prompt
@@ -1077,7 +1079,7 @@ def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
     prefill's last position's, `[rows, 1]`), where `l`'s is each call's logits, `[rows, 1, vocab_size]`."""
     import clab.steps.generate as generation
     held: dict[str, set] = {}
-    real = generation.generated
+    real = generation.run_engine_generate
 
     def spy(*args):
         ids, got = real(*args)
@@ -1085,7 +1087,7 @@ def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
             for v in value if isinstance(value, list) else [value]:
                 held.setdefault(name.partition("@")[0] + ("#0" if "#0" in name else ""), set()).add(tuple(v.shape))
         return ids, got
-    monkeypatch.setattr(generation, "generated", spy)
+    monkeypatch.setattr(generation, "run_engine_generate", spy)
     plan = plan_of("generated_steer")
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
     assert held["p"] == held["p#0"] == held["ld"] == {(2, 1)}

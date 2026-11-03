@@ -37,19 +37,19 @@ from safetensors.torch import load_file, save
 from torch import Tensor
 
 from clab import featurizers, ops
-from clab.compile import materialized
+from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
-from clab.format.sweeps import coordinate, labelled
-from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, agreeing, arguments, entry_of, kind_of, made_by,
-                        points, projections, record_of, scope)
+from clab.format.sweeps import coordinate, coordinate_text
+from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, agreeing_point, arguments, entry_of, kind_of,
+                       made_by, points, projections, record_of, scope)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
 LABELS = ("dataset", "layers", "read", "width", "kept", "space")
 
 
-def ran(plan: Plan) -> Run:
+def run_record(plan: Plan) -> Run:
     """The run record of a plan that has run; one that has not is refused: it has no results to write or table."""
     if plan.run is None:
         raise ValueError("the plan has not run, so it has no results; execute it first")
@@ -57,56 +57,58 @@ def ran(plan: Plan) -> Run:
 
 
 def dump(plan: Plan, out: str) -> None:
-    run = ran(plan)
+    run = run_record(plan)
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
         value, ats = plan.results[name], projections(plan, name)
         if ats != [({}, ats[0][1])]:
-            value = {labelled(plan, at): value[coordinate(plan, at)] for at, _ in ats}
+            value = {coordinate_text(plan, at): value[coordinate(plan, at)] for at, _ in ats}
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
-            write(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
-                  headed(plan, name))
+            write_safetensors(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
+                              bundle_header(plan, name))
         else:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
-        described[name] = {"file": file, "step": made_by(plan, name), **layouts(plan, name),
-                           "axes": axes(plan, name), "shape": describe(value, "shape"),
-                           "dtype": describe(value, "dtype")}
+        described[name] = {"file": file, "step": made_by(plan, name), **saved_value_layout(plan, name),
+                           "axes": saved_value_axes(plan, name), "shape": shape_or_dtype(value, "shape"),
+                           "dtype": shape_or_dtype(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
     for d in manifest["data"].values():
         if "path" in d:
             d.pop("rows", None)             # a loaded plan's are not there
     with open(os.path.join(out, "manifest.json"), "w") as f:
-        f.write(pretty({**manifest, "results": described}) + "\n")
+        f.write(pretty_json({**manifest, "results": described}) + "\n")
     with open(os.path.join(out, "tokens.json"), "w") as f:
-        f.write(pretty(run.tokens) + "\n")
+        f.write(pretty_json(run.tokens) + "\n")
 
 
-def pretty(value: Any, level: int = 0) -> str:
+def pretty_json(value: Any, level: int = 0) -> str:
     """JSON indented one space per level, as `json.dump(indent=1)` writes it, except that a list holding no object
     (positions per row, a shape, a `layers` label) stays on one line, so the manifest reads as rows."""
     pad = " " * (level + 1)
     if isinstance(value, dict) and value:
-        inner = ",\n".join(f"{pad}{json.dumps(k, ensure_ascii=False)}: {pretty(v, level + 1)}" for k, v in value.items())
+        inner = ",\n".join(f"{pad}{json.dumps(k, ensure_ascii=False)}: {pretty_json(v, level + 1)}"
+                           for k, v in value.items())
         return "{\n" + inner + "\n" + " " * level + "}"
     if isinstance(value, list) and any(isinstance(v, dict) for v in value):
-        return "[\n" + ",\n".join(f"{pad}{pretty(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
+        return "[\n" + ",\n".join(f"{pad}{pretty_json(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
     return json.dumps(value, ensure_ascii=False)
 
 
-def axes(plan: Plan, name: str) -> list[str]:
+def saved_value_axes(plan: Plan, name: str) -> list[str]:
     """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
     return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
 
 
-def layouts(plan: Plan, name: str) -> dict[str, Any]:
+def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
     """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where the value
     depends on no axis or every point of it agrees, else per point by coordinate, as the manifest records a
     result's `shape`."""
-    per = {labelled(plan, at): layout(record_of(plan.steps, name, p.at)) for at, p in projections(plan, name)}
+    per = {coordinate_text(plan, at): layout_json(record_of(plan.steps, name, p.at))
+           for at, p in projections(plan, name)}
     if list(per) == [""]:
         return per[""]
     out = {}
@@ -117,12 +119,12 @@ def layouts(plan: Plan, name: str) -> dict[str, Any]:
     return out
 
 
-def layout(record: Labelled) -> dict[str, Any]:
+def layout_json(record: Labelled) -> dict[str, Any]:
     """A value's `dims` and the labels it has, as JSON (`dims` always: a value with no axes has `[]`)."""
     return {"dims": record.dims, **{k: v for k in LABELS if (v := getattr(record, k)) not in (None, {}, [])}}
 
 
-def write(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
+def write_safetensors(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
     """A safetensors file whose header's keys are sorted: safetensors orders them as it likes, so the same
     tensors and metadata are the same bytes on every run. It replaces any file at `path` with a new one rather
     than writing over it, since tensors loaded from the old one may still be mapped from its bytes."""
@@ -146,13 +148,13 @@ def flat(value: dict[str, Any], prefix: str = "") -> dict[str, Tensor]:
     return out
 
 
-def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | dict[str, Any] | None:
+def shape_or_dtype(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | dict[str, Any] | None:
     """A value's `shape` or `dtype`, following its structure: a tensor's own, a dict's per key, a nested list's
     as far as its lists are of one length (`top_k`'s tokens, `[rows, pos, k]`; and no dtype)."""
     if isinstance(value, Tensor):
         return list(value.shape) if what == "shape" else str(value.dtype).removeprefix("torch.")
     if isinstance(value, dict):
-        return {k: describe(v, what) for k, v in value.items()}
+        return {k: shape_or_dtype(v, what) for k, v in value.items()}
     if not isinstance(value, list) or what != "shape":
         return None
     shape, level = [len(value)], value
@@ -170,9 +172,9 @@ def load(out: str) -> Plan:
         with open(tokens) as f:
             plan.run.tokens = json.load(f)
     for name, d in described.items():
-        value = read(out, name, d)
+        value = read_saved_value(out, name, d)
         if d["axes"]:
-            value = {coordinate(plan, at): value[labelled(plan, at)] for at, _ in projections(plan, name)}
+            value = {coordinate(plan, at): value[coordinate_text(plan, at)] for at, _ in projections(plan, name)}
         plan.results[name] = value
     return plan
 
@@ -192,7 +194,7 @@ def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return held, held.pop("results")
 
 
-def read(out: str, name: str, d: dict[str, Any]) -> Any:
+def read_saved_value(out: str, name: str, d: dict[str, Any]) -> Any:
     """Saved value `name` as its file under `out` holds it, `d` its record in the manifest's `results`: a tensor or
     a dict of them again, a swept one keyed by each point's coordinate as text (`pos=-1`)."""
     file = os.path.join(out, d["file"])
@@ -200,7 +202,7 @@ def read(out: str, name: str, d: dict[str, Any]) -> Any:
         value = nested(load_file(file))
         return value[name] if isinstance(d["dtype"], str) else value
     with open(file) as f:
-        return restored(json.load(f), d["dtype"])
+        return restore_tensors(json.load(f), d["dtype"])
 
 
 def nested(value: dict[str, Tensor]) -> dict[str, Any]:
@@ -214,32 +216,32 @@ def nested(value: dict[str, Tensor]) -> dict[str, Any]:
     return out
 
 
-def restored(value: Any, dtype: str | dict[str, Any] | None) -> Any:
+def restore_tensors(value: Any, dtype: str | dict[str, Any] | None) -> Any:
     """A value read from JSON with every entry its `dtype` says was a tensor a tensor again."""
     if isinstance(dtype, str):
         return torch.tensor(value, dtype=getattr(torch, dtype))
     if isinstance(dtype, dict):
-        return {k: restored(value[k], dtype[k]) for k in value}
+        return {k: restore_tensors(value[k], dtype[k]) for k in value}
     return value
 
 
-def headed(plan: Plan, name: str) -> dict[str, str] | None:
+def bundle_header(plan: Plan, name: str) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
     ats = projections(plan, name)
     if ats == [({}, ats[0][1])]:
-        return header(plan, name, ats[0][1])
-    found: dict[str, str] = {}
+        return point_header(plan, name, ats[0][1])
+    header: dict[str, str] = {}
     for at, p in ats:
-        point = header(plan, name, p)
+        point = point_header(plan, name, p)
         if point is None:
             return None
-        found["format"] = point.pop("format")
-        found.update({f"{labelled(plan, at)}/{k}": v for k, v in point.items()})
-    return found
+        header["format"] = point.pop("format")
+        header.update({f"{coordinate_text(plan, at)}/{k}": v for k, v in point.items()})
+    return header
 
 
-def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
+def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     """A bundle's header, when the value is one (at `step`, the point that made it), written from the records: an
     op step's whose op declares the featurizer kind its bundle is for, made at the site of the read it was taken
     over, as wide as that read's feature axis; or a fit's trained featurizer, made at the first site it is used at,
@@ -250,25 +252,25 @@ def header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         kind, fields = ops.DECLARED[step.op]["bundle"], arguments(step)
         value = record_of(plan.steps, name, step.at)
         read = record_of(plan.steps, value.read or "", step.at)
-        site = at_layers(read)
+        site = site_as_recorded(read)
         width = len(value.kept["hidden_size"]) if "hidden_size" in value.kept else plan.run.sizes["hidden_size"]
         reads, kept = None, None
     elif step.kind == "fit" and member in step.train:
-        trained = agreeing(plan.featurizers[member], step.at)
+        trained = agreeing_point(plan.featurizers[member], step.at)
         kind, fields = kind_of(plan, member), trained.model_extra or {}
         used = uses(plan)[member]
         where, read, _, o, _ = next((u for u in used if all(step.at.get(k) == i for k, i in u[2].items())), used[0])
         given = arguments(o).get("with") if featurizers.KINDS[kind].adapts else None    # an adapter's input site
-        site, width, kept = at_layers(read), trained.width, trained.kept
-        reads = at_layers(entry_of(scope(plan, where), given, step.at)[1]) if given else None
+        site, width, kept = site_as_recorded(read), trained.width, trained.kept
+        reads = site_as_recorded(entry_of(scope(plan, where), given, step.at)[1]) if given else None
     else:
         return None
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
-    classes = labels({dataset: materialized(plan, dataset)}, fields["classes"]) if dataset else None
+    classes = labels({dataset: dataset_rows(plan, dataset)}, fields["classes"]) if dataset else None
     return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept)
 
 
-def at_layers(read: Labelled) -> Site:
+def site_as_recorded(read: Labelled) -> Site:
     """A read's site with the layers its record says it was made at, counted from the first, as a header records
     them: one int for one layer, a list for several."""
     assert isinstance(read, Intervention)

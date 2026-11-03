@@ -8,7 +8,7 @@ sources: [clab/compile/arguments.py, clab/compile/interventions.py, clab/compile
 
 # An Operand Does Not Fit
 
-An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`clab/compile/arguments.py` `mismatch`, and for an operand from the write's own forward `clab/compile/interventions.py` `entry`), and at preflight where the model's order and the tokenized rows do (`unreached` in `clab/compile/schedule.py`, and `check_operands` and `windowed` in `clab/compile/interventions.py`).
+An operand is a named value an op takes beside the value it acts on: `swap`'s and `add`'s `with`, `scale`'s `factor`, `kl`'s `against`, `cosine`'s `with`. clab refuses an operand that cannot meet that value element for element: at compile where the document decides it (`clab/compile/arguments.py` `mismatch`, and for an operand from the write's own forward `clab/compile/interventions.py` `compile_entry`), and at preflight where the model's order and the tokenized rows do (`unreached_site_refusal` in `clab/compile/schedule.py`, and `check_operands` and `check_window` in `clab/compile/interventions.py`).
 
 ## What an operand may be
 
@@ -106,7 +106,7 @@ patched.patch: operand 'counterfactual.v_cf' was read on pairs.counterfactual_in
 patched.look_there: operand 'counterfactual.their_pattern' was read on pairs.counterfactual_inputs[0], row 0 of which is 9 tokens; pairs.input has 11 there, so their key axes do not line up
 ```
 
-A read and a write at the same unscoped `pos` on two inputs pair position i with position i (the first message is `pos: 5` on both). On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end, the first token past either counted in (`clab/compile/interventions.py` `windowed`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
+A read and a write at the same unscoped `pos` on two inputs pair position i with position i (the first message is `pos: 5` on both). On a row whose two prompts tokenize to different lengths, every pair must lie within the tokens both prompts begin with alike, counted from the start, or end with alike, counted from the end, the first token past either counted in (`clab/compile/interventions.py` `check_window`). The fix is a scope on each side that names the token in its own row, as `documents/entity_patch.json` does:
 
 ```json
 {"v_cf": {"site": "target", "pos": {"scope": {"column": "pairs.counterfactual_inputs_variables[0].entity"}, "index": -1}}}

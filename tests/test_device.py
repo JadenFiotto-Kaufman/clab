@@ -77,8 +77,8 @@ def asking(monkeypatch: pytest.MonkeyPatch, asked: list[int]) -> None:
 
 
 def test_a_write_built_on_the_cpu_lands_on_the_values_device():
-    on_cpu = batches.visit(VALUE, "layer_output", writes(), {})[0]
-    on_gpu = batches.visit(VALUE.cuda(), "layer_output", writes(), {})[0]
+    on_cpu = batches.visit_site(VALUE, "layer_output", writes(), {})[0]
+    on_gpu = batches.visit_site(VALUE.cuda(), "layer_output", writes(), {})[0]
     assert on_gpu.device.type == "cuda"
     torch.testing.assert_close(on_gpu.cpu(), on_cpu, atol=1e-6, rtol=1e-6)
 
@@ -114,8 +114,8 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     """What a batch bound on the GPU hands the engine (each record's positions, its selection and a key axis's
     indices, made there from pinned memory), the inputs fed to the model (one non-blocking copy) and an operand's
     rows looked up by id get there without the host waiting for the GPU, and an equal-width write and a read
-    through `visit` make no host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
-    whether or not one is), toward a value or toward a number, and a scale by a number, each number as `edit` binds
+    through `visit_site` make no host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
+    whether or not one is), toward a value or toward a number, and a scale by a number, each number as `bind_ops` binds
     it (on the device, once per batch): under torch's sync debug mode set to raise, none of it raises, and each value
     is the CPU's. A mean taken off the model makes its one sync, asking whether any value is missing (`asking`)."""
     from clab.format.sweeps import points
@@ -132,9 +132,9 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     probs = torch.randn(3, 2, 6, 6, generator=G)              # as the model serves it: [rows, num_heads, pos, key]
 
     def bound(device: str) -> tuple:
-        picked = batches.site(record, {"hidden_size": [0, 7]}, rows, [0, 1, 0], 6, False, device)
-        whole = batches.site(record, {}, rows, [0, 1, 0], 6, False, device)
-        keyed = batches.site(pattern, {}, rows, [0, 1, 0], 6, False, device)
+        picked = batches.selection_in_batch(record, {"hidden_size": [0, 7]}, rows, [0, 1, 0], 6, False, device)
+        whole = batches.selection_in_batch(record, {}, rows, [0, 1, 0], 6, False, device)
+        keyed = batches.selection_in_batch(pattern, {}, rows, [0, 1, 0], 6, False, device)
         return picked, whole, keyed
 
     narrow = [{**swap[0], "args": {"with": other[..., [0, 7]]}}]           # a write on a selection
@@ -151,14 +151,14 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
         fed = standard.inputs(batch, ("input_ids", "attention_mask", "position_ids"), "cuda:0")
         looked = data.by_id(value, [2, 0])
         got: dict = {}
-        out = batches.visit(value, "layer_output", [{**picked, "name": "r"}, {**whole, "ops": swap}], got)[0]
-        chosen = batches.visit(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
+        out = batches.visit_site(value, "layer_output", [{**picked, "name": "r"}, {**whole, "ops": swap}], got)[0]
+        chosen = batches.visit_site(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
         seen: dict = {}
-        batches.visit(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
-        factor = [{"op": "scale", "args": {"factor": batches.placed(3.0, "cuda:0")}, "dims": DIMS}]
-        toward = [{**gated[0], "args": {"featurizer": gate, "with": batches.placed(0.5, "cuda:0")}}]
-        changed = batches.visit(value, "layer_output", [{**whole, "ops": gated}, {**whole, "ops": factor},
-                                                        {**whole, "ops": toward}], {})[0]
+        batches.visit_site(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
+        factor = [{"op": "scale", "args": {"factor": batches.tensor_on_device(3.0, "cuda:0")}, "dims": DIMS}]
+        toward = [{**gated[0], "args": {"featurizer": gate, "with": batches.tensor_on_device(0.5, "cuda:0")}}]
+        changed = batches.visit_site(value, "layer_output", [{**whole, "ops": gated}, {**whole, "ops": factor},
+                                                             {**whole, "ops": toward}], {})[0]
         averaged = ops.call("mean", got["r"], {"over": ["pos"]}, dims=DIMS)
     finally:
         torch.cuda.set_sync_debug_mode("default")
@@ -169,19 +169,18 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     assert all(torch.equal(keyed["keys"][k].cpu(), here[2]["keys"][k]) for k in ("index", "own"))
     assert all(torch.equal(fed[k].cpu(), batch[k]) for k in batch) and torch.equal(looked.cpu(), VALUE[[2, 0]])
     mine: dict = {}
-    on_cpu = batches.visit(VALUE, "layer_output", [{**here[0], "name": "r"},
-                                                   {**here[1], "ops": [{**swap[0], "args": {"with": OTHER[:, :1]}}]}],
-                           mine)[0]
+    on_cpu = batches.visit_site(VALUE, "layer_output", [
+        {**here[0], "name": "r"}, {**here[1], "ops": [{**swap[0], "args": {"with": OTHER[:, :1]}}]}], mine)[0]
     assert torch.equal(got["r"].cpu(), mine["r"]) and torch.equal(out.cpu(), on_cpu)
-    chosen_cpu = batches.visit(VALUE, "layer_output", [{**here[0], "ops": [{**narrow[0], "args": {"with": OTHER[:, :1, [0, 7]]}}]}],
-                               {})[0]
+    chosen_cpu = batches.visit_site(VALUE, "layer_output", [
+        {**here[0], "ops": [{**narrow[0], "args": {"with": OTHER[:, :1, [0, 7]]}}]}], {})[0]
     assert torch.equal(chosen.cpu(), chosen_cpu)
     keys_cpu: dict = {}
-    batches.visit(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
+    batches.visit_site(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
     assert torch.equal(seen["k"].cpu().nan_to_num(-9), keys_cpu["k"].nan_to_num(-9))      # NaN past a row's own keys
     on_host = featurizers.make("gate", {"over": ["hidden_size"]}, 8, {"theta": torch.linspace(1, -1, 8)}, None, None,
                                kept={"hidden_size": list(range(8))})
-    changed_cpu = batches.visit(VALUE, "layer_output", [
+    changed_cpu = batches.visit_site(VALUE, "layer_output", [
         {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": OTHER[:, :1]}}]},
         {**here[1], "ops": [{**factor[0], "args": {"factor": torch.tensor(3.0)}}]},
         {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": torch.tensor(0.5)}}]}], {})[0]
@@ -199,7 +198,7 @@ def test_an_op_step_runs_without_the_host_waiting(monkeypatch):
 
     engine = load("nnterp", plan_of("mean_ablation").model, "cuda")
     want = engine.execute(plan_of("mean_ablation"), batch_size=BATCH_SIZE).results
-    measured, sync, strict = steps.measured, torch.cuda.synchronize, []
+    measured, sync, strict = steps.measure_cost, torch.cuda.synchronize, []
 
     def refused(*_: object) -> None:
         raise AssertionError("an op step synchronized the device")
@@ -215,7 +214,7 @@ def test_an_op_step_runs_without_the_host_waiting(monkeypatch):
         finally:
             monkeypatch.setattr(torch.cuda, "synchronize", sync)
             torch.cuda.set_sync_debug_mode("default")
-    monkeypatch.setattr(steps, "measured", timed)
+    monkeypatch.setattr(steps, "measure_cost", timed)
     asked: list[int] = []
     asking(monkeypatch, asked)
     got = engine.execute(plan_of("mean_ablation"), batch_size=BATCH_SIZE).results

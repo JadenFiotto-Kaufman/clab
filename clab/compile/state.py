@@ -1,5 +1,5 @@
 """What compile knows while it works (`Compiling`: the context every function that resolves a name is handed,
-whose compiled records are its symbol table), and what preflight found with the model in hand (`Found`)."""
+whose compiled records are its symbol table), and what preflight found with the model in hand (`Findings`)."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ class Compiling:
     compiles in a copy whose `steps` is its own scope (the root's records and the fit being compiled, then the
     body's own as they compile), and each of its evals in a copy whose `steps` are the root's and that fit; each
     shares `axes_of` and `used`. `points` holds each point of the document built so far, by its
-    coordinates (`point`), `chats` each dataset a step reads a chat column of (shared with a body), which a
-    `template` needs, and `sources` each run a load reads, by its directory, read once (`compile.source`)."""
+    coordinates (`document_at_point`), `chats` each dataset a step reads a chat column of (shared with a body), which a
+    `template` needs, and `sources` each run a load reads, by its directory, read once (`compile.loaded_run`)."""
     doc: dict
     root: str
     rows: dict[str, list[dict]]
@@ -42,12 +42,12 @@ class Compiling:
 
 
 @dataclass
-class Found:
+class Findings:
     """What preflight found, which the run needs beside the records it completed: each dataset input's encoded
     rows and padded width (`inputs`, a fit body's forwards' among them), room for what each generate step's rows
     said (`said`), each column reference's answers (`answers`, see `answers.answer`) and each featurizer's width
     (`widths`). Each table with a row per example holds every row of its dataset, by id; which rows a run is over
-    is its scope's to say (`batches.over`)."""
+    is its scope's to say (`batches.scope_ids`)."""
     inputs: dict[str, dict] = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     answers: dict[str, Answer] = field(default_factory=dict)

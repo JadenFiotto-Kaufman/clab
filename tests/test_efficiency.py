@@ -26,10 +26,10 @@ from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
 
 from clab import Plan
 from clab.cli import main
-from clab.compile.state import Found
-from clab.format.sweeps import labelled, points, put
+from clab.compile.state import Findings
+from clab.format.sweeps import coordinate_text, points, put
 from clab.plan import entries, runnable
-from clab.steps.batches import edit
+from clab.steps.batches import bind_ops
 
 COST = {"seconds", "memory", "forwards", "tokens", "real"}
 
@@ -49,7 +49,8 @@ def test_every_run_of_a_step_has_a_cost_and_a_forward_one_call_per_batch(engines
     assert list(run.costs) == list(plan.steps)
     assert list(run.costs["lens"]) == ["layers=0"] and run.costs["lens"]["layers=0"]["serves"] == ["layers=0", "layers=1"]
     for name in ("p_answer", "top1"):
-        assert list(run.costs[name]) == [labelled(plan, p.at) for p in points(plan.steps[name])] == ["layers=0", "layers=1"]
+        assert list(run.costs[name]) == [coordinate_text(plan, p.at) for p in points(plan.steps[name])] == \
+            ["layers=0", "layers=1"]
         assert [c["serves"] for c in run.costs[name].values()] == [["layers=0"], ["layers=1"]]
     for costs in run.costs.values():
         for cost in costs.values():
@@ -131,7 +132,7 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
     called: list[str] = []
     for call in ("synchronize", "reset_peak_memory_stats", "max_memory_allocated"):
         monkeypatch.setattr(torch.cuda, call, lambda *_, call=call: called.append(call) or 7)
-    monkeypatch.setattr("clab.steps.gpus", lambda engine: ["cuda:0"])
+    monkeypatch.setattr("clab.steps.cuda_devices", lambda engine: ["cuda:0"])
     plan = plan_of("logit_lens")
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert all(c["memory"] == {"cuda:0": 7} for costs in local.costs.values() for c in costs.values())
@@ -148,15 +149,15 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     from nnterp import order
 
     from clab.engines import load
-    from clab.steps import measured
+    from clab.steps import measure_cost
     seen: list[Any] = []
     compute = order.compute
     monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
     plan = plan_of("logit_lens")
     engine = load("ndif", plan.model, remote="local")
     shell: Any = engine.model
-    monkeypatch.setattr("clab.steps.measured", lambda devices, cost, call, synced: seen.append(
-        ("step", shell.dispatched)) or measured(devices, cost, call, synced))
+    monkeypatch.setattr("clab.steps.measure_cost", lambda devices, cost, call, synced: seen.append(
+        ("step", shell.dispatched)) or measure_cost(devices, cost, call, synced))
     engine.execute(plan, batch_size=BATCH_SIZE)
     assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
 
@@ -315,9 +316,9 @@ def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monk
     from clab.compile import preflight, schedule
 
     def early(engine, plan, name, step, served):
-        schedule.scheduled(engine, plan, name, step, served)
+        schedule.write_schedule(engine, plan, name, step, served)
         step.schedule["stop"] = ["layer_output", 0]
-    monkeypatch.setattr(preflight, "scheduled", early)
+    monkeypatch.setattr(preflight, "write_schedule", early)
 
     def change(d):
         d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input",
@@ -435,8 +436,8 @@ def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
     plan = edited("patching", change).compile()
     engine: Any = load("nnterp", plan.model)
     placed, checked, sized, bounds = [], [], [], []
-    place, check, forward = positions.place, preflight.check_operands, engine.forward
-    monkeypatch.setattr(positions, "place", lambda *a: placed.append(a) or place(*a))
+    place, check, forward = positions.resolve_row, preflight.check_operands, engine.forward
+    monkeypatch.setattr(positions, "resolve_row", lambda *a: placed.append(a) or place(*a))
     monkeypatch.setattr(preflight, "check_operands", lambda *a: checked.append(a[2]) or check(*a))
     monkeypatch.setattr(standard, "sizes", lambda model: sized.append(model) or {})
     monkeypatch.setattr(engine, "forward", lambda batch, bound: bounds.append(bound) or forward(batch, bound))
@@ -477,7 +478,7 @@ def test_a_gates_number_with_is_bound_once_per_batch(monkeypatch):
 
 
 def test_binding_a_write_leaves_nothing_for_the_collector():
-    """`batches.edit` binds patching's swap to one batch from a namespace that nothing else holds once it returns
+    """`batches.bind_ops` binds patching's swap to one batch from a namespace that nothing else holds once it returns
     (a fit's minibatch namespace, with the featurizers it trains and the values it made, is one): nothing of it,
     and no function, is left in a cycle for the collector."""
     plan = plan_of("patching")
@@ -486,7 +487,7 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     def bound() -> None:
         state: ChainMap = ChainMap()
         put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
-        edit(plan, record, state, {}, [0, 1], Found(), 0, {})
+        bind_ops(plan, record, state, {}, [0, 1], Findings(), 0, {})
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)

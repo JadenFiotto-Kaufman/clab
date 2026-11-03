@@ -343,12 +343,12 @@ def test_a_turn_the_template_wrote_a_header_for_says_the_header_is_positions():
                                 "message: locate its words with a {'text': ...} scope"), (qwen3, "")):
         encoded = {"ids": [0] * 8, "offsets": None, "text": text, "turns": [("user", text.index("hi"), text.index("hi") + 2)]}
         with pytest.raises(ValueError, match=f"^the row has no 'system' message{re.escape(note)}$"):
-            positions.scoped({"turn": "system"}, list(range(8)), [], [], encoded)
-    assert positions.inside([("tom", False, False)], "If today is Thursday, tomorrow is") == "tomorrow"
-    assert positions.inside([("Tom", False, True)], "If today is Thursday, tomorrow is") == "tomorrow"
-    assert positions.inside([("day is", False, False)], "If today is Thursday, tomorrow is") == "today is"
-    assert positions.inside([("is Thurs", False, False)], "If today is Thursday, tomorrow is") == "is Thursday"
-    assert positions.inside([("today", False, False)], "If today is Thursday, tomorrow is") is None
+            positions.scope_tokens({"turn": "system"}, list(range(8)), [], [], encoded)
+    assert positions.cut_word([("tom", False, False)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.cut_word([("Tom", False, True)], "If today is Thursday, tomorrow is") == "tomorrow"
+    assert positions.cut_word([("day is", False, False)], "If today is Thursday, tomorrow is") == "today is"
+    assert positions.cut_word([("is Thurs", False, False)], "If today is Thursday, tomorrow is") == "is Thursday"
+    assert positions.cut_word([("today", False, False)], "If today is Thursday, tomorrow is") is None
 
 
 # A pair of rows 5 and 3 tokens long, BOS included, each with a counterfactual as long as itself.

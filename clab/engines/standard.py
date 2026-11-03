@@ -230,7 +230,7 @@ def placing(model: Model, device: str) -> dict[str, str]:
 
 
 def inputs(batch: dict[str, Tensor], keys: tuple[str, ...], device: str) -> dict[str, Tensor]:
-    """The batch's `keys` on `device`: where the model's first parameter is (`batches.home`), which is where a
+    """The batch's `keys` on `device`: where the model's first parameter is (`batches.model_device`), which is where a
     computed device map puts the model's input. Onto a GPU the keys' tensors (each `[rows, width]`, as `data.pad`
     makes them) go stacked in one pinned buffer and one copy the host does not wait for, which runs in stream order
     before the model's first kernel, so that feeding a batch never drains the GPU's queue."""

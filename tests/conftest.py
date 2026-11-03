@@ -14,7 +14,7 @@ from safetensors.torch import save_file  # noqa: E402
 
 from clab import Plan  # noqa: E402
 from clab.featurizers import FORMAT  # noqa: E402
-from clab.format.sweeps import labelled, points  # noqa: E402
+from clab.format.sweeps import coordinate_text, points  # noqa: E402
 from clab.plan import Model, entries, record_of, runnable  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -114,7 +114,7 @@ def placed(plan: Plan) -> dict[str, Any]:
         if got is None:
             return
         if at:
-            out.setdefault(key, {})[labelled(plan, at)] = got
+            out.setdefault(key, {})[coordinate_text(plan, at)] = got
         else:
             out[key] = got
     for name, entry in runnable(plan.steps).items():

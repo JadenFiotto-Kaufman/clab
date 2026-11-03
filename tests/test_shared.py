@@ -30,7 +30,7 @@ from test_efficiency import at, counting
 
 from clab import Plan
 from clab.compile import schedule
-from clab.format.sweeps import coordinate, find_sweeps, labelled, points, projected
+from clab.format.sweeps import coordinate, coordinate_text, find_sweeps, points, projection
 from clab.plan import Fit, Forward, entries, horizon, record_of, runnable, serving
 from clab.steps import batches, fit
 
@@ -80,7 +80,7 @@ def each_its_own(shared: Plan, alone: dict[tuple, Plan]) -> bool:
     for name in shared.saves:
         entry = shared.steps[name.partition(".")[0]]
         for p in points(entry):
-            own = projected(p.at, record_of(shared.steps, name, p.at).axes)
+            own = projection(p.at, record_of(shared.steps, name, p.at).axes)
             mine = shared.results[name][coordinate(shared, own)] if own else shared.results[name]
             theirs = next(v for k, v in alone.items() if all(dict(k).get(a) == i for a, i in p.at.items()))
             if not same(mine, theirs.results[name]):
@@ -115,11 +115,11 @@ def total(plan: Plan) -> int:
 
 def served(plan: Plan, name: str) -> list[list[str]]:
     """Which points each forward of step `name` serves, in point order, by coordinate."""
-    return [[labelled(plan, q.at) for q in s] for p, s in serving(plan, name) if isinstance(p, Forward)]
+    return [[coordinate_text(plan, q.at) for q in s] for p, s in serving(plan, name) if isinstance(p, Forward)]
 
 
 def all_points(plan: Plan, name: str) -> list[str]:
-    return [labelled(plan, p.at) for p in points(plan.steps[name])]
+    return [coordinate_text(plan, p.at) for p in points(plan.steps[name])]
 
 
 def sharing(plan: Plan) -> bool:
@@ -186,7 +186,7 @@ def test_a_read_only_sweep_runs_one_forward_and_each_point_reads_what_its_own_wo
     shared, ran = counted(engine, plan, 4)
     deepest = [4] * 5 if kind == "ndif" else [0, 1, 2, 3, 4] if axis == "layers" else [2] * 5
     assert ran == [*range(max(deepest) + 1)]
-    first = labelled(plan, lens[0].at)
+    first = coordinate_text(plan, lens[0].at)
     assert costs(shared, "lens") == {first: (1, all_points(plan, "lens"))}
     assert shared.run is not None and shared.run.costs["lens"][first]["memory"] is None
     theirs = {}
@@ -385,7 +385,7 @@ def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_do
 
 
 def ranked(rank: Callable[[str, int | None], Any]) -> Any:
-    """A stand-in engine for `schedule.scheduled`: its name, and the rank it gives each `(component, layer)`."""
+    """A stand-in engine for `schedule.write_schedule`: its name, and the rank it gives each `(component, layer)`."""
     return types.SimpleNamespace(name="stand-in", rank=rank)
 
 
@@ -395,15 +395,15 @@ def test_an_operand_read_at_a_site_the_engine_ranks_alike_with_the_writes_is_ref
     write's own site whatever the ranks, read there first, in entry order."""
     plan = gpt2(LIVE)
     step = points(plan.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, [step])
+    schedule.write_schedule(ranked(lambda component, layer: layer), plan, "lens", step, [step])
     assert [s["layer"] for s in step.schedule["sites"]] == [0, 1]
     with pytest.raises(ValueError, match=r"^lens\.added: operand 'lens\.premix' is read at layer_output layer 0, which "
                                          r"the stand-in engine's forward reaches no earlier than this write's "
                                          r"layer_output layer 1; "):
-        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, [step])
+        schedule.write_schedule(ranked(lambda component, layer: 0), plan, "lens", step, [step])
     here = gpt2({**LIVE, "premix": at("layer_output", 1)})
     step = points(here.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, [step])
+    schedule.write_schedule(ranked(lambda component, layer: 0), here, "lens", step, [step])
     assert [[r.get("write") or r.get("read") for r in s["records"]] for s in step.schedule["sites"]] == \
         [["premix", "added", "added"]]
 
@@ -593,8 +593,8 @@ def test_an_op_whose_swept_operand_names_values_on_other_axes_gives_each_point_i
     assert [p.axes for p in points(plan.steps["cos"])] == [["other"], ["pos", "other"]] * 2
     runs = [['pos=-1,other="read.one"', 'pos=-2,other="read.one"'], ['pos=-1,other="read.many"'],
             ['pos=-2,other="read.many"']]
-    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "cos")] == runs
-    assert [[labelled(plan, q.at) for q in s] for _, s in serving(plan, "avg")] == runs
+    assert [[coordinate_text(plan, q.at) for q in s] for _, s in serving(plan, "cos")] == runs
+    assert [[coordinate_text(plan, q.at) for q in s] for _, s in serving(plan, "avg")] == runs
     engine = engines("nnterp", plan.model)
     assert each_its_own(engine.execute(plan, batch_size=BATCH_SIZE), alone(engine, "pos_sweep", doc))
 
@@ -624,11 +624,11 @@ def called(step: Forward, rows: int, batch_size: int) -> list:
     """The model calls one run of a serving point makes over `rows` rows in batches of `batch_size`, as its
     schedule says: per batch a forward's one call, a generation's `max_new_tokens`, each `"call"` then the sites it
     visits in order (a forward's every site, a generation's call the sites with a record at that call,
-    `batches.now`)."""
+    `batches.acting_at_call`)."""
     sites = step.schedule["sites"]
     calls = range(cast(int, horizon(cast(Any, step)))) if step.kind == "generate" else [0]
     one = [tag for k in calls for tag in ["call", *((s["component"], s["layer"]) for s in sites
-                                                  if batches.now(s["records"], k))]]
+                                                  if batches.acting_at_call(s["records"], k))]]
     return one * -(-rows // batch_size)
 
 
@@ -658,7 +658,7 @@ def ran(plan: Plan, bodies: list[tuple]) -> list:
                                         if not (k == "hooks" and n in INSIDE)])
 def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
     """On every corpus document and both local engines, the model calls (a pre-hook on its root module) and the
-    sites each visited (`batches.visit`), in order, are exactly those the schedules give (`ran`): one forward per
+    sites each visited (`batches.visit_site`), in order, are exactly those the schedules give (`ran`): one forward per
     batch of each serving point, a generation's `max_new_tokens` calls per batch, each visiting its schedule's
     sites in order, and a fit's body the same in each run the fit made of it."""
     plan, _ = corpus_plan(corpus, name)
@@ -667,7 +667,7 @@ def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
     plan, _ = corpus_plan(corpus, name)                         # a run leaves a generation's landings on the records
     seen: list[Any] = []
     bodies: list[tuple] = []
-    visit, body_run = batches.visit, fit.body_run
+    visit, body_run = batches.visit_site, fit.run_body
 
     def noted(value, component, records, got):
         if records:                 # the hooks engine's hook of a site with no record at this call does nothing
@@ -678,8 +678,8 @@ def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
         bodies.append((name, step.at, None if ids is None else len(ids), view))
         seen.append("body")
         return body_run(engine, name, step, state, trained, view, found, ids, cost, reading)
-    monkeypatch.setattr(batches, "visit", noted)
-    monkeypatch.setattr(fit, "body_run", body)
+    monkeypatch.setattr(batches, "visit_site", noted)
+    monkeypatch.setattr(fit, "run_body", body)
     root = getattr(engine.model, "_module", engine.model)
     handle = root.register_forward_pre_hook(lambda module, args: seen.append("call"))
     try:

@@ -28,9 +28,9 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     that stops at a step (out of CUDA memory, `plan.run.stopped`) is written to `out` as far as it got, in this
     process, before its refusal is raised, which then says where."""
     from clab.engines import load
-    from clab.steps import batched
+    from clab.steps import check_run_options
 
-    batched(batch_size, padding)
+    check_run_options(batch_size, padding)
     compiled = (plan if isinstance(plan, Plan) else Plan(plan)).compile()
     if isinstance(engine, str):
         engine = load(engine, compiled.model, device or "cpu", **options)

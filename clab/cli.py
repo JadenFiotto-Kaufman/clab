@@ -26,7 +26,7 @@ from clab import output
 from clab.compile import positions
 from clab.docs import WHAT, as_json, describe, write_markdown
 from clab.format.data import PADDINGS
-from clab.format.sweeps import coordinate, labelled
+from clab.format.sweeps import coordinate, coordinate_text
 from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, serving
 
 
@@ -45,7 +45,7 @@ def show(filled: Plan) -> str:
     each run of a step will serve (`served`)."""
     run = filled.run
     if run is None:
-        rows = [[step, labelled(filled, p.at) or "—", served(filled, entry, points_)]
+        rows = [[step, coordinate_text(filled, p.at) or "—", served(filled, entry, points_)]
                 for step, entry in runnable(filled.steps).items() for p, points_ in serving(filled, step)]
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
@@ -61,10 +61,11 @@ def show(filled: Plan) -> str:
         value, ats = filled.results[saved], projections(filled, saved)
         swept = ats != [({}, ats[0][1])]
         if swept:
-            value = {labelled(filled, at): value[coordinate(filled, at)] for at, _ in ats}
-        dims = output.layouts(filled, saved)["dims"]
+            value = {coordinate_text(filled, at): value[coordinate(filled, at)] for at, _ in ats}
+        dims = output.saved_value_layout(filled, saved)["dims"]
         rows.append([saved, made_by(filled, saved), ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(output.axes(filled, saved)) or "—", shaped(output.describe(value, "shape"), swept)])
+                     ", ".join(output.saved_value_axes(filled, saved)) or "—",
+                     shaped(output.shape_or_dtype(value, "shape"), swept)])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 
@@ -80,13 +81,13 @@ def costs(filled: Plan) -> list[list[str]]:
     rows = [["step", "at", "serves", "seconds", "memory", "forwards", "tokens", "real"]]
     for step, entry in runnable(filled.steps).items():
         for p, points_ in serving(filled, step) if step in run.costs else []:
-            cost = run.costs[step].get(labelled(filled, p.at)) if isinstance(entry, list) else run.costs[step]
+            cost = run.costs[step].get(coordinate_text(filled, p.at)) if isinstance(entry, list) else run.costs[step]
             serves = served(filled, entry, points_)
             if cost is None:                    # a point the run stopped before
-                rows.append([step, labelled(filled, p.at) or "—", serves, "—", "—", "—", "—", "—"])
+                rows.append([step, coordinate_text(filled, p.at) or "—", serves, "—", "—", "—", "—", "—"])
                 continue
             memory = ", ".join(f"{d} {b / 2 ** 20:.1f} MiB" for d, b in (cost["memory"] or {}).items()) or "—"
-            rows.append([step, labelled(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
+            rows.append([step, coordinate_text(filled, p.at) or "—", serves, f"{cost['seconds']:.3f}", memory,
                          str(cost["forwards"]), str(cost["tokens"]), str(cost.get("real", "—"))])
     return rows
 
@@ -97,7 +98,7 @@ def served(filled: Plan, entry: Any, points_: list) -> str:
         return "—"
     if len(points_) == len(points(entry)):
         return f"all {len(points_)} points"
-    return ", ".join(labelled(filled, p.at) for p in points_)
+    return ", ".join(coordinate_text(filled, p.at) for p in points_)
 
 
 def resolved(filled: Plan) -> list[list[str]]:
@@ -112,7 +113,7 @@ def resolved(filled: Plan) -> list[list[str]]:
         found: dict[tuple[str, str], tuple[list | None, list[str]]] = {}
         for p in listed:
             for key, per_row in placed(step, p):
-                found.setdefault((key, json.dumps(per_row)), (per_row, []))[1].append(labelled(filled, p.at))
+                found.setdefault((key, json.dumps(per_row)), (per_row, []))[1].append(coordinate_text(filled, p.at))
         for (key, _), (per_row, ats) in found.items():
             shared = ats[0] or "—" if len(ats) == 1 else f"all {len(ats)} points" if len(ats) == len(listed) else \
                 f"{len(ats)} of {len(listed)} points"

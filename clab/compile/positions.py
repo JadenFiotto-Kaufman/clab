@@ -1,7 +1,7 @@
 """Positions: a `pos` as three stages of narrowing (frame, scope, index), resolved row by row inside the run,
 where the tokenizer is, to the positions the record names.
 
-A row's positions are its input tokens, all of them, in order (`prompted`): the prompt's as encoded (`0 ..
+A row's positions are its input tokens, all of them, in order (`prompt_positions`): the prompt's as encoded (`0 ..
 P-1`, BOS and a chat template's markers included; padding is never one), then what it generated (`P + j` for
 generated token `j`). The prefill, call 0, holds the prompt; decode call `k >= 1` holds generated token `k -
 1`, its input. A row's calls run to the one that chose its last token, so that token is never an input. A
@@ -23,10 +23,10 @@ if TYPE_CHECKING:
 
 MISSING = "alignment_missing"
 HEAD = ("lm_head_output", "logits")      # what a generation's prefill computes at the prompt's last position alone
-UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
+EMPTY_PROMPT = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
-class Unaligned(ValueError):
+class UnreachedRow(ValueError):
     """A row the record does not reach, and why: `alignment_missing` beyond the prefill, a refusal in it."""
 
 
@@ -47,7 +47,7 @@ def width(pos: dict) -> int | None:
     index has a static width, and a scope, if any, is one occurrence in the prefill, not `until` (which runs from
     the frame's first token to it)."""
     scope = pos["scope"]
-    if fixed(pos["frame"]) is None or scope and (not prefill(pos) or fixed(scope.get("occurrence", 0)) != 1
+    if fixed(pos["frame"]) is None or scope and (not prefill_only(pos) or fixed(scope.get("occurrence", 0)) != 1
                                                  or scope.get("until")):
         return None
     return fixed(pos["index"])
@@ -81,9 +81,9 @@ def reach(pos: dict, horizon: int | None = None) -> tuple[bool, list[int] | None
     if horizon is None:
         if fixed(frame) is None and (fixed(index) is None or from_end(index)):
             return False, None, False                   # it names calls up to the row's last
-        horizon = max(named(pos, enough(pos)), default=0) + 1
-    full = named(pos, horizon)
-    exact = all(set(named(pos, k)) == {c for c in full if c < k} for k in range(1, horizon))
+        horizon = max(named_calls(pos, enough_calls(pos)), default=0) + 1
+    full = named_calls(pos, horizon)
+    exact = all(set(named_calls(pos, k)) == {c for c in full if c < k} for k in range(1, horizon))
     return False, sorted(full) if exact else decode_calls(frame, horizon), exact
 
 
@@ -97,21 +97,21 @@ def decode_calls(frame: Selector, horizon: int | None) -> list[int] | None:
     return sorted(k for k in select(frame, horizon) if k)
 
 
-def named(pos: dict, k: int) -> list[int]:
+def named_calls(pos: dict, k: int) -> list[int]:
     """The decode calls an unscoped record whose frame holds no prompt names on a row that makes `k` calls: its
     index's picks among the frame's calls, each holding one position."""
     called = select(pos["frame"], k)
     return [called[i] for i in select(pos["index"], len(called))]
 
 
-def enough(pos: dict) -> int:
+def enough_calls(pos: dict) -> int:
     """A number of calls past every number a record's frame and index are written with, and past their
     product, so that what they name among that many is all a row can make them name."""
     numbers = [abs(int(x)) for x in re.findall(r"-?[0-9]+", f"{pos['frame']} {pos['index']}")]
     return (2 + max(numbers, default=0)) ** 2
 
 
-def prefill(pos: dict) -> bool:
+def prefill_only(pos: dict) -> bool:
     """Whether the record names prefill positions only, so the data alone decides it before any forward."""
     holds, calls, _ = reach(pos)
     return holds and calls == []
@@ -120,7 +120,7 @@ def prefill(pos: dict) -> bool:
 # -- the three stages ---------------------------------------------------------------------------------
 
 
-def prompted(prompt: int, head_only: bool = False) -> list[int]:
+def prompt_positions(prompt: int, head_only: bool = False) -> list[int]:
     """The positions the prefill of a row whose prompt is `prompt` tokens holds, the one place a row's positions
     are decided: every token of its prompt, in order, BOS and a chat template's markers included (a row's ids are
     its own, never padding), or its last token alone (`head_only`) where the prefill computes only that (a
@@ -128,60 +128,60 @@ def prompted(prompt: int, head_only: bool = False) -> list[int]:
     return [prompt - 1] if head_only else list(range(prompt))
 
 
-def held(called: list[int], prompt: int, head_only: bool) -> list[int]:
-    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompted`), and
+def call_positions(called: list[int], prompt: int, head_only: bool) -> list[int]:
+    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompt_positions`), and
     each decode call's input."""
-    return [p for call in called for p in (prompted(prompt, head_only) if call == 0 else [prompt + call - 1])]
+    return [p for call in called for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
 
 
 def call_of(position: int, prompt: int) -> int:
-    """The call that holds a position, the inverse of `held`."""
+    """The call that holds a position, the inverse of `call_positions`."""
     return 0 if position < prompt else position - prompt + 1
 
 
-def scoped(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
-           encoded: dict = UNPROMPTED) -> list[int]:
+def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
+                 encoded: dict = EMPTY_PROMPT) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
     role's messages) among `tokens`, in order; under `until`, every token of `tokens` up to the last of theirs,
     and every one where the row has fewer occurrences than it picks. Under `before` an occurrence beginning the row
     (at position 0) has no position before it, nor an until scope's tokens from there. The scope's `texts` (each
     `(text, strip, lower)`) and the `encoded` row word a refusal: a column's values on the row are quoted, a text
-    found only inside a word says which (`inside`), and a role the template wrote a header of its own for, which is
+    found only inside a word says which (`cut_word`), and a role the template wrote a header of its own for, which is
     no message, says the header is positions."""
     if scope is None:
         return tokens
-    found = [o for o in occurrences if o & set(tokens)]
+    matches = [o for o in occurrences if o & set(tokens)]
     which = scope.get("occurrence", 0)
-    picked = select(which, len(found))
+    picked = select(which, len(matches))
     key = next(k for k in ("column", "text", "turn") if k in scope)
     what = f"{key} {scope[key]['column'] if isinstance(scope[key], dict) else scope[key]!r}"
     what += f" ({', '.join(repr(t) for t, _, _ in texts)})" if key == "column" and texts else ""
     if scope.get("until"):
         short = not picked or fixed(which) is not None and len(picked) != fixed(which)
-        through = tokens if short else [t for t in tokens if t <= max(max(found[i]) for i in picked)]
+        through = tokens if short else [t for t in tokens if t <= max(max(matches[i]) for i in picked)]
         if scope.get("before") and 0 in through:
-            raise Unaligned(f"{what} with until runs from the frame's first token, position 0, which no position "
-                            "comes before")
+            raise UnreachedRow(f"{what} with until runs from the frame's first token, position 0, which no position "
+                               "comes before")
         return through
-    if not found and "turn" in scope:
+    if not matches and "turn" in scope:
         first = min((a for _, a, _ in encoded["turns"]), default=len(encoded["text"]))
         header = re.search(rf"\b{re.escape(scope['turn'])}\b", encoded["text"][:first]) is not None
-        raise Unaligned(f"the row has no {scope['turn']!r} message" + (
+        raise UnreachedRow(f"the row has no {scope['turn']!r} message" + (
             f"; the template wrote a {scope['turn']!r} header of its own, whose tokens are positions, not a message: "
             "locate its words with a {'text': ...} scope" if header else ""))
-    if not found:
-        cut = inside(texts, encoded["text"])
-        raise Unaligned(f"{what} is not in its input" + (
+    if not matches:
+        cut = cut_word(texts, encoded["text"])
+        raise UnreachedRow(f"{what} is not in its input" + (
             f"; it occurs only inside {cut!r}, cutting a word, and an occurrence lies on word boundaries" if cut else ""))
     if not picked or fixed(which) is not None and len(picked) != fixed(which):
-        raise Unaligned(f"{what} occurs {len(found)} time{'s' * (len(found) != 1)} in the row's input; it has no "
-                        f"occurrence {which}")
-    if scope.get("before") and any(0 in found[i] for i in picked):
-        raise Unaligned(f"{what} begins the row, at position 0, which no position comes before")
-    return [t for t in tokens if any(t in found[i] for i in picked)]
+        raise UnreachedRow(f"{what} occurs {len(matches)} time{'s' * (len(matches) != 1)} in the row's input; it has "
+                           f"no occurrence {which}")
+    if scope.get("before") and any(0 in matches[i] for i in picked):
+        raise UnreachedRow(f"{what} begins the row, at position 0, which no position comes before")
+    return [t for t in tokens if any(t in matches[i] for i in picked)]
 
 
-def inside(texts: Sequence[tuple], words: str) -> str | None:
+def cut_word(texts: Sequence[tuple], words: str) -> str | None:
     """Where one of `texts` occurs in `words` cutting a word, which an occurrence, lying on word boundaries, does
     not: the match widened to the word it cuts at either end (`tom` gives `tomorrow`, `day is` gives `today is`);
     None where none does."""
@@ -189,7 +189,7 @@ def inside(texts: Sequence[tuple], words: str) -> str | None:
         text = data.compared(text, strip, lower)
         for m in re.finditer(re.escape(text), data.compared(words, False, lower)) if text else []:
             a, b = m.span()
-            start, end = word(words, a - 1, a), word(words, b, b - 1)
+            start, end = same_word(words, a - 1, a), same_word(words, b, b - 1)
             if start or end:
                 while start and words[a - 1].isalnum():
                     a -= 1
@@ -199,38 +199,38 @@ def inside(texts: Sequence[tuple], words: str) -> str | None:
     return None
 
 
-def indexed(index: Selector, tokens: list[int], width: int | None) -> list[int]:
+def index_picks(index: Selector, tokens: list[int], width: int | None) -> list[int]:
     """Stage three: the positions `index` picks among the scope's tokens; a record with a static width must
     hold all of them."""
-    got = [tokens[i] for i in select(index, len(tokens))]
-    if width is not None and len(got) != width:
-        raise Unaligned(f"tokens {index} do not fit its {len(tokens)} scope tokens")
-    return got
+    picks = [tokens[i] for i in select(index, len(tokens))]
+    if width is not None and len(picks) != width:
+        raise UnreachedRow(f"tokens {index} do not fit its {len(tokens)} scope tokens")
+    return picks
 
 
 def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]], head_only: bool = False,
-            texts: Sequence[tuple] = (), encoded: dict = UNPROMPTED) -> list[int] | str:
+            texts: Sequence[tuple] = (), encoded: dict = EMPTY_PROMPT) -> list[int] | str:
     """The positions a record names in one row, given its prompt's length, what it generated up to its first
     EOS (`said`), where its scope's text occurs (`occurrences`), and whether its prefill holds the last position
-    alone (`head_only`, `prompted`); or why it names none, a marker. In the prefill a scope the row does not say
+    alone (`head_only`, `prompt_positions`); or why it names none, a marker. In the prefill a scope the row does not say
     and a static index that does not fit are refusals: the data decided, and the scope's `texts` and the `encoded`
-    row word it (`scoped`); an index that picks none of the row's tokens (`"5:"` on a shorter row) names none there
-    as anywhere, the marker. A scope that is `before` picks its
-    tokens as any scope does, the row's last generated token among them when the frame names its last call, and
-    the record is the position before each."""
+    row word it (`scope_tokens`); an index that picks none of the row's tokens (`"5:"` on a shorter row) names none
+    there as anywhere, the marker. A scope that is `before` picks its tokens as any scope does, the row's last generated
+    token among them when the frame names its last call, and the record is the position before each."""
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = select(pos["frame"], max(len(said), 1))     # stage one: -1 is the row's last call, EOS or not
-        tokens = held(calls, prompt, head_only)
+        tokens = call_positions(calls, prompt, head_only)
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
-        got = indexed(pos["index"], scoped(pos["scope"], tokens, occurrences, texts, encoded), width(pos))
-        got = [t - 1 for t in got] if before else got
+        positions = index_picks(pos["index"], scope_tokens(pos["scope"], tokens, occurrences, texts, encoded),
+                                width(pos))
+        positions = [t - 1 for t in positions] if before else positions
     except ValueError as e:
-        if prefill(pos):
+        if prefill_only(pos):
             raise ValueError(str(e)) from None
         return MISSING
-    return got or MISSING
+    return positions or MISSING
 
 
 # -- where a scope's text occurs ----------------------------------------------------------------------
@@ -244,24 +244,26 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
     the last included: the tokens the calls chose), by decoding growing prefixes; each part's in order of
     position (end, then start). A token with an empty span (part of a split character) covers the character
     it begins. `online`, a write's search as each call is fed, sees nothing past a generated token, so there an
-    occurrence's end is not checked against the character after it (`located`)."""
+    occurrence's end is not checked against the character after it (`occurrence_spans`)."""
     if scope is None:
         return []
     prompt, inputs = len(row["ids"]), said if scope.get("before") else said[:-1]
-    # A role's messages in the order the template rendered them, so by where each ends, as `located` orders text.
+    # A role's messages in the order the template rendered them, so by where each ends, as `occurrence_spans` orders
+    # text.
     spans = [(a, b) for role, a, b in row["turns"] if role == scope["turn"]] if "turn" in scope else \
-        located(texts, row["text"], row["offsets"])
+        occurrence_spans(texts, row["text"], row["offsets"])
     if spans and row["offsets"] is None:
         raise ValueError("this tokenizer has no offset mapping, which a scope in the prompt needs")
-    found = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
+    occurrence_tokens = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        found += [covering(chars, a, b, prompt) for a, b in located(texts, words, chars, not online)]
-    return found
+        occurrence_tokens += [covering_tokens(chars, a, b, prompt)
+                              for a, b in occurrence_spans(texts, words, chars, not online)]
+    return occurrence_tokens
 
 
-def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None,
-            ahead: bool = True) -> list[tuple[int, int]]:
+def occurrence_spans(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None,
+                     ahead: bool = True) -> list[tuple[int, int]]:
     """Every character span in `words` where one of `texts` occurs on token and word boundaries, each `(text,
     strip, lower)` compared as its flags say (`data.compared`; `words` lowercased too under `lower`, its spans
     its own); in order of end, then start: where an occurrence becomes known, so a write found online, a read and
@@ -275,18 +277,18 @@ def located(texts: list[tuple], words: str, tokens: list[tuple[int, int]] | None
     spans = []
     for text, strip, lower in texts:
         text = data.compared(text, strip, lower)
-        found = re.finditer(f"(?=({re.escape(text)}))", data.compared(words, False, lower)) if text else []
+        matches = re.finditer(f"(?=({re.escape(text)}))", data.compared(words, False, lower)) if text else []
         last = 0                    # a text's occurrences do not overlap each other: each starts after the last
-        for m in found:
+        for m in matches:
             a, b = m.span(1)
-            if a >= last and a in starts and b in ends and not word(words, a - 1, a) and \
-                    not (ahead and word(words, b, b - 1)):
+            if a >= last and a in starts and b in ends and not same_word(words, a - 1, a) and \
+                    not (ahead and same_word(words, b, b - 1)):
                 spans.append((starts[a], ends[b]))
                 last = b
     return sorted(spans, key=lambda span: (span[1], span[0]))
 
 
-def word(words: str, outside: int, inside: int) -> bool:
+def same_word(words: str, outside: int, inside: int) -> bool:
     """Whether an occurrence's character at `inside` and the one just outside it, at `outside`, are both letters
     or digits: one word, which the occurrence would cut."""
     return 0 <= outside < len(words) and words[outside].isalnum() and words[inside].isalnum()
@@ -314,23 +316,23 @@ def bounds(words: str, tokens: list[tuple[int, int]]) -> tuple[dict[int, int], d
     return starts, ends
 
 
-def covering(chars: list[tuple[int, int]], a: int, b: int, offset: int) -> set[int]:
+def covering_tokens(chars: list[tuple[int, int]], a: int, b: int, offset: int) -> set[int]:
     """The tokens (`offset` + their index) whose spans overlap characters `a` to `b`; a token with an empty
     span covers the character it begins."""
     return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
 
 
-def landing(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer: PreTrainedTokenizerBase
-            ) -> bool:
+def lands_at_call(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer: PreTrainedTokenizerBase
+                  ) -> bool:
     """Whether a write with a text scope lands at the call fed `inputs[-1]`, given every input the row was fed
     so far: some occurrence its `occurrence` picks resolves, with index -1, to that token, on the prefix and
     counted only within the frame's calls, as `resolve` counts them; so each picked occurrence lands at its own
     last token, as it appears. The prefix is the row's calls so far (the last is the one being fed, whose token
     is not chosen yet) after an empty prompt, so a row that stopped has no such call and input `j` sits at `j`."""
     said = continuation([*inputs, -1], eos)
-    found = occurrences(pos["scope"], UNPROMPTED, said, tokenizer, texts, online=True)
-    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, said, found)
-               == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(found)))
+    row_occurrences = occurrences(pos["scope"], EMPTY_PROMPT, said, tokenizer, texts, online=True)
+    return any(resolve({**pos, "scope": {**pos["scope"], "occurrence": i}}, 0, said, row_occurrences)
+               == [len(inputs) - 1] for i in select(pos["scope"]["occurrence"], len(row_occurrences)))
 
 
 def continuation(ids: list[int], eos: set[int]) -> list[int]:
@@ -355,52 +357,53 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
     return text, spans
 
 
-def indices(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
-            tokenizer: PreTrainedTokenizerBase, alike: dict[tuple, list] | None = None) -> list[list[int] | str]:
+def prefill_positions(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
+                      tokenizer: PreTrainedTokenizerBase,
+                      alike: dict[tuple, list] | None = None) -> list[list[int] | str]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
     scope before a prompt token where a generation's prefill computes no head) does not reach it, the marker. The
     rows' positions depend on the step's input and the record's `pos` and head alone, so records alike in those
     resolve once (`alike`, by them: preflight's, over one scope's steps) and hold the one resolution, which a batch
-    binds once for all of them (`batches.bind`)."""
+    binds once for all of them (`batches.bind_schedule`)."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
-    pos, head_only, write = parse(record.pos), head(step, record), writes(record)
+    pos, head_only, write = parse(record.pos), reads_head(step, record), writes(record)
     why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
         "that is all call 0 holds of it" if head_only else ""
     key = (step.dataset, data.input_name(step.input), repr(record.pos), head_only)
     known = (alike or {}).get(key)
-    found: list[list[int] | str] = []
+    row_positions: list[list[int] | str] = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
         try:
-            got = known[i] if known is not None else place(pos, row, enc, [], tokenizer, head_only)
+            positions = known[i] if known is not None else resolve_row(pos, row, enc, [], tokenizer, head_only)
         except ValueError as e:
             raise ValueError(f"{where}: row {i}: {e}{why}") from None
-        if write and got == MISSING:
+        if write and positions == MISSING:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              f"one to write{why}")
-        found.append(got if isinstance(got, str) else list(got))
+        row_positions.append(positions if isinstance(positions, str) else list(positions))
     if known is not None:
         return known
     if alike is not None:
-        alike[key] = found
-    return found
+        alike[key] = row_positions
+    return row_positions
 
 
-def place(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,
-          head_only: bool) -> list[int] | str:
+def resolve_row(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,
+                head_only: bool) -> list[int] | str:
     """`resolve` for one row (its dataset row and its encoding), with what that needs: where the
     scope's text occurs."""
-    named = texts(pos, row)
+    named = scope_texts(pos, row)
     found = occurrences(pos["scope"], encoded, said, tokenizer, named)
-    got = resolve(pos, len(encoded["ids"]), said, found, head_only, named, encoded)
-    if head_only and (pos["scope"] or {}).get("before") and isinstance(got, list) and \
-            any(p < len(encoded["ids"]) - 1 for p in got):
+    positions = resolve(pos, len(encoded["ids"]), said, found, head_only, named, encoded)
+    if head_only and (pos["scope"] or {}).get("before") and isinstance(positions, list) and \
+            any(p < len(encoded["ids"]) - 1 for p in positions):
         return MISSING            # before a prompt token, where this prefill computes no head
-    return got
+    return positions
 
 
-def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
+def scope_texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
     """The texts a record's scope names in one row, each `(text, strip, lower)`: its columns' (each member of
     a set), compared as each reference says, or the literals, as the scope says; a single one is the
     one-element case."""
@@ -417,13 +420,13 @@ def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
     return [(t, bool(scope.get("strip")), bool(scope.get("lower"))) for t in given]
 
 
-def head(step: Forward | Generate, record: Intervention) -> bool:
+def reads_head(step: Forward | Generate, record: Intervention) -> bool:
     """Whether the record reads the head in a generation, whose prefill computes it at its last position only."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
     return step.kind == "generate" and record.site.component in HEAD
 
 
-def decided(path: str, pos: dict, most: int | None) -> None:
+def check_calls_known(path: str, pos: dict, most: int | None) -> None:
     """A generation's write beyond the prefill lands at each call it selects as that call runs, so what it
     selects must be known by then. Without a scope its calls must be known before the run, up to the step's
     `max_new_tokens` (`most`) when it gives one (`reach`). With a text scope it is found online,
@@ -460,7 +463,7 @@ def decided(path: str, pos: dict, most: int | None) -> None:
              "':', since any other counts on through the prompt, whose length differs by row, into the decode "
              "calls, and a write lands as each call runs; write the prompt's positions you mean as an entry at "
              "frame 0 and the decode calls you mean as another at their own frame ('1:' is every one)")
-    if most is None and reach(pos, enough(pos))[2]:
+    if most is None and reach(pos, enough_calls(pos))[2]:
         fail(path, f"frame {frame!r} with index {index!r} names calls up to the row's last; a write lands at calls "
              "listed before the run, so the step gives max_new_tokens, which bounds them")
     fail(path, f"frame {frame!r} with index {index!r} names calls that depend on how far each row gets; a write "

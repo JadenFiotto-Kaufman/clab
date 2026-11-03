@@ -5,7 +5,7 @@ It is written as clab writes a bundle, its header's keys sorted: the same bytes 
 
 import torch
 
-from clab.output import write
+from clab.output import write_safetensors
 
 HEADER = {"format": "clab/1", "kind": "sae", "model.key": "hf-internal-testing/tiny-random-LlamaForCausalLM",
           "model.revision": "9fb191250dd56d0ba7ec9785a025ed29c03d5998", "model.dtype": "float32",
@@ -16,4 +16,4 @@ if __name__ == "__main__":
     g = torch.Generator().manual_seed(0)
     tensors = {"W_enc": torch.randn(16, 32, generator=g) / 4, "b_enc": torch.zeros(32),
                "W_dec": torch.randn(32, 16, generator=g) / 4, "b_dec": torch.randn(16, generator=g) / 100}
-    write("documents/artifacts/sae.safetensors", tensors, HEADER)
+    write_safetensors("documents/artifacts/sae.safetensors", tensors, HEADER)

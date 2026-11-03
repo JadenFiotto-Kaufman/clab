@@ -7,14 +7,14 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from clab import featurizers, ops
-from clab.compile.answers import column_ref, literal, text_ref
+from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
 from clab.format.sweeps import points
 from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
 
 
-def narrowed_readout(what: str) -> str:
+def narrowed_readout_refusal(what: str) -> str:
     return (f"readout projects the whole residual stream through the model's final norm and head, and {what} keeps "
             "only some of hidden_size, which the norm cannot take; read the site whole, readout, and narrow what "
             "the logits give")
@@ -26,7 +26,7 @@ def space_of(encodes: list[Op] | list[OpStep]) -> list[dict]:
     return [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in encodes]
 
 
-def said(space: list[dict]) -> str:
+def coordinates_text(space: list[dict]) -> str:
     """A value's coordinates as a message names them."""
     if not space:
         return "the site's own layout"
@@ -34,13 +34,13 @@ def said(space: list[dict]) -> str:
                                                                        else "") for s in space)
 
 
-def called(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
+def featurizer_kind(cx: Compiling, plan: Plan, path: str, name: str, args: dict) -> str | None:
     """The kind of the featurizer op `name` names, checked to exist and to serve the op, and an `apply`'s `with`
     to be a name its kind takes; None when the op takes no featurizer."""
     ref = args.get("featurizer")
     if ref is None:
         return None
-    featurizer_ref(cx, ref, f"{path}.featurizer")
+    check_featurizer_ref(cx, ref, f"{path}.featurizer")
     kind = kind_of(plan, ref)
     serves = featurizers.KINDS[kind].ops()
     if name not in serves:
@@ -63,38 +63,38 @@ def references(name: str, args: dict, resolve: Callable[[str, Any, inspect.Param
     its labelled layout (a column's: a row per example of its dataset; None for a featurizer, which is no
     value): the one loop over an op's named arguments, which compile runs with `resolver` and preflight with
     `plan.record_of`."""
-    found = {}
+    named_arguments = {}
     for key, p in ops.parameters(name).items():
         value = args.get(key)
         named = p.annotation in (ops.Tokens, ops.Text, ops.Featurizer) or p.annotation == ops.Value and isinstance(value, str)
         record = resolve(key, value, p) if named and value is not None else None
         if record is not None:
             ref = data.column_of(value) if p.annotation != ops.Value else None
-            found[key] = (ref[0] if ref else json.dumps(value, ensure_ascii=False) if data.literal_of(value)
-                          else str(value), record)
-    return found
+            named_arguments[key] = (ref[0] if ref else json.dumps(value, ensure_ascii=False) if data.literal_of(value)
+                                    else str(value), record)
+    return named_arguments
 
 
 def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
              live: Mapping[str, Labelled] | None = None) -> Callable[[str, Any, inspect.Parameter], Labelled | None]:
     """How compile resolves an op's named arguments (`references`) at `path`, at the consumer's point `at`: a value
-    to its record (`value_of`, an entry of the forward being compiled among `live`), a column to a row per example
+    to its record (`value_record`, an entry of the forward being compiled among `live`), a column to a row per example
     of its dataset once it is checked to hold text on every row, or, scored against a probe's `classes`, its
     labels, whatever they are (`classes`), a literal to a row per example of whatever dataset the value it goes with
-    has rows of, the same text on each, once it is checked to be one (`literal`), and a featurizer to nothing, once it
-    is checked to exist."""
+    has rows of, the same text on each, once it is checked to be one (`is_literal`), and a featurizer to nothing, once
+    it is checked to exist."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
-            return value_of(cx, value, where, at, live)
+            return value_record(cx, value, where, at, live)
         if p.annotation == ops.Featurizer:
-            featurizer_ref(cx, value, where)
+            check_featurizer_ref(cx, value, where)
             return None
-        if literal(value, where):
+        if is_literal(value, where):
             return Labelled(dims=["rows"])          # an answer is laid against rows, a column's and a literal's alike
         ref = data.column_of(value)
-        dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
-            else text_ref(cx, value, where, None)
+        dataset = check_column_ref(cx, ref[0] if ref else value, where, None) \
+            if classes and p.annotation == ops.Tokens else check_text_ref(cx, value, where, None)
         return Labelled(dims=["rows"], dataset=dataset)
     return resolve
 
@@ -118,7 +118,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:
+def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:
     """What an op's value keeps of the labels of the value it is over: its layers, unless the op removed a
     `layers` axis (then it is from no layer), the indices kept on each selected axis it still has, and its width
     where it still has a `pos` axis."""
@@ -126,21 +126,21 @@ def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, 
             {a: v for a, v in of.kept.items() if a in dims}, of.width if "pos" in dims else None)
 
 
-def trained(cx: Compiling, thing: str, member: str) -> bool:
+def is_trained_featurizer(cx: Compiling, thing: str, member: str) -> bool:
     """Whether `<thing>.<member>` is a featurizer a compiled fit trains."""
     step = points(cx.steps[thing])[0] if thing in cx.steps else None
     return step is not None and step.kind == "fit" and member in step.train
 
 
-def value_of(cx: Compiling, ref: str, path: str, at: dict[str, int],
-             live: Mapping[str, Labelled] | None = None) -> Labelled:
+def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
+                 live: Mapping[str, Labelled] | None = None) -> Labelled:
     """The record of a named value produced before this point, at the consumer's point `at` (an entry of the
     forward being compiled, among `live`, as it is), noted as used."""
     thing, _, member = ref.partition(".")
     if live and ref in live:
         cx.used.add(ref)
         return live[ref]
-    if thing in cx.featurizers or trained(cx, thing, member):
+    if thing in cx.featurizers or is_trained_featurizer(cx, thing, member):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
              "binds is an operand")
@@ -151,10 +151,10 @@ def value_of(cx: Compiling, ref: str, path: str, at: dict[str, int],
     return record_of(cx.steps, ref, at)
 
 
-def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
+def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
     """A declared featurizer's name, or one a fit trains (`<fit>.<featurizer>`)."""
     thing, _, member = str(value).partition(".")
-    if not (isinstance(value, str) and (value in cx.featurizers or trained(cx, thing, member))):
+    if not (isinstance(value, str) and (value in cx.featurizers or is_trained_featurizer(cx, thing, member))):
         known = sorted(set(cx.featurizers) | {f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1]
                                               if s.kind == "fit" for f in s.train})
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
@@ -163,7 +163,7 @@ def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
 # -- the one rule an operand keeps ---------------------------------------------------------------------
 
 
-def narrowed(ours: Labelled, name: str, key: str, written: str) -> str | None:
+def narrowed_vocabulary(ours: Labelled, name: str, key: str, written: str) -> str | None:
     """Why the column `written`, argument `key` of op `name`, scored as `Tokens`, cannot score the value laid out
     `ours`: its vocabulary axis is narrowed, by a site's `select` on `vocab_size` (`kept`) or a probe's `encode`
     with a `select` (`space`), and the column resolves to ids of the whole vocabulary, where index i of the
@@ -195,8 +195,8 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
     two values in different coordinates differ in their last axis too, and that is the reason. A column scored as
-    `Tokens` is first held to a whole vocabulary axis (`narrowed`)."""
-    if why := narrowed(ours, name, key, written):
+    `Tokens` is first held to a whole vocabulary axis (`narrowed_vocabulary`)."""
+    if why := narrowed_vocabulary(ours, name, key, written):
         return why
     group = ops.DECLARED[name]["group"]
     verb = "scores" if group == "metrics" else "acts on"
@@ -211,8 +211,8 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     featured = any(a not in address.EXAMPLE_AXES for a in their_axes)    # a column or a per-row dose is in none
     if featured and ours.space != theirs.space:
         where = ("this bracket" if ours.space else "this write") if write else f"the value {name!r} {verb}"
-        return (f"{written!r} is in {said(theirs.space)}; {where} is in {said(ours.space)}, so an operand is "
-                "encoded as it is")
+        return (f"{written!r} is in {coordinates_text(theirs.space)}; {where} is in {coordinates_text(ours.space)}, "
+                "so an operand is encoded as it is")
     if [a for a in address.unstacked(own_axes) if a in their_axes] != address.unstacked(their_axes):
         return (f"{written!r} is laid out {theirs.dims}; {name!r} {verb} a value laid out {ours.dims}, and an "
                 "operand's axes are among the value's, in its order (those it leaves out it broadcasts over)")
