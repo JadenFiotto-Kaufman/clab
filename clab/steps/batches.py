@@ -54,8 +54,8 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
             "tok": torch.tensor(token_positions)}
 
 
-def key_index(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None,
-              query_positions: list[list[int]] | None = None) -> dict:
+def key_index(record: Intervention, pads: list[int], width: int, device: str, span: int | None,
+              query_positions: list[list[int]]) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompt_positions`), which a key selector counts:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, span]`) each row's keys in the
     padded batch, `width` tokens wide, in order, then its padding's, then up to `span` (the input's longest row;
@@ -69,7 +69,6 @@ def key_index(record: Intervention, pads: list[int], width: int, device: str = "
         return {}
     relative = record.kept.get("key")
     if isinstance(relative, dict):
-        assert query_positions is not None, "a read's selection is bound with its positions"
         valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row]
                  for row, pad in zip(query_positions, pads)]
         index = [[[p + k + pad if ok else 0 for k, ok in zip(relative["offset"], oks)] for p, oks in zip(row, okay)]
@@ -164,7 +163,7 @@ def scope_ids(state: ChainMap) -> list[int] | None:
 
 
 def input_batches(engine: Engine, step: Forward, state: ChainMap, findings: Findings, batch_size: int,
-                  padding: str = "dataset") -> Iterator[tuple[list[int], dict, list]]:
+                  padding: str) -> Iterator[tuple[list[int], dict, list]]:
     """The step's input in batches of `batch_size` dataset row ids, of every row in order or of the rows the run is
     over (`scope_ids`), padded as `padding` says (`data.PADDINGS`): under `dataset` and `batch` in that order, under
     `sorted` longest first by the encoded rows' token counts (rows of one count in that order); each batch's ids, its
@@ -334,7 +333,7 @@ def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Te
 
 
 def apply_ops_after_edit(engine: Engine, plan: Plan, record: Intervention, value: Any, state: ChainMap, at: dict,
-                         ids: list[int], token_positions: Tensor | None, findings: Findings, layer: int | None,
+                         ids: list[int], token_positions: Tensor, findings: Findings, layer: int | None,
                          start: int | None = None) -> Any:
     """An entry's value at one of its layers (`layer`) taken off the model with the ops after its last edit
     applied in turn (from op `start` on, where a generation ran those before it at each call), each on the layout
@@ -357,9 +356,9 @@ def apply_ops_after_edit(engine: Engine, plan: Plan, record: Intervention, value
 
 
 def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: list[int] | None,
-                   findings: Findings, of: Any = None, vocabulary: list | None = None,
-                   operands: dict[str, dict] | None = None, dims: list[str] | None = None,
-                   layers: int | list[int] | None = None, shared: dict | None = None) -> dict:
+                   findings: Findings, of: Any = None, vocabulary: list | None = None, *,
+                   operands: dict[str, dict] | None = None, dims: list[str], layers: int | list[int] | None = None,
+                   shared: dict | None = None) -> dict:
     """An op's arguments bound to tensors: names looked up at the point the schedule resolved them to for a
     write's ops (`operands`, by name: a value or a featurizer at its own point, `at`, or an entry of the same forward as
     `{"live": <the name of its read>}`), else at the consumer's point `at` (a featurizer to its instance), columns
@@ -393,16 +392,16 @@ def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict,
                         value, axes = value[labels.index(layers)], axes[1:]
                     elif layers != labels:
                         value = value[[labels.index(layer) for layer in layers]]
-                if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
+                if axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
-            value = (class_indices(plan, value, vocabulary, ids, of, dims or [])[:, None]
-                     if vocabulary is not None else answer_ids(findings.answers[refkey(value)], of, dims or [], ids))
+            value = (class_indices(plan, value, vocabulary, ids, of, dims)[:, None]
+                     if vocabulary is not None else answer_ids(findings.answers[refkey(value)], of, dims, ids))
             value = tensor_on_device(value, of.device) if isinstance(of, Tensor) else value
         elif annotation == ops.Text:
             strip, lower = data.flags_of(value)
             value = [(v if isinstance(v, list) else [v], strip, lower)
-                     for v in texts_of(plan, value, ids, of, dims or [])]
+                     for v in texts_of(plan, value, ids, of, dims)]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, operands[value]["at"] if value in operands else at)
         if editing and annotation == ops.Value and isinstance(value, (int, float)) and isinstance(of, Tensor):

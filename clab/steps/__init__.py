@@ -161,7 +161,7 @@ def value_text(value: Any) -> str | None:
     return None
 
 
-def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool = True) -> None:
+def measure_cost(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
     which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
     synchronized at both ends where it calls the model (`synced`), and the peak memory allocated on each of them
