@@ -160,7 +160,8 @@ class Kind:
         holds one, and would otherwise go back into the model missing whole. An encode is kept beside `h` while a
         fit watches the instance (`seen`). The masks apply whether or not anything is missing, an option masked where
         `h` is: one that marks nothing changes no bit, of the values or of a gradient through them, and asking the
-        device whether it marks anything would make the host wait for it at every call."""
+        device whether it marks anything would make the host wait for it at every call. An integer result (a
+        probe's math on ids) holds no NaN to mark a missing vector with, and comes out as the math gives it."""
         fn = self.method(op)
         each = op == "apply" and self.elementwise
         gone = h.isnan() if each else h.isnan().any(-1, keepdim=True)
@@ -173,7 +174,8 @@ class Kind:
                            gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
                        if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
                        for k, v in options.items()}
-        out = fn(self, x, **options).masked_fill(gone, float("nan"))
+        out = fn(self, x, **options)
+        out = out.masked_fill(gone, float("nan")) if out.is_floating_point() else out
         if op == "encode" and self.seen is not None:
             self.seen.append((h, out))
         return out

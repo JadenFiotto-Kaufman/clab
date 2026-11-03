@@ -115,9 +115,9 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
     indices, made there from pinned memory), the inputs fed to the model (one non-blocking copy) and an operand's
     rows looked up by id get there without the host waiting for the GPU, and an equal-width write and a read
     through `visit` make no host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
-    whether or not one is) and a scale by a number as `edit` binds it (on the device, once per batch): under torch's
-    sync debug mode set to raise, none of it raises, and each value is the CPU's. A mean taken off the model makes
-    its one sync, asking whether any value is missing (`asking`)."""
+    whether or not one is), toward a value or toward a number, and a scale by a number, each number as `edit` binds
+    it (on the device, once per batch): under torch's sync debug mode set to raise, none of it raises, and each value
+    is the CPU's. A mean taken off the model makes its one sync, asking whether any value is missing (`asking`)."""
     from clab.format.sweeps import points
     from clab.plan import entries
 
@@ -156,7 +156,9 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
         seen: dict = {}
         batches.visit(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
         factor = [{"op": "scale", "args": {"factor": batches.placed(3.0, "cuda:0")}, "dims": DIMS}]
-        changed = batches.visit(value, "layer_output", [{**whole, "ops": gated}, {**whole, "ops": factor}], {})[0]
+        toward = [{**gated[0], "args": {"featurizer": gate, "with": batches.placed(0.5, "cuda:0")}}]
+        changed = batches.visit(value, "layer_output", [{**whole, "ops": gated}, {**whole, "ops": factor},
+                                                        {**whole, "ops": toward}], {})[0]
         averaged = ops.call("mean", got["r"], {"over": ["pos"]}, dims=DIMS)
     finally:
         torch.cuda.set_sync_debug_mode("default")
@@ -181,7 +183,8 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(mo
                                kept={"hidden_size": list(range(8))})
     changed_cpu = batches.visit(VALUE, "layer_output", [
         {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": OTHER[:, :1]}}]},
-        {**here[1], "ops": [{**factor[0], "args": {"factor": torch.tensor(3.0)}}]}], {})[0]
+        {**here[1], "ops": [{**factor[0], "args": {"factor": torch.tensor(3.0)}}]},
+        {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": torch.tensor(0.5)}}]}], {})[0]
     torch.testing.assert_close(changed.cpu(), changed_cpu, atol=1e-6, rtol=1e-6)
     assert asked == [1] and torch.equal(averaged.cpu(), ops.call("mean", mine["r"], {"over": ["pos"]}, dims=DIMS))
 

@@ -448,6 +448,25 @@ def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
         assert scales[0] is scales[1] and isinstance(scales[0], torch.Tensor)
 
 
+def test_a_gates_number_with_is_bound_once_per_batch(monkeypatch):
+    """head_gates, untrained, interpolating toward a number: each batch of its body binds the number once, one tensor
+    for its writes at all five layers, as it binds `scale`'s `factor` (an optional `with` is a value given)."""
+    from clab.engines import load
+
+    def toward_zero(d):
+        d["steps"]["fit"].update(epochs=0, objective={"sq": 1.0, "heads.mask": 0.0001})
+        d["steps"]["fit"]["steps"]["run"]["interventions"]["gated"]["ops"][0]["with"] = 0.0
+    plan = edited("head_gates", toward_zero).compile()
+    engine: Any = load("nnterp", plan.model)
+    bounds, forward = [], engine.forward
+    monkeypatch.setattr(engine, "forward", lambda batch, bound: bounds.append(bound) or forward(batch, bound))
+    engine.execute(plan, batch_size=BATCH_SIZE)
+    gated = [[o["args"]["with"] for s in b["sites"] for r in s["records"] for o in r.get("ops", [])
+              if o["op"] == "apply"] for b in bounds]
+    gated = [numbers for numbers in gated if numbers]
+    assert gated and all(len(n) == 5 and isinstance(n[0], torch.Tensor) and all(w is n[0] for w in n) for n in gated)
+
+
 def test_binding_a_write_leaves_nothing_for_the_collector():
     """`batches.edit` binds patching's swap to one batch from a namespace that nothing else holds once it returns
     (a fit's minibatch namespace, with the featurizers it trains and the values it made, is one): nothing of it,

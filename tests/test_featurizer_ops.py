@@ -158,6 +158,16 @@ def test_a_gates_apply_keeps_a_missing_element_missing_where_other_kinds_lose_th
     assert bool(subspace.call("apply", h, {})[1].isnan().all())
 
 
+def test_a_probe_read_over_ids_is_its_math_on_them():
+    """A probe's encode of ids (an integer value: `expert_indices`) is its math in their dtype, its tensors cast to
+    it, and the integer result, which holds no NaN to mark a missing vector with, comes out as the math gives it."""
+    W, b = torch.tensor([[1.0, -2.0], [3.0, 0.0], [0.0, 1.0]]), torch.tensor([0.0, 5.0])
+    probe = featurizers.make("linear", {"classes": "d.c"}, 3, {"W": W, "b": b}, None, ["x", "y"])
+    ids = torch.tensor([[[0, 2, 1], [3, 1, -1]]])
+    got = ops.call("encode", ids, {"featurizer": probe})
+    assert got.dtype == torch.int64 and torch.equal(got, ids @ W.long() + b.long())
+
+
 def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
     for kind in ("subspace", "pca", "sae", "gate"):
         f = made(kind)

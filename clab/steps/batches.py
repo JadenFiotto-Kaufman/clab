@@ -124,10 +124,11 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
     batch's dataset row ids (`ids`, and as one host tensor every op shares, `rows`), the layer, and its arguments
     bound at that layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or
     the name of a read of the same forward, for the forward to fill), a column's ids on `device`, and so is a number
-    an edit takes as a value (`add`'s `with`, `scale`'s `factor`), which the edit would otherwise copy to the device,
-    waiting for the copy, at each call. An `encode` holds the ops its `decode` closes over, bound the same way
-    (`inner`), and the features its `select` keeps, on `device`, where the model and its featurizers are. The rows,
-    each operand and each number are made once in the batch (`made`, `bind`'s), whose every write shares them."""
+    an edit takes as a value (`add`'s `with`, `scale`'s `factor`, a gate's optional `with`), which the edit would
+    otherwise copy to the device, waiting for the copy, at each call. An `encode` holds the ops its `decode` closes
+    over, bound the same way (`inner`), and the features its `select` keeps, on `device`, where the model and its
+    featurizers are. The rows, each operand and each number are made once in the batch (`made`, `bind`'s), whose
+    every write shares them."""
     first, last = span or (0, len(record.ops) - len(gathers(record)))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
     made = {} if made is None else made
