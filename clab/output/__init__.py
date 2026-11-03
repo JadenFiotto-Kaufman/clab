@@ -104,11 +104,14 @@ def saved_value_axes(plan: Plan, name: str) -> list[str]:
 
 
 def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
-    """A saved value's `dims` and labels (`LABELS`, those it has), as its record holds them: once where the value
-    depends on no axis or every point of it agrees, else per point by coordinate, as the manifest records a
-    result's `shape`."""
-    per = {coordinate_text(plan, at): layout_json(record_of(plan.steps, name, p.at))
-           for at, p in projections(plan, name)}
+    """A saved value's `dims` (always: a value with no axes has `[]`) and labels (`LABELS`, those it has), as its
+    record holds them: once where the value depends on no axis or every point of it agrees, else per point by
+    coordinate, as the manifest records a result's `shape`."""
+    per = {}
+    for at, p in projections(plan, name):
+        record = record_of(plan.steps, name, p.at)
+        per[coordinate_text(plan, at)] = {"dims": record.dims, **{k: v for k in LABELS
+                                                                  if (v := getattr(record, k)) not in (None, {}, [])}}
     if list(per) == [""]:
         return per[""]
     out = {}
@@ -117,11 +120,6 @@ def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
         if any(v is not None for v in each.values()):
             out[key] = next(iter(each.values())) if len({json.dumps(v) for v in each.values()}) == 1 else each
     return out
-
-
-def layout_json(record: Labelled) -> dict[str, Any]:
-    """A value's `dims` and the labels it has, as JSON (`dims` always: a value with no axes has `[]`)."""
-    return {"dims": record.dims, **{k: v for k in LABELS if (v := getattr(record, k)) not in (None, {}, [])}}
 
 
 def write_safetensors(path: str, tensors: dict[str, Tensor], metadata: dict[str, str] | None = None) -> None:
