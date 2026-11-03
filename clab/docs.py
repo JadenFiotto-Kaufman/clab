@@ -37,14 +37,10 @@ NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: 
 
 
 def as_json(value: Any) -> str:
-    """A value as a document writes it: JSON (`true`, `null`, `"local"`), or as Python spells it where JSON
-    cannot."""
+    """A value as a document writes it: JSON (`true`, `null`, `"local"`)."""
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", exclude_defaults=True)
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except TypeError:
-        return repr(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 def spell(annotation: Any) -> str:
