@@ -195,7 +195,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")
-            for outer in around:                # the coordinates of each encode it is inside, outermost first
+            for outer in around:
                 ref = declared(plan, arguments(outer)["featurizer"])
                 width = instance(plan, agreeing_point(plan.featurizers[ref], at), width, None).size()
                 chosen = (arguments(outer).get("select") or {}).get("features")
@@ -210,7 +210,7 @@ def write_widths(engine: Engine, plan: Plan) -> None:
                                      f"{width} ({site.component}), which has no more than {width} directions; "
                                      f"{field} is at most {width}")
             stated = (f.model_extra or {}).get("site")
-            for layer in read.layers or [None]:                       # each layer the use is made at
+            for layer in read.layers or [None]:
                 which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
                 if stated is not None and \
                         (stated["component"], selectors.select(stated["layers"], sizes["num_layers"])[0]) != \

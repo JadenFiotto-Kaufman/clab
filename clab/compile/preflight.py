@@ -49,8 +49,7 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     and generation's `schedule` (`schedule.write_schedule`: the sites it visits in the engine's forward order, with the
     records done at each, and where it stops), and each
     featurizer's `width` at the sites it is used at (`uses.write_widths`). Fills `plan.run.tokens` with each input's
-    tokens, and returns what the run needs beside the records: each dataset input's encoded rows and padded width
-    (`inputs`, a fit body's among them) and room for what each generate step's rows said (`said`).
+    tokens, and returns what the run needs beside the records (`state.Findings`).
 
     Refuses by name (`<step>.<entry>`): a component the engine does not serve; a layer or a `select` outside the
     model's sizes (on `key`, outside the input's shortest row), or a `select` that keeps none of them; a `swap` of a
@@ -58,10 +57,10 @@ def preflight(engine: Engine, plan: Plan) -> Findings:
     that does not fit some row's scope, or whose scope is not in a row a write or a read of static width needs; a
     token column that is not one token on some row; an operand that breaks Ops' one rule once the model's sizes
     and the rows' positions are known (`arguments.mismatch`: a layer the op acts at that the operand does not hold,
-    heads in another order, one head for several, another width); a write whose operand its own forward reads no
-    earlier, a write to a component with a `key` axis (the attention pattern, the scores) whose operand was read on
-    another input that does not tokenize to the same length on every row, which would misalign the keys, and a
-    window of several positions that reaches past the tokens two such inputs share (`check_operands`, `check_window`);
+    heads in another order, one head for several, another width); a write to a component with a `key` axis (the
+    attention pattern, the scores) whose operand was read on another input that does not tokenize to the same
+    length on every row, which would misalign the keys, and a window of several positions that reaches past the
+    tokens two such inputs share (`check_operands`, `check_window`);
     a `pca` over no more vectors than its `k`; a featurizer used at two widths (at a site, the site's; inside an
     `encode`, that one's coordinates'), at a width its bundle's header does not say (or, with no header, whose
     tensors are not as wide), with a field that counts more directions than that width (`counts`), at another

@@ -614,7 +614,7 @@ def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[
 
 
 def mark_gathered(steps: dict, used: set[str]) -> None:
-    """Marks each compiled entry the run takes off the model (`mark_gathered`), a fit's body's and its evals' too: one
+    """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
     `used` names (a value something references, a save, or the entries a fit's objective scalar is over), and the
     entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes nor
     is gathered does nothing."""
@@ -775,7 +775,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                  f"take rows of {d!r} at the ids of its rows of {theirs}, pairing the two row by row: read {d!r} in a "
                  f"forward of the body, or make {ref!r} over {theirs}")
     fit.steps = body
-    for label, swap in spec.eval.items():          # each eval's steps, in the root's scope with the fit in it
+    for label, swap in spec.eval.items():
         scope, names, fit.evals[label] = replace(cx, steps={**cx.steps, name: fit}), dict(own), {}
         for n, s in spec.steps.items():
             names[n] = f"{name}.{label}.{n}"    # it and the body's steps before it: a later one's name is the root's
