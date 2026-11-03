@@ -179,12 +179,16 @@ def load(out: str) -> Plan:
 
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
-    name."""
+    name. One whose fit has an `eval` and no `evals`, which an older clab wrote, is refused by name."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
+    for name, entry in held.get("steps", {}).items():
+        if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
+            raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "
+                             "does not hold its evals' records; rerun the document that wrote it")
     return held, held.pop("results")
 
 

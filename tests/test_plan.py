@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import pickle
+import re
 from typing import Any, cast
 
 import pytest
@@ -87,6 +88,23 @@ def test_a_dict_is_refused_pointing_to_the_keyword_form():
 def test_a_root_featurizer_is_not_a_save():
     with pytest.raises(PlanError, match=r"saves\[0\]: 'rot' names no step's value"):
         edited("random_subspace", lambda d: d.update(saves=["rot"])).compile()
+
+
+
+@pytest.mark.parametrize("name, path", [("patching", ("counterfactual",)), ("generated_contains", ("answer",)),
+                                        ("lora_train", ("fit", "steps", "adapted"))])
+def test_a_steps_batch_size_is_refused_as_the_runs_or_its_fits(name, path):
+    """`batch_size` on a forward or a generate (a fit body's too) is a field compile writes for a fit's eval steps
+    alone, so a document's is refused by name, where it ran at its own size whatever the run's `--batch-size`."""
+    def change(d):
+        step = d["steps"][path[0]]
+        for key in path[1:]:
+            step = step[key]
+        step["batch_size"] = 1
+    where = re.escape(".".join(("steps", *path, "batch_size")))
+    with pytest.raises(PlanError, match=rf"^{where}: a step runs in batches of the run's --batch-size, and in a fit of "
+                                        r"the fit's 'batch_size'; a step sets none$"):
+        edited(name, change).compile()
 
 
 def test_a_compiled_plan_holds_no_sweep():

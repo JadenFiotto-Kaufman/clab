@@ -49,6 +49,7 @@ Compile reads the run's `manifest.json` and the value's file, and refuses by nam
 | another model block, a loader key included | `out/x ran another model than this document's: attn_implementation None where this document's is 'eager'` |
 | a name the run did not save | `out/x saved no 'harvest.nope'; it saved harvest.acts, basis` |
 | a manifest an older clab wrote, whose value records have no `axes` | `out/x/manifest.json predates the sweep axes a saved value's record holds ('axes'), so it does not say which sweeps 'harvest.acts' depends on; rerun the document that saves it, with --out out/x` |
+| a manifest an older clab wrote, whose fit has an `eval` and no `evals` | `out/x/manifest.json predates a fit's evals as steps ('evals'), so its fit 'fit' does not hold its evals' records; rerun the document that wrote it` |
 | other rows, or the same rows in another order | `'harvest.acts' was made over the rows of dataset 'prompts', and this document's 'prompts' is not the rows out/x read, in their order: as many rows, whose digest differs` |
 | a chat dataset rendered with another `template` | `'read.acts' was made over the rows of dataset 'chats', whose chats out/x rendered with template {'add_generation_prompt': True}, and this document's 'chats' has None` |
 | a sweep it depends on, over other values here | `'harvest.acts' is swept over 'layers', [0, 1] in out/x, and this document sweeps 'layers' over [1, 0]; …` |

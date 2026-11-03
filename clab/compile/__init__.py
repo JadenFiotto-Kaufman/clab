@@ -441,6 +441,9 @@ def forward(cx: Compiling, path: str, name: str, spec: Forward | Generate, plan:
         if (of := gradient_of(records[k])) is not None:
             axes[f"{name}.{k}"] |= axes[f"{name}.{of}"]
             records[k].axes = ordered(cx, axes[f"{name}.{k}"])
+    if spec.batch_size is not None:     # derived: a fit's eval step's, which compile_fit writes
+        fail(f"{path}.batch_size", "a step runs in batches of the run's --batch-size, and in a fit of the fit's "
+             "'batch_size'; a step sets none")
     fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                   dataset=dataset, at=at, schedule={"axes": ordered(cx, forward_axes)})
     if spec.kind == "generate":
@@ -578,6 +581,8 @@ def source(cx: Compiling, path: str, out: str) -> dict:
         except FileNotFoundError:
             fail(f"{path}.from", f"no run at {out} under the corpus root (no manifest.json); run the document that "
                  f"saves the value there first, with --out {out}")
+        except ValueError as e:                 # a manifest an older clab wrote, named as the document names it
+            fail(f"{path}.from", str(e).replace(where, out))
         try:
             ran = Plan(**{**held, "featurizers": {}})
         except PlanError as e:

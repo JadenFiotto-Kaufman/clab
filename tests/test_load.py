@@ -18,6 +18,7 @@ from conftest import BATCH_SIZE, ROOT, TRIP, document, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
+from clab.cli import main
 from clab.format.sweeps import points
 from clab.output import load
 from clab.plan import Load, PlanError, entries
@@ -359,6 +360,30 @@ def test_a_manifest_from_before_value_axes_is_refused(root):
         "steps.harvest.from: out/noaxes/manifest.json predates the sweep axes a saved value's record holds ('axes'), "
         "so it does not say which sweeps 'harvest.acts' depends on; rerun the document that saves it, with --out "
         "out/noaxes")
+
+
+
+def test_a_manifest_from_before_a_fits_evals_were_steps_is_refused_naming_the_fit(engines, root, capsys):
+    """A manifest whose fit has an `eval` and no `evals` (written by an older clab) holds no record of an eval's
+    values, so `Plan.load`, `clab show` and `clab table` through it, and a load from it refuse it by name, naming
+    the fit, as a manifest from before the sweep axes is refused, where each raised a bare KeyError on the eval's
+    label."""
+    old = os.path.join(root, "out", "noevals")
+    shutil.copytree(generated(engines, root), old, dirs_exist_ok=True)
+    with open(os.path.join(old, "manifest.json")) as f:
+        held = json.load(f)
+    del held["steps"]["fit"]["evals"]
+    with open(os.path.join(old, "manifest.json"), "w") as f:
+        json.dump(held, f)
+    said = ("manifest.json predates a fit's evals as steps ('evals'), so its fit 'fit' does not hold its evals' "
+            "records; rerun the document that wrote it")
+    with pytest.raises(ValueError) as e:
+        Plan.load(old)
+    assert str(e.value) == f"{old}/{said}"
+    for command in (["show", old], ["table", old, "fit.held_out.ce"]):
+        assert main(command) == 1 and capsys.readouterr().err == f"clab: {old}/{said}\n"
+    assert refused(root, {"kind": "load", "from": "out/noevals", "value": "fit.held_out.ce"}) == \
+        f"steps.harvest.from: out/noevals/{said}"
 
 
 def test_a_swept_value_loads_on_its_own_with_the_sweep_it_depends_on(engines, root):
