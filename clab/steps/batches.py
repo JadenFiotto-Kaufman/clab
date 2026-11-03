@@ -29,12 +29,12 @@ if TYPE_CHECKING:
 
 def selection_in_batch(record: Intervention, picks: dict, row_positions: list, pads: list[int], width: int,
                        last_only: bool, device: str = "cpu", span: int | None = None) -> dict:
-    """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its component,
-    its token indices into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the
-    batch's widest repeats its last index, `keep` marking its own, `tok` the unpadded indices, -1 past its
-    own; a row the record does not reach, the marker in `row_positions`, holds none), the part of the feature axes it
-    keeps (`select`: `picks`, the indices preflight resolved its `select` to), and on a `key` axis each row's own keys,
-    as many as the input's longest row has (`keys`, `span`; None: `width`). Where the value holds the last position
+    """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its token indices
+    into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the batch's widest repeats its
+    last index, `keep` marking its own, `tok` the unpadded indices, -1 past its own; a row the record does not reach,
+    the marker in `row_positions`, holds none), the part of the feature axes it keeps (`select`: `picks`, the indices
+    preflight resolved its `select` to), and on a `key` axis each row's own keys, as many as the input's longest row
+    has (`keys`, `span`; None: `width`). Where the value holds the last position
     alone (`last_only`: a generation's head in the prefill) every index is -1. Where every row holds `n` positions there
     is no `keep`, so that a read or a write of equal-width rows indexes by no mask, which the device would have to count
     before the host could go on. The indices and masks the value meets are made on `device`, where the model is
@@ -47,8 +47,7 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
     indices = [[-1] * n for _ in row_positions] if last_only else indices
     ragged = any(len(row) < n for row in row_positions)
     query_positions = [row + [row[-1] if row else 0] * (n - len(row)) for row in row_positions]
-    return {"component": cast(Site, record.site).component, "positions": tensor_on_device(indices, device),
-            "select": select_indices(record, picks, device),
+    return {"positions": tensor_on_device(indices, device), "select": select_indices(record, picks, device),
             **key_index(record, pads, width, device, span, query_positions),
             **({"keep": tensor_on_device([[j < len(row) for j in range(n)] for row in row_positions], device)}
                if ragged else {}),
@@ -59,8 +58,7 @@ def selection_at_decode_call(record: Intervention, picks: dict, prompts: list[in
     """What the engine needs to reach a record at a decode call: the call's one position, the last, on `device`;
     and, in `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
     number is the input's."""
-    return {"component": cast(Site, record.site).component,
-            "positions": torch.full((len(prompts), 1), -1, device=device),
+    return {"positions": torch.full((len(prompts), 1), -1, device=device),
             "select": select_indices(record, picks, device), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
