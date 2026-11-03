@@ -16,7 +16,6 @@ from clab.compile.answers import answer_ids, refkey, texts_of
 from clab.compile.positions import reads_head, scope_texts
 from clab.compile.state import Findings
 from clab.format import address, data, selectors
-from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
 from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
                         held_rows, kind_of, record_of)
@@ -497,7 +496,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     device, and a result to its dtype, where it meets the value: no move for the indices `bind_schedule` made, which are
     on the model's device already.
     """
-    axis = pos_axis(component)
+    layout = address.COMPONENTS[component]["dims"]         # the token axis in its own layout: a pattern's query
+    axis = layout.index("query") if "query" in layout else layout.index("seq")
     before = site_value = value.movedim(axis, 1)
     row_indices = torch.arange(site_value.shape[0], device=site_value.device)[:, None]
     wrote = copied = False      # copied: `site_value` is this visit's own copy, which a write may change in place

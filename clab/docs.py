@@ -109,7 +109,9 @@ def run_options(name: str) -> list[tuple[str, str]]:
 
     cls: Any = ENGINES[name]
     params = {"device": registry.signature(cls.__init__).parameters["device"], **options(name)}
-    said = registry.described(cls.__init__)
+    # what each takes, as the constructor's docstring says on a line of its own: `<name>: <what it takes>`
+    lines = (line.strip().partition(": ") for line in (inspect.getdoc(cls.__init__) or "").splitlines())
+    said = {k: text for k, sep, text in lines if sep and k in params}
     return [(text, said.get(k, "")) for k, text in zip(params, signature(params))]
 
 

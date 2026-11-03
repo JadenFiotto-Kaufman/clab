@@ -180,9 +180,3 @@ def lookup(state: Mapping, name: str, at: dict[str, int]) -> Any:
 def projection(at: dict[str, int], axes: list[str]) -> dict[str, int]:
     """The point `at` projected onto `axes`: its index on each of them, in axis order."""
     return {label: at[label] for label in axes if label in at}
-
-
-def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
-    """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
-    the point's coordinate as text."""
-    return by_point[()] if () in by_point else {coordinate_text(plan, dict(c)): v for c, v in by_point.items()}

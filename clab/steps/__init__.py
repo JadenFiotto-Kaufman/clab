@@ -37,7 +37,7 @@ from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, keyed_by_coordinate, lookup, projection, put
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
 from clab.output import saved_value_axes
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         serving)
@@ -111,6 +111,12 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
                     record_results(engine, plan, state, costs, findings)
                     raise ValueError(plan.run.stopped) from e
     record_results(engine, plan, state, costs, findings)
+
+
+def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
+    """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
+    the point's coordinate as text."""
+    return by_point[()] if () in by_point else {coordinate_text(plan, dict(c)): v for c, v in by_point.items()}
 
 
 def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
