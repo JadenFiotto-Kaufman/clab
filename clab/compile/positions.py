@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from transformers import PreTrainedTokenizerBase
 
 MISSING = "alignment_missing"
+HEAD = ("lm_head_output", "logits")      # what a generation's prefill computes at the prompt's last position alone
 UNPROMPTED = {"ids": [], "offsets": [], "text": "", "turns": []}    # an encoded empty prompt
 
 
@@ -410,7 +411,7 @@ def texts(pos: dict, row: dict) -> list[tuple[str, bool, bool]]:
 def head(step: Forward | Generate, record: Intervention) -> bool:
     """Whether the record reads the head in a generation, whose prefill computes it at its last position only."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
-    return step.kind == "generate" and record.site.component in ("lm_head_output", "logits")
+    return step.kind == "generate" and record.site.component in HEAD
 
 
 def decided(path: str, pos: dict, most: int | None) -> None:
@@ -423,9 +424,9 @@ def decided(path: str, pos: dict, most: int | None) -> None:
     frame, index = pos["frame"], pos["index"]
     if pos["scope"] is not None:
         if pos["scope"].get("until"):
-            fail(f"{path}.scope.until", "a write beyond the prefill lands as its call runs, and until names every "
-                 "token up to an occurrence the row may say later or never; until is a read's there, or a write's in "
-                 "the prefill")
+            fail(f"{path}.scope.until", "a write's positions beyond the prefill are decided call by call, as each "
+                 "runs, and until names positions up to an occurrence not yet seen then; until is a read's there, or "
+                 "a write's in the prefill")
         if reach({**pos, "index": ":"})[0]:
             fail(f"{path}.frame", f"frame {frame!r}: a scoped write beyond the prefill is found call by call in the "
                  "generated inputs, so its frame names decode calls only, not counted from the row's last call "

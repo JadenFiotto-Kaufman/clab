@@ -285,9 +285,14 @@ the occurrences `occurrence` picks, rather than those occurrences' tokens; on a 
 it picks (the text never occurs), every token the frame selected, in the prefill too, so nothing is refused
 and the record says per row where it ended. So `{"frame": "1:", "scope": {"text": "</think>", "until": true}}`
 is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
-length in tokens (all its inputs on a row that never closes it). An until scope holds a different number of
-positions on each row. A write beyond the prefill lands as its call runs, before what follows is known, so it
-takes no until.
+length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
+holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
+until is the whole frame, as on a row that never says it. An until scope holds a different number of positions
+on each row. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
+computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
+prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
+then, so a write there takes no until.
 
 **before** (default false): the positions that predict the scope's tokens, each the position just
 before one, the same width. The scope is searched among the tokens the frame's calls hold and, where

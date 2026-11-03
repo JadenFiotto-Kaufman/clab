@@ -135,6 +135,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
              "call (0, or ':', the whole timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
+    if scope.get("until") and scope.get("before") and not selectors.from_end(frame) and 0 in selectors.select(frame, 1):
+        first = "at a generation's head the prompt's last, before which its prefill computes no head" \
+            if step.kind == "generate" and site.component in positions.HEAD else "position 0, which none comes before"
+        fail(f"{path}.pos.scope.before", f"frame {frame!r} holds the prompt, and until with before starts before the "
+             f"frame's first token, {first}, so it names no position on any row; with before, until's frame is decode "
+             "calls ('1:')")
     if write and scope.get("before") and not positions.prefill(pos):
         fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")

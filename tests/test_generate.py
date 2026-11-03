@@ -1253,22 +1253,34 @@ def test_an_until_scope_is_the_frames_tokens_through_its_occurrence(engines):
         assert placed(filled) == at and same(filled.results, v), kind
 
 
-@pytest.mark.parametrize("pos, message", [
-    ({"frame": "1:", "scope": {"text": "substr", "until": True}, "index": -1},
-     r"pos\.scope\.until: a write beyond the prefill lands as its call runs, and until names every token up to an "
-     r"occurrence the row may say later or never"),
-    ({"scope": {"text": " is", "until": True, "before": True}},
-     r"row 0: text ' is' with until runs from the frame's first token, position 0, which no position comes before"),
+L0 = {"component": "layer_output", "layers": 0}
+BEFORE = r"pos\.scope\.before: frame {} holds the prompt, and until with before starts before the frame's first token, {}, " \
+    r"so it names no position on any row; with before, until's frame is decode calls \('1:'\)$"
+
+
+@pytest.mark.parametrize("site, pos, ops, message", [
+    (L0, {"frame": "1:", "scope": {"text": "substr", "until": True}, "index": -1}, [{"op": "scale", "factor": 0.5}],
+     r"pos\.scope\.until: a write's positions beyond the prefill are decided call by call, as each runs, and until "
+     r"names positions up to an occurrence not yet seen then; until is a read's there, or a write's in the prefill$"),
+    (L0, {"frame": ":", "scope": {"text": "Handler", "until": True, "before": True}}, [],
+     BEFORE.format("':'", "position 0, which none comes before")),
+    (L0, {"scope": {"text": " is", "until": True, "before": True}}, [{"op": "scale", "factor": 0.5}],
+     BEFORE.format("0", "position 0, which none comes before")),
+    ({"component": "lm_head_output"}, {"frame": ":", "scope": {"text": "Handler", "until": True, "before": True}}, [],
+     BEFORE.format("':'", "at a generation's head the prompt's last, before which its prefill computes no head")),
 ])
-def test_an_until_scope_is_a_reads_beyond_the_prefill_and_starts_at_the_frames_first_token(engines, pos, message):
+def test_an_until_scope_is_a_reads_beyond_the_prefill_and_takes_before_over_decode_calls(site, pos, ops, message):
+    """A write beyond the prefill takes no `until`, its positions there decided call by call before the occurrence
+    is seen; and `until` with `before` over a frame that holds the prompt would start before the frame's first
+    token, which no row has (position 0, or at a generation's head the position before the prompt's last, where
+    its prefill computes no head): each is refused at compile by name, a read as a write, where over `":"` every
+    row came back `alignment_missing` and its `count` 0."""
     def change(d):
-        d["steps"]["answer"]["interventions"] = {"w": {"site": {"component": "layer_output", "layers": 0}, "pos": pos,
-                                                       "ops": [{"op": "scale", "factor": 0.5}]}}
+        d["steps"]["answer"]["interventions"] = {"w": {"site": site, "pos": pos, "ops": ops}}
         d["steps"] = {"answer": d["steps"]["answer"]}
         d["saves"] = ["answer"]
-    with pytest.raises(ValueError, match=message):
-        plan = edited("generated_answer", change).compile()
-        engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    with pytest.raises(PlanError, match=message):
+        edited("generated_answer", change).compile()
 
 
 def cut(d):
