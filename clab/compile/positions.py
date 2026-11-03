@@ -257,7 +257,7 @@ def occurrences(scope: dict | None, row: dict, said: list[int], tokenizer: PreTr
     occurrence_tokens = [{t for t, (x, y) in enumerate(row["offsets"]) if x < b and y > a} for a, b in spans]
     if "turn" not in scope and inputs:
         words, chars = char_spans(tokenizer, inputs)
-        occurrence_tokens += [covering_tokens(chars, a, b, prompt)
+        occurrence_tokens += [{prompt + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
                               for a, b in occurrence_spans(texts, words, chars, not online)]
     return occurrence_tokens
 
@@ -314,12 +314,6 @@ def bounds(words: str, tokens: list[tuple[int, int]]) -> tuple[dict[int, int], d
         starts.setdefault(trail, y)
         ends.setdefault(trail, trail)
     return starts, ends
-
-
-def covering_tokens(chars: list[tuple[int, int]], a: int, b: int, offset: int) -> set[int]:
-    """The tokens (`offset` + their index) whose spans overlap characters `a` to `b`; a token with an empty
-    span covers the character it begins."""
-    return {offset + j for j, (x, y) in enumerate(chars) if x < b and max(y, x + 1) > a}
 
 
 def lands_at_call(pos: dict, texts: list[tuple], inputs: list[int], eos: set[int], tokenizer: PreTrainedTokenizerBase
