@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 
 import pytest
@@ -148,6 +149,19 @@ def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeyp
     monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w", buffering=1))
     assert main([command[0], out, *command[1:]]) == 0
     assert capsys.readouterr().err == ""
+
+@pytest.mark.parametrize("command", [["show"], ["table", "p_answer"], ["describe", "ops"]])
+def test_show_table_and_describe_import_no_engine(out, command):
+    """T9's P1: a command that reads an output directory or the format imports no engine, so neither nnsight,
+    transformers, nnterp nor sklearn (8.8 s of `clab table` at load 12); `run` alone loads one. Counted in a fresh
+    interpreter, whose modules this suite's have not already imported."""
+    argv = [command[0], *([out] if command[0] != "describe" else []), *command[1:]]
+    code = ("import contextlib, io, sys\nfrom clab.cli import main\nwith contextlib.redirect_stdout(io.StringIO()):\n"
+            f"    assert main({argv!r}) == 0\n"
+            "print(sorted(m for m in ('nnsight', 'transformers', 'nnterp', 'sklearn', 'clab.engines') if m in sys.modules))")
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, check=True)
+    assert done.stdout.strip() == "[]"
+
 
 def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     """A missing document, a device that is no torch device, a CUDA device where none is visible (the suite runs

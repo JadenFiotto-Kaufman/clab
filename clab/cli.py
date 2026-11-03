@@ -205,13 +205,14 @@ def option(text: str) -> tuple[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from clab.engines import ENGINES
-
+    # The engines (nnsight, transformers, nnterp) are imported by `run` alone, which loads one: `show`, `table` and
+    # `describe` read an output directory or the format, and `run` refuses an engine no one registered by name.
     parser = argparse.ArgumentParser(prog="clab")
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run a document end to end")
     run.add_argument("document")
-    run.add_argument("--engine", default="nnterp", choices=list(ENGINES))
+    run.add_argument("--engine", default="nnterp",
+                     help="the engine that runs it (default nnterp; `clab describe engines` lists them)")
     run.add_argument("--out", help="output directory (default out/<document name>)")
     run.add_argument("--batch-size", type=int, default=8)
     run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),

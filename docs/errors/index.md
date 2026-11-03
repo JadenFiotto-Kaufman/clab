@@ -170,7 +170,7 @@ The messages below drop the `<where>:` prefix. `<x>` stands for a name or value 
 
 ## Errors that are not clab's
 
-A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2, not a `clab:` line: `clab run: error: argument --engine: invalid choice: 'bogus' (choose from nnterp, hooks, ndif)` ([cli.md](../reference/cli.md)).
+A malformed command line (an unknown flag, a missing argument, a value outside a flag's choices) gets argparse's usage message and exit status 2, not a `clab:` line: `clab describe: error: argument what: invalid choice: 'bogus' (choose from …)`. An engine no one registered is a `clab:` line, `clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif` ([cli.md](../reference/cli.md)).
 
 Under `--engine ndif`, preflight and the run happen on the server. With `-o remote=local`, nnsight's local simulation of that trip, `clab run` prints the same `clab:` line as under nnterp; [engines.md](../usage/engines.md) covers a real server.
 
