@@ -227,24 +227,23 @@ def neg(of: Tensor) -> Tensor:
 
 @op("transforms", positionwise=True)
 def mul(of: Tensor, with_: Value) -> Tensor:
-    """`of * with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is: a read's product,
-    where `scale` by the same value is an edit and would write it back (by a comparison's value, a read's mask)."""
+    """`of * with`, in float32: a read's product, where `scale` by the same value is an edit and would write it back
+    (by a comparison's value, a read's mask)."""
     return floated(of) * floated(with_, of)
 
 
 @op("transforms", positionwise=True)
 def div(of: Tensor, with_: Value) -> Tensor:
-    """`of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever
-    `with` is 0, so a division by zero is a missing entry, never an infinite one."""
+    """`of / with`, in float32; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite
+    one."""
     by = floated(with_, of)
     return torch.where(by == 0, math.nan, floated(of) / by)
 
 
 @op("transforms")
 def pow(of: Tensor, exponent: Value) -> Tensor:
-    """`of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN
-    where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side
-    is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
+    """`of ** exponent`, in float32: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a
+    negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1."""
     x = floated(of)
     if isinstance(exponent, Tensor):
         e = floated(exponent, of)
@@ -268,9 +267,8 @@ def compared(of: Tensor, with_: Value, holds: Callable[[Tensor, Tensor], Tensor]
 
 @op("transforms", positionwise=True)
 def eq(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of == with`, else 0: compared in float32 (ids as they are) and given in the value's dtype (float32 on
+    ids), NaN where either side is missing (NaN, or a hole, -1, in ids)."""
     return compared(of, with_, torch.eq)
 
 

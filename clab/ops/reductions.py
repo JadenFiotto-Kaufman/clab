@@ -162,8 +162,7 @@ def norm(of: Tensor, dims: list[str], over: list[str] | None = None, p: float = 
 @op("reductions", layout=featured)
 def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The dot product with `with` over the axes `over` names, by default `hidden_size`: the `sum` of `of * with`
-    (`with` a number or a named value broadcast as `scale`'s `factor` is) over the entries both have, as `sum` takes
-    them (`mul` then `sum`, to the bit); NaN where none is."""
+    over the entries both have, as `sum` takes them (`mul` then `sum`, to the bit); NaN where none is."""
     product = floated(of) * floated(with_, of)
     return sum(product, dims, FEATURES if over is None else over)
 
