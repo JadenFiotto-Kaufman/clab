@@ -1001,8 +1001,6 @@ class Fit(Record):
     steps: "dict[str, Entry]"
     early_stop: EarlyStop | None = None
     eval: dict[str, dict[str, str]] = {}
-    """each named run of the body after training: a substitution `{<body dataset>: <dataset>}`, `{}` the data
-    it trained on"""
     at: dict[str, int] = derived({}, AT)
     evals: "dict[str, dict[str, Step]]" = derived(
         {}, "each eval as the steps it runs, by label, then by body step: the body's steps compiled again at the "
