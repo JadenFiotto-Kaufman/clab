@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from clab import compile as compiler
 from clab import featurizers, ops, output, plan
+from clab.compile import schedule
 from clab.format import address, data, registry, sweeps
 from clab.output import table
 
@@ -230,6 +231,8 @@ def markdown() -> str:
               "or generation (default 8), and `padding`, how each of those batches is padded, recorded beside it in "
               "`run` (`--padding`; a fit's minibatches and a generation's batches are padded the same way):\n\n"
               + "".join(f"- `{mode}`: {what}\n" for mode, what in data.PADDINGS.items())
+              + "\nand `readout`, how a forward computes the logits it reads, recorded there too (`--readout`):\n\n"
+              + "".join(f"- `{mode}`: {what}\n" for mode, what in schedule.READOUTS.items())
               + "\nThe options below are each engine's own.\n"]
     for name, cls in engines.ENGINES.items():
         listed = "".join(f"- `{o}`" + (f": {text}" if text else "") + "\n" for o, text in run_options(name))

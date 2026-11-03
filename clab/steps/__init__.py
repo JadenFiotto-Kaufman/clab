@@ -33,7 +33,7 @@ from torch import Tensor
 from clab import ops
 from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
-from clab.compile.schedule import values_read_by
+from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
@@ -51,31 +51,34 @@ if TYPE_CHECKING:
     from clab.engines import Engine, Parameterized
 
 
-def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset") -> float:
+def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset", readout: str = "full") -> float:
     """What every engine's `execute` checks first (a compiled plan, for this engine's checkpoint, at a batch size of
-    one row or more and a padding `data.PADDINGS` names), and the run record it starts: the engine, the batch size
-    and padding, the device and the options it loaded with; returns the start time."""
+    one row or more, a padding `data.PADDINGS` names and a readout `schedule.READOUTS` names), and the run record it
+    starts: the engine, the batch size, padding and readout, the device and the options it loaded with; returns the
+    start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
-    check_run_options(batch_size, padding)
+    check_run_options(batch_size, padding, readout)
     ours, theirs = plan.model.model_dump(), engine.spec.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:                  # a loader key written null is one left out
         raise ValueError("the plan's model is not the one this engine loaded: " + ", ".join(
             f"{k} {ours.get(k)!r} where the engine's is {theirs.get(k)!r}" for k in differ))
-    plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, device=engine.device,
+    plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, readout=readout, device=engine.device,
                    options=engine.options, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
 
-def check_run_options(batch_size: int, padding: str) -> None:
-    """`batch_size` and `padding` as every run takes them: one row or more per batch, and a padding
-    `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `start_run` for an
-    engine's `execute` called on its own)."""
+def check_run_options(batch_size: int, padding: str, readout: str = "full") -> None:
+    """`batch_size`, `padding` and `readout` as every run takes them: one row or more per batch, a padding
+    `data.PADDINGS` names and a readout `schedule.READOUTS` names, each refused by name otherwise (`clab.run` asks
+    before the model loads, `start_run` for an engine's `execute` called on its own)."""
     if batch_size < 1:
         raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
     if padding not in data.PADDINGS:
         raise ValueError(f"padding {padding!r}: one of {', '.join(map(repr, data.PADDINGS))} (--padding)")
+    if readout not in READOUTS:
+        raise ValueError(f"readout {readout!r}: one of {', '.join(map(repr, READOUTS))} (--readout)")
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
@@ -279,9 +282,10 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     through `engine.forward` with the point's schedule bound to it (`bind_schedule`, from the half of its binding that
     depends on the step alone, `binding`: `schedule_binding`'s, made once for every batch); each value the forward
     reads (`values_read`, `values_read_by` over the points its run serves, `served`: each gathered entry at each
-    distinct point on its axes among them) joined along rows from its own reads, in the run's row order. A fit gives
-    both once for its every run of the body. Adds to `cost` the model calls it made, one per batch, the prompt tokens
-    they fed, padding included, and the rows' own of them (`real`).
+    distinct point on its axes among them) joined along rows from its own reads, in the run's row order, but one the
+    schedule frees (`freed`: read only for the forward's own writes, which take each batch's read live), of which no
+    batch is kept. A fit gives both once for its every run of the body. Adds to `cost` the model calls it made, one
+    per batch, the prompt tokens they fed, padding included, and the rows' own of them (`real`).
 
     An entry whose `layers` are a slice or picks is one write (when it writes) and one read per layer, the ops
     after its last edit run on each layer's read, stacked layer-first; one whose rows hold different numbers of
@@ -289,7 +293,8 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
     assert plan.run is not None
     values_read = values_read_by(served) if values_read is None else values_read
     binding = schedule_binding(engine, plan, name, step, values_read) if binding is None else binding
-    parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read}
+    freed = step.schedule.get("freed", [])
+    parts: dict[tuple[str, tuple], list] = {k: [] for k in values_read if k[0] not in freed}
     batched_ids: list[int] = []
     for ids, batch, pads in input_batches(engine, step, state, findings, batch_size, plan.run.padding):
         batched_ids += ids
@@ -304,13 +309,15 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
         cost["forwards"] += 1
         cost["tokens"] += batch["input_ids"].numel()
         cost["real"] += batch["input_ids"].numel() - sum(pads)
-        for k, (record, own, point) in values_read.items():
+        for k in parts:
+            record, own, point = values_read[k]
             parts[k].append(stack_layers(record, [
                 value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
                                  state, point.at, findings, layer)
                 for layer in layers_made_at(record)]))
-    for k, (record, own, _) in values_read.items():
-        join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
+    for k, part in parts.items():
+        record, own, _ = values_read[k]
+        join_batches(state, f"{name}.{k[0]}", record, own, part, batched_ids)
 
 
 def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, batch_size: int, findings: Findings,

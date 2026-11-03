@@ -85,7 +85,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | remote | The `ndif` engine's option: `true` for the NDIF server nnsight is configured for, `"local"` for nnsight's in-process simulation of the trip. | [engines.md](../usage/engines.md#remotelocal) |
 | result | A saved value, in `plan.results` and as a file in the output directory; one that depends on sweep axes is a dict keyed by its coordinate on those axes. | [output.md](../usage/output.md) |
 | row | One example of a dataset, a JSON object; a step's values have one row per row of its dataset. | [data.md](../usage/data.md) |
-| run option | A setting given when the document runs rather than in it: `--engine`, `--device`, `--batch-size`, `--padding` and `-o key=value`. | [running.md](../usage/running.md#from-the-command-line) |
+| run option | A setting given when the document runs rather than in it: `--engine`, `--device`, `--batch-size`, `--padding`, `--readout` and `-o key=value`. | [running.md](../usage/running.md#from-the-command-line) |
 | run record | `plan.run`: how the plan ran (engine, device, options, versions, dtype, sizes), how each input tokenized (`tokens`), what each run of each step cost (`costs`), and where the run stopped (`stopped`). | [output.md](../usage/output.md#the-run-record) |
 | save | A name in `saves`, a step's value or member, which the run writes to the output directory as one file. | [writing-a-document.md](../usage/writing-a-document.md#saves) |
 | scalar | A trained featurizer's own number that a fit's objective may name, `<featurizer>.<scalar>`: a gate's `mask`, an sae's `reconstruction` and `l1`. | [fit.md](../usage/fit.md#the-objective) |

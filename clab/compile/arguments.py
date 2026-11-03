@@ -127,10 +127,10 @@ def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[s
 
 def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
                  live: Mapping[str, Labelled] | None = None) -> Labelled:
-    """The record of a named value produced before this point, at the consumer's point `at` (an entry of the
-    forward being compiled, among `live`, as it is), noted as used."""
+    """The record of a named value produced before this point, at the consumer's point `at`, noted as used (`used`);
+    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`)."""
     if live and ref in live:
-        cx.used.add(ref)
+        cx.live.add(ref)
         return live[ref]
     if ref.partition(".")[0] in cx.featurizers or ref in trained_featurizers(cx.steps):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "

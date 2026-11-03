@@ -384,6 +384,37 @@ def test_a_write_from_an_earlier_entry_of_its_forward_shares_while_that_entry_do
     assert each_its_own(filled, alone(engine, "gpt2_reach", doc, 4))
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_an_entry_read_only_for_a_write_of_its_own_forward_keeps_none_of_its_batches(engines, kind, monkeypatch):
+    """`premix`, read at block 0 only for the write at block 1 that adds it and saved by nothing, is what its forward
+    frees (`freed` in the schedule compile writes): the run hands each batch's read to the write and joins none of
+    it, and the write's numbers are those of the document that saves `premix`, to the bit. Saved, named by an op
+    step, or differentiated by a `grad` entry, it is kept."""
+    joined: list[str] = []
+
+    def join(state, name, *args, **kwargs):
+        joined.append(name)
+        return batches.join_batches(state, name, *args, **kwargs)
+    monkeypatch.setattr("clab.steps.join_batches", join)
+    freed, kept = gpt2_doc(LIVE), gpt2_doc(LIVE)
+    freed["saves"] = ["lens.added"]
+    plan, saved = compiled("gpt2_reach", freed), compiled("gpt2_reach", kept)
+    assert points(plan.steps["lens"])[0].schedule == {"axes": [], "freed": ["premix"]}
+    assert points(saved.steps["lens"])[0].schedule == {"axes": []}
+    engine = engines(kind, plan.model)
+    results = engine.execute(plan, batch_size=BATCH_SIZE).results
+    assert joined == ["lens.added"]
+    assert same(results["lens.added"], engine.execute(saved, batch_size=BATCH_SIZE).results["lens.added"])
+    named = gpt2_doc(LIVE)
+    named["steps"]["size"] = {"kind": "op", "op": "norm", "of": "lens.premix"}
+    named["saves"] = ["lens.added", "size"]
+    gradient = gpt2_doc({**LIVE, "g": {"site": {"component": "layer_output", "layers": 0}, "pos": -1,
+                                       "ops": [{"op": "grad", "of": "premix"}]}})
+    gradient["saves"] = ["lens.added", "lens.g"]
+    for doc in (named, gradient):
+        assert "freed" not in points(compiled("gpt2_reach", doc).steps["lens"])[0].schedule
+
+
 def ranked(rank: Callable[[str, int | None], Any]) -> Any:
     """A stand-in engine for `schedule.write_schedule`: its name, and the rank it gives each `(component, layer)`."""
     return types.SimpleNamespace(name="stand-in", rank=rank)

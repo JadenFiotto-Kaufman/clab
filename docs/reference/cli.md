@@ -15,7 +15,7 @@ Every command exits 0 on success. A refusal or error that clab reports is printe
 ## `clab run`
 
 ```text
-clab run [--engine ENGINE] [--out OUT] [--batch-size N] [--padding dataset|batch|sorted] [--device D] [-o KEY=VALUE ...] DOCUMENT
+clab run [--engine ENGINE] [--out OUT] [--batch-size N] [--padding dataset|batch|sorted] [--readout full|at-reads] [--device D] [-o KEY=VALUE ...] DOCUMENT
 ```
 
 Compiles the document, loads the engine, runs every step, and writes the output directory.
@@ -27,6 +27,7 @@ Compiles the document, loads the engine, runs every step, and writes the output 
 | `--out` | `out/<document file name>` in the current directory | the output directory, created when missing and never cleared |
 | `--batch-size` | `8` | how many rows go through the model per forward or generation call; a positive integer |
 | `--padding` | `dataset` | how each batch is padded: `dataset`, to the input's longest row, the exact run; `batch`, to its own longest row; `sorted`, the rows batched longest first, each batch to its own longest row, every value put back in row order ([running.md](../usage/running.md#batch-size-and-reproducibility)) |
+| `--readout` | `full` | how a forward computes the logits it reads: `full`, the model's head over every position, the exact run; `at-reads`, a forward's reads of `logits` that name fewer than every position read out from the last block's output at those positions alone ([running.md](../usage/running.md#the-head-at-the-positions-read)) |
 | `--device` | `cpu` | where the engine places the model: one torch device (`cuda:0`) or a device map transformers computes (`auto`, `balanced`, ...); under `-o tp`, `cuda` or `cpu`. Under `--engine ndif` with a real server the server places it, and any value but `cpu` is refused |
 | `-o KEY=VALUE` | none | one of the engine's own options, repeatable. `VALUE` is read as JSON (`true`, `2`, `{"a": 1}`) and otherwise as text (`local`). `clab describe engines` lists each engine's options: `nnterp` has `tp`, `ndif` has `remote`, `hooks` has none |
 
@@ -42,11 +43,13 @@ Refused before the model loads:
 clab: no document at 'documents/nope.json'
 clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)
 clab: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)
+clab: readout 'last': one of 'full', 'at-reads' (--readout)
 clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')
 clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
 clab: -o device: it is given as --device
 clab: -o batch_size: it is given as --batch-size
 clab: -o padding: it is given as --padding
+clab: -o readout: it is given as --readout
 clab: -o 'foo': an option is KEY=VALUE
 clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif
 clab: the nnterp engine takes no 'foo'; its options: tp (where the model runs is `device`, given as --device)
@@ -85,7 +88,7 @@ Prints output directory `OUT`'s run in four parts:
 
 ```text
 $ clab show out/pos_sweep
-pos_sweep: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, started 2026-11-02T13:02:15, 0.225 s
+pos_sweep: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, readout full, started 2026-11-02T13:02:15, 0.225 s
   served: float32 on cpu
   versions: clab 0.0.1+…, nnsight 0.8.1, nnterp …, torch …, transformers …, python …
   step            at      serves  seconds  memory  forwards  tokens  real

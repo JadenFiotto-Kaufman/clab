@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from clab import ops
 from clab.compile import positions
-from clab.format import address
+from clab.format import address, selectors
 from clab.format.sweeps import agreeing_point, coordinate_text, points, projection
 from clab.plan import (Forward, Intervention, Plan, Site, arguments, entries, entry_of, gathers, gradient_of, horizon,
                         record_of, writes)
@@ -34,6 +34,17 @@ def share_forwards(plan: Plan) -> None:
                     first[key] = step
 
 
+# How a run computes a forward's `logits` (`plan.run.readout`, `clab run --readout`), each with what it trades.
+READOUTS = {
+    "full": "the model's head over every position, the default: a read of `logits` takes the model's own value at the "
+            "positions it names",
+    "at-reads": "a forward's reads of `logits` that name fewer than every position are read out from the last block's "
+                "output at those positions alone, with the engine's `readout`, and the forward stops before the head: "
+                "the head's compute and memory at the positions read only, and numbers that move in the last bits "
+                "with the head's shape",
+}
+
+
 def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served: list[Forward]) -> None:
     """What the forward of `step` (a serving point of step `name`, with the points it serves, `served`, as
     `plan.serving` lists them, every point's records completed) does, written into its `schedule`: `sites`, each
@@ -51,7 +62,8 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
     first, in entry order. A forward with `grad` entries also holds `grad`: for each distinct value its gathered `grad`
     reads differentiate (the `of` entry at the point each serves), the names of that value's reads (`of`, one per layer)
     and of the `grad` reads it serves (`wrt`), each `grad` read refused by name unless the engine ranks every site its
-    `of` is read at strictly after its own."""
+    `of` is read at strictly after its own. Under the run's readout `at-reads` a forward's reads of `logits` are done at
+    the last block's output where they can be (`read_out_at_reads`)."""
     values_read = values_read_by(served)
     sites: dict[tuple[str, int | None], list[dict]] = {}
     names: dict[str, dict[int | None, str]] = {}        # the serving point's reads by `<step>.<entry>`, per layer
@@ -87,6 +99,9 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
                     if theirs != site and engine.rank(*theirs) >= engine.rank(*site):
                         raise ValueError(unreached_site_refusal(engine, plan, name, r["write"], operand["name"],
                                                                 site[1], step.at))
+    at_reads = plan.run is not None and plan.run.readout == "at-reads"
+    if at_reads and step.kind == "forward" and read_out_at_reads(engine, served, values_read, sites):
+        order = sorted(sites, key=lambda site: engine.rank(*site))
     step.schedule.update(sites=[{"component": c, "layer": layer, "records": sites[c, layer]} for c, layer in order],
                          stop=list(order[-1]) if order and step.kind == "forward" else None)
     for p in served:
@@ -113,6 +128,37 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
         asked = [r["calls"] for site in sites.values() for r in site if "calls" in r]
         step.schedule.update(loop=None if None in asked else sorted({0, *(k for a in asked for k in a)}),
                              online=any(r.get("online") for site in sites.values() for r in site))
+
+
+def read_out_at_reads(engine: Engine, served: list[Forward], values_read: dict, sites: dict) -> bool:
+    """Whether a forward's reads of `logits` move to the last block's output, done there and marked `readout` (the run
+    takes the stream at each read's positions and reads it out there with the engine's `readout`: the final norm, the
+    head, and what the model does after the head), so that the head runs at the positions read alone and the forward can
+    stop before it; `sites` is changed in place where they do. They move where every record at `logits` is a read that
+    names fewer than every position of the prompt and that no `grad` entry takes or differentiates, where nothing writes
+    at a site the engine reaches after the last block's output (the final norm's, the head's), whose write the readout
+    would not see, and where the engine serves the last block's `layer_output`, at whose end they are done, after every
+    record there."""
+    reads, last = sites.get(("logits", None), []), engine.sizes()["num_layers"] - 1
+    differentiated = {gradient_of(r) for p in served for r in entries(p).values()}
+    refused = engine.unserved()["layer_output"]
+    if not reads or isinstance(refused, str) or last in (refused or {}):
+        return False
+    end = engine.rank("layer_output", last)
+    if any("write" in r for site, records in sites.items() if engine.rank(*site) > end for r in records):
+        return False
+
+    def narrow(r: dict) -> bool:
+        if "read" not in r:
+            return False
+        record = values_read[r["read"], tuple(r["at"].items())][0]
+        pos = positions.parse(record.pos)
+        return gradient_of(record) is None and r["read"] not in differentiated and not (
+            pos["scope"] is None and selectors.every(pos["index"]))
+    if not all(map(narrow, reads)):
+        return False
+    sites.setdefault(("layer_output", last), []).extend({**r, "readout": True} for r in sites.pop(("logits", None)))
+    return True
 
 
 def values_read_by(served: list[Forward]) -> dict[tuple[str, tuple], tuple[Intervention, dict[str, int], Any]]:

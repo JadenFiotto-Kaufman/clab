@@ -32,7 +32,7 @@ Where the directory goes and what happens when you reuse one is [running.md](run
 
 ```text
 $ clab show out/patching
-patching: run on nnterp, device cpu, tp 1, batch size 8, padding dataset, started 2026-11-02T12:57:20, 0.22 s
+patching: run on nnterp, device cpu, tp 1, batch size 8, padding dataset, readout full, started 2026-11-02T12:57:20, 0.22 s
   served: float32 on cpu
   versions: clab 0.0.1+..., nnsight 0.8.1, nnterp ..., torch ..., transformers ..., python ...
   step            at  serves  seconds  memory  forwards  tokens  real
@@ -49,7 +49,7 @@ patching: run on nnterp, device cpu, tp 1, batch size 8, padding dataset, starte
   logit_diff  logit_diff  rows, pos  —     [4,1]
 ```
 
-The first lines are the run record: the engine, its device and options, the batch size and padding, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
+The first lines are the run record: the engine, its device and options, the batch size, padding and readout, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
 
 - **What each step cost**, one row per run of a step, at the point that ran it: `serves` lists the points that run served (`—` for itself alone, `all 3 points` for every point of the step), then its seconds, its peak memory on each CUDA device (`—` off CUDA), the model calls it made, the tokens they fed (`tokens`, padding included) and the rows' own of those (`real`). A forward or generation runs once for every set of points that differ only in what they read, so a read-only sweep is one row. A step that calls the model is timed with the GPU's queue drained at both ends; an op step or a `load` is timed as the host runs it, so its seconds leave out what its kernels still had to do, which the next step that calls the model waits for before its own timer starts.
 - **Where each entry resolved**, one row per entry (a `load`'s, the read it carries) and distinct positions, each row's positions in row order (`[10] on all 4 rows` where every row agrees, `—` for a row the entry did not reach), with the point it is at or how many points share it. Past twelve rows that differ it prints the first three rows', `…`, the last row's and the count (`[8], [8], [10], …, [9] (50,000 rows; clab table shows each)`), and a row of more than twelve positions as its first three and its last (`[0,1,2,…,511]`); `clab table` and the manifest hold every row's.
@@ -138,7 +138,7 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 
 | field | holds |
 |---|---|
-| `engine`, `batch_size`, `padding`, `device`, `options` | how it was asked to run; `device` is None when an NDIF server placed the model, and `options` holds the engine's options after their defaults |
+| `engine`, `batch_size`, `padding`, `readout`, `device`, `options` | how it was asked to run; `device` is None when an NDIF server placed the model, and `options` holds the engine's options after their defaults |
 | `dtype`, `devices` | the distinct dtypes and devices of the model's parameters where it ran |
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
 | `threads` | torch's intra-op thread count on that machine at the run's start (`torch.get_num_threads()`), which with the batch size sets a CPU run's last bits; null in a manifest written before it was recorded |

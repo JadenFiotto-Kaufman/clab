@@ -81,7 +81,7 @@ def compile(plan: Plan) -> Plan:
     sweeps = find_sweeps(doc)
     values = {label: get(doc, path)["sweep"] for path, label in sweeps.items()}
     cx = Compiling(doc=doc, root=root, rows=rows, sweeps=sweeps, values=values, featurizers={}, steps={}, axes_of={},
-                   used=set())
+                   used=set(), live=set())
     for name in plan.featurizers:
         cx.featurizers[name] = expand(cx, name, ("featurizers", name),
                                       lambda point, at, name=name: compile_featurizer(cx, point, name, at))
@@ -102,7 +102,7 @@ def compile(plan: Plan) -> Plan:
         if d.template is not None and name not in cx.chats:
             fail(f"data.{name}.template", f"no step reads a chat column of {name!r}, and a template renders a chat "
                  "(a column of {'role', 'content'} messages) only")
-    mark_gathered(cx.steps, cx.used | set(plan.saves))
+    mark_gathered(cx.steps, cx.used | set(plan.saves), cx.live)
     done = Plan(**{**doc, "featurizers": cx.featurizers, "steps": cx.steps, "sites": {}, "interventions": {},
                    "compiled": True, "document": plan.document,
                    "sweeps": {label: {"values": values[label]} for label in values},
@@ -614,20 +614,27 @@ def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[
 # -- references --------------------------------------------------------------------------------------
 
 
-def mark_gathered(steps: dict, used: set[str]) -> None:
+def mark_gathered(steps: dict, used: set[str], live: set[str]) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
-    `used` names (a value something references, a save, or the body entries a trained sae's scalars are over), and
-    the entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes
-    nor is gathered does nothing."""
+    `used` names (a value something references, a save, or the body entries a trained sae's scalars are over), one
+    `live` names (an entry a later write of its own forward takes as a live operand), and the entry a gathered `grad`
+    entry differentiates. Any other entry only writes, and an entry that neither writes nor is gathered does nothing.
+    A forward's entries gathered only for its own writes (named in `live` alone, and differentiated by no `grad` entry
+    of the step) are its schedule's `freed`, of whose batches the run keeps none."""
     for name, entry in runnable(steps).items():
+        differentiated = {gradient_of(e) for p in points(entry) for e in entries(p).values()}
         for point in points(entry):
             if point.kind == "fit":
-                mark_gathered(point.steps, used)
+                mark_gathered(point.steps, used, live)
             for k, e in entries(point).items():
-                e.gathered = f"{name}.{k}" in used
+                e.gathered = f"{name}.{k}" in used or f"{name}.{k}" in live
             for e in list(entries(point).values()):
                 if e.gathered and (of := gradient_of(e)) is not None:
                     entries(point)[of].gathered = True
+            freed = [k for k, e in entries(point).items()
+                     if e.gathered and f"{name}.{k}" not in used and k not in differentiated]
+            if point.kind == "forward" and freed:
+                point.schedule["freed"] = freed
 
 
 def compile_featurizer(cx: Compiling, plan: Plan, name: str, at: dict[str, int]) -> Featurizer:

@@ -773,20 +773,23 @@ class Forward(Record):
                                            "so the points that agree on those axes are served by the forward of the "
                                            "first of them, and each other holds `serving`, that point's coordinates, "
                                            "and nothing else (the points a forward serves are those that name it: "
-                                           "`plan.serving`). Compile writes those; preflight, with the model in hand, "
+                                           "`plan.serving`), and, at a forward that reads entries only for its own "
+                                           "writes, `freed`, those entries, of whose batches the run keeps none. "
+                                           "Compile writes those; preflight, with the model in hand, "
                                            "writes at each point that runs its forward the sites the forward visits in "
                                            "the engine's forward order (`sites`: each its component and layer and the "
                                            "records done there in order, a write with its ops up to its last edit and "
                                            "each operand resolved to a producer's name and point or to the name of a "
                                            "read of the same forward, a read with the point whose entry it is and the "
-                                           "name it feeds), `stop`, the site the forward ends at (null for a "
-                                           "generation, which runs whole), for a forward with `grad` entries `grad` "
-                                           "(one item per distinct value differentiated, `of` the names of its reads, "
-                                           "one per layer, and `wrt` the names of the `grad` reads whose gradient it "
-                                           "is), and for a generation each record's `calls` and `online`, `prompt` on "
-                                           "a part over the prompt of an entry beyond the prefill, and the `loop` of "
-                                           "calls the engine iterates (null: every one). The engines execute it and "
-                                           "decide nothing")
+                                           "name it feeds, and `readout` on a read of `logits` that the run's readout "
+                                           "`at-reads` does at the last block's output), `stop`, the site the forward "
+                                           "ends at (null for a generation, which runs whole), for a forward with "
+                                           "`grad` entries `grad` (one item per distinct value differentiated, `of` "
+                                           "the names of its reads, one per layer, and `wrt` the names of the `grad` "
+                                           "reads whose gradient it is), and for a generation each record's `calls` "
+                                           "and `online`, `prompt` on a part over the prompt of an entry beyond the "
+                                           "prefill, and the `loop` of calls the engine iterates (null: every one). "
+                                           "The engines execute it and decide nothing")
     batch_size: int | None = derived(None, "the rows a batch of the input holds, whatever the run's batch size, where "
                                            "the step fixes it: a fit's eval step's are the fit's `batch_size`; null, "
                                            "the run's")
@@ -1085,13 +1088,13 @@ class Axis(Record):
 
 class Run(Record):
     """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `padding`, how its batches were
-    padded, one of `data.PADDINGS`, which a manifest records even where it is the default, `device`, None where the
-    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
-    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
-    where the model is: the server's, under `ndif`; `threads`, torch's intra-op thread count there at the run's
-    start, which with the batch shape sets a CPU matmul's last bits; null in a record from before it was kept).
-    `dtype` and `devices` are the distinct dtypes and devices of the model's parameters there, in the order first
-    met (a quantized model's
+    padded, one of `data.PADDINGS`, `readout`, how its forwards computed `logits`, one of `schedule.READOUTS`, each
+    of which a manifest records even where it is the default, `device`, None where the engine does not place the model,
+    as on an NDIF server, and every engine option after its defaults in `options`), what served it (`versions`:
+    clab's version with its commit, the packages it runs on and python, where the model is: the server's, under
+    `ndif`; `threads`, torch's intra-op thread count there at the run's start, which with the batch shape sets a CPU
+    matmul's last bits; null in a record from before it was kept). `dtype` and `devices` are the distinct dtypes and
+    devices of the model's parameters there, in the order first met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
     bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
@@ -1115,6 +1118,7 @@ class Run(Record):
     engine: str
     batch_size: int
     padding: str = "dataset"
+    readout: str = "full"
     device: str | None
     options: dict[str, Any] = {}
     versions: dict[str, str] = {}
