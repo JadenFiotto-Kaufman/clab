@@ -23,8 +23,8 @@ class Compiling:
     compiles in a copy whose `steps` is its own scope (the root's records, then its own as they compile) and maps
     each featurizer it trains to the name it resolves to there (`aliases`: `rot` is `<fit>.rot`, the instance being
     trained); it shares `axes_of` and `used`. `points` holds each point of the document built so far, by its
-    coordinates (`point`), and `chats` each dataset a step reads a chat column of (shared with a body), which a
-    `template` needs."""
+    coordinates (`point`), `chats` each dataset a step reads a chat column of (shared with a body), which a
+    `template` needs, and `sources` each run a load reads, by its directory, read once (`compile.source`)."""
     doc: dict
     root: str
     rows: dict[str, list[dict]]
@@ -37,6 +37,7 @@ class Compiling:
     aliases: dict[str, str] = field(default_factory=dict)
     points: dict[tuple, Plan] = field(default_factory=dict)
     chats: set[str] = field(default_factory=set)
+    sources: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass

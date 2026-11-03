@@ -162,29 +162,40 @@ def describe(value: Any, what: Literal["shape", "dtype"]) -> list[int] | str | d
 
 
 def load(out: str) -> Plan:
-    try:
-        with open(os.path.join(out, "manifest.json")) as f:
-            manifest = json.load(f)
-    except FileNotFoundError:
-        raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
-    described = manifest.pop("results")
-    plan = Plan(**manifest)
+    held, described = manifest(out)
+    plan = Plan(**held)
     tokens = os.path.join(out, "tokens.json")
     if plan.run is not None and os.path.exists(tokens):
         with open(tokens) as f:
             plan.run.tokens = json.load(f)
     for name, d in described.items():
-        file = os.path.join(out, d["file"])
-        if file.endswith(".safetensors"):
-            value = nested(load_file(file))
-            value = value[name] if isinstance(d["dtype"], str) else value
-        else:
-            with open(file) as f:
-                value = restored(json.load(f), d["dtype"])
+        value = read(out, name, d)
         if d["axes"]:
             value = {coordinate(plan, at): value[labelled(plan, at)] for at, _ in projections(plan, name)}
         plan.results[name] = value
     return plan
+
+
+def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
+    name."""
+    try:
+        with open(os.path.join(out, "manifest.json")) as f:
+            held = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
+    return held, held.pop("results")
+
+
+def read(out: str, name: str, d: dict[str, Any]) -> Any:
+    """Saved value `name` as its file under `out` holds it, `d` its record in the manifest's `results`: a tensor or
+    a dict of them again, a swept one keyed by each point's coordinate as text (`pos=-1`)."""
+    file = os.path.join(out, d["file"])
+    if file.endswith(".safetensors"):
+        value = nested(load_file(file))
+        return value[name] if isinstance(d["dtype"], str) else value
+    with open(file) as f:
+        return restored(json.load(f), d["dtype"])
 
 
 def nested(value: dict[str, Tensor]) -> dict[str, Any]:

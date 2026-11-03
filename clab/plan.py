@@ -882,6 +882,41 @@ class OpStep(Labelled):
         return self
 
 
+class Load(Labelled):
+    """A value an earlier run saved, brought into this document with its record: `from` is that run's output
+    directory under the corpus root (where its `manifest.json` is), `value` a name in its `saves`. The step's value
+    is that saved value, in the dtype it was saved in, where the model is, and its record is the one the source's
+    manifest holds (its layout and labels, the sweep axes it depends on and, where it holds positions, the read they
+    are of: that entry's site, `pos` and positions per row, with the input it read), so every step after it treats
+    it as the value it was: a fit's body takes its rows by id, an op step reduces it, a featurizer encodes a read's
+    value at its site, and `table` labels its positions with this run's tokens of that input, which preflight
+    encodes as a forward does. Compile reads the manifest and the file, and refuses by name a directory with no
+    manifest, a name it did not save, a source whose `model` block is not this document's (key, revision, dtype and
+    every loader key), a dataset the value names whose rows are not, in this document, the rows the source read in
+    the same order (its `sha256` and `n_rows` as the source recorded them) or whose chats render with another
+    `template`, and a sweep axis the value depends on
+    that this document does not declare under the same label with the same values (a swept value loads at every
+    point of those axes). So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
+    `file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
+    source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
+    tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are
+    the value's move to the model's device (under `ndif`, its read). The value never travels in a request: under
+    `ndif` the run reads the file where it runs (`remote="local"`), and an NDIF server, which cannot see this
+    machine's directories, is refused before anything is sent."""
+    model_config = ConfigDict(serialize_by_alias=True)
+    kind: Literal["load"]
+    from_: str = Field(alias="from")
+    value: str
+    at: dict[str, int] = derived({}, AT)
+    source: "Forward | None" = derived(None, "the read whose positions the value holds, where it holds any: the "
+                                             "forward that made it as the source's manifest records it, with that "
+                                             "entry alone and its positions under the value's dataset, the entry "
+                                             "named as the value's `read` names it (`<this step>.<entry>`)")
+    loaded: Any = derived(None, "the value as compile read it from the source's file, which the run puts where the "
+                                "model is; never in a manifest, and left out of a request to a session elsewhere, "
+                                "where the run reads the file itself", exclude=True)
+
+
 class Optimizer(Record):
     """The fit's optimizer, over the trained featurizers' parameters only."""
     name: Literal["adamw", "adam", "sgd"]
@@ -967,7 +1002,7 @@ class Fit(Record):
         return self
 
 
-KINDS = {"forward": Forward, "generate": Generate, "op": OpStep, "fit": Fit}
+KINDS = {"forward": Forward, "generate": Generate, "op": OpStep, "fit": Fit, "load": Load}
 
 
 def _kind(value: Any) -> str | None:
@@ -982,10 +1017,11 @@ def _points(value: Any) -> str:
 # A `~` tag names a union branch; `PlanError`'s paths leave it out. A compiled entry that is swept is the list
 # of its points.
 Step = Annotated[Union[Annotated[Forward, Tag("~forward")], Annotated[Generate, Tag("~generate")],
-                       Annotated[OpStep, Tag("~op")], Annotated[Fit, Tag("~fit")]],
+                       Annotated[OpStep, Tag("~op")], Annotated[Fit, Tag("~fit")], Annotated[Load, Tag("~load")]],
                  Discriminator(_kind, custom_error_type="kind", custom_error_message="unknown step kind")]
 Entry = Annotated[Union[Annotated[Step, Tag("~one")], Annotated[list[Step], Tag("~points")]], Discriminator(_points)]
 Fit.model_rebuild()
+Load.model_rebuild()
 
 
 class Featurizer(Record):
@@ -1267,25 +1303,29 @@ def adapts(plan: Plan, o: "Op | OpStep") -> bool:
 
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
     """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, in
-    that fit's body), at the step's point that agrees with `at`: the one place a reference to an entry resolves,
-    so a swept site resolves at every point."""
+    that fit's body; or a load's read, the forward and entry it carries), at the step's point that agrees with
+    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind == "fit":
         return entry_of(step.steps, member.partition(".")[2], step.at)
+    if step.kind == "load":
+        assert step.source is not None, f"{ref} names no read"
+        return step.source, entries(step.source)[member]
     return step, entries(step)[member]
 
 
 def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
-    labelled layout: an entry's (`<step>.<entry>`), an op step's or a generation's own (`<step>`), or a fit
-    member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's record with the dataset that
-    eval reads it over, its read named from the root), a term's history (`<fit>.history.<term>`, `[epochs]`) or
-    a trained featurizer (no axes)."""
+    labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
+    load's own (`<step>`), or a fit member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's
+    record with the dataset that eval reads it over, its read named from the root), a term's history
+    (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind != "fit":
-        found = entries(step)[member] if member else step
+        host = step.source if step.kind == "load" else step            # a load's member is the read it carries
+        found = entries(host)[member] if member else step
         assert isinstance(found, Labelled), f"{ref} names no value"
         return found
     label, _, rest = member.partition(".")
@@ -1296,6 +1336,15 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     return inner.model_copy(update={"dataset": step.eval[label].get(inner.dataset, inner.dataset),
                                     "read": f"{thing}.{label}.{inner.read}" if inside else inner.read,
                                     "axes": list(step.at)})
+
+
+def own_read(record: Labelled) -> bool:
+    """Whether a value is a read's own, at the site it was read at: an entry's, or a load's of a saved entry (whose
+    `read`, the entry it carries, is named as the saved name is: `harvest.acts` loaded as `cached` reads
+    `cached.acts`), not an op's over one."""
+    if isinstance(record, Load):
+        return record.read is not None and record.read.partition(".")[2] == record.value.partition(".")[2]
+    return isinstance(record, Intervention)
 
 
 def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
@@ -1312,16 +1361,16 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
 def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
     """The points of step `name` that run, in order, each with the points its run serves, itself first: a
     forward's or a generation's each point whose `schedule` holds no `serving`, with the points whose `serving`
-    names it; an op's the points of its value (`projections`: one per distinct point on its `axes`), each with the
-    step's points that agree with it there; a fit's each point, itself alone. Found in one pass over the points,
-    each joining the run its coordinates name (an op's on its axes, a forward's its `serving` or its own), whose
-    first point is the one that runs."""
+    names it; an op's or a load's the points of its value (`projections`: one per distinct point on its `axes`),
+    each with the step's points that agree with it there; a fit's each point, itself alone. Found in one pass over
+    the points, each joining the run its coordinates name (an op's or a load's on its axes, a forward's its
+    `serving` or its own), whose first point is the one that runs."""
     steps = points(plan.steps[name])
     if steps[0].kind == "fit":
         return [(p, [p]) for p in steps]
     runs: dict[tuple, list[Step]] = {}
     for q in steps:
-        at = projected(q.at, q.axes) if q.kind == "op" else q.schedule.get("serving", q.at)
+        at = projected(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
         runs.setdefault(tuple(at.items()), []).append(q)
     return [(served[0], served) for served in runs.values()]
 

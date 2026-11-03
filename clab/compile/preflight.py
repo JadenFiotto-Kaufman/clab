@@ -146,27 +146,11 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                         raise ValueError(f"{name}: pca of {n} vectors has no rank-{args['k']} basis; "
                                          f"it needs more than {args['k']}")
                 continue
-            rows = held_rows(plan, step.dataset)
-            source = data.input_name(step.input)
-            if source not in found.inputs:
-                read = swap.get(step.dataset, step.dataset)
-                if any(isinstance(data.field(r, step.input), list) for r in rows) and \
-                        data.clocked(tokenizer, plan.data[step.dataset].template):
-                    raise ValueError(f"{name}: {source}: the checkpoint's chat template calls strftime_now, which "
-                                     "writes today's date into the prompt, so these rows render to other tokens on "
-                                     f"another day and nothing in the run record says so; pin it in data.{read}."
-                                     "template, {\"date_string\": \"26 Jul 2024\"}")
-                encoded = []
-                for i, r in enumerate(rows):
-                    try:
-                        encoded.append(data.encode(tokenizer, data.field(r, step.input),
-                                                   plan.data[step.dataset].template))
-                    except ValueError as e:
-                        raise ValueError(f"{name}: {source} row {i}: {e}") from None
-                found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
-                plan.run.tokens[data.input_name(step.input, swap)] = \
-                    [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
-            encoded = found.inputs[source]["rows"]
+            if step.kind == "load":         # the input its read was made on, whose tokens its positions are of
+                if step.source is not None:
+                    tokenized(engine, plan, found, name, step.source, swap)
+                continue
+            rows, encoded = held_rows(plan, step.dataset), tokenized(engine, plan, found, name, step, swap)
             for key, record in entries(step).items():
                 where, site = f"{name}.{key}", cast(Site, record.site)
                 layers, select = cast("Selector | None", site.layers), cast("dict[str, Selector] | None", site.select)
@@ -227,6 +211,33 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
             for step, served in cast("list[tuple[Forward, list[Forward]]]", serving(plan, name)):
                 scheduled(engine, plan, name, step, served, trained or {})
     return found
+
+
+def tokenized(engine: Engine, plan: Plan, found: Found, name: str, step: Forward, swap: dict[str, str]) -> list[dict]:
+    """The rows of `step`'s input as the tokenizer encodes them (`data.encode`), encoded once per input
+    (`found.inputs`, with the padded width) and recorded as token strings in `plan.run.tokens` under the input's
+    name as the run reads it (`swap`); a chat of a template that reads the clock without its date pinned, and a row
+    that does not encode, are refused by name."""
+    assert plan.run is not None and step.dataset is not None
+    source, tokenizer = data.input_name(step.input), engine.tokenizer
+    if source not in found.inputs:
+        rows, template = held_rows(plan, step.dataset), plan.data[step.dataset].template
+        if any(isinstance(data.field(r, step.input), list) for r in rows) and data.clocked(tokenizer, template):
+            read = swap.get(step.dataset, step.dataset)
+            raise ValueError(f"{name}: {source}: the checkpoint's chat template calls strftime_now, which writes "
+                             "today's date into the prompt, so these rows render to other tokens on another day and "
+                             f"nothing in the run record says so; pin it in data.{read}.template, "
+                             "{\"date_string\": \"26 Jul 2024\"}")
+        encoded = []
+        for i, r in enumerate(rows):
+            try:
+                encoded.append(data.encode(tokenizer, data.field(r, step.input), template))
+            except ValueError as e:
+                raise ValueError(f"{name}: {source} row {i}: {e}") from None
+        found.inputs[source] = {"rows": encoded, "width": max(len(e["ids"]) for e in encoded)}
+        plan.run.tokens[data.input_name(step.input, swap)] = \
+            [tokenizer.convert_ids_to_tokens(e["ids"]) for e in encoded]
+    return found.inputs[source]["rows"]
 
 
 def lined_up(engine: Engine, plan: Plan, found: Found, o: Any, where: str) -> bool:
