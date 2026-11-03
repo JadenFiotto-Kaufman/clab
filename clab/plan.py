@@ -71,8 +71,6 @@ class Record(BaseModel):
     def _derived_last(self, handler: SerializerFunctionWrapHandler) -> Any:
         """The record as written: the document's fields first, then what compile or the run derived."""
         dumped = handler(self)
-        if not isinstance(dumped, dict):
-            return dumped
         later = [k for k in type(self).model_fields if k not in documented(type(self))]
         return {**{k: v for k, v in dumped.items() if k not in later}, **{k: v for k, v in dumped.items() if k in later}}
 
