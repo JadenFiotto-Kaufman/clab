@@ -169,11 +169,14 @@ def test_every_forward_the_model_runs_is_a_steps(kind, name, expected):
     forwards its steps' costs sum to (logit_lens's one forward of two batches, serving its two points,
     generated_answer's two batches of a prefill and five decode calls) plus, on nnterp, the one forward `ready`
     makes before the first step to measure the forward order (`rank`), once per engine; hooks measured it on a meta
-    shell at load, so none."""
+    shell at load, so none. The nnterp engine's shell is given its weights first, which its run would load before
+    its first step, so that the hook is on the module that runs."""
     from clab.engines import load
 
     plan = plan_of(name)
     engine: Any = load(kind, plan.model)
+    if kind == "nnterp":
+        engine.model.dispatch()
     root = engine.model._module if kind == "nnterp" else engine.model
     calls: list[int] = []
     handle = root.register_forward_pre_hook(lambda module, args: calls.append(1))

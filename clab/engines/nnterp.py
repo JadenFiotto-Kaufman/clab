@@ -40,7 +40,7 @@ from clab.engines import engine, standard
 from clab.engines.standard import build, envoy, inputs, loading, nnterp_name, placing, served, stops
 from clab.format.address import COMPONENTS
 from clab.format.sweeps import points
-from clab.plan import QUANTIZED, Model, Plan, entries, gradient_of, walk
+from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk
 from clab.steps import batches
 from clab.steps.batches import acting_at_call, stamped_at_call
 
@@ -55,7 +55,10 @@ class NnterpEngine:
 
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
         """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over
-        `tp` ranks (`sharded`); the block's other keys go to the loader as they are.
+        `tp` ranks (`sharded`); the block's other keys go to the loader as they are. At `tp` 1 it is a meta shell
+        until a run calls the model (`plan.calls_model`) or places it by a device map, whose `ready` loads the
+        weights: a document of loads and op steps on one torch device loads none, and takes the tokenizer and the
+        config's sizes from the shell.
 
         device: one torch device ("cpu", "cuda:0") as the loader's device, or "auto", "balanced", ... as its device_map; under tp, "cuda" or "cpu"
         tp: how many ranks tensor parallelism shards the model over, one process each under `torchrun --nproc-per-node=<tp>`; 1 does not shard it
@@ -68,13 +71,13 @@ class NnterpEngine:
             self.order = {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in
                           standard.unserved(shell).items() for layer in served(c, refused, shell.num_layers)}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
+            model.key, revision=model.revision, dispatch=tp > 1, **loaded, **placed, **extra))
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         self.config = {"sizes": standard.sizes(self.model)}
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
-        model `ready` first; the results, the run record and the records as the run completed them (each value's
+        model `ready` first where the run calls it or a device map places it; the results, the run record and the records as the run completed them (each value's
         labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
@@ -103,8 +106,15 @@ class NnterpEngine:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
             torch.manual_seed(seed[0])
-        with self.model.session(remote=self.remote):
+        # Decided here, since the session's body names no function a server lacks; under a device map the weights
+        # load whatever the plan calls, since only they say where the map puts the run's tensors (`model_device`).
+        calls = calls_model(plan.steps) or self.device in standard.COMPUTED
+        if calls and self.remote is not True:     # here, before the clock: `seconds` is the run, not the weight load
             self.ready()
+            started = steps.start_run(self, plan, batch_size, padding)
+        with self.model.session(remote=self.remote):
+            if calls and self.remote is True:     # the server's model: its instrumentation and order, no weights
+                self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run, "steps": {
                 n: e for n, e in plan.steps.items() if points(e)[0].kind != "load"},
@@ -124,16 +134,21 @@ class NnterpEngine:
         return plan
 
     def ready(self) -> None:
-        """What the model does once, done before the run's first step so that no step's cost holds it: a meta shell
-        (ndif under `remote="local"`) loads its weights, which it would at its first trace; a mixture of experts'
-        module whose forward nnterp reads a value inside (the module the path of nnterp's key for the value names
-        before its first `source`, at every block that serves the value: JetMoE's router, Mixtral's router and
-        experts) has that forward instrumented (its `.source` touched, as nnterp's docs say to outside a trace), since
-        nnsight would otherwise build it lazily at the first trace that reads that value, too late where the trace has
-        read a child module of it first (JetMoE's router logits, the router's projection, before its indices); and
-        nnterp measures its forward order (`rank`), which it would at the first site a step ranks (under `tp` the
-        engine measured it at load, on a meta shell). Each is a no-op once done."""
-        self.model.dispatch()
+        """What the model does once, done before the first step of a run that calls the model so that no step's
+        cost holds it: a meta shell (the nnterp engine's at `tp` 1, ndif's under `remote="local"`) loads its
+        weights, which it would at its first trace, a key its loader rejects refused by name as `build` refuses one,
+        and frozen as they load (here; a server's are the server's); a
+        mixture of experts' module whose forward nnterp reads a value inside (the module the path of nnterp's key for
+        the value names before its first `source`, at every block that serves the value: JetMoE's router, Mixtral's
+        router and experts) has that forward instrumented (its `.source` touched, as nnterp's docs say to outside a
+        trace), since nnsight would otherwise build it lazily at the first trace that reads that value, too late where
+        the trace has read a child module of it first (JetMoE's router logits, the router's projection, before its
+        indices); and nnterp measures its forward order (`rank`), which it would at the first site a step ranks (under
+        `tp` the engine measured it at load, on a meta shell). Each is a no-op once done."""
+        if not self.model.dispatched:      # a key the loader rejects is refused by name here, as at a load's
+            build(self.spec, self.name, lambda extra: self.model.dispatch())
+            if self.remote is not True:
+                self.model.requires_grad_(False)    # the weights it loaded, which the shell's freeze did not reach
         reasons = standard.unserved(self.model)
         for c in [c for c in COMPONENTS if c in standard.mixed()]:
             for layer in served(c, reasons[c], self.model.num_layers):

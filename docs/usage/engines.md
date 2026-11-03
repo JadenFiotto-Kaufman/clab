@@ -56,6 +56,8 @@ Of a mixture's six components ([sites.md](sites.md#a-mixture-of-experts)) hooks 
 
 `--device` is a run option, never a document key; it defaults to `cpu`.
 
+The nnterp engine (at `tp` 1) loads as a meta shell, the module tree, the config and the tokenizer, and loads the weights there before the first step of a run that calls the model: a forward, a generation, a `readout` or a `detokenize`. A document of `load` steps and other op steps loads none on one torch device, and its run record's `devices` say `meta`; under a device map (`auto`, ...) it loads them, since only the loaded weights say where the map puts the run's tensors. The hooks engine loads its weights when it loads.
+
 - **nnterp and hooks** take one torch device (`cpu`, `cuda:0`) or a device map that transformers computes (`auto`, `balanced`, `balanced_low_0`, `sequential`). A device map may spread the model over several GPUs. Each batch's inputs go to the device of the model's first parameter, and transformers moves activations on from there.
 - **ndif** with `remote=local` takes one torch device; a device map is refused by name. With `remote=true` the server places the model, and any `--device` other than the default `cpu` is refused:
 

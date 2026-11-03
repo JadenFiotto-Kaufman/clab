@@ -23,7 +23,7 @@ def run(plan: "Plan | str", engine: "str | Engine" = "nnterp", out: str | None =
     default, `batch` or `sorted`). `engine` is a registered name, loaded on `device` (default `cpu`; for nnterp and
     hooks one torch device or a device map transformers computes, `"auto"` among them) with the engine's own
     `options` (`remote="local"` for ndif), or a loaded engine, so one model serves many documents. A loaded
-    engine was placed and configured when it loaded, so it takes no `device` or option here. Under torchrun
+    engine was configured, its device among it, when it loaded, so it takes no `device` or option here. Under torchrun
     (the nnterp engine's `tp`) every rank runs and returns the filled plan, and rank 0 alone writes `out`. A run
     that stops at a step (out of CUDA memory, `plan.run.stopped`) is written to `out` as far as it got, in this
     process, before its refusal is raised, which then says where."""

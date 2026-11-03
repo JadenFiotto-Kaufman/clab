@@ -97,8 +97,9 @@ Plan.load("out/patching").table("iia", "logit_diff")[0]
 ```
 
 A result is keyed by the sweep axes its own value depends on, and points that differ only in what they read share
-one forward. By default every batch is padded to the input's longest row, the exact run: a row's numbers do not
-depend on the rest of its dataset, and a run reproduces to the bit at one batch size. `--padding batch` pads each
+one forward. By default every batch is padded to the input's longest row: a row's numbers do not depend on which
+rows share its batch, though they do on the dataset's longest row, which sets every batch's width, and a run
+reproduces to the bit at one batch size. `--padding batch` pads each
 batch to its own longest row, and `--padding sorted` also batches the rows longest first and puts every value back
 in row order; on data whose lengths vary they feed several times fewer tokens, for numbers that move in the last
 bits (a featurizer Adam trains through them, by about its learning rate). [docs/usage/running.md](docs/usage/running.md) has the run options and the four calls behind `clab.run`, and

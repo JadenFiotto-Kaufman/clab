@@ -50,7 +50,7 @@ Compiling a compiled plan returns it unchanged. Compile runs before any engine l
 
 ## 3. Load: the engine and its model
 
-`engines.load(name, model, device, **options)` builds the engine. On the command line these are `--engine`, `--device` and `-o`. The engine loads the checkpoint the model block pins, or under `ndif` a shell with no weights. It refuses an option it does not declare, a model block key it cannot honor, a device that cannot be, a checkpoint the offline cache lacks, a quantized `dtype` its hardware or a server cannot hold, `tp` outside torchrun and torchrun without `tp`, each by name and before any weight loads ([engines.md](../usage/engines.md)):
+`engines.load(name, model, device, **options)` builds the engine. On the command line these are `--engine`, `--device` and `-o`. The hooks engine loads the checkpoint the model block pins; the nnterp engine (at `tp` 1) and `ndif` build a shell with no weights, whose weights the nnterp engine loads before the first step of a run that calls the model ([engines.md](../usage/engines.md#where-the-model-goes---device)), refusing there a model block key its loader rejects and weights the offline cache lacks. The engine refuses an option it does not declare, a model block key it cannot honor, a device that cannot be, a checkpoint the offline cache lacks, a quantized `dtype` its hardware or a server cannot hold, `tp` outside torchrun and torchrun without `tp`, each by name and before any weight loads ([engines.md](../usage/engines.md)):
 
 ```text
 the hooks engine takes no 'remote'; its options: none (where the model runs is `device`, given as --device)

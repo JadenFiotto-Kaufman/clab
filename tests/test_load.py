@@ -14,7 +14,7 @@ import shutil
 from typing import Any, cast
 
 import pytest
-from conftest import BATCH_SIZE, ROOT, TRIP, document, same, stand_in
+from conftest import BATCH_SIZE, ROOT, TRIP, document, plan_of, same, stand_in
 from safetensors import safe_open
 
 from clab import Plan
@@ -456,3 +456,55 @@ def test_a_load_names_its_fields_as_a_document_writes_them():
         Plan(**{**corpus("pca_harvest"), "steps": {"harvest": {"kind": "load", "from_": "out/x", "value": "y"}}})
     plan = Plan(**{**corpus("pca_harvest"), "steps": {"harvest": LOAD}, "saves": []})
     assert plan.model_dump(mode="json", exclude_defaults=True)["steps"]["harvest"] == LOAD
+
+
+def test_a_value_a_reduction_took_out_of_a_featurizers_coordinates_loads(engines, root):
+    """T10's repro: a per-token L0 (`[encode, gt 0, sum over features]`, laid out `[rows, pos]`) is in no
+    featurizer's coordinates once the sum removed the axis they lie on, so a load of it compiles, and its mean is
+    the harvesting run's mean of it, to the bit; the latents themselves, still in the coordinates, are refused."""
+    site, pos = {"component": "layer_output", "layers": 0}, {"index": "1:"}
+    made = ran(engines, root, "l0", loading(corpus("pca_harvest"), {
+        "harvest": {"kind": "forward", "input": "prompts.input", "interventions": {
+            "l0": {"site": site, "pos": pos, "ops": [{"op": "encode", "featurizer": "sae"}, {"op": "gt", "with": 0},
+                                                     {"op": "sum", "over": ["features"]}]},
+            "latents": {"site": site, "pos": pos, "ops": [{"op": "encode", "featurizer": "sae"}]}}},
+        "m": {"kind": "op", "op": "mean", "of": "harvest.l0"}}, ["harvest.l0", "harvest.latents", "m"],
+        featurizers={"sae": {"kind": "sae", "latents": 32, "seed": 0}}))
+    l0 = next(iter(entries(made.steps["harvest"]).values()))
+    assert l0.dims == ["rows", "pos"] and l0.space == [] and l0.ops[0].space == [{"featurizer": "sae"}]
+    plan = written(root, "l0_mean", loading(corpus("pca_harvest"), {
+        "l0": {"kind": "load", "from": "out/l0", "value": "harvest.l0"},
+        "m": {"kind": "op", "op": "mean", "of": "l0"}}, ["m"]))
+    assert same(engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["m"], made.results["m"])
+    assert refused(root, {"kind": "load", "from": "out/l0", "value": "harvest.latents"}) == (
+        "steps.harvest.value: 'harvest.latents' is in the coordinates of 'sae', a featurizer of out/l0's; load the "
+        "value it encodes and encode it here")
+
+
+def test_a_document_of_loads_and_op_steps_loads_no_weights(engines, root):
+    """T10's P5: a document whose steps are a load and op steps calls no model, so a fresh nnterp engine stays the
+    meta shell it loads as (the tokenizer and the config, no weights) and gives the numbers of an engine that has
+    its weights, to the bit; a document with a forward loads them before its first step."""
+    from clab.engines import load as load_engine
+
+    plan = written(root, "mean_of_loaded", loading(corpus("pca_harvest"), {
+        "acts": LOAD, "m": {"kind": "op", "op": "mean", "of": "acts", "over": ["rows", "pos"]}}, ["m"]))
+    fresh = load_engine("nnterp", plan.model)
+    shell: Any = fresh.model
+    filled = fresh.execute(plan, batch_size=BATCH_SIZE)
+    assert not shell.dispatched and filled.run is not None and filled.run.devices == ["meta"]
+    assert same(filled.results["m"], engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["m"])
+    fresh.execute(plan_of("patching"), batch_size=BATCH_SIZE)
+    assert shell.dispatched and not any(p.requires_grad for p in shell.parameters())
+
+
+def test_a_document_of_loads_and_op_steps_under_a_device_map_loads_the_weights(root):
+    """Under a device map (`auto`) only the loaded weights say where the run's tensors go, so a document of loads and
+    op steps loads them before its first step and its load's value goes where the map put the first parameter, where
+    the meta shell's device, `auto`, is no torch device and the load step crashed in `Tensor.to`."""
+    from clab.engines import load as load_engine
+
+    plan = written(root, "mean_of_loaded_auto", loading(corpus("pca_harvest"), {
+        "acts": LOAD, "m": {"kind": "op", "op": "mean", "of": "acts", "over": ["rows", "pos"]}}, ["m"]))
+    filled = load_engine("nnterp", plan.model, "auto").execute(plan, batch_size=BATCH_SIZE)
+    assert filled.run is not None and filled.run.devices == ["cpu"]

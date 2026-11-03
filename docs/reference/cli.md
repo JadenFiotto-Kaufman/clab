@@ -15,7 +15,7 @@ Every command exits 0 on success. A refusal or error that clab reports is printe
 ## `clab run`
 
 ```text
-clab run [--engine {nnterp,hooks,ndif}] [--out OUT] [--batch-size N] [--padding dataset|batch|sorted] [--device D] [-o KEY=VALUE ...] DOCUMENT
+clab run [--engine ENGINE] [--out OUT] [--batch-size N] [--padding dataset|batch|sorted] [--device D] [-o KEY=VALUE ...] DOCUMENT
 ```
 
 Compiles the document, loads the engine, runs every step, and writes the output directory.
@@ -23,7 +23,7 @@ Compiles the document, loads the engine, runs every step, and writes the output 
 | argument | default | meaning |
 |---|---|---|
 | `DOCUMENT` | required | the document's JSON file. Data paths and bundles resolve against the nearest directory above it that holds `data/` |
-| `--engine` | `nnterp` | the engine: `nnterp`, `hooks` or `ndif` ([engines.md](../usage/engines.md)) |
+| `--engine` | `nnterp` | the engine: `nnterp`, `hooks`, `ndif`, or one registered beside them ([engines.md](../usage/engines.md)); another name is refused by name |
 | `--out` | `out/<document file name>` in the current directory | the output directory, created when missing and never cleared |
 | `--batch-size` | `8` | how many rows go through the model per forward or generation call; a positive integer |
 | `--padding` | `dataset` | how each batch is padded: `dataset`, to the input's longest row, the exact run; `batch`, to its own longest row; `sorted`, the rows batched longest first, each batch to its own longest row, every value put back in row order ([running.md](../usage/running.md#batch-size-and-reproducibility)) |
@@ -48,11 +48,12 @@ clab: -o device: it is given as --device
 clab: -o batch_size: it is given as --batch-size
 clab: -o padding: it is given as --padding
 clab: -o 'foo': an option is KEY=VALUE
+clab: unknown engine 'bogus'; valid: nnterp, hooks, ndif
 clab: the nnterp engine takes no 'foo'; its options: tp (where the model runs is `device`, given as --device)
 clab: tp 2 shards the model over 2 processes, one per rank, that torchrun starts: `torchrun --nproc-per-node=2 --no-python clab run <document> -o tp=2`; this process is not one of them (WORLD_SIZE is unset)
 ```
 
-Offline, a checkpoint whose `revision` the cache lacks is refused as the engine loads it: `clab: model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first (…)`.
+Offline, a checkpoint whose `revision` the cache lacks is refused as the engine loads it (the nnterp engine's weights, and a model key its loader rejects, at the first run that calls the model): `clab: model.key '<key>' at revision '<revision>': the nnterp engine cannot load it: HF_HUB_OFFLINE is set and the Hugging Face cache lacks it, or part of it; fetch it online first (…)`.
 
 On success it prints one line naming the run with its engine options, one line per saved file (the file, the step that made it, the value's shape, counted over its points when swept) and the manifest's path:
 

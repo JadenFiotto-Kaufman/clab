@@ -16,7 +16,7 @@ clab is a pipeline over one piece of data, the `Plan`: a JSON document becomes a
 document.json
   Plan(path)              clab/plan.py       the records, validated as written
   plan.compile()          clab/compile/      names, sweeps, rows, bundles, axes, who serves whom; no model
-  load(name, plan.model)  clab/engines/      the checkpoint loaded and placed
+  load(name, plan.model)  clab/engines/      the checkpoint loaded and placed, or a shell that loads it in its run
   engine.execute(plan)    clab/engines/      the run opened, in one session
     steps.run(...)        clab/steps/        preflight with the model, then every step at each point that runs
   plan.dump(out)          clab/output/       one file per save, manifest.json and tokens.json

@@ -33,13 +33,21 @@ The operand has an axis the value does not: here it was read at the head and is 
 ## `… holds a different number of positions on each row`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index (pos -1, or {'index': '-3:'}), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index ('index': -1, or '-3:', in the pos, beside its scope if it has one), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on holds a different number of positions on each row, …
 ```
 
 In the first the operand is ragged, in the second the write is: a per-position value from another forward has nothing to pair with on a row whose count differs. A scope with the default index `":"` is ragged (`{"scope": {"text": " is"}}` covers however many tokens the text has on each row), and so are an open slice (`"2:"`) and a frame of every decode call. Give the write and the read a static width (`"index": -1`, or `"index": "-3:"` beside the scope), or reduce the operand to one vector first: a `mean` step's vector, which has no `pos` axis, broadcasts over a ragged write. [positions.md](../usage/positions.md) says which `pos` forms are static.
 
 A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width: `kl` or `js` with it on either side, against another decode read or a prefill read, is refused with the first message. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
+
+## `… has a pos axis, and this write lands beyond the prefill …`
+
+```text
+steps.swapped.interventions.w.ops[0].with: 'clean.r' has a pos axis, and this write lands beyond the prefill: at each decode call it names, as the call runs, on that call's one position, where an operand's positions are not split among the calls; write at one decode call, {'frame': 3, 'index': 0}, with the operand read at that call the same way, an entry per call
+```
+
+A generation's write over decode calls lands at each call as it runs, on that call's one token, and an operand's positions are not handed out one per call: an earlier generation's read over `{"frame": "1:4", "index": ":3"}` cannot be swapped in over the same frame. Write at one call and one position, `{"frame": 3, "index": 0}`, beside a read at that call written the same way, one entry for each call to be written. An operand with no `pos` axis (a `mean` step's vector) broadcasts over every call.
 
 ## `… holds N position(s) per row and the value … holds M`
 

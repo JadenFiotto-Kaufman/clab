@@ -22,11 +22,12 @@ OURS = ("kind", "model.key", "model.revision", "model.dtype", "component", "laye
 
 def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None, site: Site | None = None,
            width: int | None = None, document: str | None = None, reads: Site | None = None,
-           kept: dict[str, list[int]] | None = None) -> dict[str, str]:
+           kept: dict[str, list[int]] | None = None, select: dict[str, Any] | None = None) -> dict[str, str]:
     """A bundle's header: the kind and its header fields (with their defaults, and what the kind takes an unstated
     one to be, `unstated`; a probe's classes as its class list), the model, and, when written, the site it was
-    used at (its `layer` the one int, or the list, of the layers it was made at, counted from the first), its
-    width and the document's name, the site it read its input at when that was another (`reads`, a
+    used at (its `layer` the one int, or the list, of the layers it was made at, counted from the first; where the
+    site selects, the indices its `select` kept on each axis, `select`, a JSON object as a record's `kept` holds
+    them), its width and the document's name, the site it read its input at when that was another (`reads`, a
     cross-site adapter's `with`: `with.component`, `with.layer`), and for a gate over axes the indices it keeps on
     each of them but `layers`, which `layer` records (`kept`: `kept.<axis>`, a JSON list)."""
     params = registry.signature(KINDS[kind]).parameters
@@ -39,6 +40,7 @@ def header(kind: str, fields: dict[str, Any], model: Model, labels: list | None,
     if site is not None:
         found.update({"component": site.component, "layer": str(site.layers), "width": str(width),
                       "document": str(document)})
+        found.update({"select": json.dumps(select)} if select else {})
     if reads is not None:
         found.update({"with.component": reads.component, "with.layer": str(reads.layers)})
     found.update({f"kept.{axis}": json.dumps(v) for axis, v in (kept or {}).items() if axis != "layers"})
@@ -55,6 +57,13 @@ def recorded(layer: str | None) -> list[int | None]:
     except ValueError:
         return []
     return [found] if isinstance(found, int) else found if isinstance(found, list) else []
+
+
+def selection(header: dict[str, str]) -> dict[str, Any]:
+    """The indices a bundle's site kept on each axis it selects, as its header's `select` records them; none, the
+    whole component, where the header has no `select`: one made at a site that selects nothing, or before headers
+    recorded a selection, which is taken to be the whole component."""
+    return json.loads(header.get("select") or "{}")
 
 
 def load(root: str, kind: str, fields: dict[str, Any], model: Model, labels: list | None

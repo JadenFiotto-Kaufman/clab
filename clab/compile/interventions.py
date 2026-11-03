@@ -103,7 +103,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
     follows an op that changed the layout unless that was an `encode` its `decode` closes, every encode before the
     write-back is closed by then, and on a component of ids (`address.COMPONENTS`' `ids`) the one edit is `swap`,
-    whose ids preflight holds to the model's size and the run to it again as they land. `live` holds the forward's
+    whose ids preflight holds to the model's size and the run to it again as they land; and a write beyond a
+    generation's prefill takes an operand with a `pos` axis only at one decode call and one position (`one_call`),
+    since at each call it lands on that call's one position. `live` holds the forward's
     earlier entries by name (`<step>.<entry>`); `own` names every entry of the step; `where` is this one's name; `at`
     the step's point. Beyond a generation's prefill the leading ops after the last edit that are positionwise, keep
     `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
@@ -168,7 +170,6 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
         tree = bracketed(spec.ops)
     except Unbracketed as e:
         fail(f"{path}.ops[{e.at}]", str(e))
-    nodes = {node["at"]: node for node, _ in visited(tree)}
     around = {node["at"]: list(outer) for node, outer in visited(tree)}
     closes = {node["closed"]: node for node, _ in visited(tree) if node.get("closed") is not None}
     # The entry's labels, which every op's operand meets, and which its record carries: its `layers` None for a
@@ -178,6 +179,10 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
               "layers": None if site.layers is None else list(picks) if picks and min(picks) >= 0 else [],
               "kept": kept_of(cast("dict[str, Selector] | None", site.select)), "width": positions.width(pos)}
     before: dict[int, list[str]] = {}                       # the layout each encode turned into coordinates
+    # The coordinates the value is in as the op before left it: an encode's added, a decode's closed, all of them
+    # left once an op changes the last axis they lie on (a sum over features), as an op step's are.
+    space: list[dict] = []
+    outside: dict[int, list[dict]] = {}                     # the coordinates each encode's value was in before it
     changed = None                                          # the op that changed the layout, which no edit follows
     laid: list[Op] = []                                     # each op with the layout and coordinates of its value
     # The ops after the last edit that run at each call a generation reads the entry beyond its prefill: the leading
@@ -221,8 +226,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                      "step is served in a forward, not inside a generate" if step.kind == "generate" else
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
-        # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.
-        ours = Labelled(dims=dims, space=space_of([n["op"] for n in outer]),
+        # What the op meets: the value as the op before it left it, in its coordinates (a decode's, outside its
+        # encode).
+        ours = Labelled(dims=dims, space=outside[closes[i]["at"]] if i in closes else space,
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
         operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
@@ -234,26 +240,30 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                 fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
                      "is off the model, batch by batch, where an operand is a value made before this step; an "
                      "operand from the same forward is a write's: take the two in an op step after the forward")
+            if i <= last and "pos" in (theirs.dims or []) and step.kind == "generate" and not one_call(pos):
+                fail(f"{here}.{key}", f"{written!r} has a pos axis, and this write lands beyond the prefill: at each "
+                     "decode call it names, as the call runs, on that call's one position, where an operand's "
+                     "positions are not split among the calls; write at one decode call, {'frame': 3, 'index': 0}, "
+                     "with the operand read at that call the same way, an entry per call")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
                            adapts(plan, o))
             if why:
                 fail(f"{here}.{key}", why)
         if i in closes:
-            dims = before[closes[i]["at"]]
+            dims, space = before[closes[i]["at"]], outside[closes[i]["at"]]
         elif o.op == "encode":
-            before[i] = dims
-            dims = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
+            before[i], outside[i] = dims, space
+            dims, space = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind), \
+                space + space_of([o])
         else:
             out = layout(here, o.op, args, dims, "live" if i <= last else "entry", kind)
             changed = o.op if out != dims and changed is None else changed
-            dims = out
+            dims, space = out, space if out[-1:] == dims[-1:] else []
         if i > last and each:
             each = ops.DECLARED[o.op]["positionwise"] and "pos" in dims and "rows" in dims and \
                 not any("pos" in (theirs.dims or []) for _, theirs in operands.values())
             per_call += each
-        open_after = outer + [nodes[i]] if o.op == "encode" else outer
-        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims,
-                       space=space_of([n["op"] for n in open_after])))
+        laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims, space=space))
     unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
     if any(n["at"] < last for n in unclosed):
         j = max(n["at"] for n in unclosed if n["at"] < last)
@@ -262,7 +272,16 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
-                        space=space_of([n["op"] for n in unclosed]), per_call=per_call)
+                        space=space, per_call=per_call)
+
+
+def one_call(pos: dict) -> bool:
+    """Whether a generation's entry names the prefill alone, or one decode call and one position, the call's own:
+    a write there meets an operand's positions as a forward's does, where a write over several calls meets one
+    position at each."""
+    holds, calls, _ = positions.reach(pos)
+    return positions.prefill_only(pos) or not holds and calls is not None and len(calls) == 1 and \
+        positions.width(pos) == 1
 
 
 def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:

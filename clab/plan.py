@@ -550,7 +550,8 @@ class Op(Record):
     dims: list[str] | None = derived(None, "the layout of the op's value, at each layer the entry is made at (the "
                                            "op after it meets it; the first meets the site's selection)")
     space: list[dict] = derived([], "the coordinates the op's value is in: the encodes open after it, outermost "
-                                    "first, each its `featurizer` and `select`; none in the site's own layout")
+                                    "first, each its `featurizer` and `select`; none in the site's own layout, and "
+                                    "none once an op changed the last axis they lie on (a sum over features)")
 
     @model_validator(mode="after")
     def _arguments(self) -> "Op":
@@ -587,7 +588,8 @@ class Labelled(Record):
                                                   "whole, and `[]` stands until preflight resolves a slice or a "
                                                   "negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
-                                    "first, each its `featurizer` and `select`; none for the site's own layout")
+                                    "first, each its `featurizer` and `select`; none for the site's own layout, and "
+                                    "none once an op changed the last axis they lie on (a sum over features)")
     axes: list[str] = derived([], "the sweep axes the value depends on, in axis order: the sweeps on its own entry "
                                   "(its site, its positions, an op's literal argument), those of every value or "
                                   "featurizer its ops name, and, for an entry of a forward, the forward's "
@@ -752,11 +754,11 @@ class Forward(Record):
     longest row; under `batch` each padded to its own longest row; under `sorted` the rows longest first, each
     batch padded to its own, and every value put back in dataset row order. Padding is never a position, so a
     row's `positions` and its `key` axis (as wide as the input's longest row, NaN past the row's own keys) are the
-    same under each. At the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same bits) a
-    row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
-    depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
-    narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
-    most); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
+    same under each. At the thread count the suite pins (`tests/conftest.py`, 12, whose bits 24 threads give too;
+    8 can differ) a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by
+    about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to
+    its own width a narrower one, and either can differ in the last bits (in float32 a forward's values by 6e-8 at
+    most on the tiny corpus, by 3.3e-5, 3.9e-7 relative, on GPT-2 over 2,000 AG News rows); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
     a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
     whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
     batch size, padding and thread count."""
@@ -850,8 +852,10 @@ class Generate(Forward, Labelled):
     holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
     arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
     `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
-    ways), as a call's value and the whole one's differ in shape. Either way a value is the same
-    to the bit.
+    ways), as a call's value and the whole one's differ in shape. On the CPU either way a value is the same
+    to the bit; on CUDA a `token_prob` or `cross_entropy` over GPT-2's 50,257-token vocabulary can differ in its
+    last bits, since torch picks its softmax's kernel by the tensor's outer size, which a call's value and the
+    whole one's differ in.
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
@@ -1081,11 +1085,13 @@ class Axis(Record):
 
 class Run(Record):
     """How a plan ran, set by `execute`: the run options (`engine`, `batch_size`, `padding`, how its batches were
-    padded, one of `data.PADDINGS`, `device`, None where the engine does not place the model, as on an NDIF server,
-    and every engine option after its defaults in `options`), what served it (`versions`: clab's version with its
-    commit, the packages it runs on and python, where the model is: the server's, under `ndif`). `dtype` and
-    `devices` are the
-    distinct dtypes and devices of the model's parameters there, in the order first met (a quantized model's
+    padded, one of `data.PADDINGS`, which a manifest records even where it is the default, `device`, None where the
+    engine does not place the model, as on an NDIF server, and every engine option after its defaults in
+    `options`), what served it (`versions`: clab's version with its commit, the packages it runs on and python,
+    where the model is: the server's, under `ndif`; `threads`, torch's intra-op thread count there at the run's
+    start, which with the batch shape sets a CPU matmul's last bits; null in a record from before it was kept).
+    `dtype` and `devices` are the distinct dtypes and devices of the model's parameters there, in the order first
+    met (a quantized model's
     packed weights among them, `uint8` under `nf4`; every rank's devices under `tp`). `sizes` are the model's
     (`num_layers`, `hidden_size`, `num_heads`, ...), the axes a site's selectors count among: what a saved
     bundle's header records of an axis a site keeps whole. `tokens` describes values without holding any: how
@@ -1102,7 +1108,9 @@ class Run(Record):
     body makes), the input `tokens` they fed, padding included (each call's input ids: a batch's padded prompts, then
     one per row at each decode call), and of those the rows' own, `real` (a generation's rows each fed their generated
     tokens but the last, their EOS or the generation's final one).
-    `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
+    `started` and `seconds` are when the run began and how long it took, the weights' load left out: a shell loads
+    them before the clock starts (the nnterp engine's at its first run that calls the model, ndif's under
+    `remote="local"`; the hooks engine loads its weights when it loads). `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
     batch_size: int
@@ -1110,6 +1118,7 @@ class Run(Record):
     device: str | None
     options: dict[str, Any] = {}
     versions: dict[str, str] = {}
+    threads: int | None = None
     dtype: list[str] = []
     devices: list[str] = []
     sizes: dict[str, int] = {}
@@ -1328,6 +1337,14 @@ def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]
             yield prefix + name, step
             if step.kind == "fit":
                 yield from walk(step.steps, f"{prefix}{name}.")
+
+
+def calls_model(steps: dict[str, Entry]) -> bool:
+    """Whether a run of `steps` needs the model's weights: a forward or a generation, at the root or in a fit's body,
+    or an op step reading the model's own head (`readout`) or its generation config's stop ids (`detokenize`). A
+    document of loads and other op steps needs the tokenizer and the config alone."""
+    return any(step.kind in ("forward", "generate") or step.kind == "op" and step.op in ("readout", "detokenize")
+               for _, step in walk(steps))
 
 
 def declared(plan: Plan, ref: str) -> str:

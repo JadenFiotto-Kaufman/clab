@@ -35,11 +35,11 @@ The logit lens decodes a layer's residual stream through the model's own final n
 clab: steps.f.interventions.x.ops[0]: readout projects a residual-stream value; mlp_norm_output is not one: read one of token_embeddings, layer_input, attention_output, layer_mid, mlp_output, layer_output
 ```
 
-As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers to the bit, and a read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
+As a step, `{"kind": "op", "op": "readout", "of": "f.x"}` over a saved read gives the entry form's numbers to the bit on the CPU (on CUDA the two can differ in the last bits: the entry form projects the selected positions, a matmul of another shape, up to about 5e-5 in a logit on pythia-410m), and a read of another component is refused there the same way (`steps.r.of: 'f.x' is read at mlp_norm_output: ...`).
 
 ## Check the wiring, then trust the lens
 
-At the last layer, `layer_output` through `readout` is what the model itself computes from it, so its lens must equal the model's `logits`. A `kl` of every layer's lens against `logits` checks that in the same forward, and adds the standard summary of the lens: how far each layer's prediction is from the final one. This complete document is that check, plus what each layer would say:
+At the last layer, `layer_output` through `readout` is what the model itself computes from it, so its lens must equal the model's `logits`: to the bit on the CPU, and on CUDA to the last bits of the selected-positions matmul (write both as `readout` steps for a bit-exact check there). A `kl` of every layer's lens against `logits` checks that in the same forward, and adds the standard summary of the lens: how far each layer's prediction is from the final one. This complete document is that check, plus what each layer would say:
 
 ```json
 {
@@ -104,7 +104,7 @@ With `patched.lens` read at `"layers": [1, 0]` and `clean.lens` at `":"`, `shift
 
 - **The last few tokens.** `"pos": {"index": "-3:"}` on both `logits` and `final` lenses each row's last three tokens, the last included. `kl` pairs position with position, and `clab table OUT to_final` prints a line per layer, row and position, its `pos` and `pos_token` saying which token: 8, 9 and 10 (`▁tom`, `orrow`, `▁is`) on row 0, `to_final` 0.0 at layer 1 on each.
 - **Every position.** `"pos": {"index": ":"}` lenses every prompt token. A one-token answer column is then scored at every position of its row, a ragged value NaN past each row's own tokens.
-- **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers, bit for bit, as the `token_prob` step, and holds no vocabulary-wide logits past each batch: `layers × rows × positions × vocab_size` adds up quickly on a real model.
+- **Keep only the score.** `"ops": [{"op": "readout"}, {"op": "token_prob", "token": "prompts.base_answer"}]` inside the entry gives the same numbers as the `token_prob` step, bit for bit on the CPU and to the last bits on CUDA, and holds no vocabulary-wide logits past each batch: `layers × rows × positions × vocab_size` adds up quickly on a real model.
 - **Sublayers.** `attention_output` and `mlp_output` lens what one sublayer writes; `layer_mid` the stream between them.
 - **One layer.** An int `layers` gives a lens without a `layers` axis.
 

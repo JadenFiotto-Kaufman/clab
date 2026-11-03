@@ -123,17 +123,45 @@ def test_a_shared_token_column_means_one_thing_for_both_or_is_refused(engines):
 
 def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
     """A `top_k` over a value with no rows axis is a dict of one list each, and a `pca`'s value a bundle: neither
-    has rows to table, and the refusal says which it is."""
+    has rows to table, and the refusal says which it is. A `top_k` over `rows` (T10's repro) ranks the rows of the
+    value it is over, whose table is where those rows' columns are."""
     filled = run(engines, plan(
         steps={"f": {"kind": "forward", "input": "pairs.input", "interventions": {
                    "logits": logits(), "h": {"site": {"component": "layer_output", "layers": 0}, "pos": -1}}},
                "m": {"kind": "op", "op": "mean", "of": "f.logits"},
                "t": {"kind": "op", "op": "top_k", "of": "m", "k": 2},
-               "b": {"kind": "op", "op": "pca", "of": "f.h", "k": 2}}, saves=["t", "b"]))
+               "b": {"kind": "op", "op": "pca", "of": "f.h", "k": 2},
+               "hmax": {"kind": "op", "op": "max", "of": "f.h", "over": ["pos"]},
+               "top": {"kind": "op", "op": "top_k", "of": "hmax", "k": 3, "over": "rows"}}, saves=["t", "b", "top", "hmax"]))
     with pytest.raises(ValueError, match=r"^'t' has no rows to table: it is laid out \['k'\], a top_k over a value with "
-                                         r"no rows axis, its ids and probabilities one list each; read it from "
+                                         r"no rows axis, its ids, probabilities and tokens one list each; read it from "
                                          r"plan\.results$"):
         filled.table("t")
+    with pytest.raises(ValueError, match=r"^'top' has no rows to table: it is laid out \['hidden_size', 'k'\], a top_k "
+                                         r"over rows, which ranks the rows of 'hmax': its ids and values, the rows it "
+                                         r"ranks first, one list each; read it from plan\.results, and table 'hmax' for "
+                                         r"those rows' columns, its ids being the rows that table numbers$"):
+        filled.table("top")
+    assert len(filled.table("hmax")) == 4
     with pytest.raises(ValueError, match=r"^'b' has no rows to table: it is a bundle \(a pca's value\); read it from "
                                          r"plan\.results$"):
         filled.table("b")
+
+
+def test_a_swept_fits_history_tables_each_points_own_epochs(engines):
+    """T8's repro: a fit swept over `epochs` [0, 2] keeps a history per point, of no epochs and of two, and its table
+    is a row per epoch of each point, labelled with the point, where it ended in a bare StopIteration."""
+    filled = run(engines, plan(
+        sites={"target": {"component": "layer_output", "layers": 0}},
+        featurizers={"lora": {"kind": "lora", "rank": 1, "alpha": 1}},
+        steps={"fit": {"kind": "fit", "train": ["lora"], "objective": {"ce": 1.0}, "epochs": {"sweep": [0, 2]},
+                       "batch_size": 2, "seed": 0, "optimizer": {"name": "adam", "lr": 0.01}, "steps": {
+                           "adapted": {"kind": "forward", "input": "pairs.input", "interventions": {
+                               "adapt": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "fit.lora"}]},
+                               "logits": logits()}},
+                           "ce": {"kind": "op", "op": "cross_entropy", "of": "adapted.logits",
+                                  "target": "pairs.cf_answer"}}}},
+        saves=["fit.history.ce"]))
+    history = filled.results["fit.history.ce"]
+    assert filled.table("fit.history.ce") == [{"at": {"epochs": 2}, "epochs": epoch, "value": history[2][epoch].item()}
+                                              for epoch in (0, 1)]
