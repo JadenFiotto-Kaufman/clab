@@ -127,8 +127,8 @@ def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[s
 
 def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
                  live: Mapping[str, Labelled] | None = None) -> Labelled:
-    """The record of a named value produced before this point, at the consumer's point `at` (an entry of the
-    forward being compiled, among `live`, as it is, noted as a live operand), noted as used."""
+    """The record of a named value produced before this point, at the consumer's point `at`, noted as used (`used`);
+    an entry of the forward being compiled, among `live`, as it is, noted as a live operand instead (`live`)."""
     if live and ref in live:
         cx.live.add(ref)
         return live[ref]
