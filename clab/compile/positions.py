@@ -356,25 +356,33 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
 
 
 def indices(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
-            tokenizer: PreTrainedTokenizerBase) -> list[list[int] | str]:
+            tokenizer: PreTrainedTokenizerBase, alike: dict[tuple, list] | None = None) -> list[list[int] | str]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
-    scope before a prompt token where a generation's prefill computes no head) does not reach it, the marker."""
+    scope before a prompt token where a generation's prefill computes no head) does not reach it, the marker. The
+    rows' positions depend on the step's input and the record's `pos` and head alone, so records alike in those
+    resolve once (`alike`, by them: preflight's, over one scope's steps) and hold the one resolution."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
-    pos = parse(record.pos)
+    pos, head_only, write = parse(record.pos), head(step, record), writes(record)
+    why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
+        "that is all call 0 holds of it" if head_only else ""
+    key = (step.dataset, data.input_name(step.input), repr(record.pos), head_only)
+    known = (alike or {}).get(key)
     found: list[list[int] | str] = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
-        why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
-            "that is all call 0 holds of it" if head(step, record) else ""
         try:
-            got = place(pos, row, enc, [], tokenizer, head(step, record))
+            got = known[i] if known is not None else place(pos, row, enc, [], tokenizer, head_only)
         except ValueError as e:
             raise ValueError(f"{where}: row {i}: {e}{why}") from None
-        if writes(record) and got == MISSING:
+        if write and got == MISSING:
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              f"one to write{why}")
         found.append(got if isinstance(got, str) else list(got))
+    if known is not None:
+        return known
+    if alike is not None:
+        alike[key] = found
     return found
 
 

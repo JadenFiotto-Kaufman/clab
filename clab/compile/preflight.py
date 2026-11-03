@@ -113,6 +113,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
     found = Found(swap=swap, root=root or {})
+    alike: dict[tuple, list] = {}           # each distinct prefill resolution, which records alike share
     for name, entry in steps.items():
         for step in points(entry):
             if step.kind == "fit":
@@ -172,7 +173,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 pos = positions.parse(record.pos)
                 resolved_ = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                    resolved_ = indices(where, record, step, rows, encoded, tokenizer)
+                    resolved_ = indices(where, record, step, rows, encoded, tokenizer, alike)
                     record.positions = {**record.positions, swap.get(step.dataset, step.dataset): resolved_}
                     counts = {len(p) if isinstance(p, list) else 0 for p in resolved_}     # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
