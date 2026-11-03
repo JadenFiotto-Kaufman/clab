@@ -73,7 +73,7 @@ def sizes(model: StandardizedTransformer) -> dict[str, int]:
 
 # nnterp's reason for a dense MLP's values at a block whose MLP is a mixture of experts (`nnterp.components.moe`
 # `ROUTED`), which points at nnterp's own `Moe` component; clab names that component's values, so it says which of
-# them, and of the MLP's, the engine serves there instead (`mixture`).
+# them, and of the MLP's, the engine serves there instead (`own`).
 ROUTED = "routed experts; read per-expert via the Moe component"
 
 # clab's reason for a mixture's value on a model none of whose blocks has one, which nnterp's answer does not name.
@@ -81,7 +81,7 @@ DENSE = "no block of this model has a mixture of experts"
 
 # clab's reason for a mixture's value on a model nnterp has no family for and reads under its default one, which
 # names no mixture's values but says a block's MLP is a mixture (`nnterp.families.default.MIXTURE`, its reason for
-# the activation there); `mixture` adds what the engine serves of the MLPs.
+# the activation there); `own` adds what the engine serves of the MLPs.
 UNADDRESSED = ("nnterp has no family for this architecture (it reads the model under its default family), so its "
                "mixture of experts is not addressed")
 
@@ -116,26 +116,21 @@ def unserved(shell: StandardizedTransformer) -> dict[str, str | dict[int, str] |
 
 def own(answer: dict[str, str | dict[int, str] | None]) -> dict[str, str | dict[int, str] | None]:
     """An engine's `answer` (`unserved`'s, or the engine's own from it) with clab's reason where nnterp's sends the
-    reader to its `Moe` component (`ROUTED`), or where nnterp's default family leaves a mixture unaddressed
-    (`UNADDRESSED`): `mixture`, which names what the engine's answer serves there."""
+    reader to its `Moe` component (`ROUTED`): that a mixture has no single activation or down projection; or where
+    nnterp's default family leaves a mixture unaddressed (`UNADDRESSED`); each naming the MLP's components, its
+    routing and experts', the answer serves at that block (at every block, for a value refused at all)."""
     def said(why: str, layer: int | None) -> str:
-        return mixture(answer, layer, why) if why in (ROUTED, UNADDRESSED) else why
+        if why not in (ROUTED, UNADDRESSED):
+            return why
+        mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp") and (
+            (r := answer[c]) is None or isinstance(r, dict) and layer is not None and not r.get(layer))]
+        named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
+        if why == UNADDRESSED:
+            return f"{UNADDRESSED}; its MLPs are served as {named}"
+        return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
+                f"block {layer} its MLP is served as {named}")
     return {c: {layer: said(why, layer) for layer, why in refused.items()} if isinstance(refused, dict) else
             refused and said(refused, None) for c, refused in answer.items()}
-
-
-def mixture(answer: dict[str, Any], layer: int | None, why: str = ROUTED) -> str:
-    """clab's reason, in place of `why`, for a value at block `layer` (None: at every block) whose MLP is a mixture of
-    experts: for a dense MLP's value (nnterp's `ROUTED`) that a mixture has no single activation or down projection,
-    for a mixture's own value under nnterp's default family `UNADDRESSED`; and the MLP's components, its routing and
-    experts', the engine's `answer` serves there."""
-    mlp = [c for c in COMPONENTS if (c.startswith("mlp_") or host(c) == "mlp")
-           and (answer[c] is None or isinstance(answer[c], dict) and layer is not None and not answer[c].get(layer))]
-    named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
-    if why == UNADDRESSED:
-        return f"{UNADDRESSED}; its MLPs are served as {named}"
-    return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
-            f"block {layer} its MLP is served as {named}")
 
 
 def served(component: str, refused: str | dict[int, str] | None, num_layers: int) -> list[int | None]:
