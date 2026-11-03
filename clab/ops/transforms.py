@@ -136,7 +136,7 @@ def ranking(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
     return [a for a in dims if a != over]
 
 
-def ranking_k(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def ranking_k(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k`"""
     return ranking(dims, args) + ["k"]
 

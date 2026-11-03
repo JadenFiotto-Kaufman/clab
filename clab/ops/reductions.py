@@ -96,7 +96,7 @@ def std(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 COUNTED = ("pos",)
 
 
-def counted(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def counted(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `pos`, and with them every axis but `layers`, `rows` and `pos`: one
     count per position of those it keeps (a read's count over `pos` is one number per row)."""
     over = COUNTED if args.get("over") is None else args["over"]
@@ -128,7 +128,7 @@ def count(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
 FEATURES = ["hidden_size"]
 
 
-def featured(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def featured(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `hidden_size`, which a value without one names in `over`."""
     if args.get("over") is None and FEATURES[0] not in dims:
         raise ValueError(f"it reduces over {FEATURES[0]} unless 'over' names the axes, and the value is laid out "
@@ -170,7 +170,7 @@ def dot(of: Tensor, with_: Value, dims: list[str], over: list[str] | None = None
 OUTCOMES = ("vocab_size", "num_experts")
 
 
-def distributed(dims: list[str], args: dict, kind: str | None = None) -> list[str]:
+def distributed(dims: list[str], args: dict, kind: str | None) -> list[str]:
     """Removes the axes `over` names, by default `vocab_size` where the value has it, else `num_experts`; a value with
     neither names them in `over`."""
     if args.get("over") is None and not set(OUTCOMES) & set(dims):
