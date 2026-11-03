@@ -191,10 +191,8 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
     point of a sweep names the point after the document path (`index="-2:"`). A load declares each sweep its value
     depends on that the document does not, with the label and values the run swept it over (`cx.values`, which the
     compiled plan's `sweeps` are), and is refused by name where the document sweeps that label over other values."""
-    own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
-    inherited = {a for ref in referenced_names(cx, get(cx.doc, where))
-                 for a in cx.axes_of.get(ref.partition(".")[0], [])}
     spec = get(cx.doc, where)
+    inherited = {a for ref in referenced_names(cx, spec) for a in cx.axes_of.get(ref.partition(".")[0], [])}
     if where[0] == "steps" and spec["kind"] == "load":          # a saved value's own axes, which its run recorded
         src, d = saved_value_record(cx, f"steps.{name}", spec["from"], spec["value"])
         for label in d["axes"]:
@@ -204,7 +202,7 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
                      f"and this document sweeps {label!r} over {cx.values[label]}; a load declares the sweeps its "
                      "value depends on, and a sweep of this document under the same label has the same values")
         inherited |= set(d["axes"])
-    labels = [label for label in cx.values if label in own or label in inherited]
+    labels = in_axis_order(cx, labels_under(cx, *footprint(cx, where)) | inherited)
     cx.axes_of[name] = labels
     built = []
     for index in itertools.product(*(range(len(cx.values[label])) for label in labels)):
