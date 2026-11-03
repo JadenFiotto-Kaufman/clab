@@ -1,6 +1,6 @@
 ---
 title: Data and Inputs
-one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, take, columns (renamed or derived) and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
+one_liner: "Declaring datasets and inputs: file, inline and hub rows; split, shuffle, skip, take, columns (renamed or derived) and template; text and chat inputs; list inputs for teacher forcing; answer columns with strip, lower and sets."
 tags: [usage, data, inputs, chat]
 related: [docs/usage/writing-a-document.md, docs/usage/positions.md, docs/usage/ops.md, docs/usage/generate.md, docs/usage/fit.md, docs/usage/running.md, docs/usage/output.md, docs/patterns/generation-experiments.md]
 sources: [clab/format/data.py, clab/plan.py, clab/compile/__init__.py]
@@ -56,13 +56,14 @@ A dataset has exactly one source; giving two is refused.
 
 ## Narrowing and renaming rows
 
-The four fields apply in this order: `split`, `shuffle`, `take`, `columns`.
+The five fields apply in this order: `split`, `shuffle`, `skip`, `take`, `columns`.
 
 | field | does | refused |
 |---|---|---|
 | `split` | a file: keeps the rows whose `split` column equals it; the hub: which split | on inline rows; a split no row has |
 | `shuffle: true` | one fixed random order, the same on every machine (below) | — |
-| `take: N` | keeps the first N rows; after `shuffle`, a random sample of N | N beyond the rows there are |
+| `skip: N` | drops the first N rows; with `take`, a shard of the order (`"skip": 20000, "take": 10000` is rows 20,000 to 29,999) | N that leaves no row; a negative N |
+| `take: N` | keeps the first N of the rows left; after `shuffle`, a random sample of N | N beyond the rows there are (after `skip`) |
 | `columns` | `{"<new name>": "<column as the source has it>"}` renames columns; `{"<new name>": {"from": "<column>", "after"?, "before"?, "strip"?}}` derives one ([below](#a-column-cut-from-another)) | a source the rows lack; a new name that is a column the rows keep; a derived column's text absent on a row |
 
 A renamed column is no longer under its old name: in the example, `days.input` is refused and `days.prompt` is the column. Renaming lets one file serve under another dataset's column names, which a fit's `eval` substitution needs ([fit.md](fit.md)). A swap, `{"a": "b", "b": "a"}`, is allowed, since neither old name is kept. A rename into a name the steps read changes what they read, unrefused: on `weekdays/train`, `{"input": "entity", "prompt": "input"}` runs every `pairs.input` step on the entity alone (`<s> ▁Friday` on row 1); check `run.tokens` after renaming.
@@ -86,7 +87,7 @@ A `columns` entry that is an object derives a column from another column's text,
 order = sorted(range(n), key=lambda i: hashlib.blake2b(repr((0, i)).encode(), digest_size=8).digest())
 ```
 
-which gives each shuffled row in turn as its index among the rows before `shuffle` (after `split`); `take: N` then keeps the first N.
+which gives each shuffled row in turn as its index among the rows before `shuffle` (after `split`); `skip: S` then drops the first S of that order, and `take: N` keeps the next N. A harvest too large for one run is made in shards this way, each saved and loaded by its own document ([cached-harvest.md](../patterns/cached-harvest.md#a-harvest-in-shards)).
 
 ## Inputs
 

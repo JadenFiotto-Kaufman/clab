@@ -16,7 +16,7 @@ Exact names: the generated spec first, then the command line, the Python API and
 [FORMAT.md](../../FORMAT.md), generated from the code by `clab describe --markdown`, section by section:
 
 - [root keys and records](../../FORMAT.md#root-keys) — the root keys, then the fields of every record a document is made of, the [`pos`](../../FORMAT.md#pos) grammar among them.
-- [step kinds](../../FORMAT.md#step-kinds) — `forward`, `generate`, `op` and `fit`, each with its fields.
+- [step kinds](../../FORMAT.md#step-kinds) — `forward`, `generate`, `op`, `fit` and `load`, each with its fields.
 - [derived fields](../../FORMAT.md#derived-fields) — the fields a document leaves out, which compile, preflight and the run fill in: each value's layout, labels and sweep `axes`, each entry's `positions`, each forward's `schedule`.
 - [ops](../../FORMAT.md#ops) — every op's arguments and what it does to the axes, grouped as metrics, reductions, edits and transforms.
 - [components](../../FORMAT.md#components) — every component a site can name, its layout, and the axes `select` narrows.

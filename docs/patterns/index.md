@@ -1,6 +1,6 @@
 ---
 title: Patterns Index
-one_liner: "One interpretability technique per page, each built on a corpus document: patching, attribution patching, ablation, expert ablation, attention, logit lens, steering, generation, trained subspaces, head masking, SAEs, probes and LoRA."
+one_liner: "One interpretability technique per page, each built on a corpus document: patching, attribution patching, ablation, expert ablation, attention, logit lens, steering, generation, trained subspaces, head masking, SAEs, probes, LoRA and cached harvests."
 tags: [patterns, index]
 related: [docs/index.md, docs/usage/index.md]
 ---
@@ -33,3 +33,4 @@ One technique per page, each built on a document under `documents/`; the usage p
 - [sae](sae.md) — Sparse autoencoders: splice a published JumpReLU or TopK dictionary in, ablate features through encode and decode, check its L0, and train a dictionary inside a run.
 - [probing](probing.md) — Linear probes: train a linear featurizer on a label column, score its classes with the same metrics as logits, sweep layers to see where a variable is decodable against the floor of an untrained probe, and train many probes in one fit.
 - [lora](lora.md) — Low-rank adapters: train a LoRA through the frozen model to change an answer, apply it as a named intervention in some steps and not others, and adapt across sites with with.
+- [cached-harvest](cached-harvest.md) — Harvest once, use it many times: save a harvest, bring it into another document with a load step, fit a probe or take a pca on it without a forward, make a large harvest in shards with skip and take, and what must match for a load to compile.

@@ -86,7 +86,7 @@ A step kind is the widest change: the kind is dispatched in each stage.
 
 - `clab/plan.py`: a `Record` subclass with `kind: Literal["<kind>"]` (a `Labelled` one where the step has a value of its own, whose record carries that value's layout and `axes`), its entry in `KINDS`, and a tagged member of the `Step` union; `serving` says which of its points run.
 - `clab/compile/__init__.py` `step`: the function that compiles it, writing its records' layout and the sweep axes each value depends on.
-- `clab/compile/preflight.py` `prepare`: what it checks with the model (any kind but `op` and `fit` is prepared as a forward, and its serving points' `schedule` written by `clab/compile/schedule.py` `scheduled`).
+- `clab/compile/preflight.py` `prepare`: what it checks with the model (a kind without a branch of its own there, as `op`, `fit` and `load` have, is prepared as a forward, and its serving points' `schedule` written by `clab/compile/schedule.py` `scheduled`).
 - `clab/steps/__init__.py` `KINDS`: the function that runs it, called as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls it makes and the tokens they feed to `cost`; a fit's body runs through the same table.
 - The rest of the code that branches on a step's kind: `grep -rn 'kind ==' clab/`.
 

@@ -205,10 +205,11 @@ def markdown() -> str:
               "document decides; preflight, with the model in hand, completes the same records in place (a `layers` or "
               "`kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the "
               "manifest holds the records as the run completed them.\n",
-              f"- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): {', '.join(labels)}\n"
+              f"- A value's record (`Intervention`, `OpStep`, `Load`, and a `Generate`'s own value): "
+              f"{', '.join(labels)}\n"
               + "\n".join(f"- `{model.__name__}`: {', '.join(own(model))}"
                           for model in (plan.Plan, plan.Data, plan.Intervention, plan.Op, plan.Forward, plan.Generate,
-                                        plan.OpStep, plan.Featurizer) if own(model)) + "\n"]
+                                        plan.OpStep, plan.Load, plan.Featurizer) if own(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:
         parts += [f"### {group.capitalize()}\n",

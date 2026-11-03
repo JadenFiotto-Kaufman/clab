@@ -24,7 +24,7 @@ A plan's `repr`, which `print` gives too, says how far it has gone: `Plan(patchi
 `Plan(path)` reads the JSON and checks only each record's own shape: its fields and their types, the `pos` grammar, a site's narrowing, step kinds, names without dots. It also refuses `generate` options that would change the rows, such as `num_beams`. Nothing but the document is read.
 
 ```text
-steps.iia: unknown step kind 'opp'; valid: forward, generate, op, fit
+steps.iia: unknown step kind 'opp'; valid: forward, generate, op, fit, load
 ```
 
 ## 2. Compile: the document and its files
