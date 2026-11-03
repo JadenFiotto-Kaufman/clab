@@ -139,8 +139,8 @@ def call_of(position: int, prompt: int) -> int:
     return 0 if position < prompt else position - prompt + 1
 
 
-def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple] = (),
-                 encoded: dict = EMPTY_PROMPT) -> list[int]:
+def scope_tokens(scope: dict | None, tokens: list[int], occurrences: list[set[int]], texts: Sequence[tuple],
+                 encoded: dict) -> list[int]:
     """Stage two: the tokens of the occurrences `occurrence` picks among those of the scope's text (or its
     role's messages) among `tokens`, in order; under `until`, every token of `tokens` up to the last of theirs,
     and every one where the row has fewer occurrences than it picks. Under `before` an occurrence beginning the row

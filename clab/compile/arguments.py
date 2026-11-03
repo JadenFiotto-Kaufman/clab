@@ -182,7 +182,7 @@ def narrowed_vocabulary(ours: Labelled, name: str, key: str, written: str) -> st
 
 
 def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str, mine: str, write: bool,
-             forward: bool, adapter: bool = False) -> str | None:
+             forward: bool, adapter: bool) -> str | None:
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
