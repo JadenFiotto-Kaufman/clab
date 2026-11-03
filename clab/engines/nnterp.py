@@ -18,8 +18,9 @@ bit-equal to unsharded ones, since a sharded matmul sums its parts in another or
 agree with `tp` 1 to that rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can
 flip a greedy generation's near-tie token too).
 
-The engine holds its model and nothing else: inside the session the engine and its model are the only
-client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
+The engine holds its model and its configuration (the sizes it read off the model at load) and nothing else: inside
+the session the engine and its model are the only client-side objects, and nnsight ships every name a block closes
+over to wherever the block runs.
 """
 
 import os
@@ -50,6 +51,7 @@ class NnterpEngine:
     remote: bool | str = False      # what the session's `remote=` is: the ndif engine's option
     stops: bool = True              # a forward ends right after the schedule's stop site (`tracer.stop()`)
     order: dict[tuple[str, int | None], tuple[int, int]] | None = None     # under tp, measured on a meta shell
+    config: dict[str, Any]          # what it read off the model at load: its `sizes`
 
     def __init__(self, model: Model, *, device: str = "cpu", tp: int = 1) -> None:
         """The checkpoint `model` pins, in its dtype (`loading`), placed by `device` (`placing`) or sharded over
@@ -66,6 +68,7 @@ class NnterpEngine:
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
+        self.config = {"sizes": standard.sizes(self.model)}
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
@@ -165,7 +168,9 @@ class NnterpEngine:
         return self.model.rank(nnterp_name(component), layer)
 
     def sizes(self) -> dict[str, int]:
-        return standard.sizes(self.model)
+        """The model's sizes (`standard.sizes`), read off it once, at load: preflight asks for them per entry and
+        the run per batch, and nnterp's own walk the config and the blocks each time."""
+        return self.config["sizes"]
 
     def forward(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> dict[str, Tensor]:
         """One trace over the batch, its one forward call done as `visited` says up to the schedule's stop site

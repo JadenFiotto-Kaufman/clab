@@ -21,7 +21,7 @@ from typing import Literal
 import torch
 from nnterp import StandardizedTransformer
 
-from clab.engines import engine
+from clab.engines import engine, standard
 from clab.engines.nnterp import NnterpEngine
 from clab.engines.standard import build, loading, placing
 from clab.plan import QUANTIZED, Model
@@ -55,6 +55,7 @@ class NdifEngine(NnterpEngine):
         loaded = loading(model, "ndif", device)
         self.model = build(model, "ndif", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=False, **placing(model, device), **loaded, **extra))
+        self.config = {"sizes": standard.sizes(self.model)}         # the shell's, the checkpoint's
 
     def ready(self) -> None:
         """The nnterp engine's, and under `remote="local"` the shell's weights, loaded here, frozen as the nnterp
