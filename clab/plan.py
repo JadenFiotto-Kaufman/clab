@@ -1108,7 +1108,9 @@ class Run(Record):
     body makes), the input `tokens` they fed, padding included (each call's input ids: a batch's padded prompts, then
     one per row at each decode call), and of those the rows' own, `real` (a generation's rows each fed their generated
     tokens but the last, their EOS or the generation's final one).
-    `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
+    `started` and `seconds` are when `execute` began and how long it took, a shell's weight load included where
+    the run made it (the nnterp engine's at its first run that calls the model, ndif's under `remote="local"`; the
+    hooks engine loads its weights when it loads). `stopped` is why the run ended before its last step, when it did (a CUDA out-of-memory at a step: the
     refusal, naming the step and what the run held), its `results` and `costs` those of the steps that finished."""
     engine: str
     batch_size: int

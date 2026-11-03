@@ -77,7 +77,7 @@ class NnterpEngine:
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
-        model `ready` first; the results, the run record and the records as the run completed them (each value's
+        model `ready` first where the run calls it or a device map places it; the results, the run record and the records as the run completed them (each value's
         labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
