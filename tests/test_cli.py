@@ -136,6 +136,19 @@ def test_a_reader_that_goes_away_ends_show_quietly(out, monkeypatch):
     monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w"))
     assert main(["show", out]) == 0
 
+
+@pytest.mark.parametrize("command", [["show"], ["table", "p_answer"]])
+def test_a_reader_that_goes_away_mid_print_ends_the_command_quietly(out, monkeypatch, capsys, command):
+    """`clab show OUT | head`, the reader gone while `show` prints more than the pipe holds: the write fails inside
+    the command, which still returns 0 and says nothing on stderr, where it said `clab: [Errno 32] Broken pipe`
+    (a broken pipe is an OSError, which the command refuses in one line). A line-buffered stdout makes the first
+    line's write fail as a full pipe's would."""
+    reading, writing = os.pipe()
+    os.close(reading)
+    monkeypatch.setattr(sys, "stdout", os.fdopen(writing, "w", buffering=1))
+    assert main([command[0], out, *command[1:]]) == 0
+    assert capsys.readouterr().err == ""
+
 def test_the_cli_refuses_what_run_cannot_do_in_one_line(tmp_path, capsys):
     """A missing document, a device that is no torch device, a CUDA device where none is visible (the suite runs
     with none) and a batch size below 1 are each one `clab:` line and exit status 1."""

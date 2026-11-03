@@ -257,6 +257,8 @@ def command(args: argparse.Namespace) -> int:
         try:
             filled = Plan.load(args.out)
             print(show(filled) if args.command == "show" else tabulated(filled.table(*args.names), args.csv))
+        except BrokenPipeError:
+            raise                           # an OSError, and no refusal: the reader went away, which `main` ends
         except (ValueError, OSError) as e:
             print(f"clab: {e}", file=sys.stderr)
             return 1
