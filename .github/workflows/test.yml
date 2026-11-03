@@ -50,7 +50,7 @@ jobs:
           ref: ${{ env.NNTERP_COMMIT }}
           path: nnterp
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           python-version: "3.12"
           enable-cache: false
