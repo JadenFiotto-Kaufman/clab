@@ -39,6 +39,7 @@ the model runs (`device`) is a run option, not the document's. The attention int
 - `config: str or null = null`
 - `split: str or null = null`
 - `shuffle: bool = false`
+- `skip: int or null = null`
 - `take: int or null = null`
 - `columns: object of str or derived column or null = null`
 - `template: object of Any or null = null`
@@ -51,10 +52,12 @@ several. A file's and inline rows travel in the compiled plan; a hub dataset's n
 check the document and records their digest, and the run loads them again where it runs (under `ndif`, the
 server) and refuses other rows before any forward. Then, in this order: `split` picks which split of the
 dataset, the hub dataset's split (left out: its only one) or the rows of a file whose `split` column is that;
-`shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
-N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
-it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+`shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `skip` drops the first
+N; `take` keeps the first N of the rest (after `shuffle`, a random sample of N; after `skip` too, a shard of
+one order: `{"shuffle": true, "skip": 20000, "take": 10000}` is the third of 10,000, so a harvest too large
+for one run is made in shards); and `columns` renames them, `{"<name>": "<column as the source has it>"}`,
+each name that column and no longer under its own, every other column as it is (so one file serves a fit's
+`eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
 source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
 which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
 `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
@@ -65,11 +68,12 @@ digest cannot say that the tokens moved with the day. A row is
 JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
 `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
-several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
-rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
-`template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
-template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
+several, none named), and a column of it whose values are not JSON (images, audio, bytes); a `skip` that
+leaves no row, `take` beyond the rows `skip` leaves, a `columns` source the rows lack or a name that is a
+column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a derived column's source that is not text
+on a row or that lacks its text there, a `template` on a dataset no step reads a chat column of, and, before
+any forward, a chat of a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows
+these leave.
 
 ### A derived column
 
@@ -478,11 +482,39 @@ The fit's optimizer, over the trained featurizers' parameters only.
 End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
 scored on the training rows after each epoch.
 
+### `load`
+
+- `from: str`
+- `value: str`
+
+A value an earlier run saved, brought into this document with its record: `from` is that run's output
+directory under the corpus root (where its `manifest.json` is), `value` a name in its `saves`. The step's value
+is that saved value, in the dtype it was saved in, where the model is, and its record is the one the source's
+manifest holds (its layout and labels, the sweep axes it depends on and, where it holds positions, the read they
+are of: that entry's site, `pos` and positions per row, with the input it read), so every step after it treats
+it as the value it was: a fit's body takes its rows by id, an op step reduces it, a featurizer encodes a read's
+value at its site, and `table` labels its positions with this run's tokens of that input, which preflight
+encodes as a forward does. Compile reads the manifest and the file, and refuses by name a directory with no
+manifest, a name it did not save, a source whose `model` block is not this document's (key, revision, dtype and
+every loader key), a dataset the value names whose rows are not, in this document, the rows the source read in
+the same order (its `sha256` and `n_rows` as the source recorded them) or whose chats render with another
+`template`, and a sweep the value depends on that this document declares under the same label over other values.
+A swept value loads at every point of its axes, keyed by them as the run that saved it keyed them: the load
+declares each such sweep this document does not, with the run's label and values, so a value swept over layers
+loads with no other field swept. So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
+`file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
+source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
+tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are
+the value's move to the model's device. The value travels inside the compiled plan, as a bundle's tensors do,
+wherever the run is: under `ndif`, in the request, so a server runs it as `remote="local"` does and reads no
+file of this machine's; a request carries at most 512 MiB of loaded tensors over a document's loads, and a
+document that loads more is refused by name before anything is sent.
+
 ## Derived fields
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
+- A value's record (`Intervention`, `OpStep`, `Load`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, a later entry or step uses it, or a gathered `grad` entry is its gradient), `per_call` (how many of the ops after the entry's last edit a generation runs at each call it reads the entry beyond its prefill, on that call's own value, the rest running once the calls are arranged by position: the leading ones that are positionwise (Ops), keep the `pos` axis and take no operand that has one, up to the first that scores an answer of several tokens, which preflight finds; 0 in a forward and in the prefill), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
@@ -490,6 +522,7 @@ Fields a document leaves out, which compile (or, for `run`, the engine) fills. C
 - `Forward`: `at` (the point's index on each sweep axis it varies over), `dataset` (the dataset whose rows the step's values are aligned to), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
 - `Generate`: `dims` (the layout of the step's own value, its new token ids), `at` (the point's index on each sweep axis it varies over), `schedule` (the forward this point runs, or the point whose forward serves it. A forward depends on the step's options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and their operands), so the points that agree on those axes are served by the forward of the first of them, and each other holds `serving`, that point's coordinates, and nothing else (the points a forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the model in hand, writes at each point that runs its forward the sites the forward visits in the engine's forward order (`sites`: each its component and layer and the records done there in order, a write with its ops up to its last edit and each operand resolved to a producer's name and point or to the name of a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing)
 - `OpStep`: `at` (the point's index on each sweep axis it varies over)
+- `Load`: `at` (the point's index on each sweep axis it varies over), `source` (the read whose positions the value holds, where it holds any: the forward that made it as the source's manifest records it, with that entry alone and its positions under the value's dataset, the entry named as the value's `read` names it (`<this step>.<entry>`)), `loaded` (the value at this point, read from the source's file into a compiled plan that has not run (`loaded_value`), which carries it wherever the run is, in a request too, and the run puts where the model is; never in a document or a manifest)
 - `Featurizer`: `at` (the point's index on each sweep axis it varies over), `bundle` (the tensors of the bundle `file_path` names, checked against its header), `header` (the header of the bundle `file_path` names, which preflight checks the model's width against), `width` (the feature width the featurizer has at the sites it is used at, one for all of them, which preflight finds among the model's sizes (null for one used nowhere; a gate over axes, how many units it has: the product of `kept`'s lengths); a saved bundle's header records it), `kept` (a gate over axes: the indices its units keep on each axis it is over, in `over`'s order (`layers` by model layer), as the sites it is used at select them or its bundle's header records them, which preflight finds; empty for any other featurizer)
 
 ## Ops
@@ -985,7 +1018,10 @@ address and API key are nnsight's own (`nnsight.CONFIG`, or its environment vari
 nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
 forwards run whole, under either `remote` (the engine declares that it does not honour the schedule's stop,
 `stops`): in an NDIF server's model process nnsight keeps a stopped forward's frames, and every activation in
-them, in reference cycles out of the engine's reach, so the stop waits for nnsight to clear them.
+them, in reference cycles out of the engine's reach, so the stop waits for nnsight to clear them. A `load`'s value
+travels in the request, inside the plan, as a bundle's tensors do, under either `remote`, so `remote="local"` runs
+what a server runs and a server reads no file of the client's; a document whose loads hold more than 512 MiB of
+tensors is refused before anything is sent.
 
 ## Names and scoping
 

@@ -16,15 +16,17 @@ class Compiling:
     """What compiling an entry needs beside the entry, passed to every function that resolves a name.
 
     Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
-    document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document order:
+    document path (`sweeps`) and its values by label (`values`, to which a load adds a sweep its value depends on
+    and the document does not declare, in axis order after the document's own). Filled as entries compile, in
+    document order:
     the records compiled so far (`featurizers`, `steps`: a point each, or a list of points), which is where every
     name a later entry references resolves (`plan.record_of`, at the consumer's point), each entry's sweep axes
     (`axes_of`), and every value any entry references (`used`), which decides what the run gathers. A fit's body
     compiles in a copy whose `steps` is its own scope (the root's records, then its own as they compile) and maps
     each featurizer it trains to the name it resolves to there (`aliases`: `rot` is `<fit>.rot`, the instance being
     trained); it shares `axes_of` and `used`. `points` holds each point of the document built so far, by its
-    coordinates (`point`), and `chats` each dataset a step reads a chat column of (shared with a body), which a
-    `template` needs."""
+    coordinates (`point`), `chats` each dataset a step reads a chat column of (shared with a body), which a
+    `template` needs, and `sources` each run a load reads, by its directory, read once (`compile.source`)."""
     doc: dict
     root: str
     rows: dict[str, list[dict]]
@@ -37,6 +39,7 @@ class Compiling:
     aliases: dict[str, str] = field(default_factory=dict)
     points: dict[tuple, Plan] = field(default_factory=dict)
     chats: set[str] = field(default_factory=set)
+    sources: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass

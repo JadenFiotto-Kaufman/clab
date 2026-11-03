@@ -85,6 +85,7 @@ A sweep's label names its axis. Sweeps that share a label pair their points (the
 | one swept site used by two steps, or one swept bundle pulled into two steps | one | each step has the same 2 points |
 | `max_new_tokens` and `min_new_tokens` both over `[2, 6]`, no `label` | two field names | 4, crossed, including `max_new_tokens=2,min_new_tokens=6` |
 | the same with `"label": "n"` on both | `n` | 2, zipped: `n=2`, `n=6` |
+| a `load` of a value the run that saved it swept over `layers`, `[0, 1]` | `layers`, which the load declares where the document does not ([cached-harvest.md](../patterns/cached-harvest.md#what-the-load-checks)) | 2, zipped with a `layers` sweep here over the same values |
 | one label over different values | — | refused |
 
 ```text

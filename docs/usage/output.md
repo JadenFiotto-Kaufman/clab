@@ -1,8 +1,8 @@
 ---
 title: Output
-one_liner: "Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, why tabling needs the data files, the manifest with each record's layout, positions and schedule, and the run record with what each step cost."
+one_liner: "Reading a run back: the files a run writes, clab show and clab table and their columns, plan.table in Python, loading a saved value into another document, why tabling needs the data files, the manifest with each record's layout, positions and schedule, and the run record with what each step cost."
 tags: [usage, output, table, manifest]
-related: [docs/usage/running.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/bundles.md, docs/errors/alignment-missing.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
+related: [docs/usage/running.md, docs/usage/positions.md, docs/usage/sweeps.md, docs/usage/bundles.md, docs/patterns/cached-harvest.md, docs/errors/alignment-missing.md, docs/reference/cli.md, docs/reference/python-api.md, docs/concepts/plan-lifecycle.md]
 sources: [clab/output/__init__.py, clab/output/table.py, clab/plan.py, clab/cli.py]
 ---
 
@@ -52,7 +52,7 @@ patching: run on nnterp, device cpu, tp 1, batch size 8, padding dataset, starte
 The first lines are the run record: the engine, its device and options, the batch size and padding, when it started and how long it took; the dtypes and devices of the model's parameters; and the versions of the packages that ran it. A `stopped:` line follows when a step ran out of CUDA memory ([running.md](running.md#when-a-step-runs-out-of-memory)). Then four parts:
 
 - **What each step cost**, one row per run of a step, at the point that ran it: `serves` lists the points that run served (`—` for itself alone, `all 3 points` for every point of the step), then its seconds, its peak memory on each CUDA device (`—` off CUDA), the model calls it made, the tokens they fed (`tokens`, padding included) and the rows' own of those (`real`). A forward or generation runs once for every set of points that differ only in what they read, so a read-only sweep is one row.
-- **Where each entry resolved**, one row per entry and distinct positions, each row's positions in row order (`[10] on all 4 rows` where every row agrees, `—` for a row the entry did not reach), with the point it is at or how many points share it. Past twelve rows that differ it prints the first three rows', `…`, the last row's and the count (`[8], [8], [10], …, [9] (50,000 rows; clab table shows each)`), and a row of more than twelve positions as its first three and its last (`[0,1,2,…,511]`); `clab table` and the manifest hold every row's.
+- **Where each entry resolved**, one row per entry (a `load`'s, the read it carries) and distinct positions, each row's positions in row order (`[10] on all 4 rows` where every row agrees, `—` for a row the entry did not reach), with the point it is at or how many points share it. Past twelve rows that differ it prints the first three rows', `…`, the last row's and the count (`[8], [8], [10], …, [9] (50,000 rows; clab table shows each)`), and a row of more than twelve positions as its first three and its last (`[0,1,2,…,511]`); `clab table` and the manifest hold every row's.
 - **Each saved value**: the step that made it, its layout (`dims`), the sweep axes it depends on (`axes`) and its shape, counted over its points when swept (`3 points, each [4,1]`; the manifest holds each point's).
 
 From `documents/generate_probe.json`, whose reads sweep three frames of one generation:
@@ -116,6 +116,10 @@ plan.run.costs["patched"]                 # {'seconds': 0.007, 'memory': None, '
 ```
 
 `plan.table` takes the same names and returns a list of dicts; `columns=` replaces the default dataset columns, which the command line cannot do. A swept result is a dict keyed by coordinate; the key's form in each place is in [sweeps.md](sweeps.md#reading-swept-results). A value loaded from JSON is a tensor again where it was one. `Plan.load` needs no data files, but it rebuilds the plan, so a run that loaded a bundle loads only where that bundle's `file_path` resolves ([bundles.md](bundles.md#reading-back-a-run-that-loads-a-bundle)).
+
+## Loading a saved value into another document
+
+A `load` step brings one saved value into another document with its manifest record: `{"kind": "load", "from": "out/patching", "value": "iia"}` is `iia` as the run saved it, with its layout, its dataset, its sweep axes and, for a value that holds positions, the read they are of, so a fit, an op step and `clab table` treat it as the value it was. The run's `manifest.json` and the value's file must be under the corpus root, the model block and the value's dataset the run's, and each sweep it depends on declared here with the same label and values. A bundle loads as a featurizer instead ([bundles.md](bundles.md)). The recipe, the checks and the shards a large harvest is made in are [cached-harvest.md](../patterns/cached-harvest.md).
 
 ## Tabling needs the rows
 

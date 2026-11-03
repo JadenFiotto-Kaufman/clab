@@ -5,7 +5,7 @@ import inspect
 import json
 import os
 import pickle
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, placed, plan_of, same, snapshot
@@ -544,6 +544,23 @@ def test_shuffle_is_one_fixed_permutation_then_take_samples_from_it():
     assert sample.data["pairs"].rows == [every[i] for i in order[:2]] and sample.data["pairs"].n_rows == 2
 
 
+def test_skip_drops_the_first_rows_of_the_order_and_take_keeps_a_shard_of_it():
+    """`skip` after `shuffle` and before `take`: the rows are the slice of the shuffled order a hand would cut,
+    `[skip:skip + take]`, and its digest theirs; the shards of one order are disjoint and together the whole."""
+    every = file_rows("weekdays_full/data")
+    order = data.shuffled(every)
+    shards = [with_data({"path": "weekdays_full/data", "shuffle": True, "skip": skip, "take": 14}).compile()
+              for skip in (0, 14, 28)]
+    for i, shard in enumerate(shards):
+        assert shard.data["pairs"].rows == order[14 * i:14 * i + 14] and shard.data["pairs"].n_rows == 14
+        assert shard.data["pairs"].sha256 == data.digest(order[14 * i:14 * i + 14])
+    assert [r for shard in shards for r in cast(list, shard.data["pairs"].rows)] == order != every
+    assert compiled_form(shards[1])["data"]["pairs"] == {"path": "weekdays_full/data", "shuffle": True, "skip": 14,
+                                                         "take": 14, "sha256": data.digest(order[14:28]), "n_rows": 14}
+    rest = with_data({"path": "weekdays_full/data", "skip": len(every) - 1}).compile()
+    assert rest.data["pairs"].rows == every[-1:]
+
+
 def test_columns_renames_and_keeps_every_other_column():
     rows = [{"prompt": "a", "target": " b", "label": 1}, {"prompt": "c", "target": " d", "label": 0}]
     read = {"kind": "forward", "input": "pairs.input",
@@ -567,6 +584,12 @@ def test_columns_renames_and_keeps_every_other_column():
      r"^data\.pairs\.take: take 3, and the dataset has 2 rows in split 'test'; take keeps at most as many as there "
      r"are$"),
     ({"path": "weekdays/data", "take": 0}, r"^data\.pairs: take 0: a dataset keeps at least one row$"),
+    ({"path": "weekdays/data", "split": "test", "skip": 2},
+     r"^data\.pairs\.skip: skip 2, and the dataset has 2 rows in split 'test'; skip leaves at least one$"),
+    ({"path": "weekdays/data", "split": "test", "skip": 1, "take": 2},
+     r"^data\.pairs\.take: take 2, and the dataset has 1 rows in split 'test' after skip 1; take keeps at most as "
+     r"many as there are$"),
+    ({"path": "weekdays/data", "skip": -1}, r"^data\.pairs: skip -1: a dataset drops 0 rows or more from the start$"),
     ({"path": "weekdays/data", "columns": {"input": "prompt"}},
      r"^data\.pairs\.columns\.input: 'prompt' is not a column of row 0; its columns: answer, base_answer, "),
     ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},

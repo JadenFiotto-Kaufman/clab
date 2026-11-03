@@ -20,6 +20,7 @@ compiled records themselves are the symbol table (`plan.record_of`), each name r
 """
 
 import itertools
+import os
 import re
 from dataclasses import replace
 from typing import Any, Callable, cast
@@ -33,7 +34,7 @@ from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites, over_axes
 from clab.featurizers import KINDS, bundles, labels
 from clab.format import data, registry
-from clab.format.sweeps import find_sweeps, spelled
+from clab.format.sweeps import agreeing, find_sweeps, spelled
 from clab.plan import (
     Data,
     Entry,
@@ -42,6 +43,7 @@ from clab.plan import (
     Forward,
     Generate,
     Intervention,
+    Load,
     OpStep,
     Plan,
     PlanError,
@@ -55,6 +57,7 @@ from clab.plan import (
     gathers,
     gradient_of,
     kind_of,
+    own_read,
     points,
     produced,
     record_of,
@@ -108,9 +111,9 @@ def compile(plan: Plan) -> Plan:
 
 def dataset(root: str, name: str, d: Data) -> list[dict]:
     """Dataset `name`'s rows as materialized, which its `sha256` and `n_rows` describe: its file's (under `root`),
-    its inline rows or its hub split's (`data.hub`), then a file's `split`, `shuffle`, `take` and `columns`, in
-    that order (`Data`). The one way a dataset's rows are made: compile's, and `materialized`'s where they are not
-    in the plan."""
+    its inline rows or its hub split's (`data.hub`), then a file's `split`, `shuffle`, `skip`, `take` and
+    `columns`, in that order (`Data`). The one way a dataset's rows are made: compile's, and `materialized`'s where
+    they are not in the plan."""
     try:
         rows = data.hub(d) if d.hf is not None else d.rows if d.path is None else data.rows(root, d.path, d.split)
     except ValueError as e:
@@ -118,9 +121,14 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
     if not rows:
         fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
     rows = data.shuffled(rows) if d.shuffle else rows
+    held = f" in split {d.split!r}" if d.split else ""
+    if d.skip is not None and d.skip >= len(rows):
+        fail(f"data.{name}.skip", f"skip {d.skip}, and the dataset has {len(rows)} rows{held}; skip leaves at least "
+             "one")
+    rows = rows[d.skip:]
     if d.take is not None and d.take > len(rows):
-        fail(f"data.{name}.take", f"take {d.take}, and the dataset has {len(rows)} rows"
-             + (f" in split {d.split!r}" if d.split else "") + "; take keeps at most as many as there are")
+        fail(f"data.{name}.take", f"take {d.take}, and the dataset has {len(rows)} rows{held}"
+             + (f" after skip {d.skip}" if d.skip else "") + "; take keeps at most as many as there are")
     rows = rows[:d.take]
     moved = {c for c in (d.columns or {}).values() if isinstance(c, str)}
     for new, column in (d.columns or {}).items():
@@ -173,11 +181,24 @@ def get(doc: dict, path: tuple) -> Any:
 
 def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[str, int]], Any]) -> Any:
     """An entry compiled at every point of its axes: those in what it uses (its own spec, and the sites,
-    interventions and featurizers it names: `footprint`), and those of every value it references, read off its
-    text before it compiles (`referenced`), so that each point is built knowing its coordinates and resolves every
-    name at them; a refusal at one point of a sweep names the point after the document path (`index="-2:"`)."""
+    interventions and featurizers it names: `footprint`), those of every value it references, read off its
+    text before it compiles (`referenced`), and a load's, those its saved value depends on, read off the run's
+    manifest, so that each point is built knowing its coordinates and resolves every name at them; a refusal at one
+    point of a sweep names the point after the document path (`index="-2:"`). A load declares each sweep its value
+    depends on that the document does not, with the label and values the run swept it over (`cx.values`, which the
+    compiled plan's `sweeps` are), and is refused by name where the document sweeps that label over other values."""
     own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
     inherited = {a for ref in referenced(cx, get(cx.doc, where)) for a in cx.axes_of.get(ref.partition(".")[0], [])}
+    spec = get(cx.doc, where)
+    if where[0] == "steps" and spec["kind"] == "load":          # a saved value's own axes, which its run recorded
+        src, d = saved(cx, f"steps.{name}", spec["from"], spec["value"])
+        for label in d["axes"]:
+            theirs = src["plan"].sweeps[label].values
+            if cx.values.setdefault(label, theirs) != theirs:
+                fail(f"steps.{name}.value", f"{spec['value']!r} is swept over {label!r}, {theirs} in {spec['from']}, "
+                     f"and this document sweeps {label!r} over {cx.values[label]}; a load declares the sweeps its "
+                     "value depends on, and a sweep of this document under the same label has the same values")
+        inherited |= set(d["axes"])
     labels = [label for label in cx.values if label in own or label in inherited]
     cx.axes_of[name] = labels
     built = []
@@ -329,7 +350,7 @@ def step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, at: dict[
     columns), and an op takes one dataset's rows.
     """
     assert not isinstance(spec, list), "a point holds one step under each name"
-    return {"forward": forward, "generate": forward, "op": op_step, "fit": compile_fit}[spec.kind](
+    return {"forward": forward, "generate": forward, "op": op_step, "fit": compile_fit, "load": load_step}[spec.kind](
         cx, path, name, spec, plan, at)
 
 
@@ -460,7 +481,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     if spec.op == "contains" and not text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = called(cx, plan, path, spec.op, args)
-    if "featurizer" in args and not isinstance(of, Intervention):
+    if "featurizer" in args and not own_read(of):
         fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
              f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
     assert of.dims is not None
@@ -484,6 +505,100 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
     axes = under(cx, pathed(path)) | named_axes(cx, spec.of, at) | operand_axes(cx, [spec], at, {})
     return OpStep(**spec.model_dump(exclude_defaults=True), at=at, dataset=dataset, dims=dims, layers=layers,
                   read=of.read, kept=kept, width=width, space=space, axes=ordered(cx, axes))
+
+
+def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: dict[str, int]) -> Load:
+    """A saved value at one point of its axes (those of its run's sweeps it depends on, which `expand` declared or
+    found declared alike), with the record its run's manifest holds for it: refused unless that run ran this
+    document's model and the value's dataset has the same rows here (`Load`). Its read, where it holds positions,
+    comes with it as the forward that made it with that entry alone, named after this step (`<step>.<entry>`, the
+    value's `read`). The value itself the compiled plan reads from the file, as it reads a bundle's
+    (`plan.loaded_value`)."""
+    src, d = saved(cx, path, spec.from_, spec.value)
+    ran, here = src["plan"], f"{path}.value"
+    theirs, ours = ran.model.model_dump(), plan.model.model_dump()
+    differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
+    if differ:
+        fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
+            f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
+    there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
+    record, made = record_of(ran.steps, spec.value, there), agreeing(ran.steps[spec.value.partition(".")[0]], there)
+    producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
+    if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
+            made.kind == "op" and ops.DECLARED[made.op]["bundle"]:
+        fail(here, f"{spec.value!r} is a bundle, which a featurizer of its kind loads, with 'file_path': "
+             f"{os.path.join(spec.from_, d['file'])!r}")
+    if made.kind == "generate" or producer is not None and producer.kind == "generate":
+        fail(here, f"{spec.value!r} is a generation's value or holds its positions, which count the tokens that run "
+             "generated; a load brings a forward's values and what op steps and fits made of them")
+    if record.read is not None and record.read.count(".") > 1:
+        fail(here, f"{spec.value!r} holds the positions of {record.read!r}, a read of a fit's body, whose rows are its "
+             "eval's; save the body's value through a root step and load that")
+    if record.space:
+        fail(here, f"{spec.value!r} is in the coordinates of {', '.join(repr(s['featurizer']) for s in record.space)}, "
+             f"a featurizer of {spec.from_}'s; load the value it encodes and encode it here")
+    if record.dataset is not None:
+        ds, theirs_data = record.dataset, ran.data.get(record.dataset)
+        if ds not in cx.rows or theirs_data is None:
+            fail(here, f"{spec.value!r} was made over the rows of dataset {ds!r}, which this document does not "
+                 f"declare; declare it as {spec.from_} did")
+        if len(cx.rows[ds]) != theirs_data.n_rows or data.digest(cx.rows[ds]) != theirs_data.sha256:
+            fail(here, f"{spec.value!r} was made over the rows of dataset {ds!r}, and this document's {ds!r} is not "
+                 f"the rows {spec.from_} read, in their order: " + (
+                     f"{len(cx.rows[ds])} rows where it read {theirs_data.n_rows}" if len(cx.rows[ds]) !=
+                     theirs_data.n_rows else "as many rows, whose digest differs"))
+        if plan.data[ds].template != theirs_data.template:      # a chat's tokens, which the digest does not cover
+            fail(here, f"{spec.value!r} was made over the rows of dataset {ds!r}, whose chats {spec.from_} rendered "
+                 f"with template {theirs_data.template}, and this document's {ds!r} has {plan.data[ds].template}")
+    read, carried, axes = None, None, ordered(cx, set(d["axes"]))
+    if record.read is not None and producer is not None and entry is not None:
+        read = f"{name}.{record.read.rpartition('.')[2]}"
+        if isinstance(producer.input, str) and not isinstance(data.field(cx.rows[str(record.dataset)][0],
+                                                                         producer.input), str):
+            cx.chats.add(str(record.dataset))       # its tokens render a chat, as the run's forward did
+        carried = Forward(kind="forward", input=producer.input, dataset=record.dataset, interventions={
+            read.partition(".")[2]: entry.model_copy(update={
+                "read": read, "positions": {str(record.dataset): entry.positions[str(record.dataset)]}, "axes": axes})})
+    if not os.path.exists(os.path.join(src["out"], d["file"])):       # its value the compiled plan reads
+        fail(here, f"{os.path.join(spec.from_, d['file'])} is missing, which its manifest says holds {spec.value!r}")
+    return Load(**spec.model_dump(exclude_defaults=True), at=at, dims=record.dims, dataset=record.dataset,
+                layers=record.layers, read=read, width=record.width, kept=record.kept, axes=axes, source=carried)
+
+
+def source(cx: Compiling, path: str, out: str) -> dict:
+    """The run a load reads, its output directory `out` under the corpus root, read once per directory
+    (`Compiling.sources`): the plan its manifest records, without its featurizers (a load needs its records, not the
+    bundles they loaded), and each saved value's record by name (`described`). A directory with no manifest, or one
+    this clab cannot read, is refused by name."""
+    if out not in cx.sources:
+        from clab.output import manifest          # the output directory's one reader, a later stage's
+        where = os.path.join(cx.root, out)
+        try:
+            held, described = manifest(where)
+        except FileNotFoundError:
+            fail(f"{path}.from", f"no run at {out} under the corpus root (no manifest.json); run the document that "
+                 f"saves the value there first, with --out {out}")
+        try:
+            ran = Plan(**{**held, "featurizers": {}})
+        except PlanError as e:
+            fail(f"{path}.from", f"{out}/manifest.json is not a run this clab reads: {e}")
+        cx.sources[out] = {"out": where, "plan": ran, "described": described}
+    return cx.sources[out]
+
+
+def saved(cx: Compiling, path: str, out: str, value: str) -> tuple[dict, dict]:
+    """The run at `out` a load reads (`source`) and the record its manifest holds for saved value `value`; refused by
+    name where the run saved no such value, and where its manifest predates the sweep axes a value's record holds
+    (`axes`, which a run of an older clab did not write), since it then cannot say which sweeps the value depends
+    on, and taking it as unswept would load a swept value's points as one."""
+    src = source(cx, path, out)
+    if value not in src["described"]:
+        fail(f"{path}.value", f"{out} saved no {value!r}; it saved {', '.join(src['described'])}")
+    d = src["described"][value]
+    if "axes" not in d:
+        fail(f"{path}.from", f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so "
+             f"it does not say which sweeps {value!r} depends on; rerun the document that saves it, with --out {out}")
+    return src, d
 
 
 # -- references --------------------------------------------------------------------------------------
@@ -565,6 +680,9 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
     for n, s in spec.steps.items():
         if isinstance(s, Fit):
             fail(f"{path}.steps.{n}", "a fit's body holds no fit")
+        if isinstance(s, Load):
+            fail(f"{path}.steps.{n}", "a fit's body holds no load: load the value before the fit, and the body takes "
+                 "its rows by id, as it does a harvest's")
         if n in plan.data or n in plan.featurizers or "." in n:
             fail(f"{path}.steps.{n}", f"{n!r} is also a dataset or a featurizer, or has a dot; a body's names are "
                  "a root's")

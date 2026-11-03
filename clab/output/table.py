@@ -260,7 +260,8 @@ def columns(plan: Plan, args: dict[str, Any]) -> list[str]:
 
 def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
     """The dataset columns a value's chain of steps used, at the point agreeing with `at`: those its op steps'
-    arguments name, back to the read, then the read's input columns first and the columns its entry's ops name."""
+    arguments name, back to the read (a load's, the one it carries; none where it carries none), then the read's
+    input columns first and the columns its entry's ops name."""
     used: list[str] = []
     steps = plan.steps
     while True:
@@ -273,6 +274,10 @@ def columns_used(plan: Plan, name: str, at: dict[str, int]) -> list[str]:
             used += columns(plan, arguments(step))
             name = step.of
             continue
+        if step.kind == "load":             # the read it carries, as the run that saved it made it
+            if step.source is None:
+                return list(dict.fromkeys(used))
+            step, member = step.source, cast(str, step.read).partition(".")[2]
         used[:0] = [data.parse_input(c)[1] for c in data.input_columns(step.input)]
         for o in entries(step)[member].ops if member else []:
             used += columns(plan, arguments(o))

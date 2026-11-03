@@ -192,9 +192,10 @@ def markdown() -> str:
     for name, model in RECORDS.items():
         parts += [f"### {name}\n", block(model)]
     parts += ["## Step kinds\n", "Each entry of `steps` is `{\"kind\": <kind>, ...fields}`.\n"]
-    for name, model in plan.KINDS.items():
+    for name, model in plan.KINDS.items():         # a fit's blocks after the fit, before the next kind
         parts += [f"### `{name}`\n", block(model)]
-    parts += ["### `fit` blocks\n"] + [part for name, model in FIT.items() for part in (f"`{name}`:\n", block(model))]
+        if name == "fit":
+            parts += ["### `fit` blocks\n"] + [part for n, m in FIT.items() for part in (f"`{n}`:\n", block(m))]
     labels = derived(plan.Labelled)
 
     def own(model: type[BaseModel]) -> list[str]:
@@ -205,10 +206,11 @@ def markdown() -> str:
               "document decides; preflight, with the model in hand, completes the same records in place (a `layers` or "
               "`kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the "
               "manifest holds the records as the run completed them.\n",
-              f"- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): {', '.join(labels)}\n"
+              f"- A value's record (`Intervention`, `OpStep`, `Load`, and a `Generate`'s own value): "
+              f"{', '.join(labels)}\n"
               + "\n".join(f"- `{model.__name__}`: {', '.join(own(model))}"
                           for model in (plan.Plan, plan.Data, plan.Intervention, plan.Op, plan.Forward, plan.Generate,
-                                        plan.OpStep, plan.Featurizer) if own(model)) + "\n"]
+                                        plan.OpStep, plan.Load, plan.Featurizer) if own(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:
         parts += [f"### {group.capitalize()}\n",

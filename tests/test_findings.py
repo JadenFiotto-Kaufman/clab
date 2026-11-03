@@ -1110,7 +1110,7 @@ def test_m6_take_on_a_file_keeps_its_first_rows():
     compiled = plan(data={"d": {"path": "weekdays/data", "take": 2}}, steps={}).compile()
     assert compiled.data["d"].n_rows == 2
     with pytest.raises(PlanError, match=r"data\.d: unknown field 'repeat'; valid: path, rows, hf, revision, config, "
-                                        r"split, shuffle, take, columns, template$"):
+                                        r"split, shuffle, skip, take, columns, template$"):
         plan(data={"d": {"path": "weekdays/data", "repeat": 2}}, steps={})
 
 

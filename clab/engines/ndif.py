@@ -10,7 +10,10 @@ address and API key are nnsight's own (`nnsight.CONFIG`, or its environment vari
 nnsight's in-process simulation of that trip, which dispatches the shell here, on `device`, at its first trace. Its
 forwards run whole, under either `remote` (the engine declares that it does not honour the schedule's stop,
 `stops`): in an NDIF server's model process nnsight keeps a stopped forward's frames, and every activation in
-them, in reference cycles out of the engine's reach, so the stop waits for nnsight to clear them.
+them, in reference cycles out of the engine's reach, so the stop waits for nnsight to clear them. A `load`'s value
+travels in the request, inside the plan, as a bundle's tensors do, under either `remote`, so `remote="local"` runs
+what a server runs and a server reads no file of the client's; a document whose loads hold more than 512 MiB of
+tensors is refused before anything is sent.
 """
 
 from typing import Literal

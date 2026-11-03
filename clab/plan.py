@@ -38,7 +38,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected
+from clab.format.sweeps import agreeing, coordinate, find_sweeps, points, projected, spelled
 
 
 class PlanError(ValueError):
@@ -215,10 +215,12 @@ class Data(Record):
     check the document and records their digest, and the run loads them again where it runs (under `ndif`, the
     server) and refuses other rows before any forward. Then, in this order: `split` picks which split of the
     dataset, the hub dataset's split (left out: its only one) or the rows of a file whose `split` column is that;
-    `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
-    N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
-    it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-    fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+    `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `skip` drops the first
+    N; `take` keeps the first N of the rest (after `shuffle`, a random sample of N; after `skip` too, a shard of
+    one order: `{"shuffle": true, "skip": 20000, "take": 10000}` is the third of 10,000, so a harvest too large
+    for one run is made in shards); and `columns` renames them, `{"<name>": "<column as the source has it>"}`,
+    each name that column and no longer under its own, every other column as it is (so one file serves a fit's
+    `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
     source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
     which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
@@ -229,11 +231,12 @@ class Data(Record):
     JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
     `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
-    several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
-    rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
-    `template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
-    template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
+    several, none named), and a column of it whose values are not JSON (images, audio, bytes); a `skip` that
+    leaves no row, `take` beyond the rows `skip` leaves, a `columns` source the rows lack or a name that is a
+    column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a derived column's source that is not text
+    on a row or that lacks its text there, a `template` on a dataset no step reads a chat column of, and, before
+    any forward, a chat of a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows
+    these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None
@@ -241,6 +244,7 @@ class Data(Record):
     config: str | None = None
     split: str | None = None
     shuffle: bool = False
+    skip: int | None = None
     take: int | None = None
     columns: dict[str, Annotated[Union[str, Derived], ByShape()]] | None = None
     template: dict[str, Any] | None = None
@@ -266,6 +270,8 @@ class Data(Record):
             raise ValueError("'split' is which split of a file or a hub dataset; inline 'rows' are the rows")
         if self.take is not None and self.take < 1:
             raise ValueError(f"take {self.take}: a dataset keeps at least one row")
+        if self.skip is not None and self.skip < 0:
+            raise ValueError(f"skip {self.skip}: a dataset drops 0 rows or more from the start")
         if "tokenize" in (self.template or {}):
             raise ValueError("template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'")
         return self
@@ -882,6 +888,44 @@ class OpStep(Labelled):
         return self
 
 
+class Load(Labelled):
+    """A value an earlier run saved, brought into this document with its record: `from` is that run's output
+    directory under the corpus root (where its `manifest.json` is), `value` a name in its `saves`. The step's value
+    is that saved value, in the dtype it was saved in, where the model is, and its record is the one the source's
+    manifest holds (its layout and labels, the sweep axes it depends on and, where it holds positions, the read they
+    are of: that entry's site, `pos` and positions per row, with the input it read), so every step after it treats
+    it as the value it was: a fit's body takes its rows by id, an op step reduces it, a featurizer encodes a read's
+    value at its site, and `table` labels its positions with this run's tokens of that input, which preflight
+    encodes as a forward does. Compile reads the manifest and the file, and refuses by name a directory with no
+    manifest, a name it did not save, a source whose `model` block is not this document's (key, revision, dtype and
+    every loader key), a dataset the value names whose rows are not, in this document, the rows the source read in
+    the same order (its `sha256` and `n_rows` as the source recorded them) or whose chats render with another
+    `template`, and a sweep the value depends on that this document declares under the same label over other values.
+    A swept value loads at every point of its axes, keyed by them as the run that saved it keyed them: the load
+    declares each such sweep this document does not, with the run's label and values, so a value swept over layers
+    loads with no other field swept. So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
+    `file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
+    source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
+    tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are
+    the value's move to the model's device. The value travels inside the compiled plan, as a bundle's tensors do,
+    wherever the run is: under `ndif`, in the request, so a server runs it as `remote="local"` does and reads no
+    file of this machine's; a request carries at most 512 MiB of loaded tensors over a document's loads, and a
+    document that loads more is refused by name before anything is sent."""
+    model_config = ConfigDict(serialize_by_alias=True)
+    kind: Literal["load"]
+    from_: str = Field(alias="from")
+    value: str
+    at: dict[str, int] = derived({}, AT)
+    source: "Forward | None" = derived(None, "the read whose positions the value holds, where it holds any: the "
+                                             "forward that made it as the source's manifest records it, with that "
+                                             "entry alone and its positions under the value's dataset, the entry "
+                                             "named as the value's `read` names it (`<this step>.<entry>`)")
+    loaded: Any = derived(None, "the value at this point, read from the source's file into a compiled plan that "
+                                "has not run (`loaded_value`), which carries it wherever the run is, in a request "
+                                "too, and the run puts where the model is; never in a document or a manifest",
+                          exclude=True)
+
+
 class Optimizer(Record):
     """The fit's optimizer, over the trained featurizers' parameters only."""
     name: Literal["adamw", "adam", "sgd"]
@@ -967,7 +1011,7 @@ class Fit(Record):
         return self
 
 
-KINDS = {"forward": Forward, "generate": Generate, "op": OpStep, "fit": Fit}
+KINDS = {"forward": Forward, "generate": Generate, "op": OpStep, "fit": Fit, "load": Load}
 
 
 def _kind(value: Any) -> str | None:
@@ -982,10 +1026,11 @@ def _points(value: Any) -> str:
 # A `~` tag names a union branch; `PlanError`'s paths leave it out. A compiled entry that is swept is the list
 # of its points.
 Step = Annotated[Union[Annotated[Forward, Tag("~forward")], Annotated[Generate, Tag("~generate")],
-                       Annotated[OpStep, Tag("~op")], Annotated[Fit, Tag("~fit")]],
+                       Annotated[OpStep, Tag("~op")], Annotated[Fit, Tag("~fit")], Annotated[Load, Tag("~load")]],
                  Discriminator(_kind, custom_error_type="kind", custom_error_message="unknown step kind")]
 Entry = Annotated[Union[Annotated[Step, Tag("~one")], Annotated[list[Step], Tag("~points")]], Discriminator(_points)]
 Fit.model_rebuild()
+Load.model_rebuild()
 
 
 class Featurizer(Record):
@@ -1127,7 +1172,14 @@ class Plan(Record):
     def _bundles(self) -> "Plan":
         # A bundle's file is its source of truth, and tensors never go in a document: a compiled plan read back
         # without its bundles loads them again from their `file_path`. A manifest holds no rows a dataset read from
-        # a file, so a probe's classes are then its bundle's header's, which the run checked.
+        # a file, so a probe's classes are then its bundle's header's, which the run checked. A load's value is read
+        # so too, into a compiled plan that has not run (compile's own, or one read back), which then carries it
+        # wherever it runs; a run's plan keeps the load's record alone.
+        files: dict[tuple[str, str], tuple[list[str], Any]] = {}
+        for entry in self.steps.values() if self.compiled and self.run is None else []:
+            for s in points(entry):
+                if isinstance(s, Load) and s.loaded is None:
+                    s.loaded = loaded_value(self, s, files)
         for entry in self.featurizers.values() if self.compiled else []:
             for f in points(entry):
                 fields = f.model_extra or {}
@@ -1185,6 +1237,20 @@ class Plan(Record):
         """The saved values `names` as rows, joined wide on their shared axes (see `table.table`)."""
         from clab.output.table import table
         return table(self, names, columns)
+
+
+def loaded_value(plan: Plan, step: Load, files: dict[tuple[str, str], tuple[list[str], Any]]) -> Any:
+    """Load `step`'s value at its point, as the file of its run's directory under the corpus root holds it (the
+    output directory's one reader, `output.read`, once per value into `files`, with the axes its record names): a
+    swept value's point is the one keyed by the point's coordinate on those axes, spelled in the order of the run that
+    saved it, whose labels and values are this plan's sweeps (compile checked them)."""
+    from clab.output import manifest, read          # the output directory's one reader, a later stage's
+    if (step.from_, step.value) not in files:
+        out = os.path.join(corpus_root(plan), step.from_)
+        d = manifest(out)[1][step.value]
+        files[step.from_, step.value] = d["axes"], read(out, step.value, d)
+    axes, value = files[step.from_, step.value]
+    return value[spelled({a: plan.sweeps[a].values for a in axes}, {a: step.at[a] for a in axes})] if axes else value
 
 
 def corpus_root(plan: Plan) -> str:
@@ -1267,25 +1333,29 @@ def adapts(plan: Plan, o: "Op | OpStep") -> bool:
 
 def entry_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> tuple[Forward, Intervention]:
     """The step point and the entry `<step>.<entry>` names among `steps` (or `<fit>.<eval>.<step>.<entry>`, in
-    that fit's body), at the step's point that agrees with `at`: the one place a reference to an entry resolves,
-    so a swept site resolves at every point."""
+    that fit's body; or a load's read, the forward and entry it carries), at the step's point that agrees with
+    `at`: the one place a reference to an entry resolves, so a swept site resolves at every point."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind == "fit":
         return entry_of(step.steps, member.partition(".")[2], step.at)
+    if step.kind == "load":
+        assert step.source is not None, f"{ref} names no read"
+        return step.source, entries(step.source)[member]
     return step, entries(step)[member]
 
 
 def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled:
     """The record of the value `ref` names among `steps`, at the point agreeing with `at`, which carries its
-    labelled layout: an entry's (`<step>.<entry>`), an op step's or a generation's own (`<step>`), or a fit
-    member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's record with the dataset that
-    eval reads it over, its read named from the root), a term's history (`<fit>.history.<term>`, `[epochs]`) or
-    a trained featurizer (no axes)."""
+    labelled layout: an entry's (`<step>.<entry>`, a load's read among them), an op step's, a generation's or a
+    load's own (`<step>`), or a fit member's: a body value under a named eval (`<fit>.<eval>.<member>`: the body's
+    record with the dataset that eval reads it over, its read named from the root), a term's history
+    (`<fit>.history.<term>`, `[epochs]`) or a trained featurizer (no axes)."""
     thing, _, member = ref.partition(".")
     step = agreeing(steps[thing], at)
     if step.kind != "fit":
-        found = entries(step)[member] if member else step
+        host = step.source if step.kind == "load" else step            # a load's member is the read it carries
+        found = entries(host)[member] if member else step
         assert isinstance(found, Labelled), f"{ref} names no value"
         return found
     label, _, rest = member.partition(".")
@@ -1296,6 +1366,16 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     return inner.model_copy(update={"dataset": step.eval[label].get(inner.dataset, inner.dataset),
                                     "read": f"{thing}.{label}.{inner.read}" if inside else inner.read,
                                     "axes": list(step.at)})
+
+
+def own_read(record: Labelled) -> bool:
+    """Whether a value is a read's own, at the site it was read at and in its layout: an entry's, or a load's whose
+    record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such a
+    load (the chain carries the entry the first run read), not an op's over one."""
+    if isinstance(record, Load):
+        carried = next(iter(entries(record.source).values())) if record.source is not None else None
+        return carried is not None and all(getattr(record, f) == getattr(carried, f) for f in Labelled.model_fields)
+    return isinstance(record, Intervention)
 
 
 def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
@@ -1312,16 +1392,16 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
 def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
     """The points of step `name` that run, in order, each with the points its run serves, itself first: a
     forward's or a generation's each point whose `schedule` holds no `serving`, with the points whose `serving`
-    names it; an op's the points of its value (`projections`: one per distinct point on its `axes`), each with the
-    step's points that agree with it there; a fit's each point, itself alone. Found in one pass over the points,
-    each joining the run its coordinates name (an op's on its axes, a forward's its `serving` or its own), whose
-    first point is the one that runs."""
+    names it; an op's or a load's the points of its value (`projections`: one per distinct point on its `axes`),
+    each with the step's points that agree with it there; a fit's each point, itself alone. Found in one pass over
+    the points, each joining the run its coordinates name (an op's or a load's on its axes, a forward's its
+    `serving` or its own), whose first point is the one that runs."""
     steps = points(plan.steps[name])
     if steps[0].kind == "fit":
         return [(p, [p]) for p in steps]
     runs: dict[tuple, list[Step]] = {}
     for q in steps:
-        at = projected(q.at, q.axes) if q.kind == "op" else q.schedule.get("serving", q.at)
+        at = projected(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
         runs.setdefault(tuple(at.items()), []).append(q)
     return [(served[0], served) for served in runs.values()]
 
