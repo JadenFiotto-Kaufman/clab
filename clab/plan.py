@@ -215,10 +215,12 @@ class Data(Record):
     check the document and records their digest, and the run loads them again where it runs (under `ndif`, the
     server) and refuses other rows before any forward. Then, in this order: `split` picks which split of the
     dataset, the hub dataset's split (left out: its only one) or the rows of a file whose `split` column is that;
-    `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
-    N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
-    it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-    fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+    `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `skip` drops the first
+    N; `take` keeps the first N of the rest (after `shuffle`, a random sample of N; after `skip` too, a shard of
+    one order: `{"shuffle": true, "skip": 20000, "take": 10000}` is the third of 10,000, so a harvest too large
+    for one run is made in shards); and `columns` renames them, `{"<name>": "<column as the source has it>"}`,
+    each name that column and no longer under its own, every other column as it is (so one file serves a fit's
+    `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
     source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
     which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
@@ -229,11 +231,12 @@ class Data(Record):
     JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `hf` without `revision`, and
     `revision` or `config` without `hf`; a hub dataset the hub does not give, or offline a commit `revision` other
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
-    several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
-    rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
-    `template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
-    template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
+    several, none named), and a column of it whose values are not JSON (images, audio, bytes); a `skip` that
+    leaves no row, `take` beyond the rows `skip` leaves, a `columns` source the rows lack or a name that is a
+    column they keep (a swap, `{"a": "b", "b": "a"}`, keeps neither), a derived column's source that is not text
+    on a row or that lacks its text there, a `template` on a dataset no step reads a chat column of, and, before
+    any forward, a chat of a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows
+    these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None
@@ -241,6 +244,7 @@ class Data(Record):
     config: str | None = None
     split: str | None = None
     shuffle: bool = False
+    skip: int | None = None
     take: int | None = None
     columns: dict[str, Annotated[Union[str, Derived], ByShape()]] | None = None
     template: dict[str, Any] | None = None
@@ -266,6 +270,8 @@ class Data(Record):
             raise ValueError("'split' is which split of a file or a hub dataset; inline 'rows' are the rows")
         if self.take is not None and self.take < 1:
             raise ValueError(f"take {self.take}: a dataset keeps at least one row")
+        if self.skip is not None and self.skip < 0:
+            raise ValueError(f"skip {self.skip}: a dataset drops 0 rows or more from the start")
         if "tokenize" in (self.template or {}):
             raise ValueError("template: a chat renders to text, which clab tokenizes; it takes no 'tokenize'")
         return self

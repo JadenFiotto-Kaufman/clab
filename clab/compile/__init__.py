@@ -111,9 +111,9 @@ def compile(plan: Plan) -> Plan:
 
 def dataset(root: str, name: str, d: Data) -> list[dict]:
     """Dataset `name`'s rows as materialized, which its `sha256` and `n_rows` describe: its file's (under `root`),
-    its inline rows or its hub split's (`data.hub`), then a file's `split`, `shuffle`, `take` and `columns`, in
-    that order (`Data`). The one way a dataset's rows are made: compile's, and `materialized`'s where they are not
-    in the plan."""
+    its inline rows or its hub split's (`data.hub`), then a file's `split`, `shuffle`, `skip`, `take` and
+    `columns`, in that order (`Data`). The one way a dataset's rows are made: compile's, and `materialized`'s where
+    they are not in the plan."""
     try:
         rows = data.hub(d) if d.hf is not None else d.rows if d.path is None else data.rows(root, d.path, d.split)
     except ValueError as e:
@@ -121,9 +121,14 @@ def dataset(root: str, name: str, d: Data) -> list[dict]:
     if not rows:
         fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
     rows = data.shuffled(rows) if d.shuffle else rows
+    held = f" in split {d.split!r}" if d.split else ""
+    if d.skip is not None and d.skip >= len(rows):
+        fail(f"data.{name}.skip", f"skip {d.skip}, and the dataset has {len(rows)} rows{held}; skip leaves at least "
+             "one")
+    rows = rows[d.skip:]
     if d.take is not None and d.take > len(rows):
-        fail(f"data.{name}.take", f"take {d.take}, and the dataset has {len(rows)} rows"
-             + (f" in split {d.split!r}" if d.split else "") + "; take keeps at most as many as there are")
+        fail(f"data.{name}.take", f"take {d.take}, and the dataset has {len(rows)} rows{held}"
+             + (f" after skip {d.skip}" if d.skip else "") + "; take keeps at most as many as there are")
     rows = rows[:d.take]
     moved = {c for c in (d.columns or {}).values() if isinstance(c, str)}
     for new, column in (d.columns or {}).items():
