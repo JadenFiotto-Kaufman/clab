@@ -4,11 +4,13 @@ engine and under `remote="local"`; and what a load cannot mean is refused by nam
 
 The runs a loading document reads are made first, on the nnterp engine, into `out/` under a corpus root of this
 module's own: `pca_harvest.json` and `sae_train.json` saving their harvests too, `patching.json` saving its
-counterfactual read, and a read swept over two layers.
+counterfactual read, a read swept over two layers, a read of chats, and a run that itself loads pca_harvest's
+harvest (with an op's value over it).
 """
 
 import json
 import os
+import shutil
 from typing import Any, cast
 
 import pytest
@@ -71,6 +73,8 @@ def root(tmp_path_factory, engines) -> str:
         "acts": {"site": {"component": "layer_output", "layers": {"sweep": [0, 1]}}, "pos": -1}}}}, ["harvest.acts"])
     ran(engines, here, "swept", swept)
     ran(engines, here, "chat", CHAT)
+    ran(engines, here, "chained", loading(corpus("pca_harvest"), {
+        "cached": LOAD, "m": {"kind": "op", "op": "mean", "of": "cached", "over": ["pos"]}}, ["cached", "m"]))
     return here
 
 
@@ -130,6 +134,24 @@ def test_a_fit_takes_a_loaded_harvests_rows_by_id(engines, root):
     source = load(os.path.join(root, "out", "sae_train"))
     for name in ("fit.dictionary", "fit.history.dictionary.reconstruction", "fit.history.dictionary.l1"):
         assert same(filled.results[name], source.results[name]), name
+
+
+def test_a_chained_load_encodes_as_the_read_it_carries(engines, root):
+    """`cached`, a run's load of pca_harvest's harvest, loaded again from that run: its record is the entry it
+    carries, the one pca_harvest read, so an `encode` of it runs, and gives what the encode of the harvest loaded
+    directly gives, to the bit. An op's value over it, loaded, is not a read's own, and its encode is refused."""
+    def encoding(step: dict[str, Any]) -> Plan:
+        return written(root, "encoding", loading(corpus("pca_harvest"), {
+            "again": step, "enc": {"kind": "op", "op": "encode", "of": "again", "featurizer": "pc"}}, ["enc"],
+            featurizers={"pc": {"kind": "subspace", "k": 2, "seed": 0}}))
+    got = {}
+    for how, step in (("chained", {"kind": "load", "from": "out/chained", "value": "cached"}), ("direct", LOAD)):
+        plan = encoding(step)
+        got[how] = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results["enc"]
+    assert same(got["chained"], got["direct"])
+    with pytest.raises(PlanError, match=r"^steps\.enc\.of: 'again' is an op's value, which no one site made, and a "
+                                        r"featurizer's encode acts on a value at its site"):
+        encoding({"kind": "load", "from": "out/chained", "value": "m"})
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -234,6 +256,23 @@ def test_a_name_the_run_did_not_save_and_a_directory_with_no_run_are_refused(roo
     assert refused(root, {**LOAD, "from": "out/nothing"}) == (
         "steps.harvest.from: no run at out/nothing under the corpus root (no manifest.json); run the document that "
         "saves the value there first, with --out out/nothing")
+
+
+def test_a_manifest_from_before_value_axes_is_refused(root):
+    """A manifest whose value records hold no `axes` (written by an older clab) cannot say which sweeps a value
+    depends on; taken as unswept, a swept value's points would load as one value, so it is refused by name."""
+    old = os.path.join(root, "out", "noaxes")
+    shutil.copytree(os.path.join(root, "out", "pca_harvest"), old, dirs_exist_ok=True)
+    with open(os.path.join(old, "manifest.json")) as f:
+        held = json.load(f)
+    for record in held["results"].values():
+        del record["axes"]
+    with open(os.path.join(old, "manifest.json"), "w") as f:
+        json.dump(held, f)
+    assert refused(root, {**LOAD, "from": "out/noaxes"}) == (
+        "steps.harvest.from: out/noaxes/manifest.json predates the sweep axes a saved value's record holds ('axes'), "
+        "so it does not say which sweeps 'harvest.acts' depends on; rerun the document that saves it, with --out "
+        "out/noaxes")
 
 
 def test_a_swept_value_without_its_sweep_is_refused(root):

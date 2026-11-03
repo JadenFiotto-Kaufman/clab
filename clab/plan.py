@@ -1345,11 +1345,12 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
 
 
 def own_read(record: Labelled) -> bool:
-    """Whether a value is a read's own, at the site it was read at: an entry's, or a load's of a saved entry (whose
-    `read`, the entry it carries, is named as the saved name is: `harvest.acts` loaded as `cached` reads
-    `cached.acts`), not an op's over one."""
+    """Whether a value is a read's own, at the site it was read at and in its layout: an entry's, or a load's whose
+    record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such a
+    load (the chain carries the entry the first run read), not an op's over one."""
     if isinstance(record, Load):
-        return record.read is not None and record.read.partition(".")[2] == record.value.partition(".")[2]
+        carried = next(iter(entries(record.source).values())) if record.source is not None else None
+        return carried is not None and all(getattr(record, f) == getattr(carried, f) for f in Labelled.model_fields)
     return isinstance(record, Intervention)
 
 

@@ -192,9 +192,10 @@ def markdown() -> str:
     for name, model in RECORDS.items():
         parts += [f"### {name}\n", block(model)]
     parts += ["## Step kinds\n", "Each entry of `steps` is `{\"kind\": <kind>, ...fields}`.\n"]
-    for name, model in plan.KINDS.items():
+    for name, model in plan.KINDS.items():         # a fit's blocks after the fit, before the next kind
         parts += [f"### `{name}`\n", block(model)]
-    parts += ["### `fit` blocks\n"] + [part for name, model in FIT.items() for part in (f"`{name}`:\n", block(model))]
+        if name == "fit":
+            parts += ["### `fit` blocks\n"] + [part for n, m in FIT.items() for part in (f"`{n}`:\n", block(m))]
     labels = derived(plan.Labelled)
 
     def own(model: type[BaseModel]) -> list[str]:

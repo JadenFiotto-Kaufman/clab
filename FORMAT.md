@@ -463,6 +463,25 @@ from the run named `<eval>`, and `<fit>.history.<term>`, `[epochs]`, one entry p
 of the fit's values (an objective weight, the learning rate) makes the fit, its members and their users a list
 of points.
 
+### `fit` blocks
+
+`optimizer`:
+
+- `name: one of "adamw", "adam", "sgd"`
+- `lr: float or a sweep`
+- `weight_decay: float or a sweep = 0.0`
+
+The fit's optimizer, over the trained featurizers' parameters only.
+
+`early_stop`:
+
+- `metric: str`
+- `mode: one of "max", "min"`
+- `patience: int or a sweep`
+
+End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
+scored on the training rows after each epoch.
+
 ### `load`
 
 - `from: str`
@@ -488,25 +507,6 @@ tokens or rows this run does not have; and a load inside a fit's body. It calls 
 the value's move to the model's device (under `ndif`, its read). The value never travels in a request: under
 `ndif` the run reads the file where it runs (`remote="local"`), and an NDIF server, which cannot see this
 machine's directories, is refused before anything is sent.
-
-### `fit` blocks
-
-`optimizer`:
-
-- `name: one of "adamw", "adam", "sgd"`
-- `lr: float or a sweep`
-- `weight_decay: float or a sweep = 0.0`
-
-The fit's optimizer, over the trained featurizers' parameters only.
-
-`early_stop`:
-
-- `metric: str`
-- `mode: one of "max", "min"`
-- `patience: int or a sweep`
-
-End the fit after `patience` epochs without improvement (`mode` max or min) of body op `metric`'s mean,
-scored on the training rows after each epoch.
 
 ## Derived fields
 

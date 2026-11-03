@@ -189,8 +189,7 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
     inherited = {a for ref in referenced(cx, get(cx.doc, where)) for a in cx.axes_of.get(ref.partition(".")[0], [])}
     spec = get(cx.doc, where)
     if where[0] == "steps" and spec["kind"] == "load":          # a saved value's own axes, which its run recorded
-        saved = source(cx, f"steps.{name}", spec["from"])["described"].get(spec["value"], {})
-        inherited |= set(saved.get("axes", []))
+        inherited |= set(saved(cx, f"steps.{name}", spec["from"], spec["value"])[1]["axes"])
     labels = [label for label in cx.values if label in own or label in inherited]
     cx.axes_of[name] = labels
     built = []
@@ -504,16 +503,13 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
     run ran this document's model, the value's dataset has the same rows here, and each sweep it depends on is one
     of this document's, with the same values (`Load`). Its read, where it holds positions, comes with it as the
     forward that made it with that entry alone, named after this step (`<step>.<entry>`, the value's `read`)."""
-    src = source(cx, path, spec.from_)
-    ran, described = src["plan"], src["described"]
+    src, d = saved(cx, path, spec.from_, spec.value)
+    ran, here = src["plan"], f"{path}.value"
     theirs, ours = ran.model.model_dump(), plan.model.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
-    if spec.value not in described:
-        fail(f"{path}.value", f"{spec.from_} saved no {spec.value!r}; it saved {', '.join(described)}")
-    d, here = described[spec.value], f"{path}.value"
     for label in d["axes"]:
         if cx.values.get(label) != ran.sweeps[label].values:
             fail(here, f"{spec.value!r} is swept over {label!r}, {ran.sweeps[label].values} in {spec.from_}, and this "
@@ -559,9 +555,9 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
             read.partition(".")[2]: entry.model_copy(update={
                 "read": read, "positions": {str(record.dataset): entry.positions[str(record.dataset)]}, "axes": axes})})
     if spec.value not in src["values"]:
-        from clab.output import read as saved      # the output directory's one reader, a later stage's
+        from clab.output import read as stored      # the output directory's one reader, a later stage's
         try:
-            src["values"][spec.value] = saved(src["out"], spec.value, d)
+            src["values"][spec.value] = stored(src["out"], spec.value, d)
         except FileNotFoundError:
             fail(here, f"{os.path.join(spec.from_, d['file'])} is missing, which its manifest says holds "
                  f"{spec.value!r}")
@@ -590,6 +586,21 @@ def source(cx: Compiling, path: str, out: str) -> dict:
             fail(f"{path}.from", f"{out}/manifest.json is not a run this clab reads: {e}")
         cx.sources[out] = {"out": where, "plan": ran, "described": described, "values": {}}
     return cx.sources[out]
+
+
+def saved(cx: Compiling, path: str, out: str, value: str) -> tuple[dict, dict]:
+    """The run at `out` a load reads (`source`) and the record its manifest holds for saved value `value`; refused by
+    name where the run saved no such value, and where its manifest predates the sweep axes a value's record holds
+    (`axes`, which a run of an older clab did not write), since it then cannot say which sweeps the value depends
+    on, and taking it as unswept would load a swept value's points as one."""
+    src = source(cx, path, out)
+    if value not in src["described"]:
+        fail(f"{path}.value", f"{out} saved no {value!r}; it saved {', '.join(src['described'])}")
+    d = src["described"][value]
+    if "axes" not in d:
+        fail(f"{path}.from", f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so "
+             f"it does not say which sweeps {value!r} depends on; rerun the document that saves it, with --out {out}")
+    return src, d
 
 
 # -- references --------------------------------------------------------------------------------------
