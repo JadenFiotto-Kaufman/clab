@@ -194,8 +194,10 @@ def test_cosine_is_one_where_the_patch_cannot_reach(filled):
         got = filled["cosine_metric", kind]
         cos = got.results["similarity"]
         assert cos.shape == (3, 4, 2) and got.run.sizes["num_layers"] == 5
-        torch.testing.assert_close(cos[0], torch.ones(4, 2), atol=2e-7, rtol=0)
-        torch.testing.assert_close(cos[:, :, 0], torch.ones(3, 4), atol=2e-7, rtol=0)
+        # Two float32 ulps above 1: a vector's cosine with itself is 1 to the rounding of its dot and its norm,
+        # whose kernels differ by CPU vendor (an Intel runner's MKL gives 1.0000002, one ulp over).
+        torch.testing.assert_close(cos[0], torch.ones(4, 2), atol=5e-7, rtol=0)
+        torch.testing.assert_close(cos[:, :, 0], torch.ones(3, 4), atol=5e-7, rtol=0)
         assert (cos[1:, :, 1] < 1 - 1e-4).all()
         assert sorted({r["layer"] for r in got.table("similarity")}) == [0, 2, 4]
         assert [r["pos"] for r in got.table("similarity")][:2] == [10, 11]
