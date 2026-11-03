@@ -25,16 +25,14 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
     A sweep may stand for any value except under `description`, `model` and `data` (a dataset's rows are compiled
     once, and a step reads them by name), on a name, a kind, a `file_path`, or a gate's `over` (a featurizer has one
-    width at every point). One label is one axis: sweeps with
-    one label, by default or given, and the same
-    values are one axis, so their points pair up (zip), as one sweep reached from two places does (a swept site
-    two steps use); sweeps with one label and different values are refused, and sweeps with different labels
-    cross. So a read's `layers` swept `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2],
-    "label": "dst"}` are a 3×3 grid in one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}`
-    each, both are labelled `layers`, so they pair up, the diagonal, layer L with layer L, and the grid gives one
-    of them a `label`. A step that uses a swept thing, or references a value that varies, becomes a list of
-    points, one per combination of its axes, each a whole step whose `at` gives its index on each axis; a step no
-    sweep touches runs once.
+    width at every point). One label is one axis: sweeps with one label, by default or given, and the same values
+    pair their points (zip), as one sweep reached from two places does (a swept site two steps use); sweeps with one
+    label and different values are refused, and sweeps with different labels cross. So a read's `layers` swept
+    `{"sweep": [0, 1, 2], "label": "src"}` and a write's `{"sweep": [0, 1, 2], "label": "dst"}` are a 3×3 grid in
+    one step, each point keyed `src=0,dst=2`; swept `{"sweep": [0, 1, 2]}` each, both are labelled `layers`, so they
+    pair up, the diagonal, layer L with layer L, and the grid gives one of them a `label`. A step that uses a swept
+    thing, or references a value that varies, becomes a list of points, one per combination of its axes, each a
+    whole step whose `at` gives its index on each axis; a step no sweep touches runs once.
 
     A value of a swept step depends on some of the step's axes, which its record says (`axes`): the sweeps on its
     own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops
