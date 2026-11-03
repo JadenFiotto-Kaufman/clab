@@ -257,10 +257,9 @@ def ordered(cx: Compiling, labels: set[str]) -> list[str]:
 
 def named_axes(cx: Compiling, ref: str, at: dict[str, int]) -> set[str]:
     """The axes a named value or featurizer varies on, at the consumer's point `at`: a value's as its record says;
-    a declared featurizer's its own; a featurizer a fit trains (`<fit>.<f>`, or its bare name inside the body) the
-    fit's."""
-    thing = cx.aliases.get(ref, ref).partition(".")[0]
-    if thing in cx.featurizers or thing not in cx.steps:          # a declared featurizer, or the fit being compiled
+    a declared featurizer's its own; a featurizer a fit trains (`<fit>.<f>`) the fit's, as its record says."""
+    thing = ref.partition(".")[0]
+    if thing in cx.featurizers or thing not in cx.steps:
         return set(cx.axes_of.get(thing, []))
     return set(record_of(cx.steps, ref, at).axes)
 
@@ -500,7 +499,7 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
         fail(path, narrowed_readout(repr(spec.of)))
     dims = layout(path, spec.op, args, of.dims, "step", kind)
     # An encode's value is in its featurizer's coordinates, as an entry's is that leaves its encode open.
-    space = of.space + space_of(cx.aliases, [spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
+    space = of.space + space_of([spec]) if spec.op == "encode" else of.space if dims[-1:] == of.dims[-1:] else []
     layers, kept, width = carried(of, dims)
     dataset = of.dataset if of.dataset is not None else \
         next((t.dataset for _, t in found.values() if "rows" in (t.dims or []) and t.dataset is not None), None)

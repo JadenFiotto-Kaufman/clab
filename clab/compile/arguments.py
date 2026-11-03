@@ -20,12 +20,10 @@ def narrowed_readout(what: str) -> str:
             "the logits give")
 
 
-def space_of(aliases: dict[str, str], encodes: list[Op] | list[OpStep]) -> list[dict]:
+def space_of(encodes: list[Op] | list[OpStep]) -> list[dict]:
     """The coordinates a value is in: the encodes open around it, outermost first (an entry's ops, or an encode
-    step), each its featurizer (by the name it resolves to here: inside a fit's body `rot` and `<fit>.rot` are
-    one, `aliases`) and `select`."""
-    return [{k: aliases.get(v, v) if k == "featurizer" else v for k, v in arguments(o).items()
-             if k in ("featurizer", "select")} for o in encodes]
+    step), each its featurizer and `select`."""
+    return [{k: v for k, v in arguments(o).items() if k in ("featurizer", "select")} for o in encodes]
 
 
 def said(space: list[dict]) -> str:
@@ -142,7 +140,7 @@ def value_of(cx: Compiling, ref: str, path: str, at: dict[str, int],
     if live and ref in live:
         cx.used.add(ref)
         return live[ref]
-    if thing in cx.featurizers or ref in cx.aliases.values() or trained(cx, thing, member):
+    if thing in cx.featurizers or trained(cx, thing, member):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
              "binds is an operand")
@@ -154,13 +152,11 @@ def value_of(cx: Compiling, ref: str, path: str, at: dict[str, int],
 
 
 def featurizer_ref(cx: Compiling, value: object, path: str) -> None:
-    """A declared featurizer's name, or one a fit trains (`<fit>.<featurizer>`, and inside its body its bare name)."""
+    """A declared featurizer's name, or one a fit trains (`<fit>.<featurizer>`)."""
     thing, _, member = str(value).partition(".")
-    if not (isinstance(value, str) and (value in cx.featurizers or value in cx.aliases.values()
-                                        or trained(cx, thing, member))):
-        known = sorted(set(cx.featurizers) | set(cx.aliases.values())
-                       | {f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1] if s.kind == "fit"
-                          for f in s.train})
+    if not (isinstance(value, str) and (value in cx.featurizers or trained(cx, thing, member))):
+        known = sorted(set(cx.featurizers) | {f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1]
+                                              if s.kind == "fit" for f in s.train})
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
 
 

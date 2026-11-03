@@ -210,7 +210,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
                      f"{value!r} is this entry or one this forward makes after it; an operand names an earlier "
                      "entry")
         # What the op meets: the value as the op before it left it, in the coordinates of the encodes open here.
-        ours = Labelled(dims=dims, space=space_of(cx.aliases, [n["op"] for n in outer]),
+        ours = Labelled(dims=dims, space=space_of([n["op"] for n in outer]),
                         **{**labels, "kept": {a: v for a, v in labels["kept"].items() if a in dims},
                            "width": labels["width"] if "pos" in dims else None})
         operands = references(o.op, args, resolver(cx, here, "classes" in dims, at, live))
@@ -241,7 +241,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
             per_call += each
         open_after = outer + [nodes[i]] if o.op == "encode" else outer
         laid.append(Op(**o.model_dump(exclude_defaults=True), dims=dims,
-                       space=space_of(cx.aliases, [n["op"] for n in open_after])))
+                       space=space_of([n["op"] for n in open_after])))
     unclosed = [n for n, _ in visited(tree) if n["op"].op == "encode" and n["closed"] is None]
     if any(n["at"] < last for n in unclosed):
         j = max(n["at"] for n in unclosed if n["at"] < last)
@@ -250,7 +250,7 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
              f"close it with {{'op': 'decode', 'featurizer': {ref!r}}} after its edits")
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
-                        space=space_of(cx.aliases, [n["op"] for n in unclosed]), per_call=per_call)
+                        space=space_of([n["op"] for n in unclosed]), per_call=per_call)
 
 
 def layers_of(layers: Selector | None) -> list[int] | None:
