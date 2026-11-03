@@ -234,7 +234,7 @@ def call(name: str, value: Any, args: dict[str, Any], **supplied: Any) -> Any:
     fn = OPS[name]
     names = {p.rstrip("_"): p for p in registry.signature(fn).parameters}
     given = {**{names[k]: v for k, v in args.items()}, **{k: v for k, v in supplied.items() if k in names}}
-    if DECLARED[name]["group"] != "edits" or not isinstance(value, Tensor):
+    if DECLARED[name]["group"] != "edits":
         return fn(value, **given)
     up = {k: v.float() if isinstance(v, Tensor) and v.is_floating_point() else v for k, v in given.items()}
     return fn(value.float(), **up).to(value.dtype)
