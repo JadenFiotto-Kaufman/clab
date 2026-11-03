@@ -79,8 +79,7 @@ def width_of(kept: Kept) -> int:
 
 
 def keys(selector: Selector) -> list[int]:
-    """The keys a selector on the `key` axis picks: the same of every row long enough to hold them, a fixed
-    number counted from the start (`keyed` says so), so no row's length changes them."""
+    """The keys a `keyed` selector picks on the `key` axis, the same of every row long enough to hold them."""
     return select(selector, sys.maxsize)
 
 
