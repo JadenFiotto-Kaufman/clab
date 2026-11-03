@@ -980,8 +980,9 @@ bit-equal to unsharded ones, since a sharded matmul sums its parts in another or
 agree with `tp` 1 to that rounding, a fit's trained values further: Adam amplifies the rounding (in bfloat16 it can
 flip a greedy generation's near-tie token too).
 
-The engine holds its model and nothing else: inside the session the engine and its model are the only
-client-side objects, and nnsight ships every name a block closes over to wherever the block runs.
+The engine holds its model and its configuration (the sizes it read off the model at load) and nothing else: inside
+the session the engine and its model are the only client-side objects, and nnsight ships every name a block closes
+over to wherever the block runs.
 
 ### `hooks`
 

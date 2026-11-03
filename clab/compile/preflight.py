@@ -113,6 +113,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
     assert plan.run is not None
     sizes, tokenizer = engine.sizes(), engine.tokenizer
     found = Found(swap=swap, root=root or {})
+    alike: dict[tuple, list] = {}           # each distinct prefill resolution, which records alike share
     for name, entry in steps.items():
         for step in points(entry):
             if step.kind == "fit":
@@ -172,7 +173,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 pos = positions.parse(record.pos)
                 resolved_ = None
                 if positions.prefill(pos) or step.kind == "forward":    # a forward's one call is its prefill
-                    resolved_ = indices(where, record, step, rows, encoded, tokenizer)
+                    resolved_ = indices(where, record, step, rows, encoded, tokenizer, alike)
                     record.positions = {**record.positions, swap.get(step.dataset, step.dataset): resolved_}
                     counts = {len(p) if isinstance(p, list) else 0 for p in resolved_}     # a missing row holds none
                     record.width = counts.pop() if len(counts) == 1 else None   # what the rows confirm
@@ -190,6 +191,9 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                 first = len(record.ops) - len(gathers(record))
                 record.per_call = next((i - first for i in range(first, first + record.per_call)
                                         if lined_up(engine, plan, found, record.ops[i], where)), record.per_call)
+            # What `check_operands` finds of a write's operand depends on the write's component, positions and
+            # selection and on the op's arguments, never its layers: each such write and op is checked once.
+            checked: set[tuple] = set()
             for key, record in entries(step).items():   # the operands, once every entry of the step has its labels
                 where, edits = f"{name}.{key}", len(record.ops) - len(gathers(record))
                 dims = address.dims(cast(Site, record.site).component)
@@ -204,7 +208,10 @@ def prepare(engine: Engine, plan: Plan, steps: dict, swap: dict[str, str], class
                                        adapts(plan, o))
                         if why:
                             raise ValueError(f"{where}: operand {why}")
-                    if i < edits:
+                    write = (cast(Site, record.site).component, repr(record.pos), repr(record.kept), o.op,
+                             repr(arguments(o)))
+                    if i < edits and write not in checked:
+                        checked.add(write)
                         check_operands(engine, plan, where, o, step, record, found)
                     dims = o.dims or dims
         if points(entry)[0].kind in ("forward", "generate"):

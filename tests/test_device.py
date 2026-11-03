@@ -7,9 +7,13 @@ can, with clab installed in it, runs it with one command from the repo root:
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 python -m pytest tests/test_device.py -q
 """
 
+import functools
+import warnings
+from typing import Any
+
 import pytest
 import torch
-from conftest import BATCH_SIZE, edited, plan_of
+from conftest import BATCH_SIZE, edited, plan_of, same
 from test_ops import taken
 
 from clab import featurizers, ops
@@ -52,6 +56,26 @@ def writes() -> list[dict]:
     ]
 
 
+def asking(monkeypatch: pytest.MonkeyPatch, asked: list[int]) -> None:
+    """`mean` run with torch's sync debug mode set to warn, the host-device syncs each call makes counted into
+    `asked`: it asks the device whether any value is missing, one wait, which costs less than computing both the
+    plain mean and the NaN-skipping one for the device to pick between."""
+    mean = ops.OPS["mean"]
+
+    @functools.wraps(mean)
+    def warned(*args: Any, **kwargs: Any) -> Any:
+        mode = torch.cuda.get_sync_debug_mode()
+        torch.cuda.set_sync_debug_mode("warn")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                return mean(*args, **kwargs)
+            finally:
+                torch.cuda.set_sync_debug_mode(mode)
+                asked.append(sum("synchronizing CUDA operation" in str(w.message) for w in caught))
+    monkeypatch.setitem(ops.OPS, "mean", warned)
+
+
 def test_a_write_built_on_the_cpu_lands_on_the_values_device():
     on_cpu = batches.visit(VALUE, "layer_output", writes(), {})[0]
     on_gpu = batches.visit(VALUE.cuda(), "layer_output", writes(), {})[0]
@@ -86,12 +110,14 @@ def test_metrics_and_edits_take_cpu_ids_and_operands():
                                              positions=torch.arange(6).expand(3, 6)))
 
 
-def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
+def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting(monkeypatch):
     """What a batch bound on the GPU hands the engine (each record's positions, its selection and a key axis's
     indices, made there from pinned memory), the inputs fed to the model (one non-blocking copy) and an operand's
     rows looked up by id get there without the host waiting for the GPU, and an equal-width write and a read
-    through `visit` make no host-device sync: under torch's sync debug mode set to raise, none of it raises, and
-    each value is the CPU's."""
+    through `visit` make no host-device sync, nor do a gate's `apply` (which masks a missing vector out of its math
+    whether or not one is), toward a value or toward a number, and a scale by a number, each number as `edit` binds
+    it (on the device, once per batch): under torch's sync debug mode set to raise, none of it raises, and each value
+    is the CPU's. A mean taken off the model makes its one sync, asking whether any value is missing (`asking`)."""
     from clab.format.sweeps import points
     from clab.plan import entries
 
@@ -113,6 +139,11 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
 
     narrow = [{**swap[0], "args": {"with": other[..., [0, 7]]}}]           # a write on a selection
     probs_there = probs.cuda()
+    gate = featurizers.make("gate", {"over": ["hidden_size"]}, 8, {"theta": torch.linspace(1, -1, 8)}, None, None,
+                            device="cuda:0", kept={"hidden_size": list(range(8))})
+    gated = [{"op": "apply", "args": {"featurizer": gate, "with": other}, "dims": DIMS, "layers": 0}]
+    asked: list[int] = []
+    asking(monkeypatch, asked)
     torch.cuda.synchronize()
     torch.cuda.set_sync_debug_mode("error")
     try:
@@ -124,6 +155,11 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
         chosen = batches.visit(value, "layer_output", [{**picked, "ops": narrow}], {})[0]
         seen: dict = {}
         batches.visit(probs_there, "attention_probabilities", [{**keyed, "name": "k"}], seen)   # a key axis read
+        factor = [{"op": "scale", "args": {"factor": batches.placed(3.0, "cuda:0")}, "dims": DIMS}]
+        toward = [{**gated[0], "args": {"featurizer": gate, "with": batches.placed(0.5, "cuda:0")}}]
+        changed = batches.visit(value, "layer_output", [{**whole, "ops": gated}, {**whole, "ops": factor},
+                                                        {**whole, "ops": toward}], {})[0]
+        averaged = ops.call("mean", got["r"], {"over": ["pos"]}, dims=DIMS)
     finally:
         torch.cuda.set_sync_debug_mode("default")
     here = bound("cpu")
@@ -143,6 +179,48 @@ def test_a_batch_bound_on_the_gpu_reaches_its_values_without_the_host_waiting():
     keys_cpu: dict = {}
     batches.visit(probs, "attention_probabilities", [{**here[2], "name": "k"}], keys_cpu)
     assert torch.equal(seen["k"].cpu().nan_to_num(-9), keys_cpu["k"].nan_to_num(-9))      # NaN past a row's own keys
+    on_host = featurizers.make("gate", {"over": ["hidden_size"]}, 8, {"theta": torch.linspace(1, -1, 8)}, None, None,
+                               kept={"hidden_size": list(range(8))})
+    changed_cpu = batches.visit(VALUE, "layer_output", [
+        {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": OTHER[:, :1]}}]},
+        {**here[1], "ops": [{**factor[0], "args": {"factor": torch.tensor(3.0)}}]},
+        {**here[1], "ops": [{**gated[0], "args": {"featurizer": on_host, "with": torch.tensor(0.5)}}]}], {})[0]
+    torch.testing.assert_close(changed.cpu(), changed_cpu, atol=1e-6, rtol=1e-6)
+    assert asked == [1] and torch.equal(averaged.cpu(), ops.call("mean", mine["r"], {"over": ["pos"]}, dims=DIMS))
+
+
+def test_an_op_step_runs_without_the_host_waiting(monkeypatch):
+    """mean_ablation on the GPU, each op step (a mean of a harvest, then two logit differences) run with torch's
+    sync debug mode set to raise and torch.cuda.synchronize refused: none of it raises, since a step that calls no
+    model is timed as the host runs it and its ops wait for nothing but the mean's one question, whether any value
+    is missing (`asking`: one sync, cheaper than computing both means), and the values are a plain run's to the
+    bit."""
+    from clab import steps
+
+    engine = load("nnterp", plan_of("mean_ablation").model, "cuda")
+    want = engine.execute(plan_of("mean_ablation"), batch_size=BATCH_SIZE).results
+    measured, sync, strict = steps.measured, torch.cuda.synchronize, []
+
+    def refused(*_: object) -> None:
+        raise AssertionError("an op step synchronized the device")
+
+    def timed(devices: list[str], cost: dict, call, synced: bool = True) -> None:
+        if synced:
+            return measured(devices, cost, call, synced)
+        strict.append(cost)
+        torch.cuda.set_sync_debug_mode("error")
+        monkeypatch.setattr(torch.cuda, "synchronize", refused)
+        try:
+            measured(devices, cost, call, synced)
+        finally:
+            monkeypatch.setattr(torch.cuda, "synchronize", sync)
+            torch.cuda.set_sync_debug_mode("default")
+    monkeypatch.setattr(steps, "measured", timed)
+    asked: list[int] = []
+    asking(monkeypatch, asked)
+    got = engine.execute(plan_of("mean_ablation"), batch_size=BATCH_SIZE).results
+    assert len(strict) == 3 and all(set(c["memory"]) == {"cuda:0"} for c in strict) and asked == [1]
+    assert same(got, want)
 
 
 @pytest.mark.parametrize("kind, options", [("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})])

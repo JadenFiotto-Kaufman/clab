@@ -119,7 +119,8 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
 
 def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines, monkeypatch):
     """With the model on a CUDA device (stood in for here: torch's calls recorded, the device's peak 7 bytes), each
-    step synchronizes it, resets its peak and reads it back, by device; under the ndif engine, even
+    step resets its peak and reads it back, by device, and a step that calls the model synchronizes the device at
+    both ends of its run, while an op step, which calls none, synchronizes nothing; under the ndif engine, even
     `remote="local"`, the run makes no CUDA call and `memory` is null."""
     called: list[str] = []
     for call in ("synchronize", "reset_peak_memory_stats", "max_memory_allocated"):
@@ -127,8 +128,9 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
     monkeypatch.setattr("clab.steps.gpus", lambda engine: ["cuda:0"])
     plan = plan_of("logit_lens")
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
-    assert local.costs["lens"]["layers=0"]["memory"] == {"cuda:0": 7}
-    assert called[:3] == ["synchronize", "reset_peak_memory_stats", "synchronize"]
+    assert all(c["memory"] == {"cuda:0": 7} for costs in local.costs.values() for c in costs.values())
+    forward = ["synchronize", "reset_peak_memory_stats", "synchronize", "max_memory_allocated"]
+    assert called == forward + ["reset_peak_memory_stats", "max_memory_allocated"] * 4     # two ops at two points
     called.clear()
     remote = engines("ndif", plan.model, remote="local").execute(plan, batch_size=BATCH_SIZE).run
     assert called == [] and all(c["memory"] is None for costs in remote.costs.values() for c in costs.values())
@@ -147,8 +149,8 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     plan = plan_of("logit_lens")
     engine = load("ndif", plan.model, remote="local")
     shell: Any = engine.model
-    monkeypatch.setattr("clab.steps.measured", lambda devices, cost, call: seen.append(("step", shell.dispatched))
-                        or measured(devices, cost, call))
+    monkeypatch.setattr("clab.steps.measured", lambda devices, cost, call, synced: seen.append(
+        ("step", shell.dispatched)) or measured(devices, cost, call, synced))
     engine.execute(plan, batch_size=BATCH_SIZE)
     assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
 
@@ -404,6 +406,65 @@ def test_a_stopped_forward_leaves_no_frame_for_the_collector(engines, kind):
         gc.garbage.clear()
         gc.enable()
     assert frames == [] and got["read"].shape == (2, 1, 16)
+
+
+def test_records_alike_are_resolved_checked_and_bound_once(monkeypatch):
+    """patching with its swap made at a second layer too and a scale by one at both, every entry at the last token:
+    preflight resolves the patched forward's positions once per row and checks the swap's operand once (a write's
+    layers change nothing either finds), the engine's sizes are read at load and not during the run, and in each
+    batch the records that reach one selection share its tensors, and every write the batch's rows, the swaps one
+    copy of their operand at the batch's rows, and the scales one tensor of their number."""
+    from clab.compile import positions, preflight
+    from clab.engines import load, standard
+
+    def change(d):
+        p = d["steps"]["patched"]["interventions"]
+        patch, logits = p.pop("patch"), p.pop("logits")
+        p.update(patch=patch, again={**patch, "site": {"component": "layer_output", "layers": 1}},
+                 scaled={"site": {"component": "layer_output", "layers": [0, 1]}, "pos": -1,
+                         "ops": [{"op": "scale", "factor": 1.0}]}, logits=logits)
+    plan = edited("patching", change).compile()
+    engine: Any = load("nnterp", plan.model)
+    placed, checked, sized, bounds = [], [], [], []
+    place, check, forward = positions.place, preflight.check_operands, engine.forward
+    monkeypatch.setattr(positions, "place", lambda *a: placed.append(a) or place(*a))
+    monkeypatch.setattr(preflight, "check_operands", lambda *a: checked.append(a[2]) or check(*a))
+    monkeypatch.setattr(standard, "sizes", lambda model: sized.append(model) or {})
+    monkeypatch.setattr(engine, "forward", lambda batch, bound: bounds.append(bound) or forward(batch, bound))
+    run = engine.execute(plan, batch_size=BATCH_SIZE).run
+    assert run is not None and sized == []
+    rows = len(run.tokens["pairs.input"])
+    assert len(placed) == 2 * rows                  # the counterfactual's read, and the patched forward's four entries
+    assert checked == ["patched.patch", "patched.scaled"]
+    patched = [b for b in bounds if any("ops" in r for s in b["sites"] for r in s["records"])]
+    assert len(patched) == -(-rows // BATCH_SIZE)
+    for bound in patched:
+        writes = [r for s in bound["sites"] for r in s["records"] if "ops" in r]
+        assert [o["op"] for r in writes for o in r["ops"]] == ["swap", "scale", "swap", "scale"]
+        assert len({id(r["positions"]) for r in writes}) == len({id(o["rows"]) for r in writes for o in r["ops"]}) == 1
+        swaps, scales = ([o["args"][k] for r in writes for o in r["ops"] if o["op"] == op]
+                         for op, k in (("swap", "with"), ("scale", "factor")))
+        assert swaps[0].untyped_storage().data_ptr() == swaps[1].untyped_storage().data_ptr()     # each a view of it
+        assert scales[0] is scales[1] and isinstance(scales[0], torch.Tensor)
+
+
+def test_a_gates_number_with_is_bound_once_per_batch(monkeypatch):
+    """head_gates, untrained, interpolating toward a number: each batch of its body binds the number once, one tensor
+    for its writes at all five layers, as it binds `scale`'s `factor` (an optional `with` is a value given)."""
+    from clab.engines import load
+
+    def toward_zero(d):
+        d["steps"]["fit"].update(epochs=0, objective={"sq": 1.0, "heads.mask": 0.0001})
+        d["steps"]["fit"]["steps"]["run"]["interventions"]["gated"]["ops"][0]["with"] = 0.0
+    plan = edited("head_gates", toward_zero).compile()
+    engine: Any = load("nnterp", plan.model)
+    bounds, forward = [], engine.forward
+    monkeypatch.setattr(engine, "forward", lambda batch, bound: bounds.append(bound) or forward(batch, bound))
+    engine.execute(plan, batch_size=BATCH_SIZE)
+    gated = [[o["args"]["with"] for s in b["sites"] for r in s["records"] for o in r.get("ops", [])
+              if o["op"] == "apply"] for b in bounds]
+    gated = [numbers for numbers in gated if numbers]
+    assert gated and all(len(n) == 5 and isinstance(n[0], torch.Tensor) and all(w is n[0] for w in n) for n in gated)
 
 
 def test_binding_a_write_leaves_nothing_for_the_collector():

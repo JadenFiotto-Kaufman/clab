@@ -50,6 +50,9 @@ def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The mean over the axes `over` names, of the values that are there (a missing one is NaN, in ids -1); by
     default over the rows and positions, a `layers` axis kept."""
     of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
+    # With none missing it is the plain mean, whose bits the NaN-skipping mean's division does not always give. The
+    # host asks the device whether any is missing: that one wait costs less than computing both means for the device
+    # to pick between.
     return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
 
 
