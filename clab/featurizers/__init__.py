@@ -204,10 +204,6 @@ class Kind:
         """How many coordinates the instance's space has."""
         return self.method("encode")(self, torch.zeros(1, self.width(self.tensors()))).shape[-1]
 
-    def parameters(self) -> list[Tensor]:
-        """The tensors a fit trains."""
-        return [getattr(self, name) for name in self.trains]
-
     def tensors(self) -> dict[str, Tensor]:
         """The tensors its bundle holds."""
         return {name: getattr(self, name).detach() for name in self.saves}

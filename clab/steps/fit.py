@@ -37,7 +37,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
     trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine))
                for f in step.train for spec in [agreeing_point(plan.featurizers[f], step.at)]}
-    params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
+    params = [getattr(f, t).requires_grad_() for f in trained.values() for t in f.trains]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     # What each body forward reads, once for every run of the body: a body step is one point, which serves itself.
