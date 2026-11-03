@@ -14,7 +14,7 @@ import os
 import pytest
 import torch
 from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, THREADS, close, document, edited, on_each, placed, plain,
-                      plan_of, same, snapshot)
+                      plan_of, same, snapshot, within)
 
 from clab import Plan
 from clab.cli import main
@@ -59,6 +59,17 @@ def softcapped_lens() -> Plan:
     return edited("logit_lens_all", lambda d: d.update(model=GEMMA2)).compile()
 
 
+# The snapshots whose floats are one host's to the bit and another's within a few float32 ulps, by name, with that
+# drift. softcapped_lens's `p_answer` is a float32 softmax over the tiny Gemma-2's 256,000 tokens, read where it is
+# about 4e-6, the only pinned softmax that wide (the corpus's span 32,000 tokens or fewer): two of its four values
+# differ from the checked-in ones by one ulp on both engines on the host that pins the suite, at any thread count,
+# under torch 2.13 to 2.15 and transformers 5.19 to 5.20. Its last bits follow the host's vector kernels, not the
+# softcap: torch's generic kernels in place of AVX2 change the softmax's last bit at 47% of the vocabulary and the
+# softcap's tanh at none, another MKL code path moves 87% of the logits by up to 2e-7, and either leaves `p_answer`
+# within one ulp.
+DRIFT = {"softcapped_lens": 1}
+
+
 PLANS = {**{name: (lambda name=name: plan_of(name)) for name in FORWARD},
          "from_the_start": from_the_start, "mixed_lengths": lambda: mixed_lengths(ROWS),
          "softcapped_lens": softcapped_lens}
@@ -78,10 +89,12 @@ def filled(engines) -> dict:
 def test_numbers_match_the_snapshot(filled, name, kind):
     if name == "patching":
         return                      # test_patching.py pins it
-    values = plain(filled[name, kind].results)
-    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "values": values})
+    values, ulps = plain(filled[name, kind].results), DRIFT.get(name, 0)
+    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "values": values},
+                        holds=lambda held: held["batch_size"] == BATCH_SIZE and within(held["values"], values, ulps))
     assert expected["batch_size"] == BATCH_SIZE
     close(values, expected["values"])
+    assert not ulps or within(values, expected["values"], ulps)
 
 
 @pytest.mark.parametrize("name", [n for n in PLANS if n not in INSIDE])

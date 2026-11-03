@@ -1,0 +1,66 @@
+# The GPU tests, tests/test_real.py (the documents under documents/real/ on Llama-3.2-1B) and tests/test_device.py,
+# on a self-hosted runner labelled `gpu`. None is registered yet, so the job is off: it runs only when dispatched by
+# hand and only once the repository variable GPU_RUNNER is `true`. When a runner exists, set the variable and add a
+# nightly trigger beside the dispatch:
+#
+#   schedule:
+#     - cron: "0 6 * * *"
+#
+# The runner provides what the files need and the CPU job does not: a python whose torch runs on its CUDA driver,
+# with nnsight, nnterp and transformers installed (the `python` input, else the repository variable GPU_PYTHON, which
+# a scheduled run reads), and meta-llama/Llama-3.2-1B, a gated checkpoint, at the revision tests/test_real.py pins,
+# in its Hugging Face cache. The files skip without either, so a check before them fails the job instead of letting
+# both pass on skips. These are the commands docs/developing/testing.md gives for running the files by hand.
+name: gpu
+
+on:
+  workflow_dispatch:
+    inputs:
+      python:
+        description: "A python on the runner whose torch runs on its CUDA driver, with clab's dependencies installed"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  gpu:
+    if: vars.GPU_RUNNER == 'true'
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 30
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+      HF_HUB_OFFLINE: "1"
+      PYTHONPATH: ${{ github.workspace }}
+      BASE_PYTHON: ${{ inputs.python || vars.GPU_PYTHON || 'python3' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: false
+
+      - name: A venv over the runner's python, clab installed without dependencies
+        run: |
+          uv venv --python "$BASE_PYTHON" --system-site-packages "$RUNNER_TEMP/clab-gpu"
+          uv pip install --python "$RUNNER_TEMP/clab-gpu/bin/python" --no-deps -e .
+
+      - name: A CUDA device and the checkpoint are there
+        run: |
+          "$RUNNER_TEMP/clab-gpu/bin/python" - <<'PY'
+          import torch
+          from huggingface_hub import try_to_load_from_cache
+
+          assert torch.cuda.is_available(), "no CUDA device: tests/test_real.py and tests/test_device.py would skip"
+          path = try_to_load_from_cache("meta-llama/Llama-3.2-1B", "model.safetensors",
+                                        revision="4e20de362430cd3b72f300e6b0f18e50e7166e08")
+          assert isinstance(path, str), "meta-llama/Llama-3.2-1B is not in the runner's Hugging Face cache"
+          print(torch.__version__, torch.cuda.get_device_name())
+          PY
+
+      - name: tests/test_real.py
+        run: '"$RUNNER_TEMP/clab-gpu/bin/python" -m pytest tests/test_real.py -q -p no:cacheprovider -rs'
+
+      - name: tests/test_device.py
+        if: ${{ !cancelled() }}
+        run: '"$RUNNER_TEMP/clab-gpu/bin/python" -m pytest tests/test_device.py -q -p no:cacheprovider -rs'
