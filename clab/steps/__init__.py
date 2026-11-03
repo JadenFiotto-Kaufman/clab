@@ -99,7 +99,7 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
                 try:
                     measured(devices, cost, lambda: KINDS[step.kind](
                         engine, plan, name, step, state, batch_size, found, cost,
-                        *([served] if isinstance(step, Forward) else [])))
+                        *([served] if isinstance(step, Forward) else [])), step.kind not in NO_MODEL)
                     put(costs, name, step.at, cost)
                 except torch.OutOfMemoryError as e:
                     plan.run.stopped = exhausted(plan, name, step.at, batch_size, state, e)
@@ -147,19 +147,23 @@ def sized(value: Any) -> str | None:
     return None
 
 
-def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None]) -> None:
+def measured(devices: list[str], cost: dict[str, Any], call: Callable[[], None], synced: bool = True) -> None:
     """What a run of a step cost, written into `cost` beside the model calls it made and the tokens they fed,
     which `call`, running it, adds (`forwards`, `tokens`): its time (`seconds`), with the model's CUDA `devices`
-    synchronized at both ends, and the peak memory allocated on each of them while it ran, weights included, in
-    bytes by device (`memory`, None where the model is not on CUDA). The engine says which devices it measures
-    (`engine.cuda`, read once per run by `run`, after preflight, where the model is placed: a walk of its
+    synchronized at both ends where it calls the model (`synced`), and the peak memory allocated on each of them
+    while it ran, weights included, in bytes by device (`memory`, None where the model is not on CUDA), which the
+    allocator counts as the host asks for memory, so reading it waits for nothing. A step that calls no model (an op
+    step, a load: `NO_MODEL`) is timed as the host runs it, without draining the devices' queues: its kernels finish
+    under the next step that calls the model, before that one's timer starts. The engine says which devices it
+    measures (`engine.cuda`, read once per run by `run`, after preflight, where the model is placed: a walk of its
     parameters): a remote engine's run makes no CUDA call and its `memory` is None."""
     for device in devices:
-        torch.cuda.synchronize(device)
+        if synced:
+            torch.cuda.synchronize(device)
         torch.cuda.reset_peak_memory_stats(device)
     started = time.perf_counter()
     call()
-    for device in devices:
+    for device in devices if synced else ():
         torch.cuda.synchronize(device)
     cost["seconds"] = round(time.perf_counter() - started, 3)
     cost["memory"] = {d: torch.cuda.max_memory_allocated(d) for d in devices} or None
@@ -341,3 +345,6 @@ def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
 # it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take the points their run serves,
 # `served`, and what they read, `reading`).
 KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit, "load": load}
+
+# The step kinds that call no model, whose runs `measured` times without synchronizing the model's devices.
+NO_MODEL = ("op", "load")
