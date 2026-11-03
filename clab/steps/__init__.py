@@ -38,9 +38,8 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
-from clab.output import saved_value_axes
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
-                        serving)
+                        saved_value_axes, serving)
 from clab.steps import fit, generate
 from clab.steps.batches import (bind_arguments, bind_schedule, input_batches, join_batches, layers_made_at,
                                 model_device, scope_ids, stack_layers, stop_ids, value_at, value_in_prefill)

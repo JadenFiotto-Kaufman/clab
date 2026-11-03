@@ -42,7 +42,7 @@ from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, points
 from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entry_of, kind_of, made_by, projections,
-                       record_of, scope)
+                       record_of, saved_value_axes, scope)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -96,11 +96,6 @@ def pretty_json(value: Any, level: int = 0) -> str:
     if isinstance(value, list) and any(isinstance(v, dict) for v in value):
         return "[\n" + ",\n".join(f"{pad}{pretty_json(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
     return json.dumps(value, ensure_ascii=False)
-
-
-def saved_value_axes(plan: Plan, name: str) -> list[str]:
-    """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
-    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
 
 
 def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:

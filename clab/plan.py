@@ -1391,6 +1391,11 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     return list(found.values())
 
 
+def saved_value_axes(plan: Plan, name: str) -> list[str]:
+    """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
+    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
+
+
 def runnable(steps: dict[str, Entry]) -> dict[str, Entry]:
     """The steps that run, by name, in the order they run: each of `steps`, and after a fit each of its evals'
     steps under `<fit>.<eval>.<step>`, a point per point of the fit."""

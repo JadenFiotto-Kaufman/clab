@@ -22,7 +22,7 @@ from clab.compile import positions
 from clab.docs import WHAT, as_json, describe
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, coordinate_text
-from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, serving
+from clab.plan import Plan, Run, entries, made_by, name, points, projections, runnable, saved_value_axes, serving
 
 
 def how(run: Run) -> str:
@@ -53,7 +53,7 @@ def show(filled: Plan) -> str:
     lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
-        value, axes = filled.results[saved], output.saved_value_axes(filled, saved)
+        value, axes = filled.results[saved], saved_value_axes(filled, saved)
         if axes:
             value = {coordinate_text(filled, at): value[coordinate(filled, at)] for at, _ in projections(filled, saved)}
         dims = output.saved_value_layout(filled, saved)["dims"]
