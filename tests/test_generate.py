@@ -613,6 +613,34 @@ def test_a_decode_call_writes_operand_is_checked_before_any_forward():
         edited("generate_probe", change).compile()
 
 
+def swapped_with_clean(wpos: dict) -> Plan:
+    """T10's repro: a generation that reads layer 0's output at decode calls 1 to 3, one token each, and one that
+    writes there at `wpos`, zeroing the value (which alone changes the ids from token 3 on) and then swapping in
+    the clean generation's read at the same position: a null, whose ids must be the clean run's."""
+    g = {"kind": "generate", "input": "prompts.input", "max_new_tokens": 6, "min_new_tokens": 6, "do_sample": False}
+    layer0 = {"component": "layer_output", "layers": 0}
+    return Plan(model=plan_of("generated_answer").model, data={"prompts": {"path": "weekdays/train"}},
+                document=plan_of("generated_answer").document,
+                steps={"clean": {**g, "interventions": {"r": {"site": layer0, "pos": wpos}}},
+                       "swapped": {**g, "interventions": {"w": {"site": layer0, "pos": wpos, "ops": [
+                           {"op": "swap", "with": 0.0}, {"op": "swap", "with": "clean.r"}]}}}},
+                saves=["clean", "swapped"]).compile()
+
+
+def test_an_operand_with_positions_for_a_write_over_several_decode_calls_is_refused_saying_what_runs(engines):
+    """A write over decode calls lands on one position at each call, which an operand read over three calls is not
+    split among: refused when the plan compiles, where the ragged refusal's suggestion had compiled and crashed in
+    `swap`; what the refusal says instead, one call and one position, runs, and its null gives the clean ids."""
+    message = r"^steps\.swapped\.interventions\.w\.ops\[1\]\.with: 'clean\.r' has a pos axis, and this write lands " \
+              r"beyond the prefill: .* write at one decode call, \{'frame': 3, 'index': 0\}, with the operand read at " \
+              r"that call the same way, an entry per call$"
+    for wpos in ({"frame": "1:4", "index": ":3"}, {"frame": 3}):
+        with pytest.raises(PlanError, match=message):
+            swapped_with_clean(wpos)
+    v = run(engines, swapped_with_clean({"frame": 3, "index": 0})).results
+    assert torch.equal(v["swapped"], v["clean"])
+
+
 def test_a_text_scope_counts_the_prompt_only_where_the_frame_holds_it():
     """`beta` generated as token 1 sits at position 3 after a two-token prompt. A frame of every call finds it
     there and no prompt position; with `beta` in the prompt too, every call's tokens hold two occurrences,

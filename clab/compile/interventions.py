@@ -103,7 +103,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     the op meets there (`arguments.mismatch`). Up to its last edit each op acts on the live value, so no edit
     follows an op that changed the layout unless that was an `encode` its `decode` closes, every encode before the
     write-back is closed by then, and on a component of ids (`address.COMPONENTS`' `ids`) the one edit is `swap`,
-    whose ids preflight holds to the model's size and the run to it again as they land. `live` holds the forward's
+    whose ids preflight holds to the model's size and the run to it again as they land; and a write beyond a
+    generation's prefill takes an operand with a `pos` axis only at one decode call and one position (`one_call`),
+    since at each call it lands on that call's one position. `live` holds the forward's
     earlier entries by name (`<step>.<entry>`); `own` names every entry of the step; `where` is this one's name; `at`
     the step's point. Beyond a generation's prefill the leading ops after the last edit that are positionwise, keep
     `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
@@ -238,6 +240,11 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
                 fail(f"{here}.{key}", f"{written!r} is an entry of this forward, and {o.op!r} here runs once the value "
                      "is off the model, batch by batch, where an operand is a value made before this step; an "
                      "operand from the same forward is a write's: take the two in an op step after the forward")
+            if i <= last and "pos" in (theirs.dims or []) and step.kind == "generate" and not one_call(pos):
+                fail(f"{here}.{key}", f"{written!r} has a pos axis, and this write lands beyond the prefill: at each "
+                     "decode call it names, as the call runs, on that call's one position, where an operand's "
+                     "positions are not split among the calls; write at one decode call, {'frame': 3, 'index': 0}, "
+                     "with the operand read at that call the same way, an entry per call")
             why = mismatch(ours, theirs, o.op, key, written, repr(step.input), i <= last, written in live,
                            adapts(plan, o))
             if why:
@@ -266,6 +273,15 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     return Intervention(**spec.model_dump(exclude_defaults=True, exclude={"site", "ops"}), site=site, ops=laid,
                         dims=(["layers"] if address.stacks(site.layers) else []) + dims, **labels,
                         space=space, per_call=per_call)
+
+
+def one_call(pos: dict) -> bool:
+    """Whether a generation's entry names the prefill alone, or one decode call and one position, the call's own:
+    a write there meets an operand's positions as a forward's does, where a write over several calls meets one
+    position at each."""
+    holds, calls, _ = positions.reach(pos)
+    return positions.prefill_only(pos) or not holds and calls is not None and len(calls) == 1 and \
+        positions.width(pos) == 1
 
 
 def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:

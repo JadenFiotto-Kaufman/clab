@@ -41,6 +41,14 @@ In the first the operand is ragged, in the second the write is: a per-position v
 
 A read at a decode call holds 0 or 1 positions per row, since a row may stop before that call, so it has no static width: `kl` or `js` with it on either side, against another decode read or a prefill read, is refused with the first message. Score a decode read on its own instead, with `argmax` or a metric against a one-token answer column.
 
+## `… has a pos axis, and this write lands beyond the prefill …`
+
+```text
+steps.swapped.interventions.w.ops[0].with: 'clean.r' has a pos axis, and this write lands beyond the prefill: at each decode call it names, as the call runs, on that call's one position, where an operand's positions are not split among the calls; write at one decode call, {'frame': 3, 'index': 0}, with the operand read at that call the same way, an entry per call
+```
+
+A generation's write over decode calls lands at each call as it runs, on that call's one token, and an operand's positions are not handed out one per call: an earlier generation's read over `{"frame": "1:4", "index": ":3"}` cannot be swapped in over the same frame. Write at one call and one position, `{"frame": 3, "index": 0}`, beside a read at that call written the same way, one entry for each call to be written. An operand with no `pos` axis (a `mean` step's vector) broadcasts over every call.
+
 ## `… holds N position(s) per row and the value … holds M`
 
 ```text
