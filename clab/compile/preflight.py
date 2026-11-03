@@ -179,7 +179,7 @@ def prepare(engine: Engine, plan: Plan, steps: dict, classes: dict[str, list], f
                                     layers=record.layers, read=record.read, width=record.width if "pos" in dims else None,
                                     kept={a: v for a, v in record.kept.items() if a in dims})
                     for k, (written, theirs) in references(o.op, arguments(o), resolving(plan, step.at)).items():
-                        forward = written.partition(".")[0] == name
+                        forward = written.rpartition(".")[0] == name
                         why = mismatch(ours, theirs, o.op, k, written, repr(step.input), i < edits, forward,
                                        adapts(plan, o))
                         if why:

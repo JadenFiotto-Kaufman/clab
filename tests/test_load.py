@@ -153,6 +153,33 @@ def test_an_eval_members_read_loads_as_the_eval_step_read_it(engines, root):
     assert same(filled.results["ce"], load(os.path.join(root, "out", "lora_train")).results["fit.held_out.ce"])
 
 
+
+def generated(engines, root: str) -> str:
+    """lora_train with a generation of two tokens in its body, so in each eval, and the same written at the root
+    after the fit over `test`, both saved: run once, into `out/lora_gen`."""
+    def change(doc):
+        gen = {"kind": "generate", "input": "train.input", "max_new_tokens": 2, "do_sample": False}
+        doc["steps"]["fit"]["steps"]["gen"] = gen
+        doc["steps"]["r_gen"] = {**gen, "input": "test.input"}
+        doc["saves"] += ["fit.held_out.gen", "r_gen"]
+    out = os.path.join(root, "out", "lora_gen")
+    if not os.path.exists(out):
+        ran(engines, root, "lora_gen", corpus("lora_train", change))
+    return out
+
+
+def test_a_load_of_an_eval_generation_is_refused_as_the_roots_is(engines, root):
+    """An eval's generation is made by its eval step, a generate step like the root's, so a load of
+    `fit.held_out.gen` is refused as a load of the same generation at the root is, where the fit was taken as its
+    maker and the load was compiled."""
+    generated(engines, root)
+    said = ("is a generation's value or holds its positions, which count the tokens that run generated; a load brings "
+            "a forward's values and what op steps and fits made of them")
+    for value in ("fit.held_out.gen", "r_gen"):
+        assert refused(root, {"kind": "load", "from": "out/lora_gen", "value": value}) == \
+            f"steps.harvest.value: {value!r} {said}"
+
+
 def test_a_chained_load_encodes_as_the_read_it_carries(engines, root):
     """`cached`, a run's load of pca_harvest's harvest, loaded again from that run: its record is the entry it
     carries, the one pca_harvest read, so an `encode` of it runs, and gives what the encode of the harvest loaded

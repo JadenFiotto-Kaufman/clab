@@ -316,7 +316,7 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
             continue                                # a step's value: no site, no positions of its own
         producer, read = entry_of(plan.steps, value, step.at)
         theirs_site = cast(Site, read.site)
-        same = value.partition(".")[0] == where.partition(".")[0]
+        same = value.rpartition(".")[0] == where.rpartition(".")[0]
         if adapter and key == "with":
             per, own = (math.prod(selectors.width_of(kept[a]) if a in kept else sizes[a]
                                   for a in address.dims(s.component)[2:])

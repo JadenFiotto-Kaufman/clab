@@ -303,7 +303,7 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     calls no model, and its value is put at the point's coordinates on its own axes."""
     of, record = value_at(plan, state, step.of, step.at, over(state)), record_of(plan.steps, step.of, step.at)
     dims = record.dims or []
-    producer = points(plan.steps[step.of.partition(".")[0]])[0]
+    producer = points(runnable(plan.steps)[made_by(plan, step.of)])[0]
     ids = (over(state) if over(state) is not None else list(range(plan.data[record.dataset].n_rows or 0))) \
         if "rows" in dims and record.dataset is not None else None
     rows = None if ids is None else torch.tensor(ids)

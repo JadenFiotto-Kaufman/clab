@@ -28,7 +28,7 @@ from typing import Any, Callable, cast
 from clab import featurizers, ops
 from clab.compile.answers import column_ref
 from clab.compile.arguments import called, carried, layout, mismatch, narrowed_readout, references, resolver, space_of, value_of
-from clab.compile.interventions import entry, items
+from clab.compile.interventions import bundles_of, entry, items
 from clab.compile.schedule import shared
 from clab.compile.state import Compiling
 from clab.compile.uses import bundled_sites, over_axes
@@ -58,6 +58,7 @@ from clab.plan import (
     gathers,
     gradient_of,
     kind_of,
+    made_by,
     own_read,
     points,
     produced,
@@ -523,7 +524,8 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
-    record, made = record_of(ran.steps, spec.value, there), agreeing(ran.steps[spec.value.partition(".")[0]], there)
+    record = record_of(ran.steps, spec.value, there)
+    made = agreeing(runnable(ran.steps)[made_by(ran, spec.value)], there)      # an eval's member's: its eval step
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
     if made.kind == "fit" and spec.value.partition(".")[2] in made.train or \
             made.kind == "op" and ops.DECLARED[made.op]["bundle"]:
@@ -765,9 +767,11 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
                  f"forward of the body, or make {ref!r} over {theirs}")
     fit.steps = body
     for label, swap in spec.eval.items():          # each eval's steps, in the root's scope with the fit in it
-        names = {**own, **{n: f"{name}.{label}.{n}" for n in spec.steps}}
-        scope, view, fit.evals[label] = replace(cx, steps={**cx.steps, name: fit}), rewritten(plan, names, swap), {}
+        scope, names, fit.evals[label] = replace(cx, steps={**cx.steps, name: fit}), dict(own), {}
         for n, s in spec.steps.items():
+            names[n] = f"{name}.{label}.{n}"    # it and the body's steps before it: a later one's name is the root's
+            pulls = isinstance(s, (Forward, Generate)) and bundles_of(s)       # a bundle, whose entries it renames
+            view = rewritten(plan, names, swap) if pulls else plan
             try:
                 made = step(scope, f"{path}.steps.{n}", names[n], renamed(s, names, swap), view, at)
             except PlanError as e:
