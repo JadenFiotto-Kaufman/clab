@@ -83,12 +83,9 @@ def axes(name: str) -> str:
     a = ops.DECLARED[name]
     if a["layout"] is not None:
         return summary(a["layout"])
-
-    def listed(verb: str) -> str:
-        if verb == "removes" and a[verb] == ops.VOCABULARY:
-            return "its vocabulary axis"
-        return ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb])
-    parts = [f"{verb} {listed(verb)}" for verb in ("needs", "removes", "adds") if a[verb]]
+    parts = [f"{verb} " + ("its vocabulary axis" if verb == "removes" and a[verb] == ops.VOCABULARY else
+                           ", ".join(" or ".join(x) if isinstance(x, tuple) else x for x in a[verb]))
+             for verb in ("needs", "removes", "adds") if a[verb]]
     return "; ".join(parts) or "keeps the layout"
 
 
