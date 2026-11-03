@@ -267,6 +267,7 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                     first = len(record.ops) - len(gathers(record))
                     bound["per_call"] = op_binding(plan, record, point.at, site["layer"],
                                                    span=(first, first + site_record["per_call"]))
+                    bound["fields"]["takes"] = supplied_to(bound["per_call"])
             if "calls" in site_record:
                 bound["fields"]["calls"] = site_record["calls"]
             records.append(bound)
@@ -536,7 +537,7 @@ def selection_of(value: Tensor, record: dict) -> Tensor:
     map that spreads the model, a record built on the host).
     """
     value = own_keys(value[torch.arange(value.shape[0], device=value.device)[:, None],
-                           record["positions"].to(value.device)], record)
+                           moved_to(record["positions"], value.device)], record)
     for dim, index in record["select"].items():
         value = index_along(value, dim, index)
     return value
@@ -549,13 +550,20 @@ def own_keys(value: Tensor, record: dict) -> Tensor:
     if "keys" not in record:
         return value
     dim, keys = record["keys"]["dim"], record["keys"]
-    value = value.gather(dim, expanded_row_indices(value, dim, keys["index"].to(value.device)))
-    return value.masked_fill(~expanded_row_indices(value, dim, keys["own"].to(value.device)), float("nan"))
+    value = value.gather(dim, expanded_row_indices(value, dim, moved_to(keys["index"], value.device)))
+    return value.masked_fill(~expanded_row_indices(value, dim, moved_to(keys["own"], value.device)), float("nan"))
 
 
 def index_along(value: Tensor, dim: int, index: Tensor) -> Tensor:
     """`value` at `index` along `dim`, the same indices on every row."""
-    return value.index_select(dim, index.to(value.device))
+    return value.index_select(dim, moved_to(index, value.device))
+
+
+def moved_to(index: Tensor, device: torch.device) -> Tensor:
+    """`index` on `device`: itself where it is there already, as the indices `bind_schedule` made are, which the check
+    tells for less than a `.to` that moves nothing costs; else moved (a record built on the host, a device map that
+    spreads the model)."""
+    return index if index.device == device else index.to(device)
 
 
 def expanded_row_indices(value: Tensor, dim: int, index: Tensor) -> Tensor:
@@ -583,8 +591,9 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     `original` is a write's selection as it was before any of these writes, taken where its ops take it (`takes`,
     `bind_schedule`'s: `supplied_to`; `renormalize`, an `encode` around one). An argument bound to an entry of
     the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
-    An op is given the dataset row of each of the selection's rows (the op's `rows`) and the token position of
-    each of its positions (the write's `tok`, plus the decode `call` it lands at, which the engine stamps). A
+    An op is given the dataset row of each of the selection's rows (the op's `rows`) and, where one takes it, the token
+    position of each of its positions (`token_positions_of`: the write's `tok`, plus the decode `call` it lands at,
+    which the engine stamps). A
     write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
     padded to one width; only the positions its `keep` marks are written (a write whose rows are equal has no
     `keep` and writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`own_keys`), to a
@@ -592,13 +601,14 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     past the batch's width (up to the input's longest row) nowhere, being no row's own. A write of ids (`ids`,
     `bind_schedule`'s) runs its ops in float32 and is refused by its entry where what would land is no id under the
     model's size (`check_written_ids`), before the model reads it. Every index, mask and result moves to the value's
-    device, and a result to its dtype, where it meets the value: no move for the indices `bind_schedule` made, which are
-    on the model's device already.
+    device, and a result to its dtype, where it meets the value and only where it is elsewhere (`moved_to`): the
+    indices `bind_schedule` made are on the model's device already.
     """
     layout = address.COMPONENTS[component]["dims"]         # the token axis in its own layout: a pattern's query
     axis = layout.index("query") if "query" in layout else layout.index("seq")
     before = site_value = value.movedim(axis, 1)
-    row_indices = torch.arange(site_value.shape[0], device=site_value.device)[:, None]
+    device = site_value.device
+    row_indices = torch.arange(site_value.shape[0], device=device)[:, None]
     wrote = copied = False      # copied: `site_value` is this visit's own copy, which a write may change in place
     for record in records:
         if "ops" not in record:
@@ -610,7 +620,7 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
             else:
                 read = selection_of(site_value, record)
                 if "per_call" in record:
-                    read = apply_bound_ops(read, read, record["per_call"], got, record["tok"] + record.get("call", 0))
+                    read = apply_bound_ops(read, read, record["per_call"], got, token_positions_of(record))
                 if "calls" in record:
                     got.setdefault(record["name"], []).append(read)
                 else:
@@ -618,26 +628,26 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
             continue
         if not copied:
             site_value, wrote, copied = site_value.clone(), True, True
-        indices = record["positions"].to(site_value.device)
+        indices = moved_to(record["positions"], device)
         current = site_value[row_indices, indices]
         new = whole = own_keys(current, record)
         original = own_keys(before[row_indices, indices], record) if "original" in record.get("takes", ()) else None
         for dim, index in record["select"].items():
             new = index_along(new, dim, index)
             original = None if original is None else index_along(original, dim, index)
-        token_positions = record["tok"] + record.get("call", 0) if "tok" in record else None
-        new = apply_bound_ops(new.float() if "ids" in record else new, original, record["ops"], got, token_positions)
+        new = apply_bound_ops(new.float() if "ids" in record else new, original, record["ops"], got,
+                              token_positions_of(record))
         if "ids" in record:
-            check_written_ids(new, component, record, token_positions)
-        new = new.to(device=current.device, dtype=current.dtype)
+            check_written_ids(new, component, record)
+        if new.device != device or new.dtype != site_value.dtype:       # `current`'s, which it lands in
+            new = new.to(device=device, dtype=site_value.dtype)
         for dim, index in record["select"].items():
-            new = whole.index_copy(dim, index.to(current.device), new)
+            new = whole.index_copy(dim, moved_to(index, device), new)
         if "keys" in record:        # back in the batch's order over `current`
             dim, keys, n = record["keys"]["dim"], record["keys"], current.shape[record["keys"]["dim"]]
-            index, own = (expanded_row_indices(current, dim, keys[k][:, :n].to(current.device))
+            index, own = (expanded_row_indices(current, dim, moved_to(keys[k][:, :n], device))
                           for k in ("index", "own"))
             new = current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
-        new = new.to(device=site_value.device, dtype=site_value.dtype)
         if "keep" in record:
             keep = record["keep"].to(site_value.device)
             site_value[row_indices.expand_as(indices)[keep], indices[keep]] = new[keep]
@@ -646,13 +656,19 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     return site_value.movedim(1, axis), wrote
 
 
-def check_written_ids(new: Tensor, component: str, record: dict, token_positions: Tensor | None) -> None:
+def token_positions_of(record: dict) -> Tensor | None:
+    """The token position of each of a record's positions (its `tok`, plus the decode `call` it lands at, which the
+    engine stamps), where an op of its takes them (`takes`: `noise`'s `positions`); else None, which nothing reads."""
+    return record["tok"] + record.get("call", 0) if "positions" in record.get("takes", ()) else None
+
+
+def check_written_ids(new: Tensor, component: str, record: dict) -> None:
     """Refuses, by the write's entry, what a write of ids (`record["ids"]`, `bind_schedule`'s) would hand the model at a
     position it lands on (its `keep`) that is no id under the model's size: a hole, -1, where its operand holds no id (a
     generation's read on a row that stopped early, a position past a row's own); a missing entry, NaN; and a number that
     is not a whole one from 0 below the size, which the model would index with out of range or truncated. It looks at
     what the ops wrote (`new`, in float32) before it is cast to ids, and so before it lands; the refusal names the first
-    such entry's dataset row and token position (`token_positions`)."""
+    such entry's dataset row and token position (its `tok`, plus the decode `call` it lands at)."""
     ids = record["ids"]
     bad = (new < 0) | (new >= ids["size"]) | (new != new.round()) | new.isnan()
     if "keep" in record:
@@ -662,7 +678,8 @@ def check_written_ids(new: Tensor, component: str, record: dict, token_positions
     first = bad.nonzero()[0].tolist()
     value, (i, j) = float(new[tuple(first)]), first[:2]
     rows = record["ops"][0]["rows"]
-    where = f"row {int(rows[i])}" + (f", token {int(token_positions[i, j])}" if token_positions is not None else "")
+    where = f"row {int(rows[i])}" + (f", token {int(record['tok'][i, j]) + record.get('call', 0)}" if "tok" in record
+                                     else "")
     said, why = (("a hole, -1,", "where its operand holds no id (a row that stopped before the call it was read at, "
                   "or a position past a row's own)") if value == -1 else
                  ("a missing entry, NaN,", "where its operand is missing") if value != value else
