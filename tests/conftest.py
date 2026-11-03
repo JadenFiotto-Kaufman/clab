@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import platform
 import shutil
 import struct
 from typing import Any
@@ -29,6 +30,23 @@ BATCH_SIZE = 2      # results are reproducible to the bit only at a fixed batch 
 # not the cores, so 12 threads on CI's 4 CPUs give them too.
 THREADS = 12
 torch.set_num_threads(THREADS)
+
+
+def cpu_vendor() -> str:
+    """This CPU's vendor, as `/proc/cpuinfo` names it (`vendor_id`), else as `platform` does."""
+    try:
+        with open("/proc/cpuinfo") as f:
+            return next(line.partition(":")[2].strip() for line in f if line.startswith("vendor_id"))
+    except (OSError, StopIteration):
+        return platform.processor() or platform.machine()
+
+
+# The snapshots are an AMD CPU's bits: MKL takes its code path 0 on any AMD CPU and its own kernels on an Intel one,
+# whose matmuls round otherwise and whose rows' bits move with the rows batched beside them (two Intel runners gave two
+# sets of numbers, neither the snapshots'). On another vendor's CPU a comparison of floats to the bit or to a snapshot
+# skips (`floats_compared`: `snapshot`, `same`, `within`), unless a GPU computes them.
+VENDOR = cpu_vendor()
+SNAPSHOTS_VENDOR = "AuthenticAMD"
 NAMES = sorted(os.path.splitext(n)[0] for n in os.listdir(DOCUMENTS) if n.endswith(".json"))
 # The real-model documents, by their path under documents/: compiled and schema-checked with the rest, run only by
 # test_real.py, on a GPU.
@@ -83,7 +101,8 @@ def snapshot(name: str, value, holds=None) -> Any:
     """The checked-in snapshot `name`; with CLAB_UPDATE_SNAPSHOTS=1, `value` is written as it first, unless
     `holds(checked_in)` says the checked-in one already holds it. A snapshot that records what made it, or whose
     floats move by a known drift between hosts, passes `holds`, so that a re-pin that moves no value past the drift
-    leaves the file, and the diff, as they are."""
+    leaves the file, and the diff, as they are. One of floats skips on another vendor's CPU (`floats_compared`)."""
+    floats_compared(value)
     path = os.path.join(SNAPSHOTS, name)
     if UPDATE and not (holds is not None and os.path.exists(path) and holds(_read(path))):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -153,6 +172,7 @@ def close(a, b, path: str = "") -> None:
 def within(a, b, ulps: int = 0) -> bool:
     """`a` and `b` (plain values) equal, but for floats at most `ulps` float32 ulps apart (0: to the bit), NaN to
     NaN."""
+    floats_compared(a, b)
     if isinstance(a, dict):
         return isinstance(b, dict) and a.keys() == b.keys() and all(within(a[k], b[k], ulps) for k in a)
     if isinstance(a, list):
@@ -171,7 +191,9 @@ def _ordered(x: float) -> int:
 
 
 def same(a, b) -> bool:
-    """Bit-equal, all the way down, a missing value (NaN) where the other's is."""
+    """Bit-equal, all the way down, a missing value (NaN) where the other's is. Floats skip on another vendor's CPU
+    (`floats_compared`)."""
+    floats_compared(a, b)
     if isinstance(a, torch.Tensor):
         return isinstance(b, torch.Tensor) and a.dtype == b.dtype and torch.equal(a.isnan(), b.isnan()) and \
             torch.equal(a[~a.isnan()], b[~b.isnan()])
@@ -180,6 +202,25 @@ def same(a, b) -> bool:
     if isinstance(a, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     return a == b
+
+
+def holds_floats(value) -> bool:
+    """`value`, a tensor or a plain value or a nest of them, holds a floating-point number."""
+    if isinstance(value, torch.Tensor):
+        return value.is_floating_point() or value.is_complex()
+    if isinstance(value, dict):
+        return any(holds_floats(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(holds_floats(v) for v in value)
+    return isinstance(value, float)
+
+
+def floats_compared(*values) -> None:
+    """Skips the test, on a CPU of another vendor than the snapshots' (`VENDOR`) where no GPU computes, when it
+    compares floats of `values` to the bit or to a snapshot."""
+    if VENDOR != SNAPSHOTS_VENDOR and not torch.cuda.is_available() and any(holds_floats(v) for v in values):
+        pytest.skip(f"compares floats to the bit or to a snapshot, which are an AMD CPU's ({SNAPSHOTS_VENDOR}) bits; "
+                    f"this CPU is {VENDOR}")
 
 
 def on_each(engines, plan: Plan, *, batch_size: int = BATCH_SIZE,

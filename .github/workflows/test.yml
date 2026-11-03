@@ -28,8 +28,8 @@ env:
   UV_NO_SYNC: "1"
   CUDA_VISIBLE_DEVICES: ""
   # The vector width of the host that made the snapshots (AVX2): on a runner with AVX-512, torch's kernels would
-  # otherwise reduce in another order and move the last bits. MKL's are held by the step "MKL's code path" instead:
-  # on an AMD CPU MKL takes its one non-Intel path whatever this says, and on an Intel CPU AVX2 picks its Intel kernels.
+  # otherwise reduce in another order and move the last bits. MKL's are its vendor's: the suite's comparisons of
+  # floats to the bit and to the snapshots skip on a CPU that is not AMD's (tests/conftest.py, `VENDOR`).
   ATEN_CPU_CAPABILITY: avx2
 
 jobs:
@@ -75,19 +75,8 @@ jobs:
           uv sync --dev
           uv pip install "transformers==$TRANSFORMERS"
 
-      # The snapshots hold MKL's non-Intel code path, the one it takes on the AMD host that made them and on AMD
-      # runners; on an Intel runner its Intel kernels move the last bits of every matmul (and a row's bits with the
-      # batch it is in), so there MKL is told the CPU is not Intel's, through the one function it asks.
-      - name: MKL's code path
-        run: |
-          if grep -q -m1 GenuineIntel /proc/cpuinfo; then
-            echo 'int mkl_serv_intel_cpu_true(void) { return 0; }' > "$RUNNER_TEMP/mkl_not_intel.c"
-            gcc -shared -fPIC -o "$RUNNER_TEMP/libmkl_not_intel.so" "$RUNNER_TEMP/mkl_not_intel.c"
-            echo "LD_PRELOAD=$RUNNER_TEMP/libmkl_not_intel.so" >> "$GITHUB_ENV"
-          fi
-
-      # The CPU and the versions, for reading a run whose last bits moved: the snapshots were made on AVX2, MKL on
-      # its code path 0 (the non-Intel one).
+      # The CPU and the versions, for reading a run whose last bits moved or whose comparisons skipped: the snapshots
+      # were made on an AMD CPU (`Vendor ID` AuthenticAMD) with AVX2, MKL on its code path 0 (the non-Intel one).
       - name: What runs it
         run: |
           lscpu | grep -E "^(Model name|Vendor ID|CPU\(s\)|Thread)"
