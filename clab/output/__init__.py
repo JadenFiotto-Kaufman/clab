@@ -241,7 +241,8 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
     """A bundle's header, when the value is one (at `step`, the point that made it), written from the records: an
     op step's whose op declares the featurizer kind its bundle is for, made at the site of the read it was taken
     over, as wide as that read's feature axis; or a fit's trained featurizer, made at the first site it is used at,
-    as wide as its record says (`Featurizer.width`)."""
+    as wide as its record says (`Featurizer.width`). Either way the read's selection is the one its record keeps
+    (`kept`)."""
     assert plan.run is not None
     member = name.partition(".")[2]
     if step.kind == "op" and ops.DECLARED[step.op]["bundle"]:
@@ -263,7 +264,7 @@ def point_header(plan: Plan, name: str, step: Step) -> dict[str, str] | None:
         return None
     dataset = fields["classes"].partition(".")[0] if "classes" in fields else None
     classes = labels({dataset: dataset_rows(plan, dataset)}, fields["classes"]) if dataset else None
-    return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept)
+    return bundles.header(kind, fields, plan.model, classes, site, width, named(plan), reads, kept, read.kept)
 
 
 def site_as_recorded(read: Labelled) -> Site:

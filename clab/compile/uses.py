@@ -61,10 +61,12 @@ def uses(plan: Plan) -> dict[str, list[tuple[str, Intervention, dict, Op | OpSte
 
 
 def check_bundle_sites(plan: Plan) -> None:
-    """A bundle's header names the component it was made at and the layers, counted from the first
-    (`bundles.recorded`); every site its featurizer is used at is that component, and each layer it picks is one
-    of those. A layer counted from the last, and a site that picks several, are the model's to resolve, and
-    preflight checks each layer."""
+    """A bundle's header names the component it was made at, the layers, counted from the first
+    (`bundles.recorded`), and the indices its site's `select` kept (`bundles.selection`; a header without one was
+    made at the whole component); every site its featurizer is used at is that component, each layer it picks is
+    one of those, and its selection keeps those indices (`select_mismatch`). A layer counted from the last, a site
+    that picks several, and a `select` the document alone does not resolve (counted from the end, a slice open at
+    its end) are the model's to resolve, and preflight checks each layer and the selection."""
     for name, records in uses(plan).items():
         for where, read, at, _, _ in records:
             site, f = cast(Site, read.site), agreeing_point(plan.featurizers[name], at)
@@ -77,6 +79,24 @@ def check_bundle_sites(plan: Plan) -> None:
                     fail(f"featurizers.{name}.file_path", f"{(f.model_extra or {})['file_path']}: header {key!r} is "
                          f"{f.header.get(key)!r}; this document uses {name!r} at {site.component} layer "
                          f"{site.layers} ({where})")
+            why = select_mismatch(name, f, read) if all(read.kept.values()) else None
+            if why:
+                fail(f"featurizers.{name}.file_path", f"{why} ({where})")
+
+
+def select_mismatch(name: str, f: Featurizer, read: Intervention) -> str | None:
+    """Why the bundle `f` loads may not be used at `read`: its header's `select` is not the indices `read`'s site
+    keeps on each axis it selects (`Intervention.kept`), with no `select` the whole component; None where they are
+    the same, and for a featurizer with no clab header. A bundle trained at one head applied at another would run
+    and mean nothing."""
+    if f.header is None or bundles.selection(f.header) == read.kept:
+        return None
+    site, file = cast(Site, read.site), (f.model_extra or {})["file_path"]
+    said = f"header 'select' is {f.header['select']!r}" if "select" in f.header else \
+        "header has no 'select', so it was made at the whole component"
+    keeps = f"whose selection keeps {', '.join(f'{a} {v}' for a, v in read.kept.items())}" if read.kept else \
+        "which selects nothing"
+    return f"{file}: {said}; this document uses {name!r} at {site.component} layer {site.layers!r}, {keeps}"
 
 
 def over_of(f: Featurizer) -> list[str] | None:
@@ -223,6 +243,9 @@ def write_widths(engine: Engine, plan: Plan) -> None:
                                      f"{f.header.get('layer')!r}; this document uses {name!r} at {site.component} "
                                      f"layer {site.layers!r}, which {which}")
                 check_input_site(plan, where, at, f, o, layer)
+            why = select_mismatch(name, f, read)
+            if why:
+                raise ValueError(f"{where}: {why}")
             if f.header is not None and f.header.get("width") != str(width):
                 raise ValueError(f"{where}: {(f.model_extra or {})['file_path']}: header 'width' is "
                                  f"{f.header.get('width')!r}; this document uses {name!r} at {site.component}, "

@@ -1563,7 +1563,8 @@ def test_a_gate_over_axes_its_use_does_not_have_is_refused_at_compile(change, me
 def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_before_any_forward(engines, tmp_path):
     """A drawn gate trained over every layer and applied by a step after the fit at layers 1 to 3 has two selections
     of its axes, which one `theta` cannot be; a loaded one used at a site that keeps heads its header's
-    `kept.num_heads` does not is refused naming the header."""
+    `kept.num_heads` does not is refused naming the header (its `select` the site's, which a header without one
+    would be refused at compile for)."""
     def later(d):
         d["steps"]["after"] = {"kind": "forward", "input": "pairs.input", "interventions": {"gated": {
             "site": {"component": "attention_premix", "layers": "1:4"}, "pos": {"index": "0:12"},
@@ -1574,7 +1575,7 @@ def test_a_gate_whose_uses_select_different_heads_or_a_header_others_is_refused_
                                          r"its units lie on one selection of the axes it is over"):
         engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE)
     root = corpus_copy(tmp_path)
-    file = write_gate(root, torch.ones(5, 4))
+    file = write_gate(root, torch.ones(5, 4), select='{"num_heads": [1, 2]}')
 
     def two_heads(d):
         at_the_root(file, {"component": "attention_premix", "layers": ":", "select": {"num_heads": [1, 2]}})(d)

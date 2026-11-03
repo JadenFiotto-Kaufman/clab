@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, TRIP, bundle_header, edited, on_each, same, stand_in
+from conftest import BATCH_SIZE, TRIP, bundle_header, edited, on_each, plan_of, same, stand_in
+from safetensors import safe_open
 from safetensors.torch import save_file
 from test_fit import TINY, corpus_copy
 
@@ -358,3 +359,49 @@ def test_a_loading_document_may_state_its_declaration_fields(corpus, name, featu
 def test_a_stated_field_the_header_disagrees_with_is_refused_naming_it(corpus, name, featurizer, fields, message):
     with pytest.raises(PlanError, match=message):
         loading(corpus, name, featurizer, fields)
+
+
+# -- a bundle made at a selection ------------------------------------------------------------------------------
+
+def at_head(root: str, head, fit: bool) -> Plan:
+    """T8's repro on the tiny GPT-2 (4 heads): a rank-1 adapter at layer 0's attention_premix, `select`ing one head,
+    trained there (`fit`, saving `fit.c`) or loaded from the bundle that wrote."""
+    doc: dict[str, Any] = {
+        "model": {**plan_of("gpt2_reach").model.model_dump(exclude_defaults=True), "dtype": "float32"},
+        "data": {"rows": {"rows": [{"input": "The cat sat on the", "answer": " the"},
+                                   {"input": "The dog ran to the", "answer": " a"}]}},
+        "sites": {"h": {"component": "attention_premix", "layers": 0, "select": {"num_heads": [head]}},
+                  "head": {"component": "lm_head_output"}}}
+    body = {"a": {"kind": "forward", "input": "rows.input", "interventions": {
+        "w": {"site": "h", "pos": {"index": ":"}, "ops": [{"op": "apply", "featurizer": "fit.c" if fit else "c"}]},
+        "logits": {"site": "head", "pos": -1}}},
+        "ce": {"kind": "op", "op": "cross_entropy", "of": "a.logits", "target": "rows.answer"}}
+    if fit:
+        doc |= {"featurizers": {"c": {"kind": "lora", "rank": 1, "alpha": 1}}, "saves": ["fit.c"],
+                "steps": {"fit": {"kind": "fit", "train": ["c"], "objective": {"ce": 1.0}, "epochs": 2,
+                                  "batch_size": 2, "seed": 0, "optimizer": {"name": "adam", "lr": 0.1},
+                                  "steps": body}}}
+    else:
+        doc |= {"featurizers": {"c": {"kind": "lora", "file_path": "documents/artifacts/fit.c.safetensors"}},
+                "steps": body, "saves": ["ce"]}
+    return Plan(**doc, document=os.path.join(root, "documents", "heads.json")).compile()
+
+
+def test_a_bundle_trained_at_one_head_is_refused_at_another_and_runs_at_its_own(engines, tmp_path):
+    """A lora trained at head 1 records the selection in its header (`select`); loaded at head 0 it is refused
+    naming the header, at compile, and at head -4, which is head 0, before any forward; at head 1, and at -3, it
+    runs."""
+    root = corpus_copy(tmp_path)
+    trained = at_head(root, 1, fit=True)
+    engine = engines("nnterp", trained.model)
+    engine.execute(trained, batch_size=BATCH_SIZE).dump(os.path.join(root, "documents", "artifacts"))
+    with safe_open(os.path.join(root, "documents", "artifacts", "fit.c.safetensors"), "pt") as f:
+        assert f.metadata()["select"] == '{"num_heads": [1]}'
+    said = r"documents/artifacts/fit\.c\.safetensors: header 'select' is '\{\"num_heads\": \[1\]\}'; this document " \
+           r"uses 'c' at attention_premix layer 0, whose selection keeps num_heads \[0\]"
+    with pytest.raises(PlanError, match=rf"^featurizers\.c\.file_path: {said} \(a\.w\)$"):
+        at_head(root, 0, fit=False)
+    with pytest.raises(ValueError, match=rf"^a\.w: {said}$"):
+        engine.execute(at_head(root, -4, fit=False), batch_size=BATCH_SIZE)
+    for head in (1, -3):
+        assert engine.execute(at_head(root, head, fit=False), batch_size=BATCH_SIZE).results["ce"].shape == (2, 1)

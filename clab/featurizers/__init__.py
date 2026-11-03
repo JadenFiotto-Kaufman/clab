@@ -20,13 +20,15 @@ math runs on the value's device and dtype, with autocast off: a model served in 
 float32 featurizer's float32 math alone.
 
 A bundle is a safetensors file: an instance's `saves` tensors (the first laid out `[width, ...]`) and a header
-saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`, and
-`layer`: the one layer, or the list of them, it was made at, counted from the first), its `width` and the
-document's name, and for a gate over named axes the indices it keeps on each of them but `layers`
-(`kept.<axis>`). Both a `pca` op's value and a fit's trained featurizer are saved as one. A document that loads
-one is checked against it key by key: the tensors and the kind, its fields and the model when the plan compiles,
-the site at every use (each layer it picks one that `layer` names, and a gate's selection on each axis it is over
-the one `kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
+saying what made them: the kind and its `header` fields, the model, the site it was used at (`component`,
+`layer`: the one layer, or the list of them, it was made at, counted from the first, and, where the site
+selects, `select`: the indices it kept on each axis it selects, a JSON object), its `width` and the document's
+name, and for a gate over named axes the indices it keeps on each of them but `layers` (`kept.<axis>`). Both a
+`pca` op's value and a fit's trained featurizer are saved as one. A document that loads one is checked against
+it key by key: the tensors and the kind, its fields and the model when the plan compiles, the site at every use
+(each layer it picks one that `layer` names, its selection the one `select` records, none for a header without
+one, which was made at the whole component, and a gate's selection on each axis it is over the one
+`kept.<axis>` names), and `width` against the model's size before any forward. A file is clab's when its
 header's `format` is `clab/...`; one that carries clab's header keys under another format is refused. Any other
 file is a published one, its kind's to read or refuse: an `sae` reads one (SAELens, Gemma Scope).
 
