@@ -9,9 +9,9 @@ under ndif); under the hooks engine, in plain Python. The cross-step state is a 
 a child of it, carrying the minibatch's row ids: `batches.ROWS`) that never leaves the run: each value under its
 name, by its coordinates on its own axes (`Labelled.axes`).
 A forward or generate step runs at the points no other point's forward serves (`plan.serving`), executing the
-point's schedule batch by batch (`batches.bind`); an op step once per distinct point on its value's axes; each adds
-the model calls it made and the tokens they fed to its `cost`, which `run` records with its time and memory
-(`measured`).
+point's schedule batch by batch (`batches.bind`); an op step once per distinct point on its value's axes, and a
+load as one, putting a saved value where the model is; each adds the model calls it made and the tokens they fed to
+its `cost`, which `run` records with its time and memory (`measured`).
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ from clab.compile.schedule import gathered
 from clab.compile.state import Found
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put
-from clab.plan import Forward, OpStep, Plan, Run, arguments, points, projections, record_of, serving
+from clab.format.sweeps import by_coordinate, coordinate, labelled, lookup, projected, put, spelled
+from clab.plan import Forward, Load, OpStep, Plan, Run, arguments, corpus_root, points, projections, record_of, serving
 from clab.steps import fit, generate
 from clab.steps.batches import bind, bound, chunked, home, joined, layers, over, read, stacked, stops, value_at
 
@@ -309,6 +309,31 @@ def op(engine: Engine, plan: Plan, name: str, step: OpStep, state: ChainMap, bat
     put(state, name, projected(step.at, step.axes), value)
 
 
+def load(engine: Engine, plan: Plan, name: str, step: Load, state: ChainMap, batch_size: int, found: Found,
+         cost: dict[str, Any]) -> None:
+    """The saved value compile read from its run's file (`Load.loaded`), or, in a plan that came without it (a
+    request to a session elsewhere carries none), read from that file here, where the run is; put where the model is
+    (`home`), every tensor of it, at the point's coordinates on the value's own axes. It calls no model."""
+    value = step.loaded
+    if value is None:
+        from clab.output import manifest, read          # the output directory's one reader, a later stage's
+        out = os.path.join(corpus_root(plan), step.from_)
+        d = manifest(out)[1][step.value]
+        value = read(out, step.value, d)
+        at = {a: step.at[a] for a in d["axes"]}            # in the axis order of the run that saved it, as its file
+        value = value[spelled({a: plan.sweeps[a].values for a in at}, at)] if at else value
+    put(state, name, projected(step.at, step.axes), moved(value, home(engine)))
+
+
+def moved(value: Any, device: str) -> Any:
+    """A value with every tensor in it on `device`, all the way down."""
+    if isinstance(value, Tensor):
+        return value.to(device)
+    if isinstance(value, dict):
+        return {k: moved(v, device) for k, v in value.items()}
+    return value
+
+
 def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
     """Each token id as its token string, nested as the ids are; None for a missing one (-1). The tokenizer's
     `convert_ids_to_tokens` is the one spelling of a token wherever a run shows one (`pos_token`, `run.tokens`,
@@ -322,4 +347,4 @@ def decoded(tokenizer: PreTrainedTokenizerBase, ids: Tensor) -> list:
 # The step kinds, each run as `(engine, plan, name, step, state, batch_size, found, cost)`, adding the model calls
 # it made and the tokens they fed (`tokens`, and the rows' own, `real`) to `cost` (a forward and a generation also take the points their run serves,
 # `served`, and what they read, `reading`).
-KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit}
+KINDS = {"forward": forward, "generate": generate.generate, "op": op, "fit": fit.fit, "load": load}

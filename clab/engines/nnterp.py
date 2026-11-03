@@ -74,13 +74,23 @@ class NnterpEngine:
         is) are what comes home, into the client's own plan.
         Under `tp` every rank samples from a seed rank 0 draws afresh for the run, so that a sampled generation
         picks the same tokens on every rank, and the run record lists every rank's device; a `grad` entry is
-        refused by name there before anything runs, since a value the ranks shard has its gradient in pieces."""
+        refused by name there before anything runs, since a value the ranks shard has its gradient in pieces. Under a
+        remote session a load's value stays out of the request, the run reading its file where it runs, and an NDIF
+        server, which cannot see this machine's directories, is refused one before anything is sent."""
         started = steps.begin(self, plan, batch_size, padding)
         ranks = self.options.get("tp", 1)
         for name, step in walk(plan.steps) if ranks > 1 else ():
             for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
                 raise ValueError(f"{name}.{key}: the nnterp engine takes no gradient under tp {ranks}, whose ranks "
                                  "hold a sharded value's gradient in pieces; run it at tp 1")
+        for name, step in walk(plan.steps) if self.remote else ():
+            if step.kind != "load":
+                continue
+            if self.remote is True:
+                raise ValueError(f"{name}: a load reads {step.from_} where the run is, and an NDIF server cannot see "
+                                 "this machine's directories; run the document on the nnterp or hooks engine, or "
+                                 "under remote=\"local\"")
+            step.loaded = None          # the request carries no tensor: the run reads the file where it runs
         if ranks > 1:
             seed = [int(torch.randint(2**62, ()))]
             torch.distributed.broadcast_object_list(seed, src=0)
