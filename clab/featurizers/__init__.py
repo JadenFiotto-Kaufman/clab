@@ -158,22 +158,22 @@ class Kind:
         missing element so, with the same element of an option laid out on the value's axes, and keeps NaN
         exactly where `h` had it: on a `key` axis, NaN past a shorter row's own keys, every vector of that row
         holds one, and would otherwise go back into the model missing whole. An encode is kept beside `h` while a
-        fit watches the instance (`seen`)."""
+        fit watches the instance (`seen`). The masks apply whether or not anything is missing, an option masked where
+        `h` is: one that marks nothing changes no bit, of the values or of a gradient through them, and asking the
+        device whether it marks anything would make the host wait for it at every call."""
         fn = self.method(op)
         each = op == "apply" and self.elementwise
         gone = h.isnan() if each else h.isnan().any(-1, keepdim=True)
-        x = h
-        if gone.any():
-            x = h.masked_fill(gone, 0.0)
-            if each:            # an operand on the value's axes, a singleton on each it leaves out
-                options = {k: v.where(~gone, 0.0) if isinstance(v, Tensor) and v.dim() == h.dim() else v
-                           for k, v in options.items()}
-            else:
-                options = {k: v.masked_fill(gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
-                           if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
-                           for k, v in options.items()}
-        out = fn(self, x, **options)
-        out = out.masked_fill(gone, float("nan")) if gone.any() else out
+        x = h.masked_fill(gone, 0.0)
+        if each:            # an operand on the value's axes, a singleton on each it leaves out
+            options = {k: v.to(h.device).where(~gone, 0.0) if isinstance(v, Tensor) and v.dim() == h.dim() else v
+                       for k, v in options.items()}
+        else:
+            options = {k: v.to(h.device).masked_fill(
+                           gone.reshape(*gone.shape[:-1], *[1] * (v.dim() - gone.dim() + 1)), 0.0)
+                       if isinstance(v, Tensor) and v.shape[:gone.dim() - 1] == gone.shape[:-1] else v
+                       for k, v in options.items()}
+        out = fn(self, x, **options).masked_fill(gone, float("nan"))
         if op == "encode" and self.seen is not None:
             self.seen.append((h, out))
         return out

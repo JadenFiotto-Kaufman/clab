@@ -123,10 +123,11 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
     meets there (`dims`: the op before it left it, as its record says; the site's selection before the first), the
     batch's dataset row ids (`ids`, and as one host tensor every op shares, `rows`), the layer, and its arguments
     bound at that layer (`bound`), each named operand as the schedule `resolved` it (by name: a producer's point, or
-    the name of a read of the same forward, for the forward to fill), a column's ids on `device`. An `encode` holds
-    the ops its `decode` closes over, bound the same way (`inner`), and the features its `select` keeps, on
-    `device`, where the model and its featurizers are. The rows and each operand are made once in the batch
-    (`made`, `bind`'s), whose every write shares them."""
+    the name of a read of the same forward, for the forward to fill), a column's ids on `device`, and so is a number
+    an edit takes as a value (`add`'s `with`, `scale`'s `factor`), which the edit would otherwise copy to the device,
+    waiting for the copy, at each call. An `encode` holds the ops its `decode` closes over, bound the same way
+    (`inner`), and the features its `select` keeps, on `device`, where the model and its featurizers are. The rows,
+    each operand and each number are made once in the batch (`made`, `bind`'s), whose every write shares them."""
     first, last = span or (0, len(record.ops) - len(gathers(record)))
     laid = [address.dims(cast(Site, record.site).component), *(o.dims or [] for o in record.ops)]
     made = {} if made is None else made
@@ -138,9 +139,12 @@ def edit(plan: Plan, record: Intervention, state: ChainMap, at: dict, ids: list[
             o, dims = node["op"], laid[node["at"]]
             args = bound(plan, o.op, arguments(o), state, at, ids, found, resolved=resolved, dims=dims, layers=layer,
                          made=made)
-            params = ops.parameters(o.op)
-            args = {k: cast(Any, placed(v, device)) if params[k].annotation == ops.Tokens else v
-                    for k, v in args.items()}
+            params, editing = ops.parameters(o.op), ops.DECLARED[o.op]["group"] == "edits"
+            for k, v in args.items():
+                if params[k].annotation == ops.Tokens:
+                    args[k] = placed(v, device)
+                elif editing and params[k].annotation == ops.Value and isinstance(v, (int, float)):
+                    args[k] = once(made, ("number", repr(v)), lambda v=v: placed(v, device))
             out.append({"op": o.op, "args": args, "rows": rows, "dims": dims, "layers": layer})
             if o.op == "encode":
                 f, select = args["featurizer"], arguments(o).get("select")
@@ -365,8 +369,9 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
     order where it acts at several; one without is the same at every layer. Then an operand broadcasts by axis
     name: it is reshaped to the value's layout `dims`, a singleton axis standing where the value has an axis the
     operand leaves out (Ops' one rule lets it leave out rows, pos and layers). Where a write's ops are bound to a
-    batch, a value is taken at its rows once in it (`made`, `value_at`)."""
-    params, out = ops.parameters(name), {}
+    batch, a value is taken at its rows once in it (`made`, `value_at`). A number an edit takes as a value goes to
+    the value's device, which the edit would otherwise copy it to, waiting for the copy."""
+    params, out, editing = ops.parameters(name), {}, ops.DECLARED[name]["group"] == "edits"
     resolved = resolved or {}
     adapter = name == "apply" and featurizers.KINDS[kind_of(plan, args["featurizer"])].adapts      # an adapter's input
     for key, value in args.items():
@@ -397,6 +402,8 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
                      for v in texts_of(plan, value, ids, of, dims or [])]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, resolved[value]["at"] if value in resolved else at)
+        if editing and annotation == ops.Value and isinstance(value, (int, float)) and isinstance(of, Tensor):
+            value = placed(value, of.device)            # as `edit` binds a write's number, on the value's device
         out[key] = value
     return out
 

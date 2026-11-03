@@ -50,7 +50,12 @@ def mean(of: Tensor, dims: list[str], over: list[str] | None = None) -> Tensor:
     """The mean over the axes `over` names, of the values that are there (a missing one is NaN, in ids -1); by
     default over the rows and positions, a `layers` axis kept."""
     of, axes = floated(of), [i for i, a in enumerate(dims) if a in (DEFAULT if over is None else over)]
-    return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
+    # With none missing it is the plain mean, whose bits the NaN-skipping mean's division does not always give. Both
+    # are computed and the device picks, so that the host does not wait to ask it whether any is missing; where a
+    # gradient passes through the mean, the host asks, so that it reaches the values through the one it takes.
+    if of.requires_grad:
+        return of.nanmean(dim=axes) if of.isnan().any() else of.mean(dim=axes)
+    return torch.where(of.isnan().any(), of.nanmean(dim=axes), of.mean(dim=axes))
 
 
 @op("reductions", layout=reduced)
