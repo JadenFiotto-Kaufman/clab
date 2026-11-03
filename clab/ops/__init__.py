@@ -141,7 +141,7 @@ stays missing: NaN.
 
 # `engine`: the engine running the document. `original`: inside an entry, the
 # value at the site before this forward's writes. `dims`: the axis names of `of`.
-# `layers`: the layers it acts at, as `steps.batches.bind_arguments` aligns an operand to
+# `layers`: the layers it acts at, as `steps.batches.argument_binding` aligns an operand to
 # them (inside an entry the one it is made at; as a step the labels of `of`'s
 # `layers` axis, or its one layer; None at no layer). `eos`: the ids the
 # generation `of` came from stops on. `rows`: the dataset row of each of `of`'s
