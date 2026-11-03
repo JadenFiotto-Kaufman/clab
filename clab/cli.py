@@ -53,14 +53,12 @@ def show(filled: Plan) -> str:
     lines += ["  " + line for line in aligned(resolved(filled))]
     rows = [["result", "step", "dims", "axes", "shape"]]
     for saved in (s for s in filled.saves if s in filled.results):          # every one, unless the run stopped
-        value, ats = filled.results[saved], projections(filled, saved)
-        swept = ats != [({}, ats[0][1])]
-        if swept:
-            value = {coordinate_text(filled, at): value[coordinate(filled, at)] for at, _ in ats}
+        value, axes = filled.results[saved], output.saved_value_axes(filled, saved)
+        if axes:
+            value = {coordinate_text(filled, at): value[coordinate(filled, at)] for at, _ in projections(filled, saved)}
         dims = output.saved_value_layout(filled, saved)["dims"]
         rows.append([saved, made_by(filled, saved), ", ".join(dims) if isinstance(dims, list) else cell(dims),
-                     ", ".join(output.saved_value_axes(filled, saved)) or "—",
-                     shaped(output.shape_or_dtype(value, "shape"), swept)])
+                     ", ".join(axes) or "—", shaped(output.shape_or_dtype(value, "shape"), bool(axes))])
     return "\n".join(lines + ["  " + line for line in aligned(rows)])
 
 

@@ -61,9 +61,9 @@ def dump(plan: Plan, out: str) -> None:
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
-        value, ats = plan.results[name], projections(plan, name)
-        if ats != [({}, ats[0][1])]:
-            value = {coordinate_text(plan, at): value[coordinate(plan, at)] for at, _ in ats}
+        value, axes = plan.results[name], saved_value_axes(plan, name)
+        if axes:
+            value = {coordinate_text(plan, at): value[coordinate(plan, at)] for at, _ in projections(plan, name)}
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
             write_safetensors(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
@@ -72,7 +72,7 @@ def dump(plan: Plan, out: str) -> None:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
         described[name] = {"file": file, "step": made_by(plan, name), **saved_value_layout(plan, name),
-                           "axes": saved_value_axes(plan, name), "shape": shape_or_dtype(value, "shape"),
+                           "axes": axes, "shape": shape_or_dtype(value, "shape"),
                            "dtype": shape_or_dtype(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
@@ -230,7 +230,7 @@ def bundle_header(plan: Plan, name: str) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
     ats = projections(plan, name)
-    if ats == [({}, ats[0][1])]:
+    if not saved_value_axes(plan, name):
         return point_header(plan, name, ats[0][1])
     header: dict[str, str] = {}
     for at, p in ats:

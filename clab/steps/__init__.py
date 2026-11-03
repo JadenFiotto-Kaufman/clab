@@ -38,6 +38,7 @@ from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, keyed_by_coordinate, lookup, projection, put
+from clab.output import saved_value_axes
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
                         serving)
 from clab.steps import fit, generate
@@ -127,7 +128,7 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fin
         if step.kind == "fit" and member in step.train:
             values = [v.tensors() for v in values]
         plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(v) for at, v in zip(ats, values)}
-                              if ats != [{}] else detached_cpu_clone(values[0]))
+                              if saved_value_axes(plan, name) else detached_cpu_clone(values[0]))
     plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 
