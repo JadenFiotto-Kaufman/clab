@@ -93,9 +93,9 @@ def find_sweeps(document: dict) -> dict[tuple, str]:
 
 
 def check_scalars(where: str, field: str, values: Any) -> None:
-    """A sweep's values are numbers, strings, booleans or lists of them, since each point is keyed by its value: an
-    object is refused with an example that sweeps a scalar inside it, its first scalar leaf, or, standing for a
-    `pos`, one of the fields a pos takes a sweep on (its frame, its index, a scope's occurrence)."""
+    """Refuses a sweep's value that is an object, with an example that sweeps its first scalar leaf instead or, for
+    a `pos`, names the fields a pos takes a sweep on (its frame, its index, a scope's occurrence), and a list that
+    holds a list or an object."""
     for value in values if isinstance(values, list) else []:
         said = "a sweep's values are numbers, strings, booleans or lists of them, each point keyed by its value"
         if isinstance(value, dict) and field == "pos":
@@ -103,7 +103,7 @@ def check_scalars(where: str, field: str, values: Any) -> None:
                              "on frame, index and a scope's occurrence ({'frame': 0, 'index': {'sweep': [-1, -2]}}, or "
                              "{'scope': {'column': ..., 'occurrence': {'sweep': [0, 1]}}})")
         if isinstance(value, dict):
-            path, leaf = [], value            # the example sweeps the object's first scalar leaf
+            path, leaf = [], value
             while isinstance(leaf, dict) and leaf:
                 key, leaf = next(iter(leaf.items()))
                 path.append(key)
