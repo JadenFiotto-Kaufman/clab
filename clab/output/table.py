@@ -10,6 +10,7 @@ from clab import ops
 from clab.compile import dataset_rows, positions
 from clab.format import data
 from clab.format.sweeps import agreeing_point, coordinate_text, projection
+from clab.output import run_record
 from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, made_by, points,
                         projections, record_of, runnable)
 
@@ -39,8 +40,6 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     and the joined `at` both points' coordinates; a shared `pos` or `key` that does not mean one thing for both,
     counting the positions of different inputs or a plain index beside a token position, is refused by name.
     """
-    from clab.output import run_record
-
     run = run_record(plan)
     by_dataset: dict[str, str] = {}             # the dataset each value has a row per example of, as its record says
     for name in names:
