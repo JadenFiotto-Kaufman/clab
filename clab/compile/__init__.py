@@ -122,10 +122,10 @@ def make_dataset_rows(root: str, name: str, d: Data) -> list[dict]:
         rows = data.hub(d) if d.hf is not None else d.rows if d.path is None else data.rows(root, d.path, d.split)
     except ValueError as e:
         fail(f"data.{name}.{'path' if d.hf is None else 'hf'}", str(e))
-    if not rows:
-        fail(f"data.{name}", "the dataset has no rows" + (f" in split {d.split!r}" if d.split else ""))
-    rows = data.shuffled(rows) if d.shuffle else rows
     held = f" in split {d.split!r}" if d.split else ""
+    if not rows:
+        fail(f"data.{name}", f"the dataset has no rows{held}")
+    rows = data.shuffled(rows) if d.shuffle else rows
     if d.skip is not None and d.skip >= len(rows):
         fail(f"data.{name}.skip", f"skip {d.skip}, and the dataset has {len(rows)} rows{held}; skip leaves at least "
              "one")
