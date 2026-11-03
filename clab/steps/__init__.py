@@ -82,13 +82,11 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     (`serving`: a forward's or generation's serving points, an op's one per distinct point on its value's axes, a
     fit's every one), over the plan with its rows (`plan_with_rows`), without gradients except where a fit trains, a
     forward's batches of `batch_size` rows unless its record fixes another (a fit's eval step's: the fit's), each
-    run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then (`record_results`)
-    each saved value into `plan.results` (a trained featurizer as its bundle's tensors), and what served the run: the
-    model's sizes, and the dtypes and devices of the model's parameters (`dtypes_and_devices`). Where each read and
-    write resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A
-    step that runs out of CUDA memory stops the run: the refusal (`out_of_memory_refusal`) names the step, the batch
-    size and every value the run holds, is recorded as `plan.run.stopped`, and the steps that finished are recorded
-    and saved as if the run had ended there."""
+    run's cost measured into `plan.run.costs` (`measure_cost`) with the points it served; then what `record_results`
+    records, each saved value into `plan.results` among it, and the model's sizes. Where each read and write
+    resolved, and each featurizer's width, is on its record, which preflight and the steps complete in place. A step
+    that runs out of CUDA memory stops the run: its refusal (`out_of_memory_refusal`) is recorded as
+    `plan.run.stopped`, and the steps that finished are recorded and saved as if the run had ended there."""
     plan = plan_with_rows(plan)
     assert plan.run is not None
     plan.run.versions, plan.run.sizes = versions(), engine.sizes()

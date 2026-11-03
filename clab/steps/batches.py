@@ -405,7 +405,7 @@ def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict,
         elif annotation == ops.Featurizer:
             value = lookup(state, value, operands[value]["at"] if value in operands else at)
         if editing and annotation == ops.Value and isinstance(value, (int, float)) and isinstance(of, Tensor):
-            value = tensor_on_device(value, of.device)    # as `bind_ops` binds a write's number, on the value's device
+            value = tensor_on_device(value, of.device)
         out[key] = value
     return out
 
@@ -525,9 +525,7 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
         whole = new
         for dim, index in record["select"].items():
             new, original = index_along(new, dim, index), index_along(original, dim, index)
-        # each position, at a decode call its own
         token_positions = record["tok"] + record.get("call", 0) if "tok" in record else None
-        # A write of ids runs on them in float32, as the model would never see them, and is held to its size first.
         new = apply_bound_ops(new.float() if "ids" in record else new, original, record["ops"], got, token_positions)
         if "ids" in record:
             check_written_ids(new, component, record, token_positions)
