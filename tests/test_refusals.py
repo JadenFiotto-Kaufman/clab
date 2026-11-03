@@ -533,6 +533,21 @@ def test_a_write_with_a_static_width_refuses_an_operand_without_one():
             edited("entity_mean_ablation", lambda d: change(pos, d)).compile()
 
 
+def test_a_whole_scope_operand_is_told_the_index_that_keeps_its_scope():
+    """T9's repro: entity_patch with both entity reads over their whole scope (its `index` dropped) is ragged,
+    and the refusal names `'index': -1` inside the pos, beside its scope, where it said `pos -1`, which drops the
+    scope; the document as written, with that index, compiles."""
+    def whole(d):
+        for step, entry in (("counterfactual", "v_cf"), ("patched", "patch")):
+            del d["steps"][step]["interventions"][entry]["pos"]["index"]
+    with pytest.raises(PlanError, match=r"^steps\.patched\.interventions\.patch\.ops\[0\]\.with: "
+                                        r"'counterfactual\.v_cf' holds a different number of positions on each row, "
+                                        r"which pair with no other value's; read both at a static index \('index': -1, "
+                                        r"or '-3:', in the pos, beside its scope if it has one\), or over decode calls"):
+        edited("entity_patch", whole).compile()
+    edited("entity_patch", lambda d: None).compile()
+
+
 def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_satisfy():
     """Two reads over every decode call have no static width; the advice names a static index in the prefill and,
     for a decode read, a frame of a static number of calls with an index of static width, which lines up."""
@@ -545,9 +560,9 @@ def test_a_metric_over_decode_frame_reads_is_told_a_frame_a_decode_read_can_sati
         return apply
     with pytest.raises(PlanError, match=r"steps\.kl\.against at frame=0: 'counterfactual\.b' holds a different number of "
                                         r"positions on each row, which pair with no other value's; read both at a static "
-                                        r"index \(pos -1, or \{'index': '-3:'\}\), or over decode calls at a frame of a "
-                                        r"static number of them with an index of static width \(\{'frame': '1:4', "
-                                        r"'index': ':3'\}\)$"):
+                                        r"index \('index': -1, or '-3:', in the pos, beside its scope if it has one\), "
+                                        r"or over decode calls at a frame of a static number of them with an index of "
+                                        r"static width \(\{'frame': '1:4', 'index': ':3'\}\)$"):
         edited("generate_probe", change({"frame": "1:", "index": ":"})).compile()
     compiled = edited("generate_probe", change({"frame": "1:4", "index": ":3"})).compile()
     assert points(compiled.steps["kl"])[0].width == 3

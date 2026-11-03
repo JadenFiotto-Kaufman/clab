@@ -33,7 +33,7 @@ The operand has an axis the value does not: here it was read at the head and is 
 ## `… holds a different number of positions on each row`
 
 ```text
-steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index (pos -1, or {'index': '-3:'}), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
+steps.patched.interventions.patch.ops[0].with: 'counterfactual.v_cf' holds a different number of positions on each row, which pair with no other value's; read both at a static index ('index': -1, or '-3:', in the pos, beside its scope if it has one), or over decode calls at a frame of a static number of them with an index of static width ({'frame': '1:4', 'index': ':3'})
 steps.patched.interventions.patch.ops[0].with: the value 'swap' acts on holds a different number of positions on each row, …
 ```
 
