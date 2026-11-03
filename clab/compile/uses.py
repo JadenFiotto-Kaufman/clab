@@ -87,13 +87,6 @@ def over_of(f: Featurizer) -> list[str] | None:
     return given if given is not None or f.header is None or "over" not in f.header else json.loads(f.header["over"])
 
 
-def layout_at_use(read: Intervention, o: Op | OpStep) -> list[str]:
-    """The layout of the value a featurizer's op meets at a use made before any encode: inside an entry its site's
-    selection, a `layers` axis first where the site picks several; as a step, its `of`'s."""
-    site = cast(Site, read.site)
-    return list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
-
-
 def check_gate_axes(plan: Plan) -> None:
     """A gate over axes is used by `apply` alone, on its site's own layout (inside no `encode`, whose coordinates
     are no axes of the site's), whose selection has each axis it names, in the selection's order, `layers` only
@@ -119,7 +112,10 @@ def check_gate_axes(plan: Plan) -> None:
             over = over_of(agreeing_point(plan.featurizers[name], at))
             if over is None:
                 continue
-            path, site, laid = f"featurizers.{name}.over", cast(Site, read.site), layout_at_use(read, o)
+            path, site = f"featurizers.{name}.over", cast(Site, read.site)
+            # What the gate meets at a use made before any encode: inside an entry its site's selection, a `layers`
+            # axis first where the site picks several; as a step, its `of`'s layout.
+            laid = list(read.dims or []) if isinstance(o, OpStep) else address.dims(site.component, site.layers)
             if o.op != "apply":
                 fail(path, f"{over}: {where} encodes {name!r}, and a gate over axes serves apply alone: its units "
                      "are not the last axis, which an encode makes its coordinates; an interchange through it is "
