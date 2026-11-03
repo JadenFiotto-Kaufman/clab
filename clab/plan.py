@@ -871,8 +871,10 @@ class Generate(Forward, Labelled):
         return self
 
 
-# The positionwise ops as `ops` declares them, written into the docstring where `<the per-call ops>` stands.
-Generate.__doc__ = (Generate.__doc__ or "").replace("<the per-call ops>", ops.positionwise())
+# The positionwise ops, which a generation runs at each call, as `ops` declares them and in the tables' order,
+# written into the docstring where `<the per-call ops>` stands.
+Generate.__doc__ = (Generate.__doc__ or "").replace(
+    "<the per-call ops>", ", ".join(f"`{name}`" for name in ops.OPS if ops.DECLARED[name]["positionwise"]))
 
 
 class OpStep(Labelled):
