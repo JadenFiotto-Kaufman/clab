@@ -128,14 +128,9 @@ def prompt_positions(prompt: int, head_only: bool = False) -> list[int]:
     return [prompt - 1] if head_only else list(range(prompt))
 
 
-def call_positions(called: list[int], prompt: int, head_only: bool) -> list[int]:
-    """The positions the calls hold, in a row whose prompt is `prompt` tokens: the prefill's (`prompt_positions`), and
-    each decode call's input."""
-    return [p for call in called for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
-
-
 def call_of(position: int, prompt: int) -> int:
-    """The call that holds a position, the inverse of `call_positions`."""
+    """The call that holds a position, in a row whose prompt is `prompt` tokens: the prefill holds the prompt's,
+    decode call `k` its input, position `prompt + k - 1`."""
     return 0 if position < prompt else position - prompt + 1
 
 
@@ -220,7 +215,7 @@ def resolve(pos: dict, prompt: int, said: list[int], occurrences: list[set[int]]
     before = bool((pos["scope"] or {}).get("before"))
     try:
         calls = select(pos["frame"], max(len(said), 1))     # stage one: -1 is the row's last call, EOS or not
-        tokens = call_positions(calls, prompt, head_only)
+        tokens = [p for call in calls for p in (prompt_positions(prompt, head_only) if call == 0 else [prompt + call - 1])]
         if before and said and len(said) - 1 in calls:     # the token the last call chose, which no call holds
             tokens.append(prompt + len(said) - 1)
         positions = index_picks(pos["index"], scope_tokens(pos["scope"], tokens, occurrences, texts, encoded),
