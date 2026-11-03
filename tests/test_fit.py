@@ -576,6 +576,24 @@ def test_a_fit_that_only_applies_an_sae_records_none_of_its_scalars(engines):
         edited("sae_train", lambda d: change(d, ("fit.history.dictionary.l1",))).compile()
 
 
+def test_a_fit_gathers_an_open_encode_its_history_is_over_though_nothing_else_reads_it(engines):
+    """An entry of the body that encodes the sae, which nothing reads, beside one that applies it, with a body op as
+    the objective: the history's sae scalars are over that encode, so the run takes it off the model."""
+    def change(d):
+        del d["steps"]["harvest"]
+        d["steps"]["fit"].update(objective={"ce": 1.0}, epochs=2, steps={
+            "patched": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "z": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.dictionary"}]},
+                "recon": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "fit.dictionary"}]},
+                "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}},
+            "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "prompts.cf_answer"}})
+        d["saves"] = ["fit.history.dictionary.l1"]
+    plan = edited("sae_train", change).compile()
+    assert entries(points(plan.steps["fit"])[0].steps["patched"])["z"].gathered
+    filled = engines("nnterp", TINY_MODEL).execute(plan, batch_size=BATCH_SIZE)
+    assert filled.results["fit.history.dictionary.l1"].shape == (2,)
+
+
 def test_a_write_through_a_probe_is_refused():
     def change(d):
         d["steps"]["fit"]["steps"]["read"]["interventions"] = {"w": {

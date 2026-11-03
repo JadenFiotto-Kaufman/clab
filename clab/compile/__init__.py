@@ -616,9 +616,9 @@ def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[
 
 def mark_gathered(steps: dict, used: set[str]) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
-    `used` names (a value something references, a save, or the entries a fit's objective scalar is over), and the
-    entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes nor
-    is gathered does nothing."""
+    `used` names (a value something references, a save, or the body entries a trained sae's scalars are over), and
+    the entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes
+    nor is gathered does nothing."""
     for name, entry in runnable(steps).items():
         for point in points(entry):
             if point.kind == "fit":
@@ -712,6 +712,9 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         if any(r in trained or r.partition(".")[0] in trained for r in refs):
             trained.add(n)                  # a step whose value depends on what the fit trains
     body_ops = [n for n, s in body.items() if s.kind == "op"]
+    for f in spec.train:        # the entries a scalar of the history is over (an sae's), which the run then gathers
+        if featurizers.KINDS[kind_of(plan, f)].over_encodes:
+            cx.used.update(r for r in open_encodes(body, own[f]) if "." in r)
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
         if term not in body_ops and not (thing in spec.train and scalar in featurizers.KINDS[
@@ -719,9 +722,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            reads = open_encodes(body, own[thing])
-            cx.used.update(r for r in reads if "." in r)        # the entries among them, which the run gathers
-            if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not reads:
+            if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not open_encodes(body, own[thing]):
                 fail(f"{path}.objective.{term}", f"{scalar!r} is over the coordinates the body reads of {thing!r}, an "
                      f"encode no decode closes (an entry whose ops end in {{'op': 'encode', 'featurizer': {thing!r}}}, "
                      "or an encode step), and this body has none: read its coordinates in the body, or make the term "
