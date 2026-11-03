@@ -20,7 +20,7 @@ from safetensors import safe_open
 from clab import Plan
 from clab.cli import main
 from clab.format.sweeps import points
-from clab.output import load
+from clab.output import load, manifest
 from clab.plan import Load, PlanError, entries
 
 LOAD = {"kind": "load", "from": "out/pca_harvest", "value": "harvest.acts"}
@@ -345,9 +345,10 @@ def test_a_name_the_run_did_not_save_and_a_directory_with_no_run_are_refused(roo
         "saves the value there first, with --out out/nothing")
 
 
-def test_a_manifest_from_before_value_axes_is_refused(root):
+def test_a_manifest_from_before_value_axes_is_refused(root, capsys):
     """A manifest whose value records hold no `axes` (written by an older clab) cannot say which sweeps a value
-    depends on; taken as unswept, a swept value's points would load as one value, so it is refused by name."""
+    depends on; taken as unswept, a swept value's points would load as one value, so `Plan.load`, `clab show`,
+    `clab table` and a load from it refuse it by name, in the one place that reads a manifest."""
     old = os.path.join(root, "out", "noaxes")
     shutil.copytree(os.path.join(root, "out", "pca_harvest"), old, dirs_exist_ok=True)
     with open(os.path.join(old, "manifest.json")) as f:
@@ -356,10 +357,33 @@ def test_a_manifest_from_before_value_axes_is_refused(root):
         del record["axes"]
     with open(os.path.join(old, "manifest.json"), "w") as f:
         json.dump(held, f)
-    assert refused(root, {**LOAD, "from": "out/noaxes"}) == (
-        "steps.harvest.from: out/noaxes/manifest.json predates the sweep axes a saved value's record holds ('axes'), "
-        "so it does not say which sweeps 'harvest.acts' depends on; rerun the document that saves it, with --out "
-        "out/noaxes")
+    said = ("manifest.json predates the sweep axes a saved value's record holds ('axes'), so it does not say which "
+            "sweeps its values depend on; rerun the document that wrote it")
+    with pytest.raises(ValueError) as e:
+        Plan.load(old)
+    assert str(e.value) == f"{old}/{said}"
+    for command in (["show", old], ["table", old, "harvest.acts"]):
+        assert main(command) == 1 and capsys.readouterr().err == f"clab: {old}/{said}\n"
+    assert refused(root, {**LOAD, "from": "out/noaxes"}) == f"steps.harvest.from: out/noaxes/{said}"
+
+
+def test_a_run_directory_without_its_tokens_is_refused_by_name_where_a_load_still_reads_it(root, capsys):
+    """A run this clab writes keeps its tokens in `tokens.json` beside the manifest; a directory with neither that
+    file nor tokens in the manifest would load with no tokens and table with no `pos_token`, so `Plan.load`, `clab
+    show` and `clab table` refuse it by name. A load step reads the manifest and a value's file alone, so it still
+    reads such a directory."""
+    old = os.path.join(root, "out", "notokens")
+    shutil.copytree(os.path.join(root, "out", "pca_harvest"), old, dirs_exist_ok=True)
+    os.remove(os.path.join(old, "tokens.json"))
+    said = (f"{old}/tokens.json is missing, and the manifest holds no tokens; a run this clab wrote has one beside "
+            "its manifest, so rerun the document that wrote it")
+    with pytest.raises(FileNotFoundError) as e:
+        Plan.load(old)
+    assert str(e.value) == said
+    for command in (["show", old], ["table", old, "harvest.acts"]):
+        assert main(command) == 1 and capsys.readouterr().err == f"clab: {said}\n"
+    held, described = manifest(old)
+    assert "harvest.acts" in described and held["run"] is not None
 
 
 

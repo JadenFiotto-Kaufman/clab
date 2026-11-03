@@ -169,6 +169,9 @@ def load(out: str) -> Plan:
     if plan.run is not None and os.path.exists(tokens):
         with open(tokens) as f:
             plan.run.tokens = json.load(f)
+    elif plan.run is not None and not plan.run.tokens:       # neither beside the manifest nor, as before, in it
+        raise FileNotFoundError(f"{out}/tokens.json is missing, and the manifest holds no tokens; a run this clab "
+                                "wrote has one beside its manifest, so rerun the document that wrote it")
     for name, d in described.items():
         value = read_saved_value(out, name, d)
         if d["axes"]:
@@ -179,12 +182,17 @@ def load(out: str) -> Plan:
 
 def manifest(out: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The manifest of the run at `out`, as JSON, and apart from it its `results`: each saved value's record by
-    name. One whose fit has an `eval` and no `evals`, which an older clab wrote, is refused by name."""
+    name. One an older clab wrote is refused by name: whose value records have no `axes` (it cannot say which sweeps
+    a value depends on, and taken as unswept a swept value's points would load as one), or whose fit has an `eval`
+    and no `evals` (it holds no record of an eval's values)."""
     try:
         with open(os.path.join(out, "manifest.json")) as f:
             held = json.load(f)
     except FileNotFoundError:
         raise FileNotFoundError(f"no run at {out!r} (no manifest.json); run the document first") from None
+    if any("axes" not in d for d in held.get("results", {}).values()):
+        raise ValueError(f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so it "
+                         "does not say which sweeps its values depend on; rerun the document that wrote it")
     for name, entry in held.get("steps", {}).items():
         if any(p.get("kind") == "fit" and p.get("eval") and "evals" not in p for p in points(entry)):
             raise ValueError(f"{out}/manifest.json predates a fit's evals as steps ('evals'), so its fit {name!r} "

@@ -597,17 +597,11 @@ def loaded_run(cx: Compiling, path: str, out: str) -> dict:
 
 def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[dict, dict]:
     """The run at `out` a load reads (`loaded_run`) and the record its manifest holds for saved value `value`; refused
-    by name where the run saved no such value, and where its manifest predates the sweep axes a value's record holds
-    (`axes`, which a run of an older clab did not write), since it then cannot say which sweeps the value depends on,
-    and taking it as unswept would load a swept value's points as one."""
+    by name where the run saved no such value."""
     src = loaded_run(cx, path, out)
     if value not in src["described"]:
         fail(f"{path}.value", f"{out} saved no {value!r}; it saved {', '.join(src['described'])}")
-    d = src["described"][value]
-    if "axes" not in d:
-        fail(f"{path}.from", f"{out}/manifest.json predates the sweep axes a saved value's record holds ('axes'), so "
-             f"it does not say which sweeps {value!r} depends on; rerun the document that saves it, with --out {out}")
-    return src, d
+    return src, src["described"][value]
 
 
 # -- references --------------------------------------------------------------------------------------
