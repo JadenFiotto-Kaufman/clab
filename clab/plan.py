@@ -754,11 +754,11 @@ class Forward(Record):
     longest row; under `batch` each padded to its own longest row; under `sorted` the rows longest first, each
     batch padded to its own, and every value put back in dataset row order. Padding is never a position, so a
     row's `positions` and its `key` axis (as wide as the input's longest row, NaN past the row's own keys) are the
-    same under each. At the thread count the suite pins (`tests/conftest.py`, 12; 8 and 24 give the same bits) a
-    row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by about 1e-8. They do
-    depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to its own width a
-    narrower one, and either can differ in the last bits (on the corpus in float32 a forward's values by 6e-8 at
-    most); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
+    same under each. At the thread count the suite pins (`tests/conftest.py`, 12, whose bits 24 threads give too;
+    8 can differ) a row's numbers do not depend on which rows share its batch; at 4 or fewer they can differ by
+    about 1e-8. They do depend on the batch's shape: a trailing partial batch is a smaller matrix, a batch padded to
+    its own width a narrower one, and either can differ in the last bits (in float32 a forward's values by 6e-8 at
+    most on the tiny corpus, by 3.3e-5, 3.9e-7 relative, on GPT-2 over 2,000 AG News rows); a featurizer Adam trains through such a forward can move by about its learning rate, since Adam scales
     a rounding-sized gradient along a flat direction up to the step size (SGD moves it in the last bits), so a fit
     whose trained tensors are compared belongs under `dataset` padding. Results reproduce to the bit at a fixed
     batch size, padding and thread count."""
@@ -852,8 +852,10 @@ class Generate(Forward, Labelled):
     holds `calls × vocab_size` values a row in the model's dtype until the generation ends (twice that while it is
     arranged): an op waits where its bits depend on the shape of the value it runs on (a matmul, `readout`'s or an
     `encode`'s; a sum over a long axis, `kl`'s, `cosine`'s, `mean`'s, `norm`'s; `pow`, which torch computes two
-    ways), as a call's value and the whole one's differ in shape. Either way a value is the same
-    to the bit.
+    ways), as a call's value and the whole one's differ in shape. On the CPU either way a value is the same
+    to the bit; on CUDA a `token_prob` or `cross_entropy` over GPT-2's 50,257-token vocabulary can differ in its
+    last bits, since torch picks its softmax's kernel by the tensor's outer size, which a call's value and the
+    whole one's differ in.
 
     Rows run in batches as a forward's do, and reproduce to the bit only at a fixed batch size: the prefill
     projects the head at the last position only and every decode call is a `[batch, 1, ...]` matmul, so
