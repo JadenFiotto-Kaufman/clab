@@ -24,6 +24,7 @@ import torch
 from torch._subclasses.fake_tensor import FakeTensor
 from conftest import BATCH_SIZE, TRIP, document, edited, plan_of, same, stand_in
 
+import clab
 from clab import Plan
 from clab.cli import main
 from clab.compile.state import Findings
@@ -413,6 +414,16 @@ def test_under_readout_at_reads_a_write_after_the_last_block_keeps_the_head(engi
                     for readout in ("full", "at-reads"))
     assert [s["component"] for s in points(narrow.steps["lens"])[0].schedule["sites"]] == [component, "logits"]
     assert same(full.results, narrow.results)
+
+
+def test_the_manifest_records_the_readout_even_at_its_default(engines, tmp_path):
+    for readout in ("full", "at-reads"):
+        engine = engines("nnterp", logits_at(-1).model)
+        clab.run(logits_at(-1), engine=engine, out=str(tmp_path / readout), batch_size=BATCH_SIZE, readout=readout)
+        with open(tmp_path / readout / "manifest.json") as f:
+            assert json.load(f)["run"]["readout"] == readout
+        back = Plan.load(str(tmp_path / readout)).run
+        assert back is not None and back.readout == readout
 
 
 def test_a_readout_is_refused_by_name_unless_it_is_one_of_the_two(engines, capsys):
