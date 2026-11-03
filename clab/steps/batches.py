@@ -37,7 +37,7 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
     has (`keys`, `span`; None: `width`). Where the value holds the last position
     alone (`last_only`: a generation's head in the prefill) every index is -1. Where every row holds `n` positions there
     is no `keep`, so that a read or a write of equal-width rows indexes by no mask; a ragged write indexes by `kept`,
-    counted here on the host, where a mask the device would have to count before the host could go on. The indices and
+    which the host counts here, so that the device never counts a mask before the host can go on. The indices and
     masks the value meets are made on `device`, where the model is (`tensor_on_device`); `tok` stays on the host, where
     the ops that read it (`noise`) count with it."""
     row_positions = [row if isinstance(row, list) else [] for row in row_positions]
@@ -634,7 +634,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
         indices = moved_to(record["positions"], device)
         current = site_value[row_indices, indices]
         new = whole = own_keys(current, record)
-        original = own_keys(before[row_indices, indices], record) if "original" in record.get("takes", ()) else None
+        original = own_keys(before[row_indices, indices], record) if "original" in record.get("takes", ops.SUPPLIED) \
+            else None
         for dim, index in record["select"].items():
             new = index_along(new, dim, index)
             original = None if original is None else index_along(original, dim, index)
@@ -661,8 +662,10 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
 
 def token_positions_of(record: dict) -> Tensor | None:
     """The token position of each of a record's positions (its `tok`, plus the decode `call` it lands at, which the
-    engine stamps), where an op of its takes them (`takes`: `noise`'s `positions`); else None, which nothing reads."""
-    return record["tok"] + record.get("call", 0) if "positions" in record.get("takes", ()) else None
+    engine stamps), where an op of its takes them (`takes`: `noise`'s `positions`; a record without `takes` is
+    given every supplied value it holds); else None, which nothing reads."""
+    return record["tok"] + record.get("call", 0) if "tok" in record and "positions" in record.get(
+        "takes", ops.SUPPLIED) else None
 
 
 def check_written_ids(new: Tensor, component: str, record: dict) -> None:
