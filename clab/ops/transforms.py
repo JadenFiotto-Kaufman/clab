@@ -1,10 +1,6 @@
-"""Transforms: ops that turn each example's value into another, of a different layout or of the same one, or a
-gradient. The model's own readout, `encode`, which turns a value into a featurizer's coordinates, `grad`, a gradient
-in the value's place, the ranks along an axis (`top_k`, `argmax`, by default over logits), `detokenize`, which turns
-generated ids into text, and the elementwise ops, which keep the layout: arithmetic on each entry in float32 (`abs`
-to `pow`, an id's hole, -1, missing as NaN is: `reductions.floated`) and the comparisons (`eq` to `le`), 0 or 1 in the
-value's dtype (float32 on ids) and missing where either side is. Unlike an edit, none of them writes back: inside an entry a transform before its last edit acts on the live
-value that edit writes, and one after it, or in an entry with no edit, on the value off the model."""
+"""Transforms: ops that turn each example's value into another, of a different layout or of the same one (the
+elementwise ops, `abs` to `le`), or into its gradient (`grad`). Unlike an edit, none of them writes back
+(`ops.ABOUT`)."""
 
 import json
 import math

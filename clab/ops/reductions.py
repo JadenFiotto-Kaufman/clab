@@ -1,7 +1,5 @@
-"""Reductions: ops that remove axes. `mean`, `sum`, `min`, `max`, `std`, `count`, `norm`, `dot` and `entropy` compute
-in float32 whatever the value's dtype (`ops.ABOUT`), of the entries that are there: a missing one is NaN, and in ids
-(an integer value: `argmax`'s, `top_k`'s `ids`, `expert_indices`) -1, the hole (`floated`); `pca` works in double and
-returns float32, as every bundle is."""
+"""Reductions: ops that remove axes, of the entries that are there (`floated`), in float32 whatever the value's dtype;
+`pca` works in double and returns float32, as every bundle is (`ops.ABOUT`)."""
 
 import json
 import math
