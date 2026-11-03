@@ -42,12 +42,15 @@ def table(plan: Plan, names: tuple[str, ...], columns: list[str] | None) -> list
     from clab.output import run_record
 
     run = run_record(plan)
+    by_dataset: dict[str, str] = {}             # the dataset each value has a row per example of, as its record says
     for name in names:
         if name not in plan.saves:
             raise ValueError(f"{name!r} was not saved; add it to saves")
         if name not in plan.results:
             raise ValueError(f"{name!r} has no result: the run stopped before its step; {run.stopped}")
-    by_dataset = {d: name for name in names if (d := dataset_of(plan, name)) is not None}
+        record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
+        if "rows" in (record.dims or []) and record.dataset is not None:
+            by_dataset[record.dataset] = name
     if len(by_dataset) > 1:
         (a, x), (b, y) = list(by_dataset.items())[:2]
         raise ValueError(f"{x!r} has a row per example of {a!r} and {y!r} of {b!r}; a table joins the values of "
@@ -146,12 +149,6 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
             last = {"value": row.pop("value")} if "value" in row else {}
             out.append({**({"at": at} if at else {}), **row, **last})       # the value last, as in a joined table
     return out
-
-
-def dataset_of(plan: Plan, name: str) -> str | None:
-    """The dataset a saved value has a row per example of, if any, as its record says."""
-    record = record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at)
-    return record.dataset if "rows" in (record.dims or []) else None
 
 
 def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
