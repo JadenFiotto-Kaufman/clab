@@ -270,6 +270,11 @@ def test_each_stage_narrows_the_one_before():
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": "-1:"}),
      r"steps\.patched\.interventions\.patch\.pos at frame=0: frame ':' with index '-1:' counts back from the row's last "
      r"position, known only when the row stops"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": [0, 2], "index": -1}),
+     r"^steps\.patched\.interventions\.patch\.pos at frame=0: frame \[0, 2\] with index -1: over a frame that holds "
+     r"the prompt a write's index is ':', since any other counts on through the prompt, whose length differs by row, "
+     r"into the decode calls, and a write lands as each call runs; write the prompt's positions you mean as an entry "
+     r"at frame 0 and the decode calls you mean as another at their own frame \('1:' is every one\)$"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "0:3", "index": "1:"}),
      r"steps\.patched\.interventions\.patch\.pos at frame=0: frame '0:3' with index '1:': over a frame that holds the "
      r"prompt a write's index is ':'"),

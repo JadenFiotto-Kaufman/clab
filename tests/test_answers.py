@@ -86,6 +86,18 @@ def test_lower_searches_the_input_lowercased_and_the_positions_are_the_inputs(en
     assert positions["lowered.x"] == positions["exact.x"] == positions["text.x"]
 
 
+def test_lower_keeps_a_character_whose_lowercase_is_longer_so_a_span_of_it_is_the_inputs(engines):
+    """`İ` lowercases to two characters; `lower` keeps it as written, so the text a lowered scope searches is as
+    long as the input and a word after it lands on the input's own tokens."""
+    def read(scope):
+        return {"kind": "forward", "input": "days.input", "interventions": {"x": {"site": HEAD, "pos": {"scope": scope}}}}
+    plan = doc({"exact": read({"text": ["Monday", "Thursday"]}),
+                "lowered": read({"text": ["monday", "thursday"], "lower": True})}, ["exact.x"],
+               rows=[{**r, "input": "İ" + r["input"]} for r in DAYS])
+    positions = placed(run(engines, plan))
+    assert positions["lowered.x"] == positions["exact.x"] == [[6], [6, 7, 8]]
+
+
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_class_is_every_spelling_and_a_set_any_member(engines, kind):
     """Under `strip` and `lower` " Yes" stands for every token whose text is `yes` so compared; a list is a set:

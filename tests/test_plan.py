@@ -350,6 +350,8 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
      r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": []}}),
      r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
+    (lambda d: d["steps"]["patched"].update(input="pairs"),
+     r"^steps\.patched\.input: 'pairs' is not <dataset>\.<column> or <dataset>\.<column>\[i\]$"),
     (lambda d: d["steps"].update({"i.ia": d["steps"].pop("iia")}),
      r"^steps\.i\.ia: a name has no dots; a dot separates a thing from its member$"),
 ])

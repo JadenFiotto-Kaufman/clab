@@ -178,6 +178,14 @@ def test_layers_outside_the_model_are_refused_by_name(engines):
             engines("hooks", plan.model).execute(plan)
 
 
+def test_a_select_whose_picks_count_one_thing_twice_is_refused_by_name(engines):
+    """`[1, -3]` of the tiny Llama's 4 heads picks head 1 twice, which only the model's size says."""
+    plan = edited("head_patching", lambda d: d["sites"]["target"]["select"].update(num_heads=[1, -3])).compile()
+    with pytest.raises(ValueError, match=r"^counterfactual\.v_cf: select num_heads: picks \[1, -3\] count one of "
+                                         r"these 4 twice$"):
+        engines("hooks", plan.model).execute(plan)
+
+
 def test_cosine_is_one_where_the_patch_cannot_reach(filled):
     """cosine_metric.json: at layer 0 (before the write) and at the second-to-last token (before it in the
     sequence) the patched and clean values are the same to the bit, and their cosine is 1 to within rounding;
