@@ -358,8 +358,7 @@ def char_spans(tokenizer: PreTrainedTokenizerBase, ids: list[int]) -> tuple[str,
 
 
 def prefill_positions(where: str, record: Intervention, step: Forward | Generate, rows: list[dict], encoded: list[dict],
-                      tokenizer: PreTrainedTokenizerBase,
-                      alike: dict[tuple, list] | None = None) -> list[list[int] | str]:
+                      tokenizer: PreTrainedTokenizerBase, alike: dict[tuple, list]) -> list[list[int] | str]:
     """A prefill record's positions in each row, which the data alone decides: a scope text that is absent or
     doubled, or a static index that does not fit, is refused by name, and so is a write whose positions
     hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
@@ -372,7 +371,7 @@ def prefill_positions(where: str, record: Intervention, step: Forward | Generate
     why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
         "that is all call 0 holds of it" if head_only else ""
     key = (step.dataset, data.input_name(step.input), repr(record.pos), head_only)
-    known = (alike or {}).get(key)
+    known = alike.get(key)
     row_positions: list[list[int] | str] = []
     for i, (row, enc) in enumerate(zip(rows, encoded)):
         try:
@@ -383,11 +382,7 @@ def prefill_positions(where: str, record: Intervention, step: Forward | Generate
             raise ValueError(f"{where}: row {i}: the write's positions hold no token of this row; a write needs "
                              f"one to write{why}")
         row_positions.append(positions if isinstance(positions, str) else list(positions))
-    if known is not None:
-        return known
-    if alike is not None:
-        alike[key] = row_positions
-    return row_positions
+    return alike.setdefault(key, row_positions)
 
 
 def resolve_row(pos: dict, row: dict, encoded: dict, said: list[int], tokenizer: PreTrainedTokenizerBase,
