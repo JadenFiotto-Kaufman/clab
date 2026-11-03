@@ -54,14 +54,6 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
             "tok": torch.tensor(token_positions)}
 
 
-def selection_at_decode_call(record: Intervention, picks: dict, prompts: list[int], device: str = "cpu") -> dict:
-    """What the engine needs to reach a record at a decode call: the call's one position, the last, on `device`;
-    and, in `tok`, the position before decode call 1's input in each row of `prompts` tokens, which with the call
-    number is the input's."""
-    return {"positions": torch.full((len(prompts), 1), -1, device=device),
-            "select": select_indices(record, picks, device), "tok": torch.tensor([[p - 1] for p in prompts])}
-
-
 def key_index(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None,
               query_positions: list[list[int]] | None = None) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompt_positions`), which a key selector counts:
@@ -210,8 +202,9 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
                   ) -> tuple[dict[str, Any], dict[tuple[str, tuple, int | None], list[dict]]]:
     """The schedule of `step` (a serving point of step `name`) bound to one batch of dataset row `ids`, as the engine
     executes it: its sites in order, each record with what reaches its selection in the padded batch
-    (`selection_in_batch`; at a decode call `selection_at_decode_call`; a part over the prompt of an entry beyond the
-    prefill at every prompt position, the head's at the last, the one the prefill computes), a write with its ops bound
+    (`selection_in_batch`; at a decode call the call's one position, the last, its `tok` the position before decode
+    call 1's input, which with the call number is the input's; a part over the prompt of an entry beyond the prefill
+    at every prompt position, the head's at the last, the one the prefill computes), a write with its ops bound
     (`bind_ops`), on a component of ids the size they are under (`ids`: the entry, the axis and the model's size of it,
     which `visit_site` holds what lands to), its decode `calls` and, found `online`, each row's texts to find it by, a
     read with its name (a `grad` entry's marked `capture`) and the ops it runs at each call bound (`per_call`, by
@@ -243,8 +236,10 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
                 record.positions[cast(str, step.dataset)]
             reached = (cast(Site, record.site).component, repr(record.kept), head_only, "calls" in site_record,
                        site_record.get("prompt"), None if row_positions is None else id(row_positions))
-            bound_record = dict(make_once(shared, reached, lambda: selection_at_decode_call(
-                record, record.kept, prompts, device) if "calls" in site_record else selection_in_batch(
+            bound_record = dict(make_once(shared, reached, lambda: {
+                "positions": torch.full((len(prompts), 1), -1, device=device),
+                "select": select_indices(record, record.kept, device),
+                "tok": torch.tensor([[p - 1] for p in prompts])} if "calls" in site_record else selection_in_batch(
                     record, record.kept, [positions.prompt_positions(p, head_only) for p in prompts]
                     if row_positions is None else data.by_id(row_positions, ids), pads, width, head_only, device,
                     span)))
