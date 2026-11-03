@@ -6,12 +6,9 @@ from __future__ import annotations
 
 import re
 import sys
-from typing import TYPE_CHECKING, Annotated, Any, Union, cast
+from typing import Annotated, Any, Union, cast
 
 from pydantic import BeforeValidator
-
-if TYPE_CHECKING:
-    from clab.plan import Site
 
 # A slice string: each part an int or empty, no `-0`, no step 0.
 SLICE = r"^(0|-?[1-9][0-9]*)?:(0|-?[1-9][0-9]*)?(:(-?[1-9][0-9]*)?)?$"
@@ -150,12 +147,6 @@ def covers(frame: Selector) -> bool:
 
 # Which of a number of things a range picks, as a document writes it: `pos` documents it, `select` resolves it.
 Selector = Annotated[Union[int, str, list[int]], "selector", BeforeValidator(checked)]
-
-
-def made_at(site: Site, n: int) -> list[int] | list[None]:
-    """The layers a point's site (its `layers` a selector, no sweep) is made at among the model's `n`, or
-    `[None]` for a model's own value."""
-    return [None] if site.layers is None else select(cast(Selector, site.layers), n)
 
 
 def picked(where: str, layers: Selector, n: int) -> list[int]:
