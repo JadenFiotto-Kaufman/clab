@@ -63,8 +63,10 @@ class NnterpEngine:
         placed, loaded = sharded(model, tp, device), loading(model, "nnterp", device)
         self.spec, self.device, self.options = model, device, {"tp": tp}
         if tp > 1:          # nnterp's probe of the sharded model would read every value, the embedding's among them
-            self.order = measured(build(model, "nnterp", lambda extra: StandardizedTransformer(
-                model.key, revision=model.revision, dispatch=False, device_map=None, **extra)))
+            shell = build(model, "nnterp", lambda extra: StandardizedTransformer(
+                model.key, revision=model.revision, dispatch=False, device_map=None, **extra))
+            self.order = {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in
+                          standard.unserved(shell).items() for layer in served(c, refused, shell.num_layers)}
         self.model = build(model, "nnterp", lambda extra: StandardizedTransformer(
             model.key, revision=model.revision, dispatch=True, **loaded, **placed, **extra))
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
@@ -268,12 +270,6 @@ def sourced(model: StandardizedTransformer) -> None:
             for child in parts[:parts.index("source")]:
                 host = getattr(host, child)
             host.source
-
-
-def measured(shell: StandardizedTransformer) -> dict[tuple[str, int | None], tuple[int, int]]:
-    """nnterp's rank of every component `shell` serves, at each layer it serves it, by `(component, layer)`."""
-    return {(c, layer): shell.rank(nnterp_name(c), layer) for c, refused in standard.unserved(shell).items()
-            for layer in served(c, refused, shell.num_layers)}
 
 
 def sharded(model: Model, tp: int, device: str) -> dict[str, Any]:
