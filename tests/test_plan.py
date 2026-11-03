@@ -107,6 +107,11 @@ def test_a_steps_batch_size_is_refused_as_the_runs_or_its_fits(name, path):
         edited(name, change).compile()
 
 
+def test_a_fits_minibatch_holds_at_least_one_row():
+    with pytest.raises(PlanError, match=r"^steps\.fit: batch_size 0: a minibatch holds at least one row$"):
+        edited("das", lambda d: d["steps"]["fit"].update(batch_size=0))
+
+
 def test_a_compiled_plan_holds_no_sweep():
     with pytest.raises(PlanError, match="a compiled plan holds no sweep"):
         Plan(**{**Plan(document("pos_sweep")).model_dump(), "compiled": True})
@@ -337,6 +342,16 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["data"]["pairs"].update(template={"sweep": [{"add_generation_prompt": True}, {}]}),
      r"data\.pairs\.template: a sweep cannot stand for 'template'; a dataset's rows are compiled once"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
+    (lambda d: d["sites"]["target"].pop("layers"),
+     r"^sites\.target: layer_output is a block's value and needs 'layers'$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["logits"]["site"].update(layers=0),
+     r"^steps\.patched\.interventions\.logits\.site: lm_head_output is the model's own value and takes no layers$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"column": []}}),
+     r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": []}}),
+     r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
+    (lambda d: d["steps"].update({"i.ia": d["steps"].pop("iia")}),
+     r"^steps\.i\.ia: a name has no dots; a dot separates a thing from its member$"),
 ])
 def test_a_document_error_names_the_path_and_the_choices(change, message):
     if message is None:      # the `#split` form is gone: the path names a file that does not exist
