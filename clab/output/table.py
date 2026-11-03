@@ -111,7 +111,7 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
         for other in by_key.get(key(row), []):
             a, b = (row, other) if many is left else (other, row)
             merged = {**a, **b}
-            if "at" in merged:              # the two points' coordinates together, first
+            if "at" in merged:
                 merged = {"at": {**a.get("at", {}), **b.get("at", {})},
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
