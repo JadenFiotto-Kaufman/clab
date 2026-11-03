@@ -28,7 +28,7 @@ from clab import Plan
 from clab.cli import main
 from clab.compile.state import Found
 from clab.format.sweeps import labelled, points, put
-from clab.plan import entries
+from clab.plan import entries, runnable
 from clab.steps.batches import edit
 
 COST = {"seconds", "memory", "forwards", "tokens", "real"}
@@ -86,17 +86,24 @@ def das(epochs: int = 3):
 
 def test_a_fit_counts_every_forward_its_body_makes(engines):
     """A fit's calls are its body's: per epoch, each minibatch through the body's forward (2 × 1) and the
-    training rows scored after it (two rows, a batch of one each: 2); then the `train` eval's two rows once. Each
-    pass over a dataset feeds each of its rows' tokens once: two passes over the training prompts an epoch, one of
-    them scoring, then one in the eval, each row padded to the longest, 11 tokens; the counterfactual prompts,
-    harvested before the fit, are fed there once, in one call."""
+    training rows scored after it (two rows, a batch of one each: 2). The `train` eval is steps after the fit, each
+    with its own cost: its forward's two rows in batches of the fit's one (2 calls), its ops none; together they
+    make the calls the fit's body made before its evals were steps. Each pass over a dataset feeds each of its rows'
+    tokens once: two passes over the training prompts an epoch, one of them scoring, then one in the eval, each row
+    padded to the longest, 11 tokens; the counterfactual prompts, harvested before the fit, are fed there once, in
+    one call."""
     plan = das()
     run = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     train = lengths(run, "train.input")
     epochs, minibatches, body = 3, 2, 1
-    assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) + 2 * body == 14
-    assert run.costs["fit"]["real"] == epochs * 2 * train + train
-    assert run.costs["fit"]["tokens"] == (epochs * 2 + 1) * 2 * 11
+    assert list(run.costs) == list(runnable(plan.steps)) == [
+        "counterfactual", "fit", "fit.train.v_cf", "fit.train.patched", "fit.train.iia", "fit.train.ce",
+        "held_counterfactual", "held_patched", "held_iia"]
+    assert run.costs["fit"]["forwards"] == epochs * (minibatches * body + 2 * body) == 12
+    assert run.costs["fit"]["forwards"] + run.costs["fit.train.patched"]["forwards"] == 14
+    assert [run.costs[f"fit.train.{s}"]["forwards"] for s in ("v_cf", "iia", "ce")] == [0, 0, 0]
+    assert run.costs["fit"]["real"] == epochs * 2 * train and run.costs["fit.train.patched"]["real"] == train
+    assert run.costs["fit"]["tokens"] == epochs * 2 * 2 * 11 and run.costs["fit.train.patched"]["tokens"] == 2 * 11
     assert {k: run.costs["counterfactual"][k] for k in ("forwards", "tokens", "real")} == \
         {"forwards": 1, "tokens": 2 * 11, "real": lengths(run, "train.counterfactual_inputs[0]")}
 
@@ -110,7 +117,7 @@ def test_the_servers_costs_come_home_in_the_run_record(engines, monkeypatch):
     assert trip == TRIP
     assert came.run is not None
     for run in (there, came.run):
-        assert list(run.costs) == list(das().steps)
+        assert list(run.costs) == list(runnable(das().steps))
         for step, cost in run.costs.items():
             assert set(cost) == COST and cost["memory"] is None
             assert {k: cost[k] for k in ("forwards", "tokens", "real")} == \
@@ -308,8 +315,8 @@ def test_the_stop_site_is_where_both_engines_end_the_forward(engines, kind, monk
     the read at block 3 the forward never reached is refused by name, the same on each; `stop` means one thing."""
     from clab.compile import preflight, schedule
 
-    def early(engine, plan, name, step, served, trained):
-        schedule.scheduled(engine, plan, name, step, served, trained)
+    def early(engine, plan, name, step, served):
+        schedule.scheduled(engine, plan, name, step, served)
         step.schedule["stop"] = ["layer_output", 0]
     monkeypatch.setattr(preflight, "scheduled", early)
 
@@ -352,15 +359,18 @@ def test_a_generation_runs_whole_at_every_call(engines, kind):
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
 def test_a_fit_bodys_forward_stops_at_its_own_deepest_site(engines, kind):
     """sae_train with its harvest in the fit's body, the dictionary's encode in its entry, reads block 0 of the tiny
-    Llama's two there: every forward the body makes, training and scoring, runs block 0 alone. As sae_train is,
-    with the harvest before the fit, the body makes none and the harvest's two run block 0 alone."""
+    Llama's two there: every forward the body makes, training and scoring, runs block 0 alone, and so does its
+    `train` eval's, a step after the fit that reads what the run saves of it. As sae_train is, with the harvest
+    before the fit, the body makes none and the harvest's two run block 0 alone."""
     def inside(d):
         harvest = d["steps"].pop("harvest")
         harvest["interventions"]["acts"]["ops"] = [{"op": "encode", "featurizer": "fit.dictionary"}]
         d["steps"]["fit"]["steps"] = {"harvest": harvest}
+        d["saves"].append("fit.train.harvest.acts")
     plan = edited("sae_train", inside).compile()
     filled, ran = counted(engines(kind, plan.model), plan)
-    assert filled.run is not None and filled.run.costs["fit"]["forwards"] == 82 and ran == through(1) * 82
+    assert filled.run is not None and ran == through(1) * 82
+    assert [filled.run.costs[s]["forwards"] for s in ("fit", "fit.train.harvest")] == [80, 2]
     filled, ran = counted(engines(kind, plan.model), plan_of("sae_train"))
     assert filled.run is not None and [filled.run.costs[s]["forwards"] for s in ("harvest", "fit")] == [2, 0]
     assert ran == through(1) * 2

@@ -31,7 +31,7 @@ from test_efficiency import at, counting
 from clab import Plan
 from clab.compile import schedule
 from clab.format.sweeps import coordinate, find_sweeps, labelled, points, projected
-from clab.plan import Fit, Forward, entries, horizon, record_of, serving
+from clab.plan import Fit, Forward, entries, horizon, record_of, runnable, serving
 from clab.steps import batches, fit
 
 
@@ -395,15 +395,15 @@ def test_an_operand_read_at_a_site_the_engine_ranks_alike_with_the_writes_is_ref
     write's own site whatever the ranks, read there first, in entry order."""
     plan = gpt2(LIVE)
     step = points(plan.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, [step], {})
+    schedule.scheduled(ranked(lambda component, layer: layer), plan, "lens", step, [step])
     assert [s["layer"] for s in step.schedule["sites"]] == [0, 1]
     with pytest.raises(ValueError, match=r"^lens\.added: operand 'lens\.premix' is read at layer_output layer 0, which "
                                          r"the stand-in engine's forward reaches no earlier than this write's "
                                          r"layer_output layer 1; "):
-        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, [step], {})
+        schedule.scheduled(ranked(lambda component, layer: 0), plan, "lens", step, [step])
     here = gpt2({**LIVE, "premix": at("layer_output", 1)})
     step = points(here.steps["lens"])[0]
-    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, [step], {})
+    schedule.scheduled(ranked(lambda component, layer: 0), here, "lens", step, [step])
     assert [[r.get("write") or r.get("read") for r in s["records"]] for s in step.schedule["sites"]] == \
         [["premix", "added", "added"]]
 
@@ -505,7 +505,8 @@ def test_a_later_step_and_a_fit_body_read_each_points_own_value_of_a_shared_forw
     engine = engines("nnterp", plan.model)
     shared = engine.execute(plan, batch_size=BATCH_SIZE)
     assert costs(shared, "base") == {"src=0": (1, ["src=0", "src=1"])}
-    assert [c for c, _ in costs(shared, "fit").values()] == [3, 3]        # one minibatch, its scoring, the eval
+    assert [c for c, _ in costs(shared, "fit").values()] == [2, 2]        # one minibatch, its scoring
+    assert [c for c, _ in costs(shared, "fit.train.patched").values()] == [1, 1]       # the eval's forward
     assert each_its_own(shared, alone(engine, "das", doc))
     scored = list(shared.results["fit.train.iia"].values())
     assert not same(scored[0], scored[1])
@@ -633,15 +634,15 @@ def called(step: Forward, rows: int, batch_size: int) -> list:
 
 def ran(plan: Plan, bodies: list[tuple]) -> list:
     """Every model call the schedules of `plan` make, in order, as `called` lists them: each serving point of a
-    root forward or generate step over its dataset's rows, at the suite's batch size; at each fit point, each run
-    of its body the fit made (`bodies`: its name, point, rows and the plan it ran over, in order, as many as its
-    epochs and evals made, which its early stop decides), marked `"body"`, each body forward over those rows at
-    the fit's batch size."""
+    forward or generate step, in the order `runnable` lists them, over its dataset's rows, at the suite's batch
+    size or the one its record holds (a fit's eval forward's, the fit's); at each fit point, each run of its body
+    the fit made (`bodies`: its name, point, rows and the plan it ran over, in order, as many as its epochs made,
+    which its early stop decides), marked `"body"`, each body forward over those rows at the fit's batch size."""
     out: list = []
-    for name, entry in plan.steps.items():
+    for name in runnable(plan.steps):
         for p, _ in serving(plan, name):
             if isinstance(p, Forward):
-                out += called(p, cast(int, plan.data[cast(str, p.dataset)].n_rows), BATCH_SIZE)
+                out += called(p, cast(int, plan.data[cast(str, p.dataset)].n_rows), p.batch_size or BATCH_SIZE)
             if not isinstance(p, Fit):
                 continue                    # a forward's are listed, an op calls no model
             for _, _, rows, source in (b for b in bodies if b[:2] == (name, p.at)):

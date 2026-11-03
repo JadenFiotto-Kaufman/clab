@@ -15,7 +15,7 @@ from safetensors.torch import save_file  # noqa: E402
 from clab import Plan  # noqa: E402
 from clab.featurizers import FORMAT  # noqa: E402
 from clab.format.sweeps import labelled, points  # noqa: E402
-from clab.plan import Model, entries, record_of  # noqa: E402
+from clab.plan import Model, entries, record_of, runnable  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOCUMENTS = os.path.join(ROOT, "documents")
@@ -105,7 +105,7 @@ def dims(plan: Plan, name: str) -> list[str]:
 
 def placed(plan: Plan) -> dict[str, Any]:
     """Where every read and write resolved, per row, as the plan's records hold it, keyed by `<step>.<entry>` (a
-    fit's eval members `<fit>.<eval>.<step>.<entry>`), a swept step's by coordinate: the one view the tests compare
+    fit's eval steps' `<fit>.<eval>.<step>.<entry>`), a swept step's by coordinate: the one view the tests compare
     runs by."""
     out: dict[str, Any] = {}
 
@@ -117,14 +117,8 @@ def placed(plan: Plan) -> dict[str, Any]:
             out.setdefault(key, {})[labelled(plan, at)] = got
         else:
             out[key] = got
-    for name, entry in plan.steps.items():
+    for name, entry in runnable(plan.steps).items():
         for step in points(entry):
-            if step.kind == "fit":
-                for label, swap in step.eval.items():
-                    for n, s in step.steps.items():
-                        for k, e in entries(s).items():
-                            add(f"{name}.{label}.{n}.{k}", step.at, e, swap.get(s.dataset, s.dataset))
-                continue
             for k, e in entries(step).items():
                 add(f"{name}.{k}", step.at, e, step.dataset)
     return out

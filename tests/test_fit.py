@@ -186,6 +186,23 @@ def test_a_fit_steps_once_per_minibatch_in_an_order_its_seed_and_epoch_shuffle(e
     assert not torch.equal(other["fit.history.ce"], values["fit.history.ce"])
 
 
+def test_a_fits_evals_run_in_batches_of_its_batch_size_whatever_the_runs(engines):
+    """An eval's forward is a step after the fit whose record holds the fit's `batch_size` (`Forward.batch_size`),
+    which it runs in whatever the run's: das with its counterfactual read inside the body, so that no step before
+    the fit runs at the run's batch size, gives its rotation and its `train` eval to the bit at `--batch-size` 1 and
+    8, each eval forward one call over the two training rows at both, where `held_patched`, a root step after the
+    fit, makes one call per batch of the run's."""
+    plan = lambda: edited("das", inside("counterfactual")).compile()         # noqa: E731
+    engine = engines("hooks", plan().model)
+    runs = {size: engine.execute(plan(), batch_size=size) for size in (1, 8)}
+    for size, filled in runs.items():
+        assert filled.run is not None
+        assert [filled.run.costs[s]["forwards"] for s in ("fit.train.counterfactual", "fit.train.patched",
+                                                          "held_patched")] == [1, 1, 2 if size == 1 else 1]
+    for name in ("fit.rot", "fit.train.iia", "fit.train.ce"):
+        assert same(runs[1].results[name], runs[8].results[name])
+
+
 def test_a_pca_encodes_its_mean_as_zero():
     g = torch.Generator().manual_seed(0)
     bundle = {"basis": torch.linalg.qr(torch.randn(16, 4, generator=g))[0], "mean": torch.randn(16, generator=g)}
@@ -639,15 +656,15 @@ def test_a_probe_class_column_is_compared_exactly(engines):
 
 def test_a_probe_label_outside_its_classes_is_refused_before_any_forward(engines):
     """Under eval the label column is the held-out dataset's; a label there the probe has no class for is
-    refused naming that dataset, before the fit's first forward."""
+    refused at the eval's own step, naming that dataset, before the fit's first forward."""
     plan = probe(held_out("holiday"))
     engine = engines("hooks", plan.model)
     calls = []
     original = engine.forward
     engine.forward = lambda *args: calls.append(1) or original(*args)
     try:
-        with pytest.raises(ValueError, match=r"ce: target is 'label' of 'held', whose row 0 is 'holiday', not one of "
-                                             r"the classes of probe 'probe': \['weekday', 'weekend'\]"):
+        with pytest.raises(ValueError, match=r"^fit\.train\.ce: target is 'label' of 'held', whose row 0 is 'holiday', "
+                                             r"not one of the classes of probe 'probe': \['weekday', 'weekend'\]$"):
             engine.execute(plan, batch_size=BATCH_SIZE)
     finally:
         del engine.forward
@@ -717,6 +734,24 @@ def test_inside_the_body_a_trained_featurizers_two_names_are_one_space(engines):
     engine = engines("hooks", plan.model)
     assert same(engine.execute(plan, batch_size=BATCH_SIZE).results,
                 engine.execute(edited("das", lambda d: None).compile(), batch_size=BATCH_SIZE).results)
+
+
+def test_a_swept_fit_whose_body_names_its_featurizer_bare_runs_as_its_fit_name_does(engines):
+    """Compile writes a trained featurizer's bare name in its fit's body as `<fit>.<featurizer>`, so the two are one
+    featurizer at every point of a sweep: das with `rot`'s `k` swept over 4 and 8 and its body naming `rot` bare
+    compiles to the body that names `fit.rot`, and runs to its numbers to the bit, where the body once took the
+    untrained instance the run made for `rot` and failed on a gradient nothing used."""
+    def swept(d):
+        d["featurizers"]["rot"]["k"] = {"sweep": [4, 8]}
+        d["steps"]["fit"]["epochs"] = 3
+
+    def bare(d):
+        d["steps"]["fit"]["steps"] = json.loads(json.dumps(d["steps"]["fit"]["steps"]).replace('"fit.rot"', '"rot"'))
+    named, written_bare = (edited("das", chain(swept, *more)).compile() for more in ((), (bare,)))
+    assert [p.steps for p in points(written_bare.steps["fit"])] == [p.steps for p in points(named.steps["fit"])]
+    engine = engines("hooks", named.model)
+    assert same(engine.execute(written_bare, batch_size=BATCH_SIZE).results,
+                engine.execute(named, batch_size=BATCH_SIZE).results)
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
@@ -1005,7 +1040,7 @@ def test_a_body_op_over_a_root_harvest_is_held_to_its_input_as_the_root_is(engin
     """A metric's answer is checked against what the input says at the read's positions (`preflight.placed`, with
     the rows' ids) in a fit body as at the root: a body op scoring a `before` read the root harvested against a
     column the input does not say there is refused naming the token, as the root's own op and the body that makes
-    the harvest itself are; a body's `Found` holds only its own inputs, so the harvest's are the root's."""
+    the harvest itself are; the body prepares into the root's `Found`, which holds the harvest's input."""
     said = r"predicts ' Monday' in the input, which is not token 0 of ' Friday'"
     for doc in (root_harvest(False), root_harvest(True), root_harvest(True, forced_inside=True)):
         plan = written(doc)
@@ -1036,7 +1071,7 @@ def held_out_own(d):
 
 @pytest.mark.parametrize("change", [held_out_extra, held_out_own], ids=["harvest", "body"])
 def test_under_an_eval_a_body_write_pairs_its_operand_over_the_rows_it_was_read_on(engines, change):
-    """An eval prepares the body again over its own rows: a write whose operand a step before the fit read pairs
+    """An eval's steps are prepared over its own rows: a write whose operand a step before the fit read pairs
     it over the root's rows there too, under an eval that reads another of the body's datasets as a third; and one
     whose operand the body itself reads pairs both over the eval's rows, under an eval that reads their dataset as
     another. Each runs on both engines, alike, and each eval member is over its eval's rows."""
@@ -1044,6 +1079,30 @@ def test_under_an_eval_a_body_write_pairs_its_operand_over_the_rows_it_was_read_
     ran = on_each(engines, plan, batch_size=4)
     assert same(ran["nnterp"].results, ran["hooks"].results) and placed(ran["nnterp"]) == placed(ran["hooks"])
     assert ran["hooks"].results["fit.held_out.ce"].shape == (4, 1)
+
+
+def test_an_eval_over_a_dataset_of_another_row_count_runs_and_tables_over_its_own_rows(engines):
+    """A body that reads two datasets pairs their rows in each minibatch, so the two have as many rows; an eval's
+    steps run over every row of each dataset, so one that reads `extra` as `few`, 2 rows beside `pairs`' 4, runs. Its
+    members are over its own rows: `fit.held_out.side.logits` tables a row per row of `few` with `pos_token` from
+    `few.input`'s tokens (its record's read is the eval step's own), and joins row by row with a read of
+    `few.input` after the fit, which it equals to the bit (`side` writes nothing, and both run in batches of 4)."""
+    def change(d):
+        held_out_extra(d)
+        d["data"]["few"] = {"path": "weekdays/train", "take": 2}
+        d["steps"]["fit"]["eval"] = {"held_out": {"extra": "few"}}
+        d["steps"]["plain"] = {"kind": "forward", "input": "few.input",
+                               "interventions": {"logits": {"site": {"component": "lm_head_output"}, "pos": -1}}}
+        d["saves"] = ["fit.held_out.ce", "fit.held_out.side_ce", "fit.held_out.side.logits", "plain.logits"]
+    filled = engines("hooks", TINY_MODEL).execute(written(t1(), change), batch_size=4)
+    assert filled.results["fit.held_out.ce"].shape == (4, 1) and filled.results["fit.held_out.side_ce"].shape == (2, 1)
+    assert filled.run is not None
+    last = [tokens[-1] for tokens in filled.run.tokens["few.input"]]
+    rows = filled.table("fit.held_out.side.logits")
+    assert [(r["row"], r["pos_token"]) for r in rows] == list(enumerate(last))
+    joined = filled.table("plain.logits", "fit.held_out.side.logits")
+    assert [r["row"] for r in joined] == [0, 1]
+    assert all(r["plain.logits"] == r["fit.held_out.side.logits"] for r in joined)
 
 
 def other_dataset(d):

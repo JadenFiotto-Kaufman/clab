@@ -20,7 +20,7 @@ from safetensors import safe_open
 from clab import Plan
 from clab.format.sweeps import points
 from clab.output import load
-from clab.plan import Load, PlanError
+from clab.plan import Load, PlanError, entries
 
 LOAD = {"kind": "load", "from": "out/pca_harvest", "value": "harvest.acts"}
 
@@ -134,6 +134,23 @@ def test_a_fit_takes_a_loaded_harvests_rows_by_id(engines, root):
     source = load(os.path.join(root, "out", "sae_train"))
     for name in ("fit.dictionary", "fit.history.dictionary.reconstruction", "fit.history.dictionary.l1"):
         assert same(filled.results[name], source.results[name]), name
+
+
+def test_an_eval_members_read_loads_as_the_eval_step_read_it(engines, root):
+    """A fit's eval is steps after it, so a member of one is a value of an ordinary step: lora_train's held-out
+    logits, saved and loaded from its run, carry the eval forward's read of `test.input` (named after the load,
+    with its positions under `test`), and a cross entropy over them gives the eval's own `fit.held_out.ce`, to the
+    bit."""
+    ran(engines, root, "lora_train",
+        corpus("lora_train", lambda doc: doc["saves"].append("fit.held_out.adapted.logits")))
+    plan = written(root, "held_from_cache", loading(corpus("lora_train"), {
+        "held": {"kind": "load", "from": "out/lora_train", "value": "fit.held_out.adapted.logits"},
+        "ce": {"kind": "op", "op": "cross_entropy", "of": "held", "target": "test.cf_answer"}}, ["ce"]))
+    step = cast(Load, plan.steps["held"])
+    assert step.read == "held.logits" and step.source is not None and step.source.input == "test.input"
+    assert list(entries(step.source)["logits"].positions) == ["test"]
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    assert same(filled.results["ce"], load(os.path.join(root, "out", "lora_train")).results["fit.held_out.ce"])
 
 
 def test_a_chained_load_encodes_as_the_read_it_carries(engines, root):

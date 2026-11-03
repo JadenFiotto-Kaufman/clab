@@ -42,6 +42,28 @@ def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_an
     assert shown[17].split() == ["patched", "patched", "rows,", "new", "—", "[4,3]"]   # the ids depend on no axis
 
 
+def test_show_prints_a_fits_evals_as_the_steps_after_it(engines, tmp_path, capsys):
+    """A fit's evals are steps after it (`<fit>.<eval>.<step>`): `show` prints each one's cost after the fit's, where
+    each of its entries resolved under its own dataset (lora_train's held-out rows are 9 tokens each), and each
+    eval member beside the eval step that made it, as the manifest records it."""
+    plan = plan_of("lora_train")
+    engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE).dump(str(tmp_path))
+    assert main(["show", str(tmp_path)]) == 0
+    shown = capsys.readouterr().out.splitlines()
+    steps = shown.index(next(line for line in shown if line.split()[:2] == ["step", "at"]))
+    assert [line.split()[0] for line in shown[steps + 1:steps + 6]] == [
+        "fit", "fit.held_out.adapted", "fit.held_out.ce", "fit.train.adapted", "fit.train.ce"]
+    assert [line.split()[5] for line in shown[steps + 2:steps + 6]] == ["1", "0", "1", "0"]    # forwards
+    assert next(line for line in shown if line.split()[:1] == ["fit.held_out.adapted.logits"]).split()[1:] == \
+        ["—", "[8]", "on", "all", "2", "rows"]
+    results = shown.index(next(line for line in shown if line.split()[:2] == ["result", "step"]))
+    assert {line.split()[0]: line.split()[1] for line in shown[results + 1:]} == {
+        "fit.lora": "fit", "fit.history.ce": "fit", "fit.train.ce": "fit.train.ce",
+        "fit.held_out.ce": "fit.held_out.ce"}
+    with open(tmp_path / "manifest.json") as f:
+        assert json.load(f)["results"]["fit.held_out.ce"]["step"] == "fit.held_out.ce"
+
+
 def test_show_on_a_compiled_plan_that_has_not_run_prints_who_serves_whom():
     """A compiled plan has its schedule before any run: `show` prints which points each run of a step serves
     (generate_probe's one generation its three frames, `p_answer` one point each), and nothing it would need a
