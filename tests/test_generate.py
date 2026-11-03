@@ -270,6 +270,11 @@ def test_each_stage_narrows_the_one_before():
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": ":", "index": "-1:"}),
      r"steps\.patched\.interventions\.patch\.pos at frame=0: frame ':' with index '-1:' counts back from the row's last "
      r"position, known only when the row stops"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": [0, 2], "index": -1}),
+     r"^steps\.patched\.interventions\.patch\.pos at frame=0: frame \[0, 2\] with index -1: over a frame that holds "
+     r"the prompt a write's index is ':', since any other counts on through the prompt, whose length differs by row, "
+     r"into the decode calls, and a write lands as each call runs; write the prompt's positions you mean as an entry "
+     r"at frame 0 and the decode calls you mean as another at their own frame \('1:' is every one\)$"),
     (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"frame": "0:3", "index": "1:"}),
      r"steps\.patched\.interventions\.patch\.pos at frame=0: frame '0:3' with index '1:': over a frame that holds the "
      r"prompt a write's index is ':'"),
@@ -338,6 +343,22 @@ def test_an_option_the_engine_rejects_fails_naming_the_step(engines, monkeypatch
     monkeypatch.setattr(engine, "generate", refusing(ValueError("steps.patched.interventions.patch: row 2 reached no "
                                                                 "position of its frame")))
     with pytest.raises(ValueError, match="^steps.patched.interventions.patch: row 2 reached no position of its frame$"):
+        engine.execute(plan, batch_size=BATCH_SIZE)
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_a_read_at_decode_calls_that_holds_fewer_values_than_the_calls_made_fails_naming_it(engines, monkeypatch, kind):
+    """A read at decode calls holds one value per call the batch made; an engine that returns fewer (a read out of
+    forward order shifts calls) fails the step naming the read and both counts."""
+    plan, engine = plan_of("generate_probe"), engines(kind, plan_of("generate_probe").model)
+    generate = engine.generate
+
+    def short(batch, bound_schedule, options):
+        ids, got = generate(batch, bound_schedule, options)
+        return ids, {name: value[:-1] if isinstance(value, list) else value for name, value in got.items()}
+    monkeypatch.setattr(engine, "generate", short)
+    with pytest.raises(RuntimeError, match=r"^patched\.logits@None@frame=1: the engine read 0 of the 1 decode calls it "
+                                           r"made; a read out of forward order shifts calls$"):
         engine.execute(plan, batch_size=BATCH_SIZE)
 
 

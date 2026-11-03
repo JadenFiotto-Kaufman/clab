@@ -91,20 +91,41 @@ def test_a_root_featurizer_is_not_a_save():
 
 
 
+@pytest.mark.parametrize("field, value", [("batch_size", 1), ("at", {"seed": 0}),
+                                          ("schedule", {"stop": ["layer_output", 0]})])
 @pytest.mark.parametrize("name, path", [("patching", ("counterfactual",)), ("generated_contains", ("answer",)),
                                         ("lora_train", ("fit", "steps", "adapted"))])
-def test_a_steps_batch_size_is_refused_as_the_runs_or_its_fits(name, path):
-    """`batch_size` on a forward or a generate (a fit body's too) is a field compile writes for a fit's eval steps
-    alone, so a document's is refused by name, where it ran at its own size whatever the run's `--batch-size`."""
+def test_a_derived_field_a_step_sets_is_refused_by_name(name, path, field, value):
+    """A field compile derives, on a forward or a generate (a fit body's too), is refused by name where a document
+    sets it, which compile would write over: `batch_size` (which it writes for a fit's eval steps alone; set by a
+    document, it ran the step at that size whatever the run's `--batch-size`), `at` and `schedule`."""
     def change(d):
         step = d["steps"][path[0]]
         for key in path[1:]:
             step = step[key]
-        step["batch_size"] = 1
-    where = re.escape(".".join(("steps", *path, "batch_size")))
-    with pytest.raises(PlanError, match=rf"^{where}: a step runs in batches of the run's --batch-size, and in a fit of "
-                                        r"the fit's 'batch_size'; a step sets none$"):
+        step[field] = value
+    where = re.escape(".".join(("steps", *path, field)))
+    with pytest.raises(PlanError, match=rf"^{where}: '{field}' is a derived field, which compile writes; a step sets "
+                                        r"none$"):
         edited(name, change).compile()
+
+
+@pytest.mark.parametrize("field, value, where", [("positions", {"pairs": [[0]]}, ""), ("gathered", True, ""),
+                                                 ("width", 3, ""), ("dims", ["rows"], ".ops[0]")])
+def test_a_derived_field_an_entry_or_its_op_sets_is_refused_by_name(field, value, where):
+    """An entry's derived fields (`positions`, `gathered`, `width`) and its ops' (`dims`) are compile's, as a step's
+    are, so a document's is refused by name at its path."""
+    def change(d):
+        patch = d["steps"]["patched"]["interventions"]["patch"]
+        (patch["ops"][0] if where else patch)[field] = value
+    with pytest.raises(PlanError, match=rf"^steps\.patched\.interventions\.patch{re.escape(where)}\.{field}: "
+                                        rf"'{field}' is a derived field, which compile writes; an entry sets none$"):
+        edited("patching", change).compile()
+
+
+def test_a_fits_minibatch_holds_at_least_one_row():
+    with pytest.raises(PlanError, match=r"^steps\.fit: batch_size 0: a minibatch holds at least one row$"):
+        edited("das", lambda d: d["steps"]["fit"].update(batch_size=0))
 
 
 def test_a_compiled_plan_holds_no_sweep():
@@ -337,6 +358,18 @@ def test_an_inline_site_and_a_named_intervention_are_inlined():
     (lambda d: d["data"]["pairs"].update(template={"sweep": [{"add_generation_prompt": True}, {}]}),
      r"data\.pairs\.template: a sweep cannot stand for 'template'; a dataset's rows are compiled once"),
     (lambda d: d["data"]["pairs"].update(path="weekdays/train#test"), None),
+    (lambda d: d["sites"]["target"].pop("layers"),
+     r"^sites\.target: layer_output is a block's value and needs 'layers'$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["logits"]["site"].update(layers=0),
+     r"^steps\.patched\.interventions\.logits\.site: lm_head_output is the model's own value and takes no layers$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"column": []}}),
+     r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
+    (lambda d: d["steps"]["patched"]["interventions"]["patch"].update(pos={"scope": {"text": []}}),
+     r"^steps\.patched\.interventions\.patch\.pos\.scope: a scope's list of columns or texts names at least one$"),
+    (lambda d: d["steps"]["patched"].update(input="pairs"),
+     r"^steps\.patched\.input: 'pairs' is not <dataset>\.<column> or <dataset>\.<column>\[i\]$"),
+    (lambda d: d["steps"].update({"i.ia": d["steps"].pop("iia")}),
+     r"^steps\.i\.ia: a name has no dots; a dot separates a thing from its member$"),
 ])
 def test_a_document_error_names_the_path_and_the_choices(change, message):
     if message is None:      # the `#split` form is gone: the path names a file that does not exist

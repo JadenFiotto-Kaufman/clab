@@ -53,6 +53,7 @@ from clab.plan import (
     adapts,
     arguments,
     corpus_root,
+    documented,
     entries,
     entry_of,
     fail,
@@ -60,11 +61,12 @@ from clab.plan import (
     gradient_of,
     kind_of,
     made_by,
-    own_read,
+    open_encodes,
     points,
     produced,
     record_of,
     runnable,
+    trained_featurizers,
     writes,
 )
 
@@ -86,8 +88,7 @@ def compile(plan: Plan) -> Plan:
     for name in plan.steps:
         cx.steps[name] = expand(cx, name, ("steps", name), lambda point, at, name=name: compile_step(
             cx, f"steps.{name}", name, point.steps[name], point, at))
-    saveable = sorted(produced(cx.steps, cx.featurizers)
-                      + [f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train])
+    saveable = sorted(produced(cx.steps, cx.featurizers) + trained_featurizers(cx.steps))
     for i, name in enumerate(plan.saves):
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")
@@ -353,6 +354,9 @@ def compile_step(cx: Compiling, path: str, name: str, spec: Entry, plan: Plan, a
     columns), and an op takes one dataset's rows.
     """
     assert not isinstance(spec, list), "a point holds one step under each name"
+    derived = set(type(spec).model_fields) - set(documented(type(spec)))     # compile writes them over what was set
+    for key in sorted(spec.model_fields_set & derived):
+        fail(f"{path}.{key}", f"{key!r} is a derived field, which compile writes; a step sets none")
     return {"forward": compile_forward, "generate": compile_forward, "op": compile_op, "fit": compile_fit,
             "load": compile_load}[spec.kind](cx, path, name, spec, plan, at)
 
@@ -444,9 +448,6 @@ def compile_forward(cx: Compiling, path: str, name: str, spec: Forward | Generat
         if (of := gradient_of(records[k])) is not None:
             axes[f"{name}.{k}"] |= axes[f"{name}.{of}"]
             records[k].axes = in_axis_order(cx, axes[f"{name}.{k}"])
-    if spec.batch_size is not None:     # derived: a fit's eval step's, which compile_fit writes
-        fail(f"{path}.batch_size", "a step runs in batches of the run's --batch-size, and in a fit of the fit's "
-             "'batch_size'; a step sets none")
     fields = dict(spec.model_dump(exclude_defaults=True, exclude={"interventions"}), interventions=records,
                   dataset=dataset, at=at, schedule={"axes": in_axis_order(cx, forward_axes)})
     if spec.kind == "generate":
@@ -490,9 +491,15 @@ def compile_op(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at
     if spec.op == "contains" and not text:
         fail(f"{path}.of", f"contains reads text, a detokenize's value (without tokens); {spec.of!r} is not one")
     kind = featurizer_kind(cx, plan, path, spec.op, args)
-    if "featurizer" in args and not own_read(of):
-        fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} acts "
-             f"on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry that reads")
+    if "featurizer" in args:        # a read's own value, at its site and in its layout: an entry's, or a load's whose
+        # record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such
+        # a load; not an op's over one
+        carried = next(iter(entries(of.source).values())) if isinstance(of, Load) and of.source is not None else None
+        if not (isinstance(of, Intervention) or carried is not None
+                and all(getattr(of, f) == getattr(carried, f) for f in Labelled.model_fields)):
+            fail(f"{path}.of", f"{spec.of!r} is an op's value, which no one site made, and a featurizer's {spec.op} "
+                 f"acts on a value at its site: {spec.op} a read (an entry's value), or {spec.op} inside the entry "
+                 "that reads")
     assert of.dims is not None
     operands = references(spec.op, args, resolver(cx, path, "classes" in of.dims, at))
     for key, (written, theirs) in operands.items():
@@ -609,9 +616,9 @@ def saved_value_record(cx: Compiling, path: str, out: str, value: str) -> tuple[
 
 def mark_gathered(steps: dict, used: set[str]) -> None:
     """Marks each compiled entry the run takes off the model (`gathered`), a fit's body's and its evals' too: one
-    `used` names (a value something references, a save, or the entries a fit's objective scalar is over), and the
-    entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes nor
-    is gathered does nothing."""
+    `used` names (a value something references, a save, or the body entries a trained sae's scalars are over), and
+    the entry a gathered `grad` entry differentiates. Any other entry only writes, and an entry that neither writes
+    nor is gathered does nothing."""
     for name, entry in runnable(steps).items():
         for point in points(entry):
             if point.kind == "fit":
@@ -705,6 +712,9 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
         if any(r in trained or r.partition(".")[0] in trained for r in refs):
             trained.add(n)                  # a step whose value depends on what the fit trains
     body_ops = [n for n, s in body.items() if s.kind == "op"]
+    for f in spec.train:        # the entries a scalar of the history is over (an sae's), which the run then gathers
+        if featurizers.KINDS[kind_of(plan, f)].over_encodes:
+            cx.used.update(r for r in open_encodes(body, own[f]) if "." in r)
     for term in spec.objective:
         thing, _, scalar = term.partition(".")
         if term not in body_ops and not (thing in spec.train and scalar in featurizers.KINDS[
@@ -712,15 +722,7 @@ def compile_fit(cx: Compiling, path: str, name: str, spec: Fit, plan: Plan, at: 
             fail(f"{path}.objective.{term}", f"not a body op or a trained featurizer's scalar; body ops: "
                  f"{', '.join(body_ops)}")
         if term not in body_ops:            # a scalar is over what the body's reads of its coordinates saw
-            reads = []                      # the body's open encodes of it: entries, which the run gathers, and steps
-            for n, s in body.items():
-                if isinstance(s, OpStep) and s.op == "encode" and arguments(s)["featurizer"] == own[thing]:
-                    reads.append(n)
-                for k, e in entries(s).items():
-                    if any(o.op == "encode" and arguments(o)["featurizer"] == own[thing] for o in gathers(e)):
-                        cx.used.add(f"{n}.{k}")
-                        reads.append(f"{n}.{k}")
-            if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not reads:
+            if scalar in featurizers.KINDS[kind_of(plan, thing)].over_encodes and not open_encodes(body, own[thing]):
                 fail(f"{path}.objective.{term}", f"{scalar!r} is over the coordinates the body reads of {thing!r}, an "
                      f"encode no decode closes (an entry whose ops end in {{'op': 'encode', 'featurizer': {thing!r}}}, "
                      "or an encode step), and this body has none: read its coordinates in the body, or make the term "

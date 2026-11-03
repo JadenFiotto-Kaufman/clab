@@ -104,7 +104,7 @@ Nothing leaves the body except through these names:
 | `<fit>.<eval>.<op>` | a body op's value in the eval named `<eval>`, its step's own (`fit.held_out.ce` in `lora_train.json`) |
 | `<fit>.<eval>.<step>.<entry>` | a body entry's value in that eval, its forward's (`fit.held_out.adapted.logits`) |
 | `<fit>.history.<op>` | each body op's mean after each epoch, `[epochs run]` |
-| `<fit>.history.<featurizer>.<scalar>` | each trained featurizer's scalar after each epoch, `[epochs run]` |
+| `<fit>.history.<featurizer>.<scalar>` | each trained featurizer's scalar after each epoch, `[epochs run]`; an sae's only when the body reads it with an `encode` no `decode` closes |
 
 **After the fit, the bare name is the declared featurizer as drawn at the run's start, never trained.** In `das.json`, the held-out steps after the fit encode with `fit.rot`; written with `rot` they score the untrained seed-0 subspace. Name `<fit>.<featurizer>` everywhere after the fit.
 

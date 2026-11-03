@@ -556,6 +556,44 @@ def test_a_scalar_over_the_bodys_encodes_needs_an_open_encode_in_the_body():
     assert entries(points(fit.steps["read"])[0])["z"].gathered
 
 
+def test_a_fit_that_only_applies_an_sae_records_none_of_its_scalars(engines):
+    """A body that only applies the sae, with a body op as its objective: the fit runs every epoch, and its history
+    holds the op alone, since the sae's scalars are over encodes the body has none of; a save of one is refused at
+    compile, naming the members there are."""
+    def change(d, saves=("fit.dictionary", "fit.history.ce")):
+        del d["steps"]["harvest"]
+        d["steps"]["fit"].update(objective={"ce": 1.0}, epochs=2, steps={
+            "patched": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "recon": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "fit.dictionary"}]},
+                "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}},
+            "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "prompts.cf_answer"}})
+        d["saves"] = list(saves)
+    filled = engines("nnterp", TINY_MODEL).execute(edited("sae_train", change).compile(), batch_size=BATCH_SIZE)
+    assert filled.results["fit.history.ce"].shape == (2,)
+    with pytest.raises(PlanError, match=r"^saves\[0\]: 'fit\.history\.dictionary\.l1' names no step's value; a save "
+                                        r"is a step or a step's member: fit\.dictionary, fit\.history\.ce, "
+                                        r"fit\.train\.ce, fit\.train\.patched\.logits, fit\.train\.patched\.recon$"):
+        edited("sae_train", lambda d: change(d, ("fit.history.dictionary.l1",))).compile()
+
+
+def test_a_fit_gathers_an_open_encode_its_history_is_over_though_nothing_else_reads_it(engines):
+    """An entry of the body that encodes the sae, which nothing reads, beside one that applies it, with a body op as
+    the objective: the history's sae scalars are over that encode, so the run takes it off the model."""
+    def change(d):
+        del d["steps"]["harvest"]
+        d["steps"]["fit"].update(objective={"ce": 1.0}, epochs=2, steps={
+            "patched": {"kind": "forward", "input": "prompts.input", "interventions": {
+                "z": {"site": "target", "pos": -1, "ops": [{"op": "encode", "featurizer": "fit.dictionary"}]},
+                "recon": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "fit.dictionary"}]},
+                "logits": {"site": {"component": "lm_head_output"}, "pos": -1}}},
+            "ce": {"kind": "op", "op": "cross_entropy", "of": "patched.logits", "target": "prompts.cf_answer"}})
+        d["saves"] = ["fit.history.dictionary.l1"]
+    plan = edited("sae_train", change).compile()
+    assert entries(points(plan.steps["fit"])[0].steps["patched"])["z"].gathered
+    filled = engines("nnterp", TINY_MODEL).execute(plan, batch_size=BATCH_SIZE)
+    assert filled.results["fit.history.dictionary.l1"].shape == (2,)
+
+
 def test_a_write_through_a_probe_is_refused():
     def change(d):
         d["steps"]["fit"]["steps"]["read"]["interventions"] = {"w": {

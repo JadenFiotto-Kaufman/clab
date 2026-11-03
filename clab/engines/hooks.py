@@ -249,11 +249,7 @@ def reach(shell: StandardizedTransformer, component: str, refused: str | dict[An
                               else f"nnterp reads it among a module's call arguments ({key}), not at a module boundary"
                               if argument else why)
             continue
-        while key.startswith("../"):
-            host, key = host.parent, key[3:]
-        *children, boundary = key.split(".")
-        for child in children:
-            host = getattr(host, child)
+        host, boundary = standard.reached(host, key)
         paths[layer] = host.path.removeprefix("model").removeprefix(".")
     return {"paths": paths, "boundary": boundary, "tokens": tokens,
             "refused": (reasons or None) if per_layer else reasons.get(None)}

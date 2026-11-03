@@ -183,11 +183,6 @@ def listed(group: str) -> str:
     return ", ".join(f"`{name}`" for name in OPS if DECLARED[name]["group"] == group)
 
 
-def positionwise() -> str:
-    """The positionwise ops, each in backticks, in the tables' order: those a generation runs at each call."""
-    return ", ".join(f"`{name}`" for name in OPS if DECLARED[name]["positionwise"])
-
-
 def parameters(name: str) -> dict[str, inspect.Parameter]:
     """An op's parameters by document spelling, without `of` and the supplied ones, an optional thing (`Value |
     None`) as the thing: worked out once per op function (`_parameters`, so an op replaced under its name is read

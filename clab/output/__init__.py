@@ -40,9 +40,9 @@ from clab import featurizers, ops
 from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
-from clab.format.sweeps import coordinate, coordinate_text
-from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, agreeing_point, arguments, entry_of, kind_of,
-                       made_by, points, projections, record_of, scope)
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, points
+from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entry_of, kind_of, made_by, projections,
+                       record_of, saved_value_axes, scope)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.
@@ -61,9 +61,9 @@ def dump(plan: Plan, out: str) -> None:
     os.makedirs(out, exist_ok=True)
     described = {}
     for name in (n for n in plan.saves if n in plan.results):        # every save, unless the run stopped
-        value, ats = plan.results[name], projections(plan, name)
-        if ats != [({}, ats[0][1])]:
-            value = {coordinate_text(plan, at): value[coordinate(plan, at)] for at, _ in ats}
+        value, axes = plan.results[name], saved_value_axes(plan, name)
+        if axes:
+            value = {coordinate_text(plan, at): value[coordinate(plan, at)] for at, _ in projections(plan, name)}
         file = f"{name}.safetensors" if tensors(value) else f"{name}.json"
         if tensors(value):
             write_safetensors(os.path.join(out, file), flat({name: value} if isinstance(value, Tensor) else value),
@@ -72,7 +72,7 @@ def dump(plan: Plan, out: str) -> None:
             with open(os.path.join(out, file), "w") as f:
                 json.dump(value, f, default=lambda t: t.tolist(), ensure_ascii=False)
         described[name] = {"file": file, "step": made_by(plan, name), **saved_value_layout(plan, name),
-                           "axes": saved_value_axes(plan, name), "shape": shape_or_dtype(value, "shape"),
+                           "axes": axes, "shape": shape_or_dtype(value, "shape"),
                            "dtype": shape_or_dtype(value, "dtype")}
     manifest = plan.model_dump(mode="json", exclude_defaults=True, exclude={"run": {"tokens"}})
     manifest["model"]["dtype"] = plan.model.dtype                 # recorded even where it is the default
@@ -96,11 +96,6 @@ def pretty_json(value: Any, level: int = 0) -> str:
     if isinstance(value, list) and any(isinstance(v, dict) for v in value):
         return "[\n" + ",\n".join(f"{pad}{pretty_json(v, level + 1)}" for v in value) + "\n" + " " * level + "]"
     return json.dumps(value, ensure_ascii=False)
-
-
-def saved_value_axes(plan: Plan, name: str) -> list[str]:
-    """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
-    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
 
 
 def saved_value_layout(plan: Plan, name: str) -> dict[str, Any]:
@@ -230,7 +225,7 @@ def bundle_header(plan: Plan, name: str) -> dict[str, str] | None:
     """The header of a saved bundle: its one point's, or a swept one's every point's, each key after the point's
     coordinate and a `/` as its tensors are (`k=4/k`), so the file describes each bundle it holds."""
     ats = projections(plan, name)
-    if ats == [({}, ats[0][1])]:
+    if not saved_value_axes(plan, name):
         return point_header(plan, name, ats[0][1])
     header: dict[str, str] = {}
     for at, p in ats:

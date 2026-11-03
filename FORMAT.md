@@ -433,8 +433,9 @@ every metric is (see Ops), so the fit's bundle differs from one trained when met
 dtype. Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
 optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
 After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
-op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
-`<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+op's mean and each trained featurizer's scalar the body computes (an sae's only over an encode of it no decode
+closes) is that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and
+`early_stop` is judged on it. The best epoch's featurizer tensors
 (without `early_stop`, the last's) are restored, and the fit ends with them scoring (gates hard). Each named
 substitution of `eval` is the body once more as ordinary steps after the fit (`evals`), in listed order, each
 over every row of its dataset: `{"held_out": {"train": "test"}, "train": {}}` is the body with dataset `train`

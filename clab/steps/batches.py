@@ -12,11 +12,10 @@ from torch import Tensor
 
 from clab import featurizers, ops
 from clab.compile import positions
-from clab.compile.answers import answer_ids, class_indices, refkey, texts_of
+from clab.compile.answers import answer_ids, refkey, texts_of
 from clab.compile.positions import reads_head, scope_texts
 from clab.compile.state import Findings
 from clab.format import address, data, selectors
-from clab.format.address import pos_axis
 from clab.format.sweeps import lookup, put
 from clab.plan import (Forward, Generate, Intervention, Plan, Site, arguments, bracketed, entries, gathers, gradient_of,
                         held_rows, kind_of, record_of)
@@ -394,8 +393,8 @@ def bind_arguments(plan: Plan, name: str, args: dict, state: ChainMap, at: dict,
                         value = value[[labels.index(layer) for layer in layers]]
                 if axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
-        elif annotation == ops.Tokens:
-            value = (class_indices(plan, value, vocabulary, ids, of, dims)[:, None]
+        elif annotation == ops.Tokens:      # under a probe, each row's class index (preflight checked each is one)
+            value = (torch.tensor([vocabulary.index(v) for v in texts_of(plan, value, ids, of, dims)])[:, None]
                      if vocabulary is not None else answer_ids(findings.answers[refkey(value)], of, dims, ids))
             value = tensor_on_device(value, of.device) if isinstance(of, Tensor) else value
         elif annotation == ops.Text:
@@ -497,7 +496,8 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     device, and a result to its dtype, where it meets the value: no move for the indices `bind_schedule` made, which are
     on the model's device already.
     """
-    axis = pos_axis(component)
+    layout = address.COMPONENTS[component]["dims"]         # the token axis in its own layout: a pattern's query
+    axis = layout.index("query") if "query" in layout else layout.index("seq")
     before = site_value = value.movedim(axis, 1)
     row_indices = torch.arange(site_value.shape[0], device=site_value.device)[:, None]
     wrote = copied = False      # copied: `site_value` is this visit's own copy, which a write may change in place

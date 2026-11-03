@@ -29,6 +29,7 @@ from clab.plan import (
     adapts,
     arguments,
     bracketed,
+    documented,
     edits,
     entries,
     entry_of,
@@ -106,6 +107,9 @@ def compile_entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step
     earlier entries by name (`<step>.<entry>`); `own` names every entry of the step; `where` is this one's name; `at`
     the step's point. Beyond a generation's prefill the leading ops after the last edit that are positionwise, keep
     `pos` and take no operand with a `pos` axis are counted into `per_call`, the ops the run applies at each call."""
+    for written, record in [(path, spec)] + [(f"{path}.ops[{i}]", o) for i, o in enumerate(spec.ops)]:   # as written
+        for key in sorted(record.model_fields_set & (set(type(record).model_fields) - set(documented(type(record))))):
+            fail(f"{written}.{key}", f"{key!r} is a derived field, which compile writes; an entry sets none")
     if isinstance(spec.site, Site):
         site = spec.site
     elif spec.site in plan.sites:

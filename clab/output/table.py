@@ -9,10 +9,10 @@ from torch import Tensor
 from clab import ops
 from clab.compile import dataset_rows, positions
 from clab.format import data
-from clab.format.sweeps import agreeing_point, coordinate_text, projection
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, projection
 from clab.output import run_record
-from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, by_point, entries, entry_of, made_by, points,
-                        projections, record_of, runnable)
+from clab.plan import (Intervention, Labelled, OpStep, Plan, arguments, entries, entry_of, made_by, points, projections,
+                        record_of, runnable)
 
 # The column a value's example and token axes are tabled under.
 COLUMNS = {"rows": "row", "layers": "layer", "pos": "pos", "key": "key"}
@@ -116,6 +116,13 @@ def join(left: list[dict[str, Any]], mine: tuple[list[str], list[str], str | Non
                           **{k: v for k, v in merged.items() if k != "at"}}
             out.append(merged)
     return out
+
+
+def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
+    """A saved value per point of its own axes: each point's coordinates (none for a value on no axis) and its
+    value."""
+    return [({label: plan.sweeps[label].values[i] for label, i in at.items()},
+             plan.results[name][coordinate(plan, at)] if at else plan.results[name]) for at, _ in projections(plan, name)]
 
 
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:

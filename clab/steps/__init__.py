@@ -37,9 +37,9 @@ from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
-from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, keyed_by_coordinate, lookup, projection, put
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, lookup, projection, put
 from clab.plan import (Forward, Load, OpStep, Plan, Run, arguments, made_by, points, projections, record_of, runnable,
-                        serving)
+                        saved_value_axes, serving)
 from clab.steps import fit, generate
 from clab.steps.batches import (bind_arguments, bind_schedule, input_batches, join_batches, layers_made_at,
                                 model_device, scope_ids, stack_layers, stop_ids, value_at, value_in_prefill)
@@ -112,6 +112,12 @@ def run(engine: Engine, plan: Plan, batch_size: int) -> None:
     record_results(engine, plan, state, costs, findings)
 
 
+def keyed_by_coordinate(plan: Plan, by_point: dict) -> Any:
+    """A value recorded per point as the run record holds it: the one value of an unswept step, else keyed by
+    the point's coordinate as text."""
+    return by_point[()] if () in by_point else {coordinate_text(plan, dict(c)): v for c, v in by_point.items()}
+
+
 def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, findings: Findings) -> None:
     """What `run` records once its steps have run, or stopped: each step's cost, each saved value of a step whose
     every run finished (`made_by`; a trained featurizer as its bundle's tensors; a swept value keyed by its
@@ -127,7 +133,7 @@ def record_results(engine: Engine, plan: Plan, state: ChainMap, costs: dict, fin
         if step.kind == "fit" and member in step.train:
             values = [v.tensors() for v in values]
         plan.results[name] = ({coordinate(plan, at): detached_cpu_clone(v) for at, v in zip(ats, values)}
-                              if ats != [{}] else detached_cpu_clone(values[0]))
+                              if saved_value_axes(plan, name) else detached_cpu_clone(values[0]))
     plan.run.tokens.update({name: keyed_by_coordinate(plan, by_point) for name, by_point in findings.said.items()})
     plan.run.dtype, plan.run.devices = dtypes_and_devices(engine.model)
 

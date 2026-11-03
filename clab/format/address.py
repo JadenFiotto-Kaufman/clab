@@ -101,12 +101,6 @@ def selectable(component: str) -> list[str]:
     return [a for a in COMPONENTS[component]["dims"] if a not in ("batch", "seq", "query")]
 
 
-def pos_axis(component: str) -> int:
-    """Where the token axis sits in the component's own layout."""
-    dims = COMPONENTS[component]["dims"]
-    return dims.index("query") if "query" in dims else dims.index("seq")
-
-
 def dims(component: str, layers: object = None) -> list[str]:
     """The axes a selection of this component presents: `(rows, pos, *the remaining axes)`, a `layers` axis
     first under `layers` that `stacks`."""

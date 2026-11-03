@@ -112,6 +112,21 @@ def test_on_a_family_that_scales_its_logits_only_the_nnterp_engines_readout_is_t
     assert not torch.equal(hooks["f.lens"], hooks["f.logits"])
 
 
+def test_a_write_at_the_models_logits_is_what_generation_decodes_on_both_engines(engines):
+    """The logits negated at the prompt's last position: greedy decoding's first token is then the one the clean
+    logits rank last, on the hooks engine as on nnterp, which sets a written `logits` back on the model's output."""
+    logits = {"component": "logits"}
+    clean = reading(TINY["llama"], {"logits": {"site": logits, "pos": -1}})
+    flipped = Plan(model=TINY["llama"], data={"prompts": {"path": "weekdays/train"}},
+                   steps={"g": {"kind": "generate", "input": "prompts.input", "max_new_tokens": 1, "do_sample": False,
+                                "interventions": {"flip": {"site": logits, "pos": -1,
+                                                           "ops": [{"op": "scale", "factor": -1.0}]}}}},
+                   saves=["g"], document=document("patching")).compile()
+    last = ran(clean, engines)[1]["f.logits"][:, 0].argmin(-1)
+    nnterp, hooks = ran(flipped, engines)
+    assert torch.equal(hooks["g"][:, 0], last) and torch.equal(nnterp["g"], hooks["g"])
+
+
 def test_a_component_nnterps_support_does_not_name_is_refused_not_served(engines, monkeypatch):
     """`standard.unserved` reads nnterp's `support()` by each component's nnterp name: one the answer does not name
     is refused by name rather than read as served (which `rank` would then fail on, with a KeyError)."""

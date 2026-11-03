@@ -10,8 +10,7 @@ from clab import featurizers, ops
 from clab.compile.answers import check_column_ref, check_text_ref, is_literal
 from clab.compile.state import Compiling
 from clab.format import address, data, registry, selectors
-from clab.format.sweeps import points
-from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
+from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of, trained_featurizers
 
 
 def narrowed_readout_refusal(what: str) -> str:
@@ -126,21 +125,14 @@ def kept_labels(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[s
             {a: v for a, v in of.kept.items() if a in dims}, of.width if "pos" in dims else None)
 
 
-def is_trained_featurizer(cx: Compiling, thing: str, member: str) -> bool:
-    """Whether `<thing>.<member>` is a featurizer a compiled fit trains."""
-    step = points(cx.steps[thing])[0] if thing in cx.steps else None
-    return step is not None and step.kind == "fit" and member in step.train
-
-
 def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
                  live: Mapping[str, Labelled] | None = None) -> Labelled:
     """The record of a named value produced before this point, at the consumer's point `at` (an entry of the
     forward being compiled, among `live`, as it is), noted as used."""
-    thing, _, member = ref.partition(".")
     if live and ref in live:
         cx.used.add(ref)
         return live[ref]
-    if thing in cx.featurizers or is_trained_featurizer(cx, thing, member):
+    if ref.partition(".")[0] in cx.featurizers or ref in trained_featurizers(cx.steps):
         fail(path, f"{ref!r} is a featurizer, not a value; an op reaches it ({{'op': 'encode', 'featurizer': "
              f"{ref!r}}} gives a value's coordinates, 'apply' its version of the value), and the value that entry "
              "binds is an operand")
@@ -153,10 +145,8 @@ def value_record(cx: Compiling, ref: str, path: str, at: dict[str, int],
 
 def check_featurizer_ref(cx: Compiling, value: object, path: str) -> None:
     """A declared featurizer's name, or one a fit trains (`<fit>.<featurizer>`)."""
-    thing, _, member = str(value).partition(".")
-    if not (isinstance(value, str) and (value in cx.featurizers or is_trained_featurizer(cx, thing, member))):
-        known = sorted(set(cx.featurizers) | {f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1]
-                                              if s.kind == "fit" for f in s.train})
+    known = sorted(set(cx.featurizers) | set(trained_featurizers(cx.steps)))
+    if value not in known:
         fail(path, f"{value!r} names no featurizer here; featurizers: {', '.join(known) or 'none'}")
 
 

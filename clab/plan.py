@@ -38,7 +38,7 @@ from torch import Tensor
 from clab import featurizers, ops
 from clab.format import address, data, selectors
 from clab.format.selectors import Selector
-from clab.format.sweeps import agreeing_point, coordinate, coordinate_spelling, find_sweeps, points, projection
+from clab.format.sweeps import agreeing_point, coordinate_spelling, find_sweeps, points, projection
 
 
 class PlanError(ValueError):
@@ -721,6 +721,16 @@ def gathers(entry: Intervention) -> list[Op]:
     return entry.ops[last + 1:]
 
 
+def open_encodes(steps: dict[str, Any], featurizer: str) -> list[str]:
+    """The steps and entries of `steps` (a fit's body) that read `featurizer`'s coordinates with an encode no decode
+    closes, by name: an encode step, and an entry whose ops hold one after its last edit (`gathers`). What they
+    encode is what the body shows the featurizer (`Kind.seen`), which an sae's scalars are over."""
+    def encodes(o: Any) -> bool:
+        return o.op == "encode" and arguments(o)["featurizer"] == featurizer
+    return [n for n, s in steps.items() if isinstance(s, OpStep) and encodes(s)] + \
+        [f"{n}.{k}" for n, s in steps.items() for k, e in entries(s).items() if any(map(encodes, gathers(e)))]
+
+
 class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
     `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
@@ -861,8 +871,10 @@ class Generate(Forward, Labelled):
         return self
 
 
-# The positionwise ops as `ops` declares them, written into the docstring where `<the per-call ops>` stands.
-Generate.__doc__ = (Generate.__doc__ or "").replace("<the per-call ops>", ops.positionwise())
+# The positionwise ops, which a generation runs at each call, as `ops` declares them and in the tables' order,
+# written into the docstring where `<the per-call ops>` stands.
+Generate.__doc__ = (Generate.__doc__ or "").replace(
+    "<the per-call ops>", ", ".join(f"`{name}`" for name in ops.OPS if ops.DECLARED[name]["positionwise"]))
 
 
 class OpStep(Labelled):
@@ -958,8 +970,9 @@ class Fit(Record):
     dtype. Gradients are taken for the featurizers' tensors alone; the model's weights are never touched. After each
     optimizer step a featurizer with a constraint is projected back onto it (an sae's decoder rows to unit norm).
     After each epoch the body runs over every training row in scoring mode (gates hard, no gradients): each body
-    op's mean and each trained featurizer's scalar is that epoch's entry of `<fit>.history.<op>` and
-    `<fit>.history.<featurizer>.<scalar>`, and `early_stop` is judged on it. The best epoch's featurizer tensors
+    op's mean and each trained featurizer's scalar the body computes (an sae's only over an encode of it no decode
+    closes) is that epoch's entry of `<fit>.history.<op>` and `<fit>.history.<featurizer>.<scalar>`, and
+    `early_stop` is judged on it. The best epoch's featurizer tensors
     (without `early_stop`, the last's) are restored, and the fit ends with them scoring (gates hard). Each named
     substitution of `eval` is the body once more as ordinary steps after the fit (`evals`), in listed order, each
     over every row of its dataset: `{"held_out": {"train": "test"}, "train": {}}` is the body with dataset `train`
@@ -1287,7 +1300,7 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
     """Every value `steps` produce, by name, in order: an op step's or a generation's own, each entry's
     `<step>.<entry>`, and a fit's members (`<fit>.history.<term>` and its eval members, `<fit>.<eval>.<member>`);
     not a trained featurizer, which is no value. `declared` are the plan's featurizers, whose kinds say the scalars
-    a fit's history holds."""
+    a fit's history holds: those its body computes (an sae's over its `open_encodes`)."""
     out: list[str] = []
     for name, entry in steps.items():
         step = points(entry)[0]
@@ -1296,10 +1309,16 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
             out += [f"{name}.{k}" for k in entries(step)]
             continue
         out += [f"{name}.history.{n}" for n, s in step.steps.items() if s.kind == "op"]
-        out += [f"{name}.history.{f}.{scalar}" for f in step.train
-                for scalar in featurizers.KINDS[points(declared[f])[0].kind].scalars]
+        kinds = {f: featurizers.KINDS[points(declared[f])[0].kind] for f in step.train}
+        out += [f"{name}.history.{f}.{scalar}" for f in step.train for scalar in kinds[f].scalars
+                if scalar not in kinds[f].over_encodes or open_encodes(step.steps, f"{name}.{f}")]
         out += [f"{name}.{label}.{member}" for label in step.eval for member in produced(step.steps, declared)]
     return out
+
+
+def trained_featurizers(steps: dict[str, Entry]) -> list[str]:
+    """Every featurizer a fit among `steps` trains, by the name the steps after the fit use: `<fit>.<featurizer>`."""
+    return [f"{n}.{f}" for n, e in steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train]
 
 
 def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
@@ -1361,16 +1380,6 @@ def record_of(steps: dict[str, Entry], ref: str, at: dict[str, int]) -> Labelled
     return record_of(step.evals[label], rest, step.at)
 
 
-def own_read(record: Labelled) -> bool:
-    """Whether a value is a read's own, at the site it was read at and in its layout: an entry's, or a load's whose
-    record is that of the entry it carries (`source`), as a load of a saved entry's value is, and a load of such a
-    load (the chain carries the entry the first run read), not an op's over one."""
-    if isinstance(record, Load):
-        carried = next(iter(entries(record.source).values())) if record.source is not None else None
-        return carried is not None and all(getattr(record, f) == getattr(carried, f) for f in Labelled.model_fields)
-    return isinstance(record, Intervention)
-
-
 def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
     """The points of the value `name`, in order: each point of its step projected onto the value's own axes
     (`Labelled.axes`), each once, with the first point of the step it is the projection of; `[({}, <the step>)]`
@@ -1380,6 +1389,11 @@ def projections(plan: Plan, name: str) -> list[tuple[dict[str, int], Step]]:
         at = projection(p.at, record_of(plan.steps, name, p.at).axes)
         found.setdefault(tuple(at.items()), (at, p))
     return list(found.values())
+
+
+def saved_value_axes(plan: Plan, name: str) -> list[str]:
+    """The sweep axes a saved value depends on, as its record says (at its step's first point)."""
+    return list(record_of(plan.steps, name, points(plan.steps[name.partition(".")[0]])[0].at).axes)
 
 
 def runnable(steps: dict[str, Entry]) -> dict[str, Entry]:
@@ -1422,13 +1436,6 @@ def serving(plan: Plan, name: str) -> list[tuple[Step, list[Step]]]:
         at = projection(q.at, q.axes) if q.kind in ("op", "load") else q.schedule.get("serving", q.at)
         runs.setdefault(tuple(at.items()), []).append(q)
     return [(served[0], served) for served in runs.values()]
-
-
-def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
-    """A saved value per point of its own axes: each point's coordinates (none for a value on no axis) and its
-    value."""
-    return [({label: plan.sweeps[label].values[i] for label, i in at.items()},
-             plan.results[name][coordinate(plan, at)] if at else plan.results[name]) for at, _ in projections(plan, name)]
 
 
 def scope(plan: Plan, where: str) -> dict[str, Entry]:

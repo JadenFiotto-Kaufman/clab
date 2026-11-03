@@ -7,7 +7,7 @@ import os
 
 import pytest
 import torch
-from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, edited, same, stand_in
+from conftest import BATCH_SIZE, DOCUMENTS, ROOT, TRIP, bundle_header, edited, same, stand_in
 from safetensors import safe_open
 from safetensors.torch import save_file
 
@@ -171,6 +171,36 @@ def published(tmp_path, tensors: dict, featurizer: dict, site: dict | None = Non
 def test_a_published_file_with_other_tensors_or_shapes_is_refused_at_compile(tmp_path, tensors, featurizer, message):
     with pytest.raises(PlanError, match=r"featurizers\.dictionary\.file_path: .*" + message):
         published(tmp_path, tensors, featurizer).compile()
+
+
+ROTATION = {"kind": "subspace", "k": "8", "parametrization": "cayley", "document": "das"}
+
+
+@pytest.mark.parametrize("tensors, header, message", [
+    ({"basis": torch.eye(16)[:, :8].contiguous()}, None,
+     r"has no clab header; a subspace bundle is one clab wrote"),
+    ({"rotation": torch.eye(16)[:, :8].contiguous()}, bundle_header(**ROTATION),
+     r"holds rotation; a subspace bundle holds basis"),
+])
+def test_a_subspace_from_a_published_file_or_a_bundle_of_other_tensors_is_refused_at_compile(tmp_path, tensors,
+                                                                                               header, message):
+    """das_apply's rotation loaded from a file with no clab header (of the kinds, only an sae reads a published
+    file), or from a clab bundle whose tensors are not a subspace's."""
+    os.makedirs(tmp_path / "documents" / "artifacts")
+    os.symlink(os.path.join(ROOT, "data"), tmp_path / "data")
+    save_file(tensors, str(tmp_path / "documents" / "artifacts" / "fit.rot.safetensors"), metadata=header)
+    with open(os.path.join(DOCUMENTS, "das_apply.json")) as f:
+        doc = json.load(f)
+    plan = Plan(**doc, document=str(tmp_path / "documents" / "das_apply.json"))
+    with pytest.raises(PlanError, match=r"^featurizers\.rot\.file_path: documents/artifacts/fit\.rot\.safetensors "
+                                        + message + "$"):
+        plan.compile()
+
+
+def test_an_unknown_kind_is_refused_naming_the_kinds():
+    with pytest.raises(PlanError, match=r"^featurizers\.rot: unknown featurizer kind 'rotation'; valid: subspace, "
+                                        r"gate, pca, sae, linear, lora$"):
+        edited("das_apply", lambda d: d["featurizers"]["rot"].update(kind="rotation"))
 
 
 @pytest.mark.parametrize("featurizer, message", [

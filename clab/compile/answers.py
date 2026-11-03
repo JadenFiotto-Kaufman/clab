@@ -198,13 +198,6 @@ def check_classes(plan: Plan, where: str, name: str, args: dict, probe: str, cla
                                      f"{vocabulary}")
 
 
-def class_indices(plan: Plan, ref: object, vocabulary: list, ids: list[int] | None, of: object,
-                  dims: list[str]) -> Tensor:
-    """A column's values, or a literal's, as their indices in a probe's class list, at the dataset rows `ids` (every
-    row of the value `of` it scores, laid out `dims`: None)."""
-    return torch.tensor([vocabulary.index(v) for v in texts_of(plan, ref, ids, of, dims)])   # preflight checked each
-
-
 def column_texts(plan: Plan, column: str, ids: list[int] | None) -> list:
     """A column's value on each of its dataset's rows `ids` (every one: None), a string or a list of them."""
     name, _, path = column.partition(".")

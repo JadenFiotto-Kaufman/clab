@@ -13,8 +13,8 @@ from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.featurizers import Kind
-from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing_point, body_view, held_rows
+from clab.format.sweeps import agreeing_point, lookup, put
+from clab.plan import Fit, Forward, OpStep, Plan, Step, body_view, held_rows, open_encodes
 from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
     trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine))
                for f in step.train for spec in [agreeing_point(plan.featurizers[f], step.at)]}
-    params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
+    params = [getattr(f, t).requires_grad_() for f in trained.values() for t in f.trains]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     # What each body forward reads, once for every run of the body: a body step is one point, which serves itself.
@@ -46,7 +46,9 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     # refuses one).
     n = len(held_rows(plan, min(s.dataset for s in cast("dict[str, Forward | OpStep]", step.steps).values()
                                 if s.dataset is not None)))
-    scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
+    # The scalars the body computes: an sae's are over its open encodes, which a body that applies it alone has none of.
+    scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars
+               if sc not in inst.over_encodes or open_encodes(step.steps, f"{name}.{f}")]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
     best, since, kept = None, 0, None
     for epoch in range(epochs):

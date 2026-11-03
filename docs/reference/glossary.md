@@ -50,7 +50,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | float32 rule | Metrics, every reduction but `pca` and the elementwise arithmetic compute in float32 and return it whatever the model's dtype; an edit computes in float32 and rounds once to the value's dtype; a comparison gives its 0 or 1 in the value's dtype, float32 on ids. | [ops.md](../usage/ops.md#the-float32-rule) |
 | frame | The first stage of a `pos`: which forward calls, 0 the prefill and k ≥ 1 decode call k. | [generate.md](../usage/generate.md#frames-which-forward-call) |
 | header | A bundle's record of what made it (the kind and its fields, the model, the site, the width, the writing document), checked against the loading document. | [bundles.md](../usage/bundles.md#what-is-checked-and-when) |
-| history | A fit's per-epoch record of each body op's mean and each trained featurizer's scalar, `<fit>.history.<name>`. | [fit.md](../usage/fit.md#history) |
+| history | A fit's per-epoch record of each body op's mean and each trained featurizer's scalar the body computes, `<fit>.history.<name>`. | [fit.md](../usage/fit.md#history) |
 | hooks | The engine that drives a plain Hugging Face model with forward hooks and reaches module-boundary components only; the cross-check for nnterp. | [engines.md](../usage/engines.md#cross-checking-with-hooks) |
 | index | The third stage of a `pos`: which positions, counted over the tokens the frame and scope left. | [concepts/positions.md](../concepts/positions.md#three-stages-frame-scope-index) |
 | input | The column, or list of columns and texts, that a `forward` or `generate` step runs over, one prompt per row. | [data.md](../usage/data.md#inputs) |

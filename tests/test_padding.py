@@ -166,6 +166,24 @@ def test_sorted_puts_every_row_back_in_dataset_order(engines, kind):
         counts(engine.execute(reach(GROWING), batch_size=BATCH_SIZE).run, "tokens")
 
 
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_sorted_puts_each_tensor_of_a_top_k_read_back_in_dataset_order(engines, kind):
+    """A `top_k` read is a dict of tensors, `ids` and `probs`; under `sorted` each is put back row for row, as one
+    tensor is."""
+    def top(rows: list[dict]) -> Plan:
+        def change(d):
+            d["data"] = {"pairs": {"rows": rows}}
+            d["steps"]["patched"]["interventions"]["top"] = {"site": {"component": "lm_head_output"}, "pos": -1,
+                                                            "ops": [{"op": "top_k", "k": 2}]}
+            d["saves"] = ["patched.top"]
+        return edited("gpt2_reach", change).compile()
+    engine = engines(kind, top(GROWING).model)
+    ordered = engine.execute(top(GROWING), batch_size=BATCH_SIZE, padding="sorted").results["patched.top"]
+    reversed_ = engine.execute(top(GROWING[::-1]), batch_size=BATCH_SIZE, padding="batch").results["patched.top"]
+    back = torch.arange(len(GROWING) - 1, -1, -1)
+    assert set(ordered) == {"ids", "probs"} and all(same(ordered[k], reversed_[k][back]) for k in ordered)
+
+
 def two_widths() -> Plan:
     """attention_pattern_patching's head 0 over prompts of 11, 11, 9 and 9 tokens, each the same length as its
     counterfactual: at batch size 2 the second batch is 9 tokens wide under `batch` padding, 11 under `dataset`."""
