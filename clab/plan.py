@@ -115,15 +115,12 @@ def shaped(member: Any, value: Any) -> bool:
         return isinstance(value, dict) and "sweep" not in value
     if get_origin(member) in (Union, types.UnionType):
         return any(shaped(m, value) for m in get_args(member))
-    if get_origin(member) is Literal:
-        return isinstance(value, tuple(type(a) for a in get_args(member)))
     if get_origin(member) in (list, tuple):
         return isinstance(value, (list, tuple))
     if member is type(None):
         return value is None
     number = isinstance(value, (int, float)) and not isinstance(value, bool)
-    return {int: number and isinstance(value, int), float: number, str: isinstance(value, str),
-            bool: isinstance(value, bool)}.get(member, False)
+    return {int: number and isinstance(value, int), float: number, str: isinstance(value, str)}.get(member, False)
 
 
 T = TypeVar("T")
