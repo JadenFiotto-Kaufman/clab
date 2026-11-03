@@ -105,6 +105,8 @@ A fit's body runs at the fit's own `batch_size`, whatever the run's ([fit.md](fi
 
 The price is the default's guarantee: the head is then a matmul of another shape, which sums in another order, so a logit moves in its last bits: by up to 7e-8 on the corpus in float32 (`documents/readout.json`, `documents/chat_turn.json`), more in bfloat16 on a GPU. Steering 5,000 64-token prompts through Llama-3.1-8B in bfloat16 and reading the top 5 next tokens, the forward step takes 49.7 s instead of 52.0 s at batch size 64 and peaks at 15.95 GiB instead of 16.52 GiB, the weights 14.97 GiB of it; at batch size 256 it takes 47.4 s instead of 50.0 s and peaks at 18.92 GiB instead of 21.19 GiB, and 380 of its 25,000 saved probabilities move, by up to 0.002 and 6% of the value, since a bfloat16 logit that moves moves by a whole ulp (at 64 none do; the top 5 ids stay). The engines agree to the bit under either readout, and the run records its readout (`run.readout`, the first line of `clab show`). Use the default where numbers are compared to the bit.
 
+On the hooks engine the readout is the standard form (`clab/engines/hooks.py` `readout`: the final norm, the head and the config's `final_logit_softcapping`), not the model's own: on a family that scales after the head (Cohere's `logit_scale`, Granite's `logits_scaling`) a read of `logits` under `at-reads` there leaves that out and moves by more than the last bits. Run such a model under `at-reads` on the nnterp engine.
+
 ## From Python
 
 ```python
