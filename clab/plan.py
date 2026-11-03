@@ -358,7 +358,6 @@ class Scope(Record):
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
-    # One of column, text and turn; a text's flags are its own, a column's on its reference, a turn's none.
     column: Annotated[Union[ColumnRef, list[ColumnRef], None], ByShape()] = None
     text: str | list[str] | None = None
     turn: str | None = None
