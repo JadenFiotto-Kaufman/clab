@@ -22,7 +22,7 @@ from typing import Any, Iterator
 import pytest
 import torch
 from torch._subclasses.fake_tensor import FakeTensor
-from conftest import BATCH_SIZE, TRIP, edited, plan_of, same, stand_in
+from conftest import BATCH_SIZE, TRIP, document, edited, plan_of, same, stand_in
 
 from clab import Plan
 from clab.cli import main
@@ -343,6 +343,68 @@ def test_the_write_before_the_stop_changes_the_read_after_it(engines):
     engine = engines("nnterp", plan.model)
     written, unwritten = (engine.execute(p, batch_size=BATCH_SIZE).results["early.read"] for p in (plan, clean))
     assert not torch.equal(written, unwritten)
+
+
+def logits_at(pos: Any) -> Plan:
+    """Tiny GPT-2 over gpt2_reach's four pairs: one forward reading the logits at `pos`, saved."""
+    def change(d):
+        d["steps"] = {"lens": {"kind": "forward", "input": "pairs.input",
+                               "interventions": {"logits": {"site": {"component": "logits"}, "pos": pos}}}}
+        d["saves"] = ["lens.logits"]
+    return edited("gpt2_reach", change).compile()
+
+
+@pytest.mark.parametrize("kind", ["nnterp", "hooks"])
+def test_under_readout_at_reads_the_head_runs_at_the_positions_read_alone(engines, kind):
+    """Under the run's readout `at-reads` a read of the logits at each row's last token is done at the last block's
+    output, where the forward stops, and read out there: each batch runs every block, then the final norm and the
+    head on the one position read (the readout's, `[rows, 1, hidden]`), where the default runs them on every position
+    in the model; the logits are the default's to within rounding (the head is a matmul of another shape). A read of
+    every position keeps the model's head."""
+    engine = engines(kind, logits_at(-1).model)
+
+    def run(pos: Any, readout: str) -> tuple[Plan, list[int]]:
+        """The run, checked to call every block, the final norm and the head once a batch, and the head's input
+        width at each call."""
+        widths: list[int] = []
+        handle = watched(engine)["H"].register_forward_pre_hook(lambda module, args: widths.append(args[0].shape[1]))
+        try:
+            with counting(engine) as ran:
+                filled = engine.execute(logits_at(pos), batch_size=BATCH_SIZE, readout=readout)
+        finally:
+            handle.remove()
+        assert ran == WHOLE * 2 and filled.run is not None and filled.run.readout == readout
+        return filled, widths
+
+    def sites(filled: Plan) -> list[tuple]:
+        return [(s["component"], s["layer"], [r.get("readout", False) for r in s["records"]])
+                for s in points(filled.steps["lens"])[0].schedule["sites"]]
+    (full, wide), (narrow, one), (every, all_of) = run(-1, "full"), run(-1, "at-reads"), run({"index": ":"}, "at-reads")
+    assert (wide, one, all_of) == ([12, 12], [1, 1], [12, 12])
+    assert sites(full) == sites(every) == [("logits", None, [False])]
+    assert sites(narrow) == [("layer_output", 4, [True])]
+    assert points(narrow.steps["lens"])[0].schedule["stop"] == ["layer_output", 4]
+    assert torch.allclose(narrow.results["lens.logits"], full.results["lens.logits"], rtol=0, atol=1e-6)
+
+
+def test_under_readout_at_reads_the_engines_agree_to_the_bit(engines):
+    """The readout of the last block's output at the positions read is the same on every engine: the nnterp engine's
+    is nnterp's own, the hooks engine's the standard form, and the ndif engine (`remote="local"`) runs its forward
+    whole and reads it out the same way."""
+    plan = logits_at(-1)
+    got = [engines(kind, plan.model, **options).execute(logits_at(-1), batch_size=BATCH_SIZE, readout="at-reads")
+           for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))]
+    assert all(same(g.results, got[0].results) for g in got[1:])
+
+
+def test_a_readout_is_refused_by_name_unless_it_is_one_of_the_two(engines, capsys):
+    plan = logits_at(-1)
+    with pytest.raises(ValueError, match=r"^readout 'last': one of 'full', 'at-reads' \(--readout\)$"):
+        engines("hooks", plan.model).execute(plan, batch_size=BATCH_SIZE, readout="last")
+    assert main(["run", document("gpt2_reach"), "--readout", "last"]) == 1
+    assert capsys.readouterr().err == "clab: readout 'last': one of 'full', 'at-reads' (--readout)\n"
+    assert main(["run", document("gpt2_reach"), "-o", "readout=at-reads"]) == 1
+    assert capsys.readouterr().err == "clab: -o readout: it is given as --readout\n"
 
 
 @pytest.mark.parametrize("kind", ["nnterp", "hooks"])
