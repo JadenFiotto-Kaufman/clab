@@ -217,8 +217,8 @@ def write_widths(engine: Engine, plan: Plan) -> None:
             for layer in read.layers or [None]:                       # each layer the use is made at
                 which = f"picks layer {layer}" if address.stacks(site.layers) else f"is layer {layer}"
                 if stated is not None and \
-                        (stated["component"], layer_as_recorded(stated["layers"], sizes["num_layers"])) != \
-                        (site.component, str(layer)):
+                        (stated["component"], selectors.select(stated["layers"], sizes["num_layers"])[0]) != \
+                        (site.component, layer):
                     raise ValueError(f"{where}: featurizer {name!r} was trained at {stated['component']} layer "
                                      f"{stated['layers']} (its site); this use is {site.component} layer "
                                      f"{site.layers!r}" + (f", which {which}" if address.stacks(site.layers) else ""))
@@ -247,11 +247,6 @@ def write_widths(engine: Engine, plan: Plan) -> None:
     for name, width in out.items():
         for f in points(plan.featurizers[name]):
             f.width, f.kept = width, laid.get(name, {})
-
-
-def layer_as_recorded(layers: object, n: int) -> str:
-    """A site's one layer counted from the first, as a header records it; other layers as written."""
-    return str(selectors.select(layers, n)[0]) if isinstance(layers, int) else str(layers)
 
 
 def check_input_site(plan: Plan, where: str, at: dict, f: Featurizer, o: Op | OpStep, layer: int | None) -> None:
