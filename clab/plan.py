@@ -347,11 +347,10 @@ class Scope(Record):
     chat, each an occurrence. `column` and `text` may each be a list: the scope's texts are then every one
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
     scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
-    occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
-    side, and no letter or digit adjoining a word it cuts); `until`, whether it is every token of the frame up to
-    and including the occurrences it picks rather than their tokens alone (every token of the frame on a row
-    without them); and `before`,
-    whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
+    occurrence lies on token and word boundaries, as `pos` says; `until`, whether it is every token of the frame
+    up to and including the occurrences it picks rather than their tokens alone (every token of the frame on a
+    row without them); and `before`, whether it is the positions that predict its tokens rather than the tokens
+    themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
     column: Annotated[Union[ColumnRef, list[ColumnRef], None], ByShape()] = None
