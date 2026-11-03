@@ -63,7 +63,7 @@ def write_schedule(engine: Engine, plan: Plan, name: str, step: Forward, served:
             for layer in record.layers or [None]:
                 for part in parts(step, record)[0]:
                     sites.setdefault((component, layer), []).append(
-                        {"write": key, "ops": resolve_operands(plan, name, record, layer, names, step.at), **part})
+                        {"write": key, "ops": resolve_operands(plan, record, layer, names, step.at), **part})
         for (k, _), (theirs, own, p) in values_read.items():
             if k != key:
                 continue
@@ -143,8 +143,8 @@ def parts(step: Forward, record: Intervention) -> tuple[list[dict[str, Any]], li
     return prompt + [{"calls": None if online else calls, "online": online}], prompt + [{"calls": calls}]
 
 
-def resolve_operands(plan: Plan, name: str, record: Intervention, layer: int | None,
-                     names: dict[str, dict[int | None, str]], at: dict[str, int]) -> list[dict[str, Any]]:
+def resolve_operands(plan: Plan, record: Intervention, layer: int | None, names: dict[str, dict[int | None, str]],
+                     at: dict[str, int]) -> list[dict[str, Any]]:
     """A write's ops up to its last edit, each by name with its named operands resolved: an entry of the same
     forward to the name of its read at this `layer` (`live`: at the write's layer where the operand stacks layers,
     else its one read), a value or a featurizer to its name and the point of it this point takes (`at`: the point's
