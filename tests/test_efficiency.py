@@ -29,7 +29,7 @@ from clab.cli import main
 from clab.compile.state import Found
 from clab.format.sweeps import labelled, points, put
 from clab.plan import entries, runnable
-from clab.steps.batches import edit
+from clab.steps.batches import bind_ops
 
 COST = {"seconds", "memory", "forwards", "tokens", "real"}
 
@@ -131,7 +131,7 @@ def test_memory_is_each_cuda_devices_peak_and_a_remote_run_measures_none(engines
     called: list[str] = []
     for call in ("synchronize", "reset_peak_memory_stats", "max_memory_allocated"):
         monkeypatch.setattr(torch.cuda, call, lambda *_, call=call: called.append(call) or 7)
-    monkeypatch.setattr("clab.steps.gpus", lambda engine: ["cuda:0"])
+    monkeypatch.setattr("clab.steps.cuda_devices", lambda engine: ["cuda:0"])
     plan = plan_of("logit_lens")
     local = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).run
     assert all(c["memory"] == {"cuda:0": 7} for costs in local.costs.values() for c in costs.values())
@@ -148,15 +148,15 @@ def test_what_the_model_does_once_is_done_before_the_first_step(monkeypatch):
     from nnterp import order
 
     from clab.engines import load
-    from clab.steps import measured
+    from clab.steps import measure_cost
     seen: list[Any] = []
     compute = order.compute
     monkeypatch.setattr(order, "compute", lambda model: seen.append("order") or compute(model))
     plan = plan_of("logit_lens")
     engine = load("ndif", plan.model, remote="local")
     shell: Any = engine.model
-    monkeypatch.setattr("clab.steps.measured", lambda devices, cost, call, synced: seen.append(
-        ("step", shell.dispatched)) or measured(devices, cost, call, synced))
+    monkeypatch.setattr("clab.steps.measure_cost", lambda devices, cost, call, synced: seen.append(
+        ("step", shell.dispatched)) or measure_cost(devices, cost, call, synced))
     engine.execute(plan, batch_size=BATCH_SIZE)
     assert seen == ["order"] + [("step", True)] * 5          # the lens's one forward, then two ops at two points
 
@@ -477,7 +477,7 @@ def test_a_gates_number_with_is_bound_once_per_batch(monkeypatch):
 
 
 def test_binding_a_write_leaves_nothing_for_the_collector():
-    """`batches.edit` binds patching's swap to one batch from a namespace that nothing else holds once it returns
+    """`batches.bind_ops` binds patching's swap to one batch from a namespace that nothing else holds once it returns
     (a fit's minibatch namespace, with the featurizers it trains and the values it made, is one): nothing of it,
     and no function, is left in a cycle for the collector."""
     plan = plan_of("patching")
@@ -486,7 +486,7 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     def bound() -> None:
         state: ChainMap = ChainMap()
         put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
-        edit(plan, record, state, {}, [0, 1], Found(), 0, {})
+        bind_ops(plan, record, state, {}, [0, 1], Found(), 0, {})
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)

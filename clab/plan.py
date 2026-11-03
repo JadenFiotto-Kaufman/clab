@@ -1457,12 +1457,12 @@ def horizon(step: Generate) -> int | None:
 
 
 def held_rows(plan: Plan, name: str) -> list[dict]:
-    """Dataset `name`'s rows as the plan holds them, which the run's plan does (`steps.held`); one that holds none
-    (a hub dataset's, a loaded plan's file rows) is refused by name."""
+    """Dataset `name`'s rows as the plan holds them, which the run's plan does (`steps.plan_with_rows`); one that holds
+    none (a hub dataset's, a loaded plan's file rows) is refused by name."""
     rows = plan.data[name].rows
     if rows is None:
         fail(f"data.{name}", "the plan holds none of its rows; `compile.materialized` loads them, as the run does "
-             "first (`steps.held`)")
+             "first (`steps.plan_with_rows`)")
     return rows
 
 

@@ -1077,7 +1077,7 @@ def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
     prefill's last position's, `[rows, 1]`), where `l`'s is each call's logits, `[rows, 1, vocab_size]`."""
     import clab.steps.generate as generation
     held: dict[str, set] = {}
-    real = generation.generated
+    real = generation.run_engine_generate
 
     def spy(*args):
         ids, got = real(*args)
@@ -1085,7 +1085,7 @@ def test_a_per_call_read_holds_one_number_a_call(engines, monkeypatch):
             for v in value if isinstance(value, list) else [value]:
                 held.setdefault(name.partition("@")[0] + ("#0" if "#0" in name else ""), set()).add(tuple(v.shape))
         return ids, got
-    monkeypatch.setattr(generation, "generated", spy)
+    monkeypatch.setattr(generation, "run_engine_generate", spy)
     plan = plan_of("generated_steer")
     engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
     assert held["p"] == held["p#0"] == held["ld"] == {(2, 1)}

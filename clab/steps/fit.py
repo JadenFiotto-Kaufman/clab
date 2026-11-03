@@ -15,7 +15,7 @@ from clab.compile.uses import instance
 from clab.featurizers import Kind
 from clab.format.sweeps import lookup, put
 from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing, body_view, held_rows
-from clab.steps.batches import ROWS, home
+from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:
     from clab.engines import Engine
@@ -35,13 +35,13 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
     view, found = body_view(plan, name, step.at), replace(found, said={})
     # A compiled point's values are its own, never a sweep.
     epochs, seed, size = cast(int, step.epochs), cast(int, step.seed), cast(int, step.batch_size)
-    trained = {f: instance(plan, spec, cast(int, spec.width), seed, home(engine))
+    trained = {f: instance(plan, spec, cast(int, spec.width), seed, model_device(engine))
                for f in step.train for spec in [agreeing(plan.featurizers[f], step.at)]}
     params = [p.requires_grad_() for f in trained.values() for p in f.parameters()]
     opt = OPTIMIZERS[step.optimizer.name](params, lr=step.optimizer.lr, weight_decay=step.optimizer.weight_decay)
     body_ops = [n for n, s in step.steps.items() if isinstance(s, OpStep)]
     # What each body forward reads, once for every run of the body: a body step is one point, which serves itself.
-    reading = {n: gathered([s]) for n, s in step.steps.items() if isinstance(s, Forward)}
+    values_read = {n: gathered([s]) for n, s in step.steps.items() if isinstance(s, Forward)}
     n = len(held_rows(plan, datasets(step)[0]))
     scalars = [(f, sc) for f, inst in trained.items() for sc in inst.scalars]
     history: dict = {**{o: [] for o in body_ops}, **{f"{f}.{sc}": [] for f, sc in scalars}}
@@ -50,12 +50,13 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
         for f in trained.values():
             f.anneal(epoch, epochs)
         # One integer per (seed, epoch): epochs stay below the prime, so no two pairs share a generator.
-        order = torch.randperm(n, generator=torch.Generator().manual_seed(seed * 1_000_003 + epoch)).tolist()
+        shuffled_ids = torch.randperm(n, generator=torch.Generator().manual_seed(seed * 1_000_003 + epoch)).tolist()
         for lo in range(0, n, size):
             with torch.enable_grad():
                 for f in trained.values():
                     f.settle()
-            body = body_run(engine, name, step, state, trained, view, found, order[lo:lo + size], cost, reading)
+            body = run_body(engine, name, step, state, trained, view, found, shuffled_ids[lo:lo + size], cost,
+                            values_read)
             with torch.enable_grad():
                 loss = sum(cast(float, weight) * term(body, trained, t, step.at)
                            for t, weight in step.objective.items())
@@ -68,11 +69,11 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
                 f.project()
         for f in trained.values():
             f.settle()
-        scored = body_run(engine, name, step, state, trained, view, found, None, cost, reading)
+        scored = run_body(engine, name, step, state, trained, view, found, None, cost, values_read)
         for o in body_ops:
             value = lookup(scored, o, step.at)
             if isinstance(value, Tensor):
-                history[o].append(overall(value))
+                history[o].append(mean_over_axes(value))
         for f, sc in scalars:
             history[f"{f}.{sc}"].append(trained[f].scalar(sc))
         if step.early_stop is None:
@@ -94,12 +95,12 @@ def fit(engine: Engine, plan: Plan, name: str, step: Fit, state: ChainMap, batch
         put(state, f"{name}.history.{key}", step.at, torch.stack(values) if values else torch.zeros(0))
 
 
-def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind], plan: Plan,
-             found: Found, ids: list[int] | None, cost: dict[str, Any], reading: dict[str, dict]) -> ChainMap:
+def run_body(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dict[str, Kind], plan: Plan,
+             found: Found, ids: list[int] | None, cost: dict[str, Any], values_read: dict[str, dict]) -> ChainMap:
     """A fit's body over every training row, or the minibatch of dataset row ids `ids`, in `plan` (as the body sees
     it) over what preflight `found`, in a scope of its own that falls back to `state` and carries those ids
     (`batches.ROWS`: what its values' rows are), each trained featurizer under `<fit>.<name>`, each body forward
-    given the one point it serves, itself, and what it reads (`reading`, by name). With a minibatch it trains:
+    given the one point it serves, itself, and what it reads (`values_read`, by name). With a minibatch it trains:
     gradients on, gates soft; otherwise it scores. Returns the body's namespace; the model calls its steps made and
     the tokens they fed add to the fit's `cost`."""
     body = state.new_child({ROWS: ids} if ids is not None else {})
@@ -111,7 +112,7 @@ def body_run(engine: Engine, name: str, step: Fit, state: ChainMap, trained: dic
     with torch.set_grad_enabled(ids is not None):
         for n, s in step.steps.items():
             KINDS[cast(Step, s).kind](engine, plan, n, s, body, step.batch_size, found, cost,
-                                      *([[s], reading[n]] if n in reading else []))
+                                      *([[s], values_read[n]] if n in values_read else []))
     return body
 
 
@@ -126,10 +127,10 @@ def term(body: ChainMap, trained: dict[str, Kind], name: str, at: dict) -> Tenso
     thing, _, member = name.partition(".")
     if member and thing in trained:
         return trained[thing].scalar(member)
-    return overall(lookup(body, name, at))
+    return mean_over_axes(lookup(body, name, at))
 
 
-def overall(value: Tensor) -> Tensor:
+def mean_over_axes(value: Tensor) -> Tensor:
     """A value's mean over every axis, of the entries that have one (a missing row is NaN)."""
     return value.float().nanmean() if value.isnan().any() else value.float().mean()
 

@@ -169,12 +169,12 @@ def test_b6_batches_join_on_the_first_ones_device():
     the first one's device, as a `layers` read's layers do, so a CPU blank beside CUDA values (the crash) joins.
     Two devices without a GPU: a meta batch first, then a CPU one."""
     from clab.plan import entries
-    from clab.steps.batches import joined
+    from clab.steps.batches import join_batches
 
     compiled = generate_at(3)
     step: Any = compiled.steps["g"]
     state: ChainMap = ChainMap()
-    joined(state, "g.at", entries(step)["at"], {}, [torch.zeros(2, 1, 4, device="meta"), torch.zeros(2, 1, 4)])
+    join_batches(state, "g.at", entries(step)["at"], {}, [torch.zeros(2, 1, 4, device="meta"), torch.zeros(2, 1, 4)])
     value = state["g.at"][()]
     assert value.device.type == "meta" and value.shape == (4, 1, 4)
 

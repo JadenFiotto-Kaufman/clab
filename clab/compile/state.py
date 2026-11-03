@@ -47,7 +47,7 @@ class Found:
     rows and padded width (`inputs`, a fit body's forwards' among them), room for what each generate step's rows
     said (`said`), each column reference's answers (`answers`, see `answers.answer`) and each featurizer's width
     (`widths`). Each table with a row per example holds every row of its dataset, by id; which rows a run is over
-    is its scope's to say (`batches.over`)."""
+    is its scope's to say (`batches.scope_ids`)."""
     inputs: dict[str, dict] = field(default_factory=dict)
     said: dict = field(default_factory=dict)
     answers: dict[str, Answer] = field(default_factory=dict)

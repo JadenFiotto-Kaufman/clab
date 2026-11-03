@@ -30,7 +30,7 @@ from clab.engines.standard import COMPUTED, build, envoy, inputs, loading, stops
 from clab.format.address import COMPONENTS
 from clab.plan import Model, Plan
 from clab.steps import batches
-from clab.steps.batches import landed, now
+from clab.steps.batches import acting_at_call, stamped_at_call
 
 
 @engine("hooks")
@@ -61,11 +61,11 @@ class HooksEngine:
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         if not mapped:
             self.model.to(device)
-        self.config["order"] = order(self.model, sites, batches.home(self))
+        self.config["order"] = order(self.model, sites, batches.model_device(self))
 
     def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
         """The whole plan in this process."""
-        started = steps.begin(self, plan, batch_size, padding)
+        started = steps.start_run(self, plan, batch_size, padding)
         steps.run(self, plan, batch_size)
         assert plan.run is not None
         plan.run.seconds = round(time.time() - started, 3)
@@ -78,7 +78,7 @@ class HooksEngine:
     @property
     def cuda(self) -> list[str]:
         """The CUDA devices the model is on, whose peak memory a step's cost measures."""
-        return steps.gpus(self)
+        return steps.cuda_devices(self)
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
         """nnterp's answer, layer by layer, but at every layer with the module a value nnterp reads inside a forward
@@ -101,7 +101,8 @@ class HooksEngine:
         with torch.enable_grad() if bound["grad"] else nullcontext():
             with self.hooked(bound["sites"], got, bound["stop"] if self.stops else None):
                 try:
-                    self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"), batches.home(self)))
+                    self.model(**inputs(batch, ("input_ids", "attention_mask", "position_ids"),
+                                        batches.model_device(self)))
                 except _Stopped:
                     pass
             batches.differentiate(got, bound["grad"])
@@ -113,15 +114,17 @@ class HooksEngine:
         (`hooked`): the new ids, and each read."""
         got: dict[str, Any] = {}
         with self.hooked(bound["sites"], got, None):
-            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.home(self)), **options)
+            ids = self.model.generate(**inputs(batch, ("input_ids", "attention_mask"), batches.model_device(self)),
+                                      **options)
         return ids[:, batch["input_ids"].shape[1]:], got
 
     @contextmanager
     def hooked(self, sites: list[dict[str, Any]], got: dict[str, Any], stop: list | None) -> Iterator[None]:
         """A hook at every site of the bound schedule, in its order, removed after. A pre-hook on the model keeps
         each forward call's `input_ids` (call 0 is a forward's one call, or a generation's prompt), and each site's
-        hook does what `now` (and, at a decode call, `landed`) says there; the hook of the `stop` site (the last,
-        hooked last so that the sites sharing its module boundary are done first) then raises `_Stopped`."""
+        hook does what `acting_at_call` (and, at a decode call, `stamped_at_call`) says there; the hook of the `stop`
+        site (the last, hooked last so that the sites sharing its module boundary are done first) then raises
+        `_Stopped`."""
         calls: list[Tensor] = []
         handles = [self.model.register_forward_pre_hook(lambda module, args, kwargs: calls.append(kwargs["input_ids"]),
                                                         with_kwargs=True)]
@@ -151,22 +154,22 @@ class _Stopped(Exception):
 def hook(engine: HooksEngine, component: str, layer: int | None, here: list[dict], got: dict[str, Any],
          calls: list[Tensor], ends: bool) -> RemovableHandle:
     """A hook at the component's native module that does the site's records `here` in turn, in nnterp's layout:
-    those `now` says on the current forward call (`calls` holds each call's `input_ids` so far); then, where it
-    `ends` the forward, raises `_Stopped`."""
+    those `acting_at_call` says on the current forward call (`calls` holds each call's `input_ids` so far); then, where
+    it `ends` the forward, raises `_Stopped`."""
     reach = engine.config["sites"][component]
     module = engine.model.get_submodule(reach["paths"][layer])
     shape = engine.config["sizes"]["num_heads"], engine.config["sizes"]["head_dim"]
 
     def visit(value: Tensor) -> tuple[Tensor, bool]:
-        records = now(here, len(calls) - 1)
-        records = landed(records, calls[1:], engine.tokenizer, len(calls) - 1) if len(calls) > 1 else records
+        records = acting_at_call(here, len(calls) - 1)
+        records = stamped_at_call(records, calls[1:], engine.tokenizer, len(calls) - 1) if len(calls) > 1 else records
         # A value nnterp holds flat over tokens, [batch * seq, ...], is this call's [batch, seq, ...] rows; else a flat
         # [batch, seq, hidden] module boundary serves a (heads, head_dim) layout here.
         tokens = reach["tokens"] and value.dim() == len(COMPONENTS[component]["dims"]) - 1
         flat = not tokens and len(COMPONENTS[component]["dims"]) == 4 and value.dim() == 3
         value = (value.unflatten(0, (calls[-1].shape[0], -1)) if tokens else
                  value.unflatten(-1, shape) if flat else value)
-        value, wrote = batches.visit(value, component, records, got)
+        value, wrote = batches.visit_site(value, component, records, got)
         if ends:
             raise _Stopped
         return (value.flatten(0, 1) if tokens else value.flatten(-2) if flat else value), wrote

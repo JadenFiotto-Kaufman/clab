@@ -624,11 +624,11 @@ def called(step: Forward, rows: int, batch_size: int) -> list:
     """The model calls one run of a serving point makes over `rows` rows in batches of `batch_size`, as its
     schedule says: per batch a forward's one call, a generation's `max_new_tokens`, each `"call"` then the sites it
     visits in order (a forward's every site, a generation's call the sites with a record at that call,
-    `batches.now`)."""
+    `batches.acting_at_call`)."""
     sites = step.schedule["sites"]
     calls = range(cast(int, horizon(cast(Any, step)))) if step.kind == "generate" else [0]
     one = [tag for k in calls for tag in ["call", *((s["component"], s["layer"]) for s in sites
-                                                  if batches.now(s["records"], k))]]
+                                                  if batches.acting_at_call(s["records"], k))]]
     return one * -(-rows // batch_size)
 
 
@@ -658,7 +658,7 @@ def ran(plan: Plan, bodies: list[tuple]) -> list:
                                         if not (k == "hooks" and n in INSIDE)])
 def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
     """On every corpus document and both local engines, the model calls (a pre-hook on its root module) and the
-    sites each visited (`batches.visit`), in order, are exactly those the schedules give (`ran`): one forward per
+    sites each visited (`batches.visit_site`), in order, are exactly those the schedules give (`ran`): one forward per
     batch of each serving point, a generation's `max_new_tokens` calls per batch, each visiting its schedule's
     sites in order, and a fit's body the same in each run the fit made of it."""
     plan, _ = corpus_plan(corpus, name)
@@ -667,7 +667,7 @@ def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
     plan, _ = corpus_plan(corpus, name)                         # a run leaves a generation's landings on the records
     seen: list[Any] = []
     bodies: list[tuple] = []
-    visit, body_run = batches.visit, fit.body_run
+    visit, body_run = batches.visit_site, fit.run_body
 
     def noted(value, component, records, got):
         if records:                 # the hooks engine's hook of a site with no record at this call does nothing
@@ -678,8 +678,8 @@ def test_the_schedule_is_what_ran(engines, corpus, name, kind, monkeypatch):
         bodies.append((name, step.at, None if ids is None else len(ids), view))
         seen.append("body")
         return body_run(engine, name, step, state, trained, view, found, ids, cost, reading)
-    monkeypatch.setattr(batches, "visit", noted)
-    monkeypatch.setattr(fit, "body_run", body)
+    monkeypatch.setattr(batches, "visit_site", noted)
+    monkeypatch.setattr(fit, "run_body", body)
     root = getattr(engine.model, "_module", engine.model)
     handle = root.register_forward_pre_hook(lambda module, args: seen.append("call"))
     try:

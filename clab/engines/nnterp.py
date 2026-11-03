@@ -42,7 +42,7 @@ from clab.format.address import COMPONENTS
 from clab.format.sweeps import points
 from clab.plan import QUANTIZED, Model, Plan, entries, gradient_of, walk
 from clab.steps import batches
-from clab.steps.batches import landed, now
+from clab.steps.batches import acting_at_call, stamped_at_call
 
 
 @engine("nnterp")
@@ -81,7 +81,7 @@ class NnterpEngine:
         remote session a load's value travels in the request, inside the plan, and a document whose loads hold more
         than `LOADED` bytes of tensors is refused by name before anything is sent; it does not come home, where the
         client keeps its own."""
-        started = steps.begin(self, plan, batch_size, padding)
+        started = steps.start_run(self, plan, batch_size, padding)
         ranks = self.options.get("tp", 1)
         for name, step in walk(plan.steps) if ranks > 1 else ():
             for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
@@ -143,7 +143,7 @@ class NnterpEngine:
         """The CUDA devices the model is on, whose peak memory a step's cost measures; none under a remote session:
         on an NDIF server the process is the server's, whose own per-request accounting a reset of the peak would
         clobber, and its sandbox's runner would measure its own tensors."""
-        return [] if self.remote else steps.gpus(self)
+        return [] if self.remote else steps.cuda_devices(self)
 
     @property
     def eos(self) -> list[int]:
@@ -181,7 +181,7 @@ class NnterpEngine:
         stop = bound["stop"] if self.stops else None
         with torch.enable_grad() if bound["grad"] else nullcontext():
             with self.model.trace(inputs(batch, ("input_ids", "attention_mask", "position_ids"),
-                                         batches.home(self))) as tracer:
+                                         batches.model_device(self))) as tracer:
                 self.visited(bound["sites"], 0, [], got, stop)
                 batches.differentiate(got, bound["grad"])
                 if stop is not None:
@@ -206,7 +206,7 @@ class NnterpEngine:
             warnings.filterwarnings("ignore", message=r".* was never reached: the loop asked for a step the run did "
                                                       r"not make")
             with model.generate(**options) as tracer:
-                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.home(self))):
+                with tracer.invoke(inputs(batch, ("input_ids", "attention_mask"), batches.model_device(self))):
                     for step in tracer.all() if loop is None else tracer.iter[loop]:
                         if bound["online"] and step > 0:
                             seen.append(model.input_ids)
@@ -218,16 +218,16 @@ class NnterpEngine:
     def visited(self, sites: list[dict[str, Any]], call: int, seen: list[Tensor], got: dict[str, Any],
                 stop: list | None = None) -> None:
         """Forward call `call` (0 is a trace's one call, or a generation's prefill): each site of the bound
-        schedule in its order, doing there what `now` says and, at a decode call, `landed`, from the inputs `seen`
-        so far, and setting the value back where `visit` says to; it returns right after the `stop` site, where one
-        is given, and the sites after it are not visited, as the hooks engine's are not."""
+        schedule in its order, doing there what `acting_at_call` says and, at a decode call, `stamped_at_call`, from the
+        inputs `seen` so far, and setting the value back where `visit_site` says to; it returns right after the `stop`
+        site, where one is given, and the sites after it are not visited, as the hooks engine's are not."""
         for site in sites:
             component, layer = site["component"], site["layer"]
-            here = now(site["records"], call)
-            here = landed(here, seen, self.tokenizer, call) if call > 0 else here
+            here = acting_at_call(site["records"], call)
+            here = stamped_at_call(here, seen, self.tokenizer, call) if call > 0 else here
             if here:
                 host = envoy(self.model, component, layer)
-                value, wrote = batches.visit(getattr(host, component), component, here, got)
+                value, wrote = batches.visit_site(getattr(host, component), component, here, got)
                 if wrote:
                     setattr(host, component, value)
             if [component, layer] == stop:
