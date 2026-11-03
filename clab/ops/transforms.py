@@ -276,39 +276,29 @@ def eq(of: Tensor, with_: Value) -> Tensor:
 
 @op("transforms", positionwise=True)
 def ne(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there."""
+    """1 where `of != with`, else 0, as `eq` compares, so `eq` and `ne` sum to 1 wherever both are there."""
     return compared(of, with_, torch.ne)
 
 
 @op("transforms", positionwise=True)
 def gt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of > with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.gt)
 
 
 @op("transforms", positionwise=True)
 def ge(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of >= with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.ge)
 
 
 @op("transforms", positionwise=True)
 def lt(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of < with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.lt)
 
 
 @op("transforms", positionwise=True)
 def le(of: Tensor, with_: Value) -> Tensor:
-    """1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in
-    float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or
-    a hole, -1, in ids)."""
+    """1 where `of <= with`, else 0, as `eq` compares."""
     return compared(of, with_, torch.le)

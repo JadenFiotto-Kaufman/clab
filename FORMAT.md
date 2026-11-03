@@ -719,11 +719,11 @@ stays missing: NaN.
 | `div` | `with: Value` | keeps the layout | `of / with`, in float32, `with` a number or a named value broadcast as `scale`'s `factor` is; NaN wherever `with` is 0, so a division by zero is a missing entry, never an infinite one. |
 | `pow` | `exponent: Value` | keeps the layout | `of ** exponent`, in float32, `exponent` a number or a named value broadcast as `scale`'s `factor` is: NaN where a negative entry meets a fractional exponent, `inf` where 0 meets a negative one, and NaN where either side is missing, where torch gives `NaN ** 0` and `1 ** NaN` as 1. |
 | `eq` | `with: Value` | keeps the layout | 1 where `of == with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids), so `eq` and `ne` sum to 1 wherever both are there. |
-| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
-| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, `with` a number or a named value broadcast as `scale`'s `factor` is: compared in float32 (ids as they are) and given in the value's dtype (float32 on ids), NaN where either side is missing (NaN, or a hole, -1, in ids). |
+| `ne` | `with: Value` | keeps the layout | 1 where `of != with`, else 0, as `eq` compares, so `eq` and `ne` sum to 1 wherever both are there. |
+| `gt` | `with: Value` | keeps the layout | 1 where `of > with`, else 0, as `eq` compares. |
+| `ge` | `with: Value` | keeps the layout | 1 where `of >= with`, else 0, as `eq` compares. |
+| `lt` | `with: Value` | keeps the layout | 1 where `of < with`, else 0, as `eq` compares. |
+| `le` | `with: Value` | keeps the layout | 1 where `of <= with`, else 0, as `eq` compares. |
 
 ## Components
 
