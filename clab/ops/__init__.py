@@ -1,14 +1,8 @@
-"""The one computation vocabulary: every op is a plain function over tensors.
-
-`@op(group, ...)` declares a function as an op under its own name: its group, the axes the input must carry (`needs`),
-the axes it removes (`removes`), the axes it appends (`adds`), when its value is a bundle a featurizer loads, that
-featurizer's kind (`bundle`), a rule its arguments keep beyond their types (`check`), and whether its value at a
-position is that position's alone to the bit whatever else the value holds (`positionwise`), which lets a generation run
-it at each decode call. `OPS` lists them, in the order at the end of this file. An op whose axes depend on what it is
-given declares them as a function instead (`layout`), as `encode` does for its featurizer's kind. Compile reads the axes
-to lay out every value. A parameter's annotation says how a document fills it (`Value`, `Tokens`, `Featurizer`, or a
-literal); `engine`, `original`, `dims` and the rest of `SUPPLIED` are filled by the run, never by a document; a trailing
-underscore is dropped from a parameter's document spelling (`with_` is `"with"`).
+"""The one computation vocabulary: every op is a plain function over tensors, declared by `@op` (`op`) with its
+group and its axes, which compile reads to lay out every value. A parameter's annotation says how a document fills it
+(`Value`, `Tokens`, `Featurizer`, or a literal); `engine`, `original`, `dims` and the rest of `SUPPLIED` are filled by
+the run, never by a document; a trailing underscore is dropped from a parameter's document spelling (`with_` is
+`"with"`).
 """
 
 import functools
@@ -165,16 +159,17 @@ DECLARED: dict[str, dict[str, Any]] = {}
 def op(group: str, needs: tuple[str | tuple[str, ...], ...] = (), removes: tuple[str, ...] = (),
        adds: tuple[str, ...] = (), bundle: str | None = None, layout: Callable[..., list[str]] | None = None,
        check: Callable[[dict], None] | None = None, positionwise: bool = False) -> Callable[[Callable], Callable]:
-    """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`,
-    `edits` or `transforms`), its axes, and, for a value a featurizer loads, the featurizer kind its `bundle`
-    is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of
-    the axes, `kind` that of the featurizer the op's `Featurizer` argument names. `check(args)` raises on
-    arguments its signature accepts but the op cannot mean. `positionwise` says that the op's value at each
-    position is computed from that position's vector alone, by arithmetic whose bits do not depend on how many
-    other positions the value holds: a gather, a softmax over one axis, a rank, elementwise arithmetic IEEE
-    rounds exactly. A matmul (`readout`, a featurizer's `encode`) and a sum over a long axis (`kl`, `cosine`,
-    `mean`) are not, since torch orders their reduction by the value's shape. It joins `OPS` by its place in
-    the list at the end of this file."""
+    """Declare the decorated function as an op under its own name: its `group` (`metrics`, `reductions`, `edits` or
+    `transforms`), its axes (`needs`, those the value must carry, a tuple among them any one of its own; `removes`,
+    those it removes; `adds`, those it appends), and, for a value a featurizer loads, the featurizer kind its `bundle`
+    is for. An op whose result's axes depend on its arguments declares `layout(dims, args, kind)` in place of the axes,
+    `kind` that of the featurizer the op's `Featurizer` argument names. `check(args)` raises on arguments its signature
+    accepts but the op cannot mean. `positionwise` says that the op's value at each position is computed from that
+    position's vector alone, by arithmetic whose bits do not depend on how many other positions the value holds, so a
+    generation can run it at each decode call: a gather, a softmax over one axis, a rank, elementwise arithmetic IEEE
+    rounds exactly. A matmul (`readout`, a featurizer's `encode`) and a sum over a long axis (`kl`, `cosine`, `mean`)
+    are not, since torch orders their reduction by the value's shape. It joins `OPS` by its place in the list at the end
+    of this file."""
     assert group in GROUPS
     def declare(fn: Callable) -> Callable:
         DECLARED[fn.__name__] = {"group": group, "needs": needs, "removes": removes, "adds": adds, "bundle": bundle,
