@@ -141,10 +141,41 @@ uv sync
 ```
 
 It needs Python 3.10 or later; `uv sync` installs nnsight, nnterp, torch and the rest into the checkout's
-`.venv`, and `uv run clab ...` runs inside it. A GPU is optional: the corpus under `documents/` (49 in all) runs on CPU
+`.venv`, and `uv run clab ...` runs inside it. nnterp 2 comes from a checkout of
+[ndif-team/nnterp](https://github.com/ndif-team/nnterp)'s `v2.0.0` branch, at the path `[tool.uv.sources]` in
+`pyproject.toml` names: point it at yours. The suite runs against nnterp commit
+`db80422dc7aa70cbb252affb241892b6c74de730`, the one CI checks out.
+A GPU is optional: the corpus under `documents/` (49 in all) runs on CPU
 on tiny random-weight checkpoints, and the six under `documents/real/` run Llama-3.2-1B, a gated checkpoint,
 and want one. The first run of a document downloads its checkpoint from the Hugging Face hub; after that,
 `HF_HUB_OFFLINE=1` runs it from the local cache.
+
+## Tests
+
+```bash
+uv sync --dev
+uv pip install transformers==5.20.2
+CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
+uvx pyright
+```
+
+The suite runs offline and on CPU, on the tiny checkpoints
+[docs/developing/testing.md](docs/developing/testing.md#running-the-suite) lists, at the 12 threads `tests/conftest.py`
+pins. Its snapshots were made with transformers 5.20.2, which `uv sync` does not pin, and `uv run` without
+`--no-sync` would sync back to the newest. [.github/workflows/test.yml](.github/workflows/test.yml) runs these and
+the docs and FORMAT checks on every push to `master` and every pull request.
+
+`tests/test_real.py` (the documents under `documents/real/`) and `tests/test_device.py` need a CUDA device, and the
+first `meta-llama/Llama-3.2-1B`, a gated checkpoint, in the local cache; the suite skips both.
+[.github/workflows/gpu.yml](.github/workflows/gpu.yml) runs them on a self-hosted runner labelled `gpu`, and is off
+until one exists. By hand, from the repo root, in a venv over a python whose torch runs on your CUDA driver:
+
+```bash
+uv venv --python <a python whose torch runs on your driver> --system-site-packages <venv>
+uv pip install --python <venv>/bin/python --no-deps -e .
+CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. <venv>/bin/python -m pytest tests/test_real.py \
+    tests/test_device.py -q
+```
 
 ## Run on an NDIF server
 

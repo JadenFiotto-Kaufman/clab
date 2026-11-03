@@ -1,9 +1,9 @@
 ---
 title: Testing
-one_liner: "Running and extending the suite: offline CPU runs at the pinned thread count, snapshot pins and re-pinning, the GPU and torchrun tests, the FORMAT drift test, the docs test, and pyright."
+one_liner: "Running and extending the suite: offline CPU runs at the pinned thread count, snapshot pins and re-pinning, the GPU and torchrun tests, the FORMAT drift test, the docs test, pyright, and the CI workflows that run them."
 tags: [developing, testing, snapshots]
 related: [docs/developing/contributing.md, docs/developing/extending.md, docs/developing/engines.md]
-sources: [tests/conftest.py, tests/test_documents.py, tests/test_plan.py, tests/test_real.py, tests/test_format.py, tests/test_docs.py, pyproject.toml]
+sources: [tests/conftest.py, tests/test_documents.py, tests/test_plan.py, tests/test_real.py, tests/test_format.py, tests/test_docs.py, pyproject.toml, .github/workflows/test.yml, .github/workflows/gpu.yml]
 ---
 
 # Testing
@@ -13,9 +13,12 @@ The suite runs every corpus document on tiny checkpoints, offline and on CPU, an
 ## Running the suite
 
 ```bash
-CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
+uv sync --dev
+uv pip install transformers==5.20.2
+CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q
 ```
 
+- The snapshots were made with transformers 5.20.2, which `uv sync` does not pin; `--no-sync` keeps `uv run` from syncing the venv back to the newest.
 - `tests/conftest.py` sets `CUDA_VISIBLE_DEVICES` empty and `HF_HUB_OFFLINE=1` when they are unset, so a plain `uv run pytest tests/` already runs on CPU and offline. Setting either yourself overrides it; that is how the GPU tests run.
 - `tests/conftest.py` pins torch's intra-op thread count to `THREADS` (12), the count the snapshots were made with: the BLAS splits a matmul's reduction by thread, and 4 threads or fewer move a row's numbers by about 1e-8. Pinned, `OMP_NUM_THREADS` and the host's core count do not decide whether the suite passes: the thread count sets the bits, not the cores, and 12 threads on 4 CPUs give the snapshots' numbers for about 7% more time than 4 threads there, which is how CI runs the suite. At 4 threads, four tests fail: the minibatch-order test of `tests/test_fit.py` (a fit's history moves by up to 2.9e-6 over its ten epochs), both engines' cases of the batch-companions test of `tests/test_documents.py` (a regrouped row's `logit_diff` moves by 7.5e-8, where it must hold to the bit), and the test that the pin holds; 18 snapshot comparisons move by less than 1e-6 and pass, the largest `das_apply.*` by 9.5e-7, one ulp of a cross-entropy near 10.
 - Checkpoints and datasets come from the local Hugging Face cache, at the revisions below. `tests/test_hub.py`'s docstring has the command that fetches its dataset. On a fresh cache, run once with `HF_HUB_OFFLINE=0` and hub access.
@@ -103,6 +106,18 @@ uvx pyright
 ```
 
 From the repo root; it reads `[tool.pyright]` in `pyproject.toml`, checks `clab/` and `tests/`, and runs clean.
+
+## Continuous integration
+
+`.github/workflows/test.yml` runs on every push to `master` and every pull request, on a GitHub-hosted `ubuntu-latest` runner (4 CPUs) with Python 3.12, within 20 minutes:
+
+1. It checks clab out, and `ndif-team/nnterp` beside it at the commit the README names, and points the runner's copy of `pyproject.toml` at that checkout (the nnterp source and pyright's `extraPaths`). uv reads a path source from `pyproject.toml` alone: a `uv.toml` may not hold `sources`, and no environment variable sets one.
+2. `uv sync --dev`, then `uv pip install transformers==5.20.2`, the transformers the snapshots were made with, which the sync does not pin; `UV_NO_SYNC=1` keeps `uv run` from syncing back to the newest.
+3. `uvx pyright`, then `tests/test_docs.py` and `tests/test_format.py`.
+4. The checkpoints and the dataset of the table above, fetched with hub access where the cache lacks them and cached under a hash of the table's rows, so that a new row fetches what is new, each repository's `main` set to its pinned revision as in a cache filled by hand (nnsight's meta load, the hooks engine's, reads the tokenizer at `main`); the gated checkpoint is not fetched, so the test of its tensor-parallel plan in `tests/test_tp.py` skips.
+5. The suite, offline, at the pinned 12 threads, which on the runner's 4 CPUs give the snapshots' bits (see [Running the suite](#running-the-suite)). `ATEN_CPU_CAPABILITY=avx2` and `MKL_ENABLE_INSTRUCTIONS=AVX2` hold torch's and MKL's kernels to the AVX2 of the host that made the snapshots, in case the runner has AVX-512.
+
+`.github/workflows/gpu.yml` runs `tests/test_real.py` and `tests/test_device.py` on a self-hosted runner labelled `gpu`, with the commands of [GPU real-model tests](#gpu-real-model-tests). It is dispatched by hand and runs only once the repository variable `GPU_RUNNER` is `true`; until a runner exists, run the files by hand.
 
 ## Where a test goes
 

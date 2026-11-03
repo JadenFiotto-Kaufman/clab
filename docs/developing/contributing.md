@@ -29,7 +29,7 @@ Adding an op, a featurizer kind, a component or a step kind is [extending.md](ex
 ## Before a pull request
 
 ```bash
-CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run pytest tests/ -q
+CUDA_VISIBLE_DEVICES= HF_HUB_OFFLINE=1 uv run --no-sync pytest tests/ -q   # after testing.md's install
 uv run clab describe --markdown        # when the format changed; commit FORMAT.md with the code
 uvx pyright
 ```
