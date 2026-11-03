@@ -329,3 +329,19 @@ def test_a_files_format_decides_whether_it_is_clabs_or_published(tmp_path, metad
     if metadata == {"format": "pt"}:
         plan = published(tmp_path, TENSORS, STATED, metadata=metadata).compile()
         assert points(plan.featurizers["dictionary"])[0].header is None
+
+
+@pytest.mark.parametrize("kind, fields, bundle", [
+    ("sae", {}, {"W_enc": (16, 32), "b_enc": (32,), "W_dec": (32, 16), "b_dec": (16,)}),
+    ("subspace", {}, {"basis": (16, 4)}),
+    ("pca", {"file_path": "basis.safetensors"}, {"basis": (16, 4), "mean": (16,)}),
+    ("linear", {"classes": "d.c"}, {"W": (16, 3), "b": (3,)})])
+def test_counting_a_featurizers_coordinates_moves_none_of_its_tensors(kind, fields, bundle):
+    """T10's P4: `size()` encodes a zero vector made where the instance's tensors are, so an SAE's encoder on the
+    GPU is not copied to the host to count its latents (1.27 s of the clamp document). On the meta device, whose
+    tensors hold no data to copy, the count is the encode's width; a zero vector made on the CPU there fails."""
+    f = featurizers.make(kind, fields, 16, {k: torch.zeros(shape) for k, shape in bundle.items()}, None,
+                         ["a", "b", "c"], device="meta")
+    assert f.size() == next(iter(bundle.values()))[-1]
+    with pytest.raises(NotImplementedError):
+        f.method("encode")(f, torch.zeros(1, 16))

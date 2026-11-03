@@ -203,8 +203,10 @@ class Kind:
         raise ValueError(f"a {self.kind!r} featurizer has no scalar {name!r}")
 
     def size(self) -> int:
-        """How many coordinates the instance's space has."""
-        return self.method("encode")(self, torch.zeros(1, self.width(self.tensors()))).shape[-1]
+        """How many coordinates the instance's space has: the shape of its encode of one zero vector made where
+        its tensors are, in their dtype, so that no tensor of it moves (an SAE's encoder on the GPU stays there)."""
+        first = self.tensors()[self.saves[0]]
+        return self.method("encode")(self, first.new_zeros(1, first.shape[0])).shape[-1]
 
     def tensors(self) -> dict[str, Tensor]:
         """The tensors its bundle holds."""
