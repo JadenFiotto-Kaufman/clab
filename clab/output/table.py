@@ -156,7 +156,6 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
     """A value's rows: one per index on its example and token axes, the rest of it as the row's value; a row the
     read did not reach (`place` says so) is one row, `alignment_missing`, whatever its token axes hold, none
     included (a read no row reached is `[rows, 0]`)."""
-    assert not isinstance(value, dict) or "rows" in dims, "a bundle has no rows to table (rows_of refuses it)"
     first = next(iter(value.values())) if isinstance(value, dict) else value
     shape = list(first.shape) if isinstance(first, Tensor) else [len(first)]
     # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
