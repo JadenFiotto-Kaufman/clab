@@ -34,14 +34,14 @@ class Gate(Kind):
 
     @classmethod
     def check(cls, fields: dict) -> None:
-        """`over`, given, names one or more axes, each once, none of them an example's rows or positions."""
+        """`over`, given, names one or more axes, none of them an example's rows or positions."""
         super().check(fields)
         over = fields.get("over")
         if not isinstance(over, list):
             return                      # null: the last axis (a sweep is refused when the document is read)
-        if not over or len(set(over)) < len(over):
-            raise ValueError(f"over: {over} names {'no axis' if not over else 'an axis twice'}; a gate's units lie on "
-                             "one or more axes of its site's selection, each named once")
+        if not over:
+            raise ValueError(f"over: {over} names no axis; a gate's units lie on one or more axes of its site's "
+                             "selection, each named once")
         if set(over) & {"rows", "pos"}:
             raise ValueError(f"over: {over} names {', '.join(a for a in over if a in ('rows', 'pos'))}, an example's; "
                              "a gate's units lie on the axes of its site's selection the model has, layers among them")
