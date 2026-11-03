@@ -3,6 +3,7 @@ bracket an `encode` and its `decode` make (the identity to the bit, nesting, a `
 op a kind does not serve and an argument its `apply` does not take."""
 
 import os
+import re
 from typing import Any
 
 import pytest
@@ -177,6 +178,18 @@ def test_encode_is_the_coordinates_on_the_kinds_axis_and_select_keeps_some():
     assert ops.out_dims("encode", DIMS, {}, "linear") == ["rows", "pos", "classes"]
     assert [featurizers.KINDS[k].ops() for k in featurizers.KINDS] == [
         ["encode", "decode", "apply"]] * 4 + [["encode"], ["apply"]]
+
+
+@pytest.mark.parametrize("select", [{"feature": 1}, [0, 1], 3, {"features": 1, "classes": 0}])
+def test_an_encodes_select_is_one_features_selector_or_is_refused_naming_its_form(select):
+    """An encode's `select` is `{"features": <selector>}`: another key, a key beside it or a bare selector is refused
+    naming that form."""
+    def change(d):
+        d["steps"]["zeroed"]["interventions"]["ablate"]["ops"][0]["select"] = select
+    with pytest.raises(PlanError, match=rf"^steps\.zeroed\.interventions\.ablate\.ops\[0\]: select "
+                                        rf"{re.escape(repr(select))}: an encode selects among a featurizer's "
+                                        r"coordinates, \{'features': <selector>\}$"):
+        edited("sae_feature_ablation", change)
 
 
 def bracket(f, features=None, between=()) -> list[dict]:
