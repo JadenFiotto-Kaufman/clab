@@ -16,7 +16,9 @@ class Compiling:
     """What compiling an entry needs beside the entry, passed to every function that resolves a name.
 
     Read only: the document as a dict (`doc`), the corpus root, each dataset's rows, each sweep's label by
-    document path (`sweeps`) and its values by label (`values`). Filled as entries compile, in document order:
+    document path (`sweeps`) and its values by label (`values`, to which a load adds a sweep its value depends on
+    and the document does not declare, in axis order after the document's own). Filled as entries compile, in
+    document order:
     the records compiled so far (`featurizers`, `steps`: a point each, or a list of points), which is where every
     name a later entry references resolves (`plan.record_of`, at the consumer's point), each entry's sweep axes
     (`axes_of`), and every value any entry references (`used`), which decides what the run gathers. A fit's body

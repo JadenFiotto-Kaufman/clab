@@ -275,18 +275,34 @@ def test_a_manifest_from_before_value_axes_is_refused(root):
         "out/noaxes")
 
 
-def test_a_swept_value_without_its_sweep_is_refused(root):
-    assert refused(root, {**LOAD, "from": "out/swept"}) == (
-        "steps.harvest.value: 'harvest.acts' is swept over 'layers', [0, 1] in out/swept, and this document declares "
-        "no sweep labelled 'layers'; a swept value loads at each of its points, so a sweep of this document is "
-        "labelled 'layers' with those values")
+def test_a_swept_value_loads_on_its_own_with_the_sweep_it_depends_on(engines, root):
+    """A read swept over two layers loads in a document that sweeps nothing: the load declares the run's `layers`
+    sweep, so the plan sweeps it, the load has a point at each layer, and its value is the run's, to the bit, keyed
+    `layers=0` and `layers=1` in its file as the run's is."""
+    plan = written(root, "swept_alone", loading(corpus("pca_harvest"), {"harvest": {**LOAD, "from": "out/swept"}},
+                                                ["harvest"]))
+    assert {label: axis.values for label, axis in plan.sweeps.items()} == {"layers": [0, 1]}
+    assert [(p.at, p.layers) for p in points(plan.steps["harvest"])] == [({"layers": 0}, [0]), ({"layers": 1}, [1])]
+    filled = engines("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE)
+    filled.dump(os.path.join(root, "out", "swept_alone"))
+    assert same(filled.results["harvest"], load(os.path.join(root, "out", "swept")).results["harvest.acts"])
+    files = {}
+    for out, name in (("swept_alone", "harvest"), ("swept", "harvest.acts")):
+        with safe_open(os.path.join(root, "out", out, f"{name}.safetensors"), "pt") as f:
+            files[out] = {k: f.get_tensor(k) for k in f.keys()}
+    assert sorted(files["swept_alone"]) == ["layers=0", "layers=1"] and same(files["swept_alone"], files["swept"])
+
+
+def test_a_sweep_under_the_loads_label_over_other_values_is_refused(root):
     other = {"kind": "forward", "input": "prompts.input", "interventions": {
         "acts": {"site": {"component": "layer_output", "layers": {"sweep": [1, 0]}}, "pos": -1}}}
-    with pytest.raises(PlanError, match=r"^steps\.harvest\.value at layers=1: 'harvest\.acts' is swept over "
-                                        r"'layers', \[0, 1\] in out/swept, and this document sweeps 'layers' over "
-                                        r"\[1, 0\]; "):
+    with pytest.raises(PlanError) as e:
         written(root, "refused", loading(corpus("pca_harvest"), {
             "harvest": {**LOAD, "from": "out/swept"}, "other": other}, ["harvest"]))
+    assert str(e.value) == (
+        "steps.harvest.value: 'harvest.acts' is swept over 'layers', [0, 1] in out/swept, and this document sweeps "
+        "'layers' over [1, 0]; a load declares the sweeps its value depends on, and a sweep of this document under "
+        "the same label has the same values")
 
 
 def test_a_bundle_and_a_load_inside_a_fit_are_refused(root):

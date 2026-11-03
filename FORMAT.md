@@ -498,9 +498,10 @@ encodes as a forward does. Compile reads the manifest and the file, and refuses 
 manifest, a name it did not save, a source whose `model` block is not this document's (key, revision, dtype and
 every loader key), a dataset the value names whose rows are not, in this document, the rows the source read in
 the same order (its `sha256` and `n_rows` as the source recorded them) or whose chats render with another
-`template`, and a sweep axis the value depends on
-that this document does not declare under the same label with the same values (a swept value loads at every
-point of those axes). So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
+`template`, and a sweep the value depends on that this document declares under the same label over other values.
+A swept value loads at every point of its axes, keyed by them as the run that saved it keyed them: the load
+declares each such sweep this document does not, with the run's label and values, so a value swept over layers
+loads with no other field swept. So are a bundle (a `pca`'s value, a trained featurizer), which a featurizer loads by
 `file_path`; a value in a featurizer's coordinates (an encode no decode closes), whose featurizer is the
 source's; a value a generation made, or one whose positions are a generation's or a fit body's, which count
 tokens or rows this run does not have; and a load inside a fit's body. It calls no model; its cost's seconds are

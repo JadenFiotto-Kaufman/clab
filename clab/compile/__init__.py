@@ -184,12 +184,21 @@ def expand(cx: Compiling, name: str, where: tuple, build: Callable[[Plan, dict[s
     interventions and featurizers it names: `footprint`), those of every value it references, read off its
     text before it compiles (`referenced`), and a load's, those its saved value depends on, read off the run's
     manifest, so that each point is built knowing its coordinates and resolves every name at them; a refusal at one
-    point of a sweep names the point after the document path (`index="-2:"`)."""
+    point of a sweep names the point after the document path (`index="-2:"`). A load declares each sweep its value
+    depends on that the document does not, with the label and values the run swept it over (`cx.values`, which the
+    compiled plan's `sweeps` are), and is refused by name where the document sweeps that label over other values."""
     own = {label for path, label in cx.sweeps.items() if any(path[:len(p)] == p for p in footprint(cx, where))}
     inherited = {a for ref in referenced(cx, get(cx.doc, where)) for a in cx.axes_of.get(ref.partition(".")[0], [])}
     spec = get(cx.doc, where)
     if where[0] == "steps" and spec["kind"] == "load":          # a saved value's own axes, which its run recorded
-        inherited |= set(saved(cx, f"steps.{name}", spec["from"], spec["value"])[1]["axes"])
+        src, d = saved(cx, f"steps.{name}", spec["from"], spec["value"])
+        for label in d["axes"]:
+            theirs = src["plan"].sweeps[label].values
+            if cx.values.setdefault(label, theirs) != theirs:
+                fail(f"steps.{name}.value", f"{spec['value']!r} is swept over {label!r}, {theirs} in {spec['from']}, "
+                     f"and this document sweeps {label!r} over {cx.values[label]}; a load declares the sweeps its "
+                     "value depends on, and a sweep of this document under the same label has the same values")
+        inherited |= set(d["axes"])
     labels = [label for label in cx.values if label in own or label in inherited]
     cx.axes_of[name] = labels
     built = []
@@ -499,10 +508,11 @@ def op_step(cx: Compiling, path: str, name: str, spec: OpStep, plan: Plan, at: d
 
 
 def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: dict[str, int]) -> Load:
-    """A saved value at one point of its axes, with the record its run's manifest holds for it: refused unless that
-    run ran this document's model, the value's dataset has the same rows here, and each sweep it depends on is one
-    of this document's, with the same values (`Load`). Its read, where it holds positions, comes with it as the
-    forward that made it with that entry alone, named after this step (`<step>.<entry>`, the value's `read`)."""
+    """A saved value at one point of its axes (those of its run's sweeps it depends on, which `expand` declared or
+    found declared alike), with the record its run's manifest holds for it: refused unless that run ran this
+    document's model and the value's dataset has the same rows here (`Load`). Its read, where it holds positions,
+    comes with it as the forward that made it with that entry alone, named after this step (`<step>.<entry>`, the
+    value's `read`)."""
     src, d = saved(cx, path, spec.from_, spec.value)
     ran, here = src["plan"], f"{path}.value"
     theirs, ours = ran.model.model_dump(), plan.model.model_dump()
@@ -510,12 +520,6 @@ def load_step(cx: Compiling, path: str, name: str, spec: Load, plan: Plan, at: d
     if differ:
         fail(f"{path}.from", f"{spec.from_} ran another model than this document's: " + ", ".join(
             f"{k} {theirs.get(k)!r} where this document's is {ours.get(k)!r}" for k in differ))
-    for label in d["axes"]:
-        if cx.values.get(label) != ran.sweeps[label].values:
-            fail(here, f"{spec.value!r} is swept over {label!r}, {ran.sweeps[label].values} in {spec.from_}, and this "
-                 "document " + (f"sweeps {label!r} over {cx.values[label]}" if label in cx.values else
-                                f"declares no sweep labelled {label!r}") + "; a swept value loads at each of its "
-                 f"points, so a sweep of this document is labelled {label!r} with those values")
     there = {label: at[label] for label in d["axes"]}         # the point here is the point there: same labels, values
     record, made = record_of(ran.steps, spec.value, there), agreeing(ran.steps[spec.value.partition(".")[0]], there)
     producer, entry = entry_of(ran.steps, record.read, there) if record.read is not None else (None, None)
