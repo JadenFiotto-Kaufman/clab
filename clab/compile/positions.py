@@ -362,7 +362,8 @@ def indices(where: str, record: Intervention, step: Forward | Generate, rows: li
     hold no token of a row; a read that holds none of a row's (an index that picks none of them, a `before`
     scope before a prompt token where a generation's prefill computes no head) does not reach it, the marker. The
     rows' positions depend on the step's input and the record's `pos` and head alone, so records alike in those
-    resolve once (`alike`, by them: preflight's, over one scope's steps) and hold the one resolution."""
+    resolve once (`alike`, by them: preflight's, over one scope's steps) and hold the one resolution, which a batch
+    binds once for all of them (`batches.bind`)."""
     assert isinstance(record.site, Site), "a compiled entry's site is inlined"
     pos, head_only, write = parse(record.pos), head(step, record), writes(record)
     why = f"; a generation's prefill computes {record.site.component} at its last position only, so " \
