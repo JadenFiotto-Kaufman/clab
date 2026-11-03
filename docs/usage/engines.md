@@ -77,7 +77,7 @@ The run record keeps both sides. `device` is the value you asked for, and `devic
 
 ## Engine options: `-o key=value`
 
-Options other than `--device`, `--batch-size` and `--padding` are the engine's own keyword parameters. `clab describe engines` lists them. nnterp has `tp` ([below](#quantized-and-sharded-models)), hooks has none, and ndif has `remote`. Each value is read as JSON, or as text when it is not JSON: `-o remote=true` is the boolean, and `-o remote=local` is the string.
+Options other than `--device`, `--batch-size`, `--padding` and `--readout` are the engine's own keyword parameters. `clab describe engines` lists them. nnterp has `tp` ([below](#quantized-and-sharded-models)), hooks has none, and ndif has `remote`. Each value is read as JSON, or as text when it is not JSON: `-o remote=true` is the boolean, and `-o remote=local` is the string.
 
 Options are checked before the model loads, and a bad one is refused by name:
 

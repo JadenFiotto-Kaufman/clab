@@ -24,7 +24,7 @@ It prints each file it wrote with the step that made it and the value's shape (a
 
 Lines that transformers and torch print while the model loads are theirs. On the corpus checkpoint one says the generation flag `pad_token_id` is not valid and may be ignored. It can be: clab pads each batch itself, with the tokenizer's pad token, else its EOS token, else id 0 (`clab/format/data.py` `pad`), and masks the padding.
 
-`--engine`, `--device` and `-o key=value` choose where and how the model runs, and `--batch-size` and `--padding` how its rows are batched ([below](#batch-size-and-reproducibility)): `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
+`--engine`, `--device` and `-o key=value` choose where and how the model runs, `--batch-size` and `--padding` how its rows are batched ([below](#batch-size-and-reproducibility)), and `--readout` where a forward computes the logits it reads ([below](#the-head-at-the-positions-read)): `--engine hooks` to cross-check, `--device cuda:0` or `--device auto` for a GPU, `--engine ndif` for an NDIF server ([engines.md](engines.md)). With `HF_HUB_OFFLINE=1` the checkpoint and any hub dataset load from the local cache.
 
 ## Check before you run
 
@@ -42,6 +42,7 @@ A refusal raises `clab.plan.PlanError`, a `ValueError`, and the traceback's last
 clab: no document at 'documents/nope.json'
 clab: batch_size 0: a batch holds one row or more (--batch-size N, N at least 1)
 clab: padding 'rows': one of 'dataset', 'batch', 'sorted' (--padding)
+clab: readout 'last': one of 'full', 'at-reads' (--readout)
 clab: device 'gpu': not a torch device ('cpu', 'cuda:0') or a device map transformers computes ('auto', 'balanced', 'balanced_low_0', 'sequential')
 clab: device 'cuda:0': no CUDA device is visible (torch.cuda.is_available() is False); run on 'cpu', or make a GPU visible (CUDA_VISIBLE_DEVICES)
 clab: steps.answer.max_new_tokens: '6' is not a value generate takes: '<=' not supported between instances of 'str' and 'int'
@@ -98,6 +99,12 @@ On a CPU without bfloat16 matrix instructions, the class of host the snapshots w
 
 A fit's body runs at the fit's own `batch_size`, whatever the run's ([fit.md](fit.md)).
 
+## The head at the positions read
+
+**`--readout at-reads` runs the head only at the positions a forward reads `logits` at, and gives up the last bits.** By default (`--readout full`) a forward that reads `logits` at one position computes them at every position of every row, as the model does, and the read takes its positions from that: at batch size 256 on Llama-3.1-8B's 128,256-token vocabulary in bfloat16, 64-token prompts make 4.2 GB of logits a batch. Under `at-reads`, a forward whose every read of `logits` names fewer than every position (`pos: -1`, a scope) takes the last block's output at those positions instead and reads it out there with the engine's readout, the final norm, the head and what the model does after the head (`clab/steps/batches.py` `value_in_prefill`), and the forward stops before the model's own head. A read of every position, a write at `logits` and a `grad` entry that takes or differentiates them keep the full head; so do a read of `lm_head_output`, the head's own projection, before any softcap, and a generation, whose prefill computes the head at the last position alone either way. Under `ndif` the forward runs whole on the server, so `at-reads` saves nothing there.
+
+The price is the default's guarantee: the head is then a matmul of another shape, which sums in another order, so a logit moves in its last bits: by up to 7e-8 on the corpus in float32 (`documents/readout.json`, `documents/chat_turn.json`), more in bfloat16 on a GPU. Steering 5,000 64-token prompts through Llama-3.1-8B in bfloat16 and reading the top 5 next tokens, the forward step takes 49.7 s instead of 52.0 s at batch size 64 and peaks at 15.95 GiB instead of 16.52 GiB, the weights 14.97 GiB of it; at batch size 256 it takes 47.4 s instead of 50.0 s and peaks at 18.92 GiB instead of 21.19 GiB, and 380 of its 25,000 saved probabilities move, by up to 0.002 and 6% of the value, since a bfloat16 logit that moves moves by a whole ulp (at 64 none do; the top 5 ids stay). The engines agree to the bit under either readout, and the run records its readout (`run.readout`, the first line of `clab show`). Use the default where numbers are compared to the bit.
+
 ## From Python
 
 ```python
@@ -107,7 +114,7 @@ plan = clab.run("documents/patching.json", out="out/patching", batch_size=8)
 plan.results["iia"]          # tensor [4, 1]
 ```
 
-`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, `padding=`, and the engine's own options as keywords (`remote="local"`, `tp=2`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
+`clab.run` takes the command line's options as arguments: `engine=`, `device=`, `batch_size=`, `padding=`, `readout=`, and the engine's own options as keywords (`remote="local"`, `tp=2`). Without `out` it writes `out/<document name>`. Refusals raise `ValueError`.
 
 ### One model, many documents
 

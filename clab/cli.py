@@ -19,6 +19,7 @@ from typing import Any
 
 from clab import docs, output
 from clab.compile import positions
+from clab.compile.schedule import READOUTS
 from clab.docs import WHAT, as_json, describe
 from clab.format.data import PADDINGS
 from clab.format.sweeps import coordinate, coordinate_text
@@ -45,6 +46,7 @@ def show(filled: Plan) -> str:
         return "\n".join([f"{name(filled)}: compiled, not run"]
                          + ["  " + line for line in aligned([["step", "at", "serves"]] + rows)])
     lines = [f"{name(filled)}: run on {run.engine}, {how(run)}, batch size {run.batch_size}, padding {run.padding}, "
+             f"readout {run.readout}, "
              f"started {run.started}, {run.seconds} s",
              f"  served: {', '.join(run.dtype) or '—'} on {', '.join(run.devices) or '—'}",
              "  versions: " + ", ".join(f"{k} {v}" for k, v in run.versions.items())]
@@ -218,6 +220,9 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--padding", default="dataset", metavar="|".join(PADDINGS),
                      help="how each batch is padded: dataset (the default, exact), batch or sorted (fewer tokens fed, "
                           "numbers moved in the last bits)")
+    run.add_argument("--readout", default="full", metavar="|".join(READOUTS),
+                     help="how a forward computes logits: full (the default, exact) or at-reads (the head at the "
+                          "positions read alone, numbers moved in the last bits)")
     run.add_argument("--device", help="where the engine places the model (default cpu)")
     run.add_argument("-o", dest="options", action="append", default=[], metavar="KEY=VALUE",
                      help="an option of the engine's (`clab describe engines`), the value read as JSON, else as text")
@@ -274,10 +279,10 @@ def command(args: argparse.Namespace) -> int:
     first = os.environ.get("RANK", "0") == "0"          # under torchrun, rank 0 alone writes `out` and prints
     try:
         options = dict(option(text) for text in args.options)
-        for key in {"device", "batch_size", "padding"} & set(options):
+        for key in {"device", "batch_size", "padding", "readout"} & set(options):
             raise ValueError(f"-o {key}: it is given as --{key.replace('_', '-')}")
         filled = clab.run(args.document, engine=args.engine, out=out, batch_size=args.batch_size,
-                          device=args.device, padding=args.padding, **options)
+                          device=args.device, padding=args.padding, readout=args.readout, **options)
     except (ValueError, NotImplementedError, OSError, RemoteError) as e:
         # A refusal on the server comes home as nnsight's error, its last line the reason; a missing document is
         # the OSError that names it.

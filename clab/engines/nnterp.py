@@ -75,7 +75,8 @@ class NnterpEngine:
         self.model.requires_grad_(False)        # no gradient reaches a weight, so no graph is kept for one
         self.config = {"sizes": standard.sizes(self.model)}
 
-    def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset") -> Plan:
+    def execute(self, plan: Plan, *, batch_size: int = 8, padding: str = "dataset",
+                readout: str = "full") -> Plan:
         """The whole plan in one session, opened with `remote` (False here; the ndif engine's option there), the
         model `ready` first where the run calls it or a device map places it; the results, the run record and the records as the run completed them (each value's
         labels, where each read and write resolved, each featurizer's width; a featurizer's bundle stays where it
@@ -86,7 +87,7 @@ class NnterpEngine:
         remote session a load's value travels in the request, inside the plan, and a document whose loads hold more
         than `LOADED` bytes of tensors is refused by name before anything is sent; it does not come home, where the
         client keeps its own."""
-        started = steps.start_run(self, plan, batch_size, padding)
+        started = steps.start_run(self, plan, batch_size, padding, readout)
         ranks = self.options.get("tp", 1)
         for name, step in walk(plan.steps) if ranks > 1 else ():
             for key in [k for k, e in entries(step).items() if gradient_of(e) is not None][:1]:
@@ -111,7 +112,7 @@ class NnterpEngine:
         calls = calls_model(plan.steps) or self.device in standard.COMPUTED
         if calls and self.remote is not True:     # here, before the clock: `seconds` is the run, not the weight load
             self.ready()
-            started = steps.start_run(self, plan, batch_size, padding)
+            started = steps.start_run(self, plan, batch_size, padding, readout)
         with self.model.session(remote=self.remote):
             if calls and self.remote is True:     # the server's model: its instrumentation and order, no weights
                 self.ready()

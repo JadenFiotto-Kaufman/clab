@@ -245,10 +245,11 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
             read = None if "write" in site_record else (key, tuple(site_record["at"].items()))     # its value's
             record = entries(step)[key] if read is None else values_read[read][0]
             head_only = reads_head(step, record)
+            layer = None if site_record.get("readout") else site["layer"]       # logits are at no layer
             bound: dict[str, Any] = {
                 "scheduled": site_record, "record": record, "head_only": head_only,
                 "reached": (cast(Site, record.site).component, repr(record.kept), head_only, "calls" in site_record,
-                            site_record.get("prompt")), "fields": {"layer": site["layer"]}}
+                            site_record.get("prompt")), "fields": {"layer": layer}}
             if read is None:
                 operands = {v["name"]: v for o in site_record["ops"] for v in o.values()
                             if isinstance(v, dict) and "name" in v}
@@ -261,7 +262,7 @@ def schedule_binding(engine: Engine, plan: Plan, name: str, step: Forward,
                                        "eos": sorted(stop_ids(engine, cast(Generate, step)))}
             else:
                 point = values_read[read][2]
-                bound.update(point=point, binds=(*read, site["layer"]))
+                bound.update(point=point, binds=(*read, layer))
                 bound["fields"]["name"] = site_record["name"]
                 if gradient_of(record) is not None:
                     bound["fields"]["capture"] = True
@@ -322,6 +323,8 @@ def bind_schedule(engine: Engine, plan: Plan, step: Forward, binding: list[dict]
                     if row_positions is None else data.by_id(row_positions, ids), pads, width, head_only, device,
                     span)))
             bound_record.update(bound["fields"])
+            if site_record.get("readout"):          # narrowed once read out, off the model (`value_in_prefill`)
+                bound_record.update(readout=bound_record["select"], select={})
             if "ops" in bound:
                 bound_record["ops"] = bind_ops(plan, bound["ops"], state, ids, findings, device, shared)
                 if "online" in bound:
@@ -387,7 +390,12 @@ def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Te
                      ids: list[int], state: ChainMap, at: dict, findings: Findings, layer: int | None) -> Any:
     """One layer of an entry's value (`layer`) taken off the model in the prefill, in one batch (its dataset row `ids`),
     NaN past a row's own positions, -1 in ids (`keep`, which only a batch whose rows hold different numbers of them
-    has), then the ops after its last edit."""
+    has), then the ops after its last edit. A read of `logits` the schedule does at the last block's output
+    (`readout`) is first read out there (`engine.readout`) and narrowed as its `select` says."""
+    if "readout" in bound_record:
+        value = engine.readout(value)
+        for dim, index in bound_record["readout"].items():
+            value = index_along(value, dim, index)
     if "keep" in bound_record:
         keep = bound_record["keep"].to(value.device)
         value = value.masked_fill(~keep.reshape(*keep.shape, *[1] * (value.dim() - 2)),

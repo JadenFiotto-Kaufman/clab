@@ -33,7 +33,7 @@ from torch import Tensor
 from clab import ops
 from clab.compile import dataset_rows
 from clab.compile.preflight import preflight
-from clab.compile.schedule import values_read_by
+from clab.compile.schedule import READOUTS, values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.format import data
@@ -51,31 +51,34 @@ if TYPE_CHECKING:
     from clab.engines import Engine, Parameterized
 
 
-def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset") -> float:
+def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "dataset", readout: str = "full") -> float:
     """What every engine's `execute` checks first (a compiled plan, for this engine's checkpoint, at a batch size of
-    one row or more and a padding `data.PADDINGS` names), and the run record it starts: the engine, the batch size
-    and padding, the device and the options it loaded with; returns the start time."""
+    one row or more, a padding `data.PADDINGS` names and a readout `schedule.READOUTS` names), and the run record it
+    starts: the engine, the batch size, padding and readout, the device and the options it loaded with; returns the
+    start time."""
     if not plan.compiled:
         raise ValueError("plan is not compiled; call plan.compile()")
-    check_run_options(batch_size, padding)
+    check_run_options(batch_size, padding, readout)
     ours, theirs = plan.model.model_dump(), engine.spec.model_dump()
     differ = [k for k in dict.fromkeys([*theirs, *ours]) if theirs.get(k) != ours.get(k)]
     if differ:                  # a loader key written null is one left out
         raise ValueError("the plan's model is not the one this engine loaded: " + ", ".join(
             f"{k} {ours.get(k)!r} where the engine's is {theirs.get(k)!r}" for k in differ))
-    plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, device=engine.device,
+    plan.run = Run(engine=engine.name, batch_size=batch_size, padding=padding, readout=readout, device=engine.device,
                    options=engine.options, started=time.strftime("%Y-%m-%dT%H:%M:%S"))
     return time.time()
 
 
-def check_run_options(batch_size: int, padding: str) -> None:
-    """`batch_size` and `padding` as every run takes them: one row or more per batch, and a padding
-    `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `start_run` for an
-    engine's `execute` called on its own)."""
+def check_run_options(batch_size: int, padding: str, readout: str = "full") -> None:
+    """`batch_size`, `padding` and `readout` as every run takes them: one row or more per batch, a padding
+    `data.PADDINGS` names and a readout `schedule.READOUTS` names, each refused by name otherwise (`clab.run` asks
+    before the model loads, `start_run` for an engine's `execute` called on its own)."""
     if batch_size < 1:
         raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
     if padding not in data.PADDINGS:
         raise ValueError(f"padding {padding!r}: one of {', '.join(map(repr, data.PADDINGS))} (--padding)")
+    if readout not in READOUTS:
+        raise ValueError(f"readout {readout!r}: one of {', '.join(map(repr, READOUTS))} (--readout)")
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:

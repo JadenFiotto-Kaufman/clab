@@ -23,7 +23,7 @@ def out(engines, tmp_path_factory) -> str:
 def test_show_prints_how_it_ran_what_each_step_cost_where_each_entry_resolved_and_each_result(out, capsys):
     assert main(["show", out]) == 0
     shown = capsys.readouterr().out.splitlines()
-    assert shown[0].startswith("generate_probe: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, "
+    assert shown[0].startswith("generate_probe: run on nnterp, device cpu, tp 1, batch size 2, padding dataset, readout full, "
                                "started ")
     assert shown[1] == "  served: float32 on cpu"
     assert shown[2].startswith("  versions: clab ")

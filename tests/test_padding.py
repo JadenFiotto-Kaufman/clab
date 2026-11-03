@@ -222,7 +222,7 @@ def test_the_run_records_its_padding_and_show_prints_it(engines, tmp_path, capsy
     assert back.run is not None and back.run.padding == "sorted"
     assert main(["show", str(tmp_path)]) == 0
     shown = capsys.readouterr().out.splitlines()
-    assert ", batch size 2, padding sorted, started " in shown[0]
+    assert ", batch size 2, padding sorted, readout full, started " in shown[0]
     assert shown[3].split()[-2:] == ["tokens", "real"]
 
 
