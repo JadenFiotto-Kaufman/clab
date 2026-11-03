@@ -197,21 +197,16 @@ def read_saved_value(out: str, name: str, d: dict[str, Any]) -> Any:
     a dict of them again, a swept one keyed by each point's coordinate as text (`pos=-1`)."""
     file = os.path.join(out, d["file"])
     if file.endswith(".safetensors"):
-        value = nested(load_file(file))
+        value: dict[str, Any] = {}
+        for key, tensor in load_file(file).items():         # each `/` a level of the dict `flat` wrote
+            *path, last = key.split("/")
+            here = value
+            for k in path:
+                here = here.setdefault(k, {})
+            here[last] = tensor
         return value[name] if isinstance(d["dtype"], str) else value
     with open(file) as f:
         return restore_tensors(json.load(f), d["dtype"])
-
-
-def nested(value: dict[str, Tensor]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for key, v in value.items():
-        *path, last = key.split("/")
-        here = out
-        for k in path:
-            here = here.setdefault(k, {})
-        here[last] = v
-    return out
 
 
 def restore_tensors(value: Any, dtype: str | dict[str, Any] | None) -> Any:
