@@ -30,26 +30,29 @@ def selection_in_batch(record: Intervention, picks: dict, row_positions: list, p
                        last_only: bool, device: str = "cpu", span: int | None = None) -> dict:
     """What the engine needs to reach a record's selection in this batch, `width` tokens wide: its token indices
     into the padded batch (`positions`, `[rows, n]`; a row with fewer positions than the batch's widest repeats its
-    last index, `keep` marking its own, `tok` the unpadded indices, -1 past its own; a row the record does not reach,
-    the marker in `row_positions`, holds none), the part of the feature axes it keeps (`select`: `picks`, the indices
+    last index, `keep` marking its own and `kept` listing them, `[2, k]` (row, position) pairs a write lands by, `tok`
+    the unpadded indices, -1 past its own; a row the record does not reach, the marker in `row_positions`, holds none),
+    the part of the feature axes it keeps (`select`: `picks`, the indices
     preflight resolved its `select` to), and on a `key` axis each row's own keys, as many as the input's longest row
     has (`keys`, `span`; None: `width`). Where the value holds the last position
     alone (`last_only`: a generation's head in the prefill) every index is -1. Where every row holds `n` positions there
-    is no `keep`, so that a read or a write of equal-width rows indexes by no mask, which the device would have to count
-    before the host could go on. The indices and masks the value meets are made on `device`, where the model is
-    (`tensor_on_device`); `tok` stays on the host, where the ops that read it (`noise`) count with it."""
+    is no `keep`, so that a read or a write of equal-width rows indexes by no mask; a ragged write indexes by `kept`,
+    counted here on the host, where a mask the device would have to count before the host could go on. The indices and
+    masks the value meets are made on `device`, where the model is (`tensor_on_device`); `tok` stays on the host, where
+    the ops that read it (`noise`) count with it."""
     row_positions = [row if isinstance(row, list) else [] for row in row_positions]
     n = max(1, *map(len, row_positions))
     indices = [[i + pad for i in row] + [(row[-1] + pad) if row else 0] * (n - len(row))
              for row, pad in zip(row_positions, pads)]
     token_positions = [row + [-1] * (n - len(row)) for row in row_positions]
     indices = [[-1] * n for _ in row_positions] if last_only else indices
-    ragged = any(len(row) < n for row in row_positions)
+    keep = torch.tensor([[j < len(row) for j in range(n)] for row in row_positions]) \
+        if any(len(row) < n for row in row_positions) else None
     query_positions = [row + [row[-1] if row else 0] * (n - len(row)) for row in row_positions]
     return {"positions": tensor_on_device(indices, device), "select": select_indices(record, picks, device),
             **key_index(record, pads, width, device, span, query_positions),
-            **({"keep": tensor_on_device([[j < len(row) for j in range(n)] for row in row_positions], device)}
-               if ragged else {}),
+            **({"keep": tensor_on_device(keep, device), "kept": tensor_on_device(keep.nonzero().T, device)}
+               if keep is not None else {}),
             "tok": torch.tensor(token_positions)}
 
 
@@ -593,12 +596,12 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
     the same forward (`{"live": <its read's name>}`) is that read's value in `got`, where this forward put it.
     An op is given the dataset row of each of the selection's rows (the op's `rows`) and, where one takes it, the token
     position of each of its positions (`token_positions_of`: the write's `tok`, plus the decode `call` it lands at,
-    which the engine stamps). A
-    write narrows at most one dimension of its selection (compile refuses more). A ragged write's rows are
-    padded to one width; only the positions its `keep` marks are written (a write whose rows are equal has no
-    `keep` and writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`own_keys`), to a
-    read and to a write's ops alike, and a write writes those alone, its padding's keys as they were and the keys
-    past the batch's width (up to the input's longest row) nowhere, being no row's own. A write of ids (`ids`,
+    which the engine stamps). A write narrows at most one dimension of its selection (compile refuses more). A
+    ragged write's rows are padded to one width; only the positions its `keep` marks are written, by the indices of
+    those (`kept`), which the host counted when it bound the batch (a write whose rows are equal has no `keep` and
+    writes by index alone). A `key` axis is each row's own keys in order, NaN past them (`own_keys`), to a read and to
+    a write's ops alike, and a write writes those alone, its padding's keys as they were and the keys past the batch's
+    width (up to the input's longest row) nowhere, being no row's own. A write of ids (`ids`,
     `bind_schedule`'s) runs its ops in float32 and is refused by its entry where what would land is no id under the
     model's size (`check_written_ids`), before the model reads it. Every index, mask and result moves to the value's
     device, and a result to its dtype, where it meets the value and only where it is elsewhere (`moved_to`): the
@@ -648,9 +651,9 @@ def visit_site(value: Tensor, component: str, records: list[dict], got: dict) ->
             index, own = (expanded_row_indices(current, dim, moved_to(keys[k][:, :n], device))
                           for k in ("index", "own"))
             new = current.scatter(dim, index, torch.where(own, new.narrow(dim, 0, n), current.gather(dim, index)))
-        if "keep" in record:
-            keep = record["keep"].to(site_value.device)
-            site_value[row_indices.expand_as(indices)[keep], indices[keep]] = new[keep]
+        if "kept" in record:        # the (row, position) pairs its `keep` marks, by index: the host counted them
+            i, j = moved_to(record["kept"], device)
+            site_value[i, indices[i, j]] = new[i, j]
         else:
             site_value[row_indices.expand_as(indices), indices] = new
     return site_value.movedim(1, axis), wrote
@@ -768,8 +771,9 @@ def stamped_at_call(records: list[dict], seen: list[Tensor], tokenizer: PreTrain
                     call: int) -> list[dict]:
     """The records at decode call `call`, each write and each read with `per_call` ops stamped with it (`call`,
     which positions their ops at the call's own token), a write with an `online` scope narrowed to the rows it lands
-    on there (`keep`), as `positions.lands_at_call` decides from the inputs `seen` so far (one `[rows, 1]` per decode
-    call); one that lands on no row is left out. Any other read is as it was."""
+    on there (`keep`, and `kept`, those rows by index, as `selection_in_batch` lists them), as
+    `positions.lands_at_call` decides from the inputs `seen` so far (one `[rows, 1]` per decode call); one that lands on
+    no row is left out. Any other read is as it was."""
     out = []
     for record in records:
         record = {**record, "call": call} if "ops" in record or "per_call" in record else record
@@ -781,5 +785,6 @@ def stamped_at_call(records: list[dict], seen: list[Tensor], tokenizer: PreTrain
                                         tokenizer)
                 for r, texts in enumerate(online["texts"])]
         if any(rows):
-            out.append({**record, "keep": torch.tensor(rows)[:, None]})
+            keep = torch.tensor(rows)[:, None]
+            out.append({**record, "keep": keep, "kept": keep.nonzero().T})
     return out

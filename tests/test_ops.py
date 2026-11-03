@@ -298,13 +298,14 @@ def test_a_capture_hands_on_a_leaf_whose_gradient_differentiate_takes():
 
 def test_a_ragged_write_writes_only_the_positions_it_keeps():
     value = torch.randn(2, 4, 5)
-    ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": torch.tensor([[True, True], [True, False]]),
+    keep = torch.tensor([[True, True], [True, False]])
+    ragged = {"positions": torch.tensor([[1, 2], [3, 3]]), "keep": keep, "kept": keep.nonzero().T,
               "select": {}, "ops": [{"op": "swap", "args": {"with": 0.0}, "dims": DIMS}]}
     out = batches.visit_site(value, "layer_output", [ragged], {})[0]
     assert torch.equal(out[0, 1:3], torch.zeros(2, 5)) and torch.equal(out[1, 3], torch.zeros(5))
     unwritten = torch.tensor([[1, 0, 0, 1], [1, 1, 1, 0]], dtype=torch.bool)
     assert torch.equal(out[unwritten], value[unwritten])
-    empty = {**ragged, "keep": torch.tensor([[False, False], [False, False]])}
+    empty = {**ragged, "keep": torch.zeros(2, 2, dtype=torch.bool), "kept": torch.zeros(2, 2).nonzero().T}
     assert torch.equal(batches.visit_site(value, "layer_output", [empty], {})[0], value)
 
 
@@ -321,9 +322,11 @@ def test_a_batch_of_equal_rows_binds_no_mask_and_writes_as_an_all_true_one():
     even = batches.selection_in_batch(record, {}, [[1], [2], [0]], [0, 1, 2], 4, False)
     ragged = batches.selection_in_batch(record, {}, [[1, 2], [3], "missing"], [0, 1, 0], 4, False)
     assert "keep" not in even and ragged["keep"].tolist() == [[True, True], [True, False], [False, False]]
+    assert "kept" not in even and ragged["kept"].tolist() == [[0, 0, 1], [0, 1, 0]]         # rows, then positions
     value, other = torch.randn(3, 4, 5), torch.randn(3, 1, 5)
     write = {**even, "ops": [{"op": "swap", "args": {"with": other}, "dims": DIMS}]}
-    masked = batches.visit_site(value, "layer_output", [{**write, "keep": torch.ones(3, 1, dtype=torch.bool)}], {})[0]
+    keep = torch.ones(3, 1, dtype=torch.bool)
+    masked = batches.visit_site(value, "layer_output", [{**write, "keep": keep, "kept": keep.nonzero().T}], {})[0]
     assert torch.equal(batches.visit_site(value, "layer_output", [write], {})[0], masked)
 
 
