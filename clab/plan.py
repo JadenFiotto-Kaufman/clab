@@ -190,8 +190,7 @@ class Derived(Record):
     "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
     name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
     occur, naming the row."""
-    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, use_attribute_docstrings=True,
-                              serialize_by_alias=True)
+    model_config = ConfigDict(serialize_by_alias=True)
     source: str = Field(alias="from")
     after: TextPart | None = None
     before: TextPart | None = None
