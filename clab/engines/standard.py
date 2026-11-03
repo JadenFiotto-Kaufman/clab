@@ -134,9 +134,6 @@ def mixture(answer: dict[str, Any], layer: int | None, why: str = ROUTED) -> str
     named = ", ".join(mlp[:-1]) + f" and {mlp[-1]}" if len(mlp) > 1 else "".join(mlp) or "none of them"
     if why == UNADDRESSED:
         return f"{UNADDRESSED}; its MLPs are served as {named}"
-    if layer is None:
-        return (f"this model's MLPs are mixtures of experts, which have no single activation or down projection; its "
-                f"MLPs are served as {named}")
     return (f"block {layer}'s MLP is a mixture of experts, which has no single activation or down projection; at "
             f"block {layer} its MLP is served as {named}")
 
