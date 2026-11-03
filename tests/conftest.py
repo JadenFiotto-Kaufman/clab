@@ -2,6 +2,7 @@ import copy
 import json
 import os
 import shutil
+import struct
 from typing import Any
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -78,14 +79,21 @@ def edited(name: str, change) -> Plan:
     return Plan(**doc, document=document(name))
 
 
-def snapshot(name: str, value) -> Any:
-    """The checked-in snapshot `name`; with CLAB_UPDATE_SNAPSHOTS=1, `value` is written as it first."""
+def snapshot(name: str, value, holds=None) -> Any:
+    """The checked-in snapshot `name`; with CLAB_UPDATE_SNAPSHOTS=1, `value` is written as it first, unless
+    `holds(checked_in)` says the checked-in one already holds it. A snapshot that records what made it, or whose
+    floats move by a known drift between hosts, passes `holds`, so that a re-pin that moves no value past the drift
+    leaves the file, and the diff, as they are."""
     path = os.path.join(SNAPSHOTS, name)
-    if UPDATE:
+    if UPDATE and not (holds is not None and os.path.exists(path) and holds(_read(path))):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             json.dump(value, f, indent=1, ensure_ascii=False)
             f.write("\n")
+    return _read(path)
+
+
+def _read(path: str) -> Any:
     with open(path) as f:
         return json.load(f)
 
@@ -146,6 +154,26 @@ def close(a, b, path: str = "") -> None:
         assert abs(a - b) <= 1e-6 or a != a and b != b, (path, a, b)         # NaN, a missing row, on both
     else:
         assert a == b, (path, a, b)
+
+
+def within(a, b, ulps: int = 0) -> bool:
+    """`a` and `b` (plain values) equal, but for floats at most `ulps` float32 ulps apart (0: to the bit), NaN to
+    NaN."""
+    if isinstance(a, dict):
+        return isinstance(b, dict) and a.keys() == b.keys() and all(within(a[k], b[k], ulps) for k in a)
+    if isinstance(a, list):
+        return isinstance(b, list) and len(a) == len(b) and all(within(x, y, ulps) for x, y in zip(a, b))
+    if isinstance(a, float) and isinstance(b, float):
+        if a != a or b != b:
+            return a != a and b != b
+        return a == b or ulps > 0 and abs(_ordered(a) - _ordered(b)) <= ulps
+    return type(a) is type(b) and a == b
+
+
+def _ordered(x: float) -> int:
+    """`x` as float32, its bits as an integer in the order of the values, so that neighbours differ by 1."""
+    bits = struct.unpack("<i", struct.pack("<f", x))[0]
+    return bits if bits >= 0 else -(bits & 0x7FFFFFFF)
 
 
 def same(a, b) -> bool:

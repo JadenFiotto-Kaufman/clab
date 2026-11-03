@@ -49,17 +49,17 @@ Results are reproducible to the bit only at a fixed batch size and thread count,
 - `corpus`: a copy of `documents/`, its `data/` linked, whose `documents/artifacts/` holds stand-in bundles for the documents that load what another writes (`fit.rot`, `basis`, `fit.dictionary`, `fit.lora`). The docs test compiles fenced documents against it.
 - `stand_in`: a plan run on the ndif engine against a stand-in server, which serializes the real request, runs it with a loaded model and returns what came home and what the trip carried (`by_reference`; `TRIP`: the results, the run record and the completed records).
 - `tests/fixtures/sae.py` and `tests/fixtures/published_sae.py` write the committed SAE fixtures under `documents/artifacts/` from seeded generators, the same bytes on every run; rerun one from the repo root (`uv run python tests/fixtures/sae.py`) only to change a fixture.
-- Helpers: `plan_of(name)` compiles a corpus document; `edited(name, change)` is one with `change` applied to its JSON, read as if from its own file; `on_each` runs a plan on each engine and keeps each run's results apart; `placed` is where every read and write resolved, per row, as the records hold it; `close` compares floats to 1e-6 and NaN to NaN; `same` is bit equality.
+- Helpers: `plan_of(name)` compiles a corpus document; `edited(name, change)` is one with `change` applied to its JSON, read as if from its own file; `on_each` runs a plan on each engine and keeps each run's results apart; `placed` is where every read and write resolved, per row, as the records hold it; `close` compares floats to 1e-6 and NaN to NaN; `within(a, b, ulps)` is equality but for floats within `ulps` float32 ulps (0, to the bit); `same` is bit equality.
 
 ## Snapshot pins
 
-`tests/conftest.py` `snapshot(name, value)` returns the checked-in JSON under `tests/snapshots/`; with `CLAB_UPDATE_SNAPSHOTS=1` set, it writes `value` there first.
+`tests/conftest.py` `snapshot(name, value, holds)` returns the checked-in JSON under `tests/snapshots/`; with `CLAB_UPDATE_SNAPSHOTS=1` set, it writes `value` there first, unless `holds(checked_in)` says the checked-in one already holds it.
 
 | snapshot, under `tests/snapshots/` | pinned by | holds, compared how |
 |---|---|---|
-| `<document>.<engine>.json` | `tests/test_documents.py` (forward documents), `tests/test_generate.py`, `tests/test_fit.py`, `tests/test_patching.py` | the saved results at `BATCH_SIZE`, to 1e-6 |
+| `<document>.<engine>.json` | `tests/test_documents.py` (forward documents), `tests/test_generate.py`, `tests/test_fit.py`, `tests/test_patching.py` | the saved results at `BATCH_SIZE`, to 1e-6; `softcapped_lens.*` also to one float32 ulp, its known drift between hosts (`DRIFT` in `tests/test_documents.py` says what it is) |
 | `plans/<document>.json` | `tests/test_plan.py` | the compiled plan, rows aside (every record's layout and `axes`, and which point each forward serves), exactly |
-| `real/<document>.<engine>.json` | `tests/test_real.py` | GPU results, with the GPU, torch and transformers that made them |
+| `real/<document>.<engine>.json` | `tests/test_real.py` | GPU results to 1e-6, with the GPU, torch and transformers that made them (`made_with`), a record that is not compared |
 
 Which file runs a document is decided in `tests/conftest.py`: one named in `FIT` (trains or loads a featurizer) runs in `tests/test_fit.py`, one in `GENERATE` in `tests/test_generate.py`, and every other in `tests/test_documents.py`, on the nnterp and hooks engines (the hooks engine skips those in `INSIDE`, which it refuses). Beside the pins, the files check that the engines agree to the bit (`same`, and the same `placed`) and that the ndif engine under `remote="local"` equals the nnterp engine.
 
@@ -70,7 +70,7 @@ CLAB_UPDATE_SNAPSHOTS=1 uv run pytest tests/test_documents.py -q
 git diff tests/snapshots/
 ```
 
-The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the README's corpus count, which `tests/test_plan.py` checks, changes with it.
+The update writes every snapshot the run reaches and then passes, whatever moved, so the diff is the review: every changed number should be one the change was meant to change. Two kinds of file are left as they are where nothing moved past what they allow: `softcapped_lens.*`, whose floats are within one ulp of the run's, and the `real/` pins, whose values are the run's to the bit whatever their `made_with` says; a value that moved rewrites the file, `made_with` with it. A new corpus document has no pins yet, so its tests fail with `FileNotFoundError` until this is run for it; the README's corpus count, which `tests/test_plan.py` checks, changes with it.
 
 ## GPU real-model tests
 

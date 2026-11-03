@@ -12,7 +12,8 @@ checkout, from the repo root:
     CUDA_VISIBLE_DEVICES=0 HF_HUB_OFFLINE=1 PYTHONPATH=. /tmp/clab-gpu/bin/python -m pytest tests/test_real.py -q
 
 About two minutes on an idle RTX A6000. Each snapshot records the GPU and the torch and transformers it was made
-with (`made_with`), which need not be the lock's.
+with (`made_with`), which need not be the lock's. The record is provenance, not a value: a re-pin that moves no
+value leaves the file as it is, the record with it.
 """
 
 import copy
@@ -23,7 +24,7 @@ import statistics
 import pytest
 import torch
 import transformers
-from conftest import REAL, ROOT, close, edited, placed, plain, plan_of, same, snapshot
+from conftest import REAL, ROOT, close, edited, placed, plain, plan_of, same, snapshot, within
 from huggingface_hub import try_to_load_from_cache
 
 from clab import Plan
@@ -61,7 +62,8 @@ def test_numbers_match_the_snapshot(filled, name, kind):
     values = pinned(plan.results)
     made_with = {"gpu": torch.cuda.get_device_name(), "torch": torch.__version__,
                  "transformers": transformers.__version__}
-    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "made_with": made_with, "values": values})
+    expected = snapshot(f"{name}.{kind}.json", {"batch_size": BATCH_SIZE, "made_with": made_with, "values": values},
+                        holds=lambda held: held["batch_size"] == BATCH_SIZE and within(held["values"], values))
     assert expected["batch_size"] == BATCH_SIZE
     close(values, expected["values"])
 
