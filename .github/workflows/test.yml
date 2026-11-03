@@ -27,10 +27,10 @@ env:
   # `uv run` would sync the venv again, back to the newest transformers.
   UV_NO_SYNC: "1"
   CUDA_VISIBLE_DEVICES: ""
-  # The vector width of the host that made the snapshots (AVX2): on a runner with AVX-512, torch's kernels and
-  # MKL's would otherwise reduce in another order and move the last bits.
+  # The vector width of the host that made the snapshots (AVX2): on a runner with AVX-512, torch's kernels would
+  # otherwise reduce in another order and move the last bits. MKL's are held by the step "MKL's code path" instead:
+  # on an AMD CPU MKL takes its one non-Intel path whatever this says, and on an Intel CPU AVX2 picks its Intel kernels.
   ATEN_CPU_CAPABILITY: avx2
-  MKL_ENABLE_INSTRUCTIONS: AVX2
 
 jobs:
   cpu:
@@ -75,12 +75,25 @@ jobs:
           uv sync --dev
           uv pip install "transformers==$TRANSFORMERS"
 
-      # The CPU and the versions, for reading a run whose last bits moved: the snapshots were made on AVX2.
+      # The snapshots hold MKL's non-Intel code path, the one it takes on the AMD host that made them and on AMD
+      # runners; on an Intel runner its Intel kernels move the last bits of every matmul (and a row's bits with the
+      # batch it is in), so there MKL is told the CPU is not Intel's, through the one function it asks.
+      - name: MKL's code path
+        run: |
+          if grep -q -m1 GenuineIntel /proc/cpuinfo; then
+            echo 'int mkl_serv_intel_cpu_true(void) { return 0; }' > "$RUNNER_TEMP/mkl_not_intel.c"
+            gcc -shared -fPIC -o "$RUNNER_TEMP/libmkl_not_intel.so" "$RUNNER_TEMP/mkl_not_intel.c"
+            echo "LD_PRELOAD=$RUNNER_TEMP/libmkl_not_intel.so" >> "$GITHUB_ENV"
+          fi
+
+      # The CPU and the versions, for reading a run whose last bits moved: the snapshots were made on AVX2, MKL on
+      # its code path 0 (the non-Intel one).
       - name: What runs it
         run: |
-          lscpu | grep -E "^(Model name|CPU\(s\)|Thread)"
-          echo "vector extensions: $(grep -o -w -E 'avx2|avx512f' /proc/cpuinfo | sort -u | xargs)"
+          lscpu | grep -E "^(Model name|Vendor ID|CPU\(s\)|Thread)"
+          echo "vector extensions: $(grep -o -w -E 'avx2|avx512f|avx512_bf16' /proc/cpuinfo | sort -u | xargs)"
           uv run python -c "import torch; print('torch', torch.__version__, torch.backends.cpu.get_cpu_capability())"
+          uv run python -c "import ctypes, os, torch; torch.mm(torch.ones(2, 2), torch.ones(2, 2)); print('MKL code path', ctypes.CDLL(os.path.join(os.path.dirname(torch.__file__), 'lib', 'libtorch_cpu.so')).mkl_serv_cpu_detect())"
           uv pip list | grep -E "^(nnsight|nnterp|torch|transformers) "
 
       - name: pyright

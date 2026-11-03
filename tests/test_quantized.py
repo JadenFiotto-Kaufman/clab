@@ -11,6 +11,7 @@ torch matches the driver:
 
 import pytest
 import torch
+from bitsandbytes.functional import has_avx512bf16
 from conftest import BATCH_SIZE, edited, same
 from huggingface_hub import try_to_load_from_cache
 
@@ -24,6 +25,15 @@ DEVICES = ["cpu", pytest.param("cuda", marks=pytest.mark.skipif(not torch.cuda.i
                                                                 reason="needs a CUDA device"))]
 # What each quantization's model holds its parameters in: the compute dtype, and the packed weights.
 HELD = {"nf4": ["bfloat16", "uint8"], "fp4": ["bfloat16", "uint8"], "int8": ["float16", "int8"]}
+# On a CPU with AVX512-BF16 bitsandbytes repacks a 4-bit weight for its own kernel at the first forward, in blocks of
+# 32 output features, and asserts the tiny Llama's 16 are a multiple of 32 ("N must be divisible by block_n"): every
+# nf4 and fp4 forward on such a CPU fails there, before clab or the engines do anything.
+REPACKED_ON_CPU = has_avx512bf16()
+
+
+def runs_here(dtype: str, device: str) -> None:
+    if device == "cpu" and dtype in ("nf4", "fp4") and REPACKED_ON_CPU:
+        pytest.skip("bitsandbytes' AVX512-BF16 CPU kernel takes no 4-bit weight of the tiny Llama's widths")
 
 
 def quantized(name: str, dtype: str, change=lambda d: None):
@@ -66,6 +76,7 @@ def test_clab_builds_the_config_nnsight_builds_for_each_name(monkeypatch, name):
 def test_the_engines_load_one_quantization_and_agree_to_the_bit(name, dtype, device):
     """Each engine holds the weights packed and computes in the quantization's dtype, and their numbers are
     equal; the run records the packed dtype beside the compute one, the plan the quantization's name."""
+    runs_here(dtype, device)
     filled = on_both(name, dtype, device)
     assert same(filled["nnterp"].results, filled["hooks"].results)
     for plan in filled.values():
@@ -76,6 +87,7 @@ def test_the_engines_load_one_quantization_and_agree_to_the_bit(name, dtype, dev
 @pytest.mark.parametrize("device", DEVICES)
 def test_ndif_in_process_runs_a_quantization_as_nnterp_does(device):
     """Under `remote="local"` the ndif engine's shell dispatches here, quantized as the nnterp engine's model is."""
+    runs_here("nf4", device)
     plan = quantized("patching", "nf4")
     there = load("ndif", plan.model, device, remote="local").execute(quantized("patching", "nf4"),
                                                                      batch_size=BATCH_SIZE)
@@ -85,6 +97,7 @@ def test_ndif_in_process_runs_a_quantization_as_nnterp_does(device):
 
 def test_a_quantization_changes_the_numbers():
     """`nf4` is a different model from float32, not a relabelled one."""
+    runs_here("nf4", "cpu")
     plan = quantized("patching", "float32")
     assert not same(on_both("patching", "nf4", "cpu")["nnterp"].results,
                     load("nnterp", plan.model).execute(plan, batch_size=BATCH_SIZE).results)
@@ -94,6 +107,7 @@ def test_a_quantization_changes_the_numbers():
 def test_a_generation_and_a_fit_under_nf4_agree_on_both_engines(device):
     """`generated_answer` generates and `das` trains its rotation for one epoch, through the `nf4` model: the ids,
     the scores and the trained basis are the same bits on both engines, the basis made and trained in float32."""
+    runs_here("nf4", device)
     generated = on_both("generated_answer", "nf4", device)
     assert same(generated["nnterp"].results, generated["hooks"].results)
     fitted = on_both("das", "nf4", device, lambda d: d["steps"]["fit"].update(epochs=1))
