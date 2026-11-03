@@ -128,20 +128,6 @@ Swept = Annotated[Union[T, Sweep], ByShape()]
 
 AT = "the point's index on each sweep axis it varies over"
 DATASET = "the dataset whose rows the step's values are aligned to"
-SCHEDULE = ("the forward this point runs, or the point whose forward serves it. A forward depends on the step's "
-            "options and on its writes alone (`axes`: each write's site, positions, ops up to its last edit and "
-            "their operands), so the points that agree on those axes are served by the forward of the first of "
-            "them, and each other holds `serving`, that point's coordinates, and nothing else (the points a "
-            "forward serves are those that name it: `plan.serving`). Compile writes those; preflight, with the "
-            "model in hand, writes at each point that runs its forward the sites the forward visits in the engine's "
-            "forward order (`sites`: each its component and layer and the records done there in order, a write with "
-            "its ops up to its last edit and each operand resolved to a producer's name and point or to the name of "
-            "a read of the same forward, a read with the point whose entry it is and the name it feeds), `stop`, "
-            "the site the forward ends at (null for a generation, which runs whole), for a forward with `grad` "
-            "entries `grad` (one item per distinct value differentiated, `of` the names of its reads, one per "
-            "layer, and `wrt` the names of the `grad` reads whose gradient it is), and for a generation each "
-            "record's `calls` and `online`, `prompt` on a part over the prompt of an entry beyond the prefill, and "
-            "the `loop` of calls the engine iterates (null: every one). The engines execute it and decide nothing")
 
 
 # The quantized dtypes (nnsight's names for them) and the dtype each computes in: what its values, and the weights
@@ -775,7 +761,26 @@ class Forward(Record):
     interventions: Interventions = {}
     at: dict[str, int] = derived({}, AT)
     dataset: str | None = derived(None, DATASET)
-    schedule: dict[str, Any] = derived({}, SCHEDULE)
+    schedule: dict[str, Any] = derived({}, "the forward this point runs, or the point whose forward serves it. A "
+                                           "forward depends on the step's options and on its writes alone (`axes`: "
+                                           "each write's site, positions, ops up to its last edit and their operands), "
+                                           "so the points that agree on those axes are served by the forward of the "
+                                           "first of them, and each other holds `serving`, that point's coordinates, "
+                                           "and nothing else (the points a forward serves are those that name it: "
+                                           "`plan.serving`). Compile writes those; preflight, with the model in hand, "
+                                           "writes at each point that runs its forward the sites the forward visits in "
+                                           "the engine's forward order (`sites`: each its component and layer and the "
+                                           "records done there in order, a write with its ops up to its last edit and "
+                                           "each operand resolved to a producer's name and point or to the name of a "
+                                           "read of the same forward, a read with the point whose entry it is and the "
+                                           "name it feeds), `stop`, the site the forward ends at (null for a "
+                                           "generation, which runs whole), for a forward with `grad` entries `grad` "
+                                           "(one item per distinct value differentiated, `of` the names of its reads, "
+                                           "one per layer, and `wrt` the names of the `grad` reads whose gradient it "
+                                           "is), and for a generation each record's `calls` and `online`, `prompt` on "
+                                           "a part over the prompt of an entry beyond the prefill, and the `loop` of "
+                                           "calls the engine iterates (null: every one). The engines execute it and "
+                                           "decide nothing")
     batch_size: int | None = derived(None, "the rows a batch of the input holds, whatever the run's batch size, where "
                                            "the step fixes it: a fit's eval step's are the fit's `batch_size`; null, "
                                            "the run's")
