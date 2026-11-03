@@ -141,10 +141,7 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
         if isinstance(value, dict) and "rows" not in dims:
-            what = (f"a bundle (a {record.op}'s value)" if ops.DECLARED[record.op]["bundle"] else
-                    f"laid out {dims}, a {record.op} over a value with no rows axis, its ids and probabilities one "
-                    "list each") if isinstance(record, OpStep) else f"laid out {dims}"
-            raise ValueError(f"{name!r} has no rows to table: it is {what}; read it from plan.results")
+            raise ValueError(f"{name!r} has no rows to table: it is {rowless(record, dims, list(value))}")
         examples = dataset_rows(plan, record.dataset) if record.dataset else []
         place = read_labels(plan, record, p.at) if record.read else None
         used = columns_used(plan, name, p.at)
@@ -156,6 +153,24 @@ def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, 
             last = {"value": row.pop("value")} if "value" in row else {}
             out.append({**({"at": at} if at else {}), **row, **last})       # the value last, as in a joined table
     return out
+
+
+def rowless(record: Labelled, dims: list[str], held: list[str]) -> str:
+    """What a saved value of several tensors (`held`) with no rows axis is, and where to read it, as `rows_of`'s
+    refusal says: a bundle; a `top_k` over `rows`, whose ids are rows of the value it ranks, which tables; another
+    op's value over a value with no rows axis."""
+    names = [{"probs": "probabilities"}.get(k, k) for k in held]
+    said = " and ".join([", ".join(names[:-1]), names[-1]] if len(names) > 1 else names)
+    if not isinstance(record, OpStep):
+        return f"laid out {dims}; read it from plan.results"
+    if ops.DECLARED[record.op]["bundle"]:
+        return f"a bundle (a {record.op}'s value); read it from plan.results"
+    if arguments(record).get("over") == "rows":
+        return (f"laid out {dims}, a {record.op} over rows, which ranks the rows of {record.of!r}: its {said}, the "
+                f"rows it ranks first, one list each; read it from plan.results, and table {record.of!r} for those "
+                "rows' columns, its ids being the rows that table numbers")
+    return f"laid out {dims}, a {record.op} over a value with no rows axis, its {said} one list each; read it from " \
+        "plan.results"
 
 
 def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], place: dict[str, Any] | None
