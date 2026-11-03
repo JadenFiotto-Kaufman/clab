@@ -162,9 +162,10 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
     # The axes a row is per: the example axes, then the token axes within each; every axis of a value with no rows.
     outer = [i for i, a in enumerate(dims) if a in ("layers", "rows") or "rows" not in dims]
     inner = [i for i, a in enumerate(dims) if a in ("pos", "key") and "rows" in dims]
+    layers = place["layers"] if place else None             # the model's layer at each index of a layers axis
     out = []
     for index in itertools.product(*(range(shape[i]) for i in outer)):
-        whole = {COLUMNS.get(dims[i], dims[i]): model_layer(place, k) if dims[i] == "layers" else k
+        whole = {COLUMNS.get(dims[i], dims[i]): layers[k] if dims[i] == "layers" and layers is not None else k
                  for i, k in zip(outer, index)}
         if place and "row" in whole and place["positions"][whole["row"]] == positions.MISSING:
             out.append({**whole, positions.MISSING: True})      # one row says so, in place of its tokens
@@ -180,11 +181,6 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
             row["value"] = {k: part(v, pick) for k, v in value.items()} if isinstance(value, dict) else part(value, pick)
             out.append(row)
     return out
-
-
-def model_layer(place: dict[str, Any] | None, k: int) -> int:
-    """Index `k` on a `layers` axis as the model's layer it is, by the value's own `layers` label."""
-    return place["layers"][k] if place and place["layers"] is not None else k
 
 
 def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None = None) -> dict[str, Any]:
