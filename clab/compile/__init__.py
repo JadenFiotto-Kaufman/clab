@@ -66,6 +66,7 @@ from clab.plan import (
     produced,
     record_of,
     runnable,
+    trained_featurizers,
     writes,
 )
 
@@ -87,8 +88,7 @@ def compile(plan: Plan) -> Plan:
     for name in plan.steps:
         cx.steps[name] = expand(cx, name, ("steps", name), lambda point, at, name=name: compile_step(
             cx, f"steps.{name}", name, point.steps[name], point, at))
-    saveable = sorted(produced(cx.steps, cx.featurizers)
-                      + [f"{n}.{f}" for n, e in cx.steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train])
+    saveable = sorted(produced(cx.steps, cx.featurizers) + trained_featurizers(cx.steps))
     for i, name in enumerate(plan.saves):
         if name in plan.saves[:i]:
             fail(f"saves[{i}]", f"{name!r} is saved twice")

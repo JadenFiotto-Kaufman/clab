@@ -1316,6 +1316,11 @@ def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> l
     return out
 
 
+def trained_featurizers(steps: dict[str, Entry]) -> list[str]:
+    """Every featurizer a fit among `steps` trains, by the name the steps after the fit use: `<fit>.<featurizer>`."""
+    return [f"{n}.{f}" for n, e in steps.items() for s in points(e)[:1] if s.kind == "fit" for f in s.train]
+
+
 def walk(steps: dict[str, Entry], prefix: str = "") -> Iterator[tuple[str, Any]]:
     """Every step and point, a fit's body steps after the fit, each with its dotted name."""
     for name, entry in steps.items():
