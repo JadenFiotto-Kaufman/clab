@@ -33,7 +33,7 @@ The root is one scope. A `fit`'s body is a second scope. It sees every value pro
 clab: steps.fit.eval.held_out: the body uses 'counterfactual.h', made before the fit with a row per example of 'train', and this eval reads 'train' as 'test', over whose rows no step made it; evaluate on 'test' in steps after the fit, which reach what it trained as 'fit.rot'
 ```
 
-Nothing leaves the body except through the fit's members (`<fit>.<featurizer>`, `<fit>.<eval>.<step>.<entry>`, `<fit>.history.<op>`), so its step names do not collide with the root's. A root step named `patched` can sit before a fit whose body also has a `patched`, and a root step after the fit that names `patched.logits` means the root's. Naming a body value bare from outside is refused, and the refusal lists the members you can name instead. [usage/fit.md](../usage/fit.md) covers the members in use.
+Nothing leaves the body except through the fit's members (`<fit>.<featurizer>`, `<fit>.<eval>.<step>.<entry>`, `<fit>.history.<op>`), so its step names do not collide with the root's. An eval's steps are the body's again, compiled as root steps after the fit under those names (`fit.held_out.adapted`), where a body name means the eval's own step and a trained featurizer is `<fit>.<featurizer>`. A root step named `patched` can sit before a fit whose body also has a `patched`, and a root step after the fit that names `patched.logits` means the root's. Naming a body value bare from outside is refused, and the refusal lists the members you can name instead. [usage/fit.md](../usage/fit.md) covers the members in use.
 
 ## Bundles are templates
 

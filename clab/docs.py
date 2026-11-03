@@ -210,7 +210,7 @@ def markdown() -> str:
               f"{', '.join(labels)}\n"
               + "\n".join(f"- `{model.__name__}`: {', '.join(own(model))}"
                           for model in (plan.Plan, plan.Data, plan.Intervention, plan.Op, plan.Forward, plan.Generate,
-                                        plan.OpStep, plan.Load, plan.Featurizer) if own(model)) + "\n"]
+                                        plan.OpStep, plan.Fit, plan.Load, plan.Featurizer) if own(model)) + "\n"]
     parts += ["## Ops\n", ops.ABOUT]
     for group in ops.GROUPS:
         parts += [f"### {group.capitalize()}\n",

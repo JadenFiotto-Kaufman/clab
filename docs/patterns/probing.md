@@ -89,7 +89,7 @@ clab: featurizers.probe.classes: classes column 'train.entity' holds str (row 0 
 And a row scored against a value that is not a class is refused before any forward, here an eval on rows whose days the training split never had:
 
 ```text
-clab: fit: eval 'held_out', with dataset 'train' read as 'test' (a row is the eval's dataset's): ce: target is 'entity' of 'test', whose row 0 is 'Saturday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
+clab: fit.held_out.ce: target is 'entity' of 'test', whose row 0 is 'Saturday', not one of the classes of probe 'probe': ['Friday', 'Thursday']
 ```
 
 ## The floor

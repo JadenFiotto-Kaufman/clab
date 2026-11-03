@@ -44,7 +44,7 @@ Each word as clab uses it, in one sentence, with the page that explains it. Exac
 | encode | The op that turns a value into a featurizer's coordinates, its last axis `features` (a probe's `classes`). | [featurizers.md](../usage/featurizers.md#the-canonical-entry) |
 | engine | The object that loads a checkpoint and runs a compiled plan on it: `nnterp`, `hooks` or `ndif`. | [engines.md](../usage/engines.md) |
 | entry | One item of a step's `interventions`: a site, a `pos` and the ops run there, binding `<step>.<entry>`. | [interventions.md](../usage/interventions.md) |
-| eval | A named run of a fit's body after training, scored, with datasets read as others (`{"held_out": {"train": "test"}}`). | [fit.md](../usage/fit.md#evals) |
+| eval | A fit's body once more after training, scored, as steps after the fit (`<fit>.<eval>.<step>`), with datasets read as others (`{"held_out": {"train": "test"}}`). | [fit.md](../usage/fit.md#evals) |
 | featurizer | A space or a function declared under `featurizers` and reached from an entry by `encode`, `decode` and `apply`: drawn from a seed, trained by a fit, or loaded from a bundle. | [featurizers.md](../usage/featurizers.md) |
 | fit | The step kind that trains featurizers inside the run, through the frozen model. | [fit.md](../usage/fit.md) |
 | float32 rule | Metrics, every reduction but `pca` and the elementwise arithmetic compute in float32 and return it whatever the model's dtype; an edit computes in float32 and rounds once to the value's dtype; a comparison gives its 0 or 1 in the value's dtype, float32 on ids. | [ops.md](../usage/ops.md#the-float32-rule) |

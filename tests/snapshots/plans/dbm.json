@@ -246,6 +246,171 @@
     },
     "at": {
      "mask.mask": 0
+    },
+    "evals": {
+     "train": {
+      "v_cf": {
+       "kind": "op",
+       "op": "encode",
+       "of": "counterfactual.h",
+       "featurizer": "fit.mask",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ],
+       "dataset": "train",
+       "layers": [
+        0
+       ],
+       "read": "counterfactual.h",
+       "width": 1,
+       "space": [
+        {
+         "featurizer": "fit.mask"
+        }
+       ],
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 0
+       }
+      },
+      "patched": {
+       "kind": "forward",
+       "input": "train.input",
+       "interventions": {
+        "patch": {
+         "site": {
+          "component": "layer_output",
+          "layers": 0
+         },
+         "pos": -1,
+         "ops": [
+          {
+           "op": "encode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "swap",
+           "with": "fit.train.v_cf",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "decode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "hidden_size"
+           ]
+          }
+         ],
+         "dims": [
+          "rows",
+          "pos",
+          "hidden_size"
+         ],
+         "dataset": "train",
+         "layers": [
+          0
+         ],
+         "read": "fit.train.patched.patch",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "train",
+         "read": "fit.train.patched.logits",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "mask.mask": 0
+       },
+       "dataset": "train",
+       "schedule": {
+        "axes": [
+         "mask.mask"
+        ]
+       },
+       "batch_size": 16
+      },
+      "iia": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 0
+       }
+      },
+      "ce": {
+       "kind": "op",
+       "op": "cross_entropy",
+       "of": "fit.train.patched.logits",
+       "target": "train.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 0
+       }
+      }
+     }
     }
    },
    {
@@ -436,6 +601,171 @@
     },
     "at": {
      "mask.mask": 1
+    },
+    "evals": {
+     "train": {
+      "v_cf": {
+       "kind": "op",
+       "op": "encode",
+       "of": "counterfactual.h",
+       "featurizer": "fit.mask",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ],
+       "dataset": "train",
+       "layers": [
+        0
+       ],
+       "read": "counterfactual.h",
+       "width": 1,
+       "space": [
+        {
+         "featurizer": "fit.mask"
+        }
+       ],
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 1
+       }
+      },
+      "patched": {
+       "kind": "forward",
+       "input": "train.input",
+       "interventions": {
+        "patch": {
+         "site": {
+          "component": "layer_output",
+          "layers": 0
+         },
+         "pos": -1,
+         "ops": [
+          {
+           "op": "encode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "swap",
+           "with": "fit.train.v_cf",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "decode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "hidden_size"
+           ]
+          }
+         ],
+         "dims": [
+          "rows",
+          "pos",
+          "hidden_size"
+         ],
+         "dataset": "train",
+         "layers": [
+          0
+         ],
+         "read": "fit.train.patched.patch",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "train",
+         "read": "fit.train.patched.logits",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "mask.mask": 1
+       },
+       "dataset": "train",
+       "schedule": {
+        "axes": [
+         "mask.mask"
+        ]
+       },
+       "batch_size": 16
+      },
+      "iia": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 1
+       }
+      },
+      "ce": {
+       "kind": "op",
+       "op": "cross_entropy",
+       "of": "fit.train.patched.logits",
+       "target": "train.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 1
+       }
+      }
+     }
     }
    },
    {
@@ -626,6 +956,171 @@
     },
     "at": {
      "mask.mask": 2
+    },
+    "evals": {
+     "train": {
+      "v_cf": {
+       "kind": "op",
+       "op": "encode",
+       "of": "counterfactual.h",
+       "featurizer": "fit.mask",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ],
+       "dataset": "train",
+       "layers": [
+        0
+       ],
+       "read": "counterfactual.h",
+       "width": 1,
+       "space": [
+        {
+         "featurizer": "fit.mask"
+        }
+       ],
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 2
+       }
+      },
+      "patched": {
+       "kind": "forward",
+       "input": "train.input",
+       "interventions": {
+        "patch": {
+         "site": {
+          "component": "layer_output",
+          "layers": 0
+         },
+         "pos": -1,
+         "ops": [
+          {
+           "op": "encode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "swap",
+           "with": "fit.train.v_cf",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "decode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "hidden_size"
+           ]
+          }
+         ],
+         "dims": [
+          "rows",
+          "pos",
+          "hidden_size"
+         ],
+         "dataset": "train",
+         "layers": [
+          0
+         ],
+         "read": "fit.train.patched.patch",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "train",
+         "read": "fit.train.patched.logits",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "mask.mask": 2
+       },
+       "dataset": "train",
+       "schedule": {
+        "axes": [
+         "mask.mask"
+        ]
+       },
+       "batch_size": 16
+      },
+      "iia": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 2
+       }
+      },
+      "ce": {
+       "kind": "op",
+       "op": "cross_entropy",
+       "of": "fit.train.patched.logits",
+       "target": "train.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 2
+       }
+      }
+     }
     }
    },
    {
@@ -816,6 +1311,171 @@
     },
     "at": {
      "mask.mask": 3
+    },
+    "evals": {
+     "train": {
+      "v_cf": {
+       "kind": "op",
+       "op": "encode",
+       "of": "counterfactual.h",
+       "featurizer": "fit.mask",
+       "dims": [
+        "rows",
+        "pos",
+        "features"
+       ],
+       "dataset": "train",
+       "layers": [
+        0
+       ],
+       "read": "counterfactual.h",
+       "width": 1,
+       "space": [
+        {
+         "featurizer": "fit.mask"
+        }
+       ],
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 3
+       }
+      },
+      "patched": {
+       "kind": "forward",
+       "input": "train.input",
+       "interventions": {
+        "patch": {
+         "site": {
+          "component": "layer_output",
+          "layers": 0
+         },
+         "pos": -1,
+         "ops": [
+          {
+           "op": "encode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "swap",
+           "with": "fit.train.v_cf",
+           "dims": [
+            "rows",
+            "pos",
+            "features"
+           ],
+           "space": [
+            {
+             "featurizer": "fit.mask"
+            }
+           ]
+          },
+          {
+           "op": "decode",
+           "featurizer": "fit.mask",
+           "dims": [
+            "rows",
+            "pos",
+            "hidden_size"
+           ]
+          }
+         ],
+         "dims": [
+          "rows",
+          "pos",
+          "hidden_size"
+         ],
+         "dataset": "train",
+         "layers": [
+          0
+         ],
+         "read": "fit.train.patched.patch",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ]
+        },
+        "logits": {
+         "site": {
+          "component": "lm_head_output"
+         },
+         "pos": -1,
+         "dims": [
+          "rows",
+          "pos",
+          "vocab_size"
+         ],
+         "dataset": "train",
+         "read": "fit.train.patched.logits",
+         "width": 1,
+         "axes": [
+          "mask.mask"
+         ],
+         "gathered": true
+        }
+       },
+       "at": {
+        "mask.mask": 3
+       },
+       "dataset": "train",
+       "schedule": {
+        "axes": [
+         "mask.mask"
+        ]
+       },
+       "batch_size": 16
+      },
+      "iia": {
+       "kind": "op",
+       "op": "logit_diff",
+       "of": "fit.train.patched.logits",
+       "a": "train.cf_answer",
+       "b": "train.base_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 3
+       }
+      },
+      "ce": {
+       "kind": "op",
+       "op": "cross_entropy",
+       "of": "fit.train.patched.logits",
+       "target": "train.cf_answer",
+       "dims": [
+        "rows",
+        "pos"
+       ],
+       "dataset": "train",
+       "read": "fit.train.patched.logits",
+       "width": 1,
+       "axes": [
+        "mask.mask"
+       ],
+       "at": {
+        "mask.mask": 3
+       }
+      }
+     }
     }
    }
   ],

@@ -89,6 +89,31 @@
    },
    "eval": {
     "train": {}
+   },
+   "evals": {
+    "train": {
+     "latents": {
+      "kind": "op",
+      "op": "encode",
+      "of": "harvest.acts",
+      "featurizer": "fit.dictionary",
+      "dims": [
+       "rows",
+       "pos",
+       "features"
+      ],
+      "dataset": "prompts",
+      "layers": [
+       0
+      ],
+      "read": "harvest.acts",
+      "space": [
+       {
+        "featurizer": "fit.dictionary"
+       }
+      ]
+     }
+    }
    }
   }
  },
