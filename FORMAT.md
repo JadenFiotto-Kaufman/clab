@@ -380,8 +380,8 @@ gives. With a `column` or `text` scope, decode calls only, index -1 and an occur
 first. A scoped write is found
 online, decoding the inputs fed so far at each call: it lands at the call fed the last token of each
 occurrence it picks, as that occurrence appears (its earlier tokens were fed before the text was there
-to find), and a row with fewer occurrences than it picks is `alignment_missing`. No write takes a frame
-counted from a row's last call. A row's calls are what the engine actually generated, up to the
+to find), and a row with fewer occurrences than it picks is `alignment_missing`. A row's calls are what
+the engine actually generated, up to the
 one that chose the row's first EOS: the step's own `eos_token_id` when it gives one, else the id the
 engine's generation stops on (its generation config's). The step's own value is the
 new token ids, `[rows, new]`; `detokenize` makes them text. Options that would change the rows, the value or
