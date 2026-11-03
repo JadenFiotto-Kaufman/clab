@@ -131,9 +131,6 @@ column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a strin
 same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
 (tokenized as written, the flags as here). A scope names its text in its own `text` field.
 
-A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
-whitespace, its positions the original's.
-
 An answer scored against logits is tokenized as written, and each of its tokens stands for its class: every
 token of the vocabulary whose text (what it adds after another token, so a leading space is its own) compares
 the same; without a flag, or for a token that is part of a character, the token alone. Under `strip`
