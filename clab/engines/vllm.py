@@ -14,10 +14,10 @@ kernels (`invariant`) a row's numbers depend on neither its batch companions nor
 
 What vLLM makes different, each refused by name before anything runs, or recorded:
 
-- The head is computed at the last position alone: `logits` (and `lm_head_output`, which this engine serves as the
-  logits where the model does nothing after the head, no `final_logit_softcapping`, `logit_scale` or `logits_scaling`
-  in its config, the two being one value then) is read or written at the prompt's last position only (`last_only`;
-  preflight refuses any other, once the schedule says where each record is done).
+- The head is computed at the last position alone: `logits` (and `lm_head_output`, which nnterp serves as the logits
+  where the model does nothing after the head, and refuses naming the softcap or scale where it does) is read or
+  written at the prompt's last position only (`last_only`; preflight refuses any other, once the schedule says where
+  each record is done).
 - The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
   refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
   not serve here either.
@@ -62,7 +62,7 @@ from transformers import PreTrainedTokenizerBase
 
 from clab import steps
 from clab.engines import engine, standard
-from clab.engines.standard import build, envoy, loading, nnterp_name, served, stops
+from clab.engines.standard import build, envoy, loading, nnterp_name, stops
 from clab.format.address import COMPONENTS
 from clab.plan import QUANTIZED, Model, Plan, calls_model, entries, gradient_of, walk, writes
 from clab.steps import batches
@@ -85,9 +85,11 @@ UNMAPPED = {"no_repeat_ngram_size": 0, "typical_p": 1.0, "epsilon_cutoff": 0.0, 
             "suppress_tokens": None, "begin_suppress_tokens": None, "forced_bos_token_id": None,
             "forced_eos_token_id": None, "sequence_bias": None, "encoder_repetition_penalty": 1.0,
             "exponential_decay_length_penalty": None}
-# clab's reason for a mixture's values on vLLM, whose fused kernel serves none of them.
+# clab's reasons for a mixture's values on vLLM: at a block whose MLP is a mixture, which vLLM's fused kernel serves no
+# routing value of; at a dense block.
 FUSED = ("vLLM runs the mixture of experts inside its fused MoE kernel, which serves no routing value; the mixture's "
          "output is mlp_output")
+DENSE_BLOCK = "this block's MLP is dense, not a mixture of experts"
 
 
 @engine("vllm")
@@ -112,7 +114,7 @@ class VllmEngine:
         max_len: the longest sequence, prompt and new tokens, the engine serves (its max_model_len); null for the checkpoint's
         invariant: true runs vLLM's batch-invariant kernels, so that a run reproduces to the bit; false its fastest, whose last bits move between runs
         """
-        from nnterp import StandardizedTransformer, StandardizedVLLM
+        from nnterp import StandardizedVLLM
 
         if model.dtype in QUANTIZED:
             raise ValueError(f"model.dtype {model.dtype!r}: the vllm engine cannot honor it: vLLM holds a quantized "
@@ -132,11 +134,6 @@ class VllmEngine:
             raise ValueError(f"max_len {max_len}: the longest sequence the engine serves is one token or more")
         self.spec, self.device, self.options = model, device, {"tp": tp, "memory": memory, "max_len": max_len,
                                                                "invariant": invariant}
-        # The forward order and the generation config are a transformers meta shell's: StandardizedVLLM has neither,
-        # and the standard values sit at the same module boundaries on both engines.
-        self.shell = build(model, "vllm", lambda extra: StandardizedTransformer(
-            model.key, revision=model.revision, dispatch=False, device_map=None,
-            **{**extra, "attn_implementation": "eager"}))
         arguments: dict[str, Any] = {"dtype": model.dtype, "tensor_parallel_size": tp, "gpu_memory_utilization": memory,
                                      "enable_prefix_caching": False, "async_scheduling": False}
         if max_len is not None:
@@ -215,7 +212,7 @@ class VllmEngine:
 
     @property
     def eos(self) -> list[int]:
-        return stops(self.shell.generation_config, self.tokenizer)
+        return stops(self.model.generation_config, self.tokenizer)
 
     @property
     def cuda(self) -> list[str]:
@@ -226,40 +223,26 @@ class VllmEngine:
         return self.config["sizes"]
 
     def unserved(self) -> dict[str, str | dict[int, str] | None]:
-        """nnterp's answer for the vLLM engine (`standard.unserved` over StandardizedVLLM's `support()`), but
-        `lm_head_output`, served as the logits where the model does nothing after the head (`after_head`), the two
-        being one value then, and refused naming what it does otherwise; and a mixture's values, which vLLM's fused
-        kernel serves none of, refused with that reason at the blocks the transformers shell says have a mixture
-        (`FUSED`), since nnterp's vLLM answer does not name them and clab's reading of its silence would call the
+        """nnterp's answer for the vLLM engine (`standard.unserved` over StandardizedVLLM's `support()`), but a
+        mixture's values, which vLLM's fused kernel serves none of and nnterp's vLLM answer does not name: refused
+        with that reason (`FUSED`) at the blocks whose MLP nnterp calls routed (the reason it gives `mlp_activation`
+        there, `ROUTED`) and as dense at the others, since clab's reading of nnterp's silence would call the whole
         model dense."""
-        reasons = standard.unserved(self.model)
-        if isinstance(reasons.get("lm_head_output"), str):
-            after = self.after_head()
-            reasons["lm_head_output"] = None if after is None else (
-                f"vLLM never calls lm_head, and this model's {after} after the head keeps its logits from standing in "
-                "for the head's own projection; read logits")
-        theirs, n = standard.unserved(self.shell), self.shell.num_layers
+        from nnterp.components.vllm.mlp import ROUTED
+
+        reasons, n = standard.unserved(self.model), self.model.num_layers
+        activation = reasons.get("mlp_activation")
+        routed = ([layer for layer, why in activation.items() if why == ROUTED] if isinstance(activation, dict)
+                  else list(range(n)) if activation == ROUTED else [])
         for component in standard.mixed():
-            mixed = served(component, theirs[component], n)
-            if mixed and isinstance(reasons.get(component), str):
-                reasons[component] = {layer: FUSED if layer in mixed else (theirs[component] or {})[layer]
-                                      for layer in range(n)}
+            if routed and isinstance(reasons.get(component), str):
+                reasons[component] = {layer: FUSED if layer in routed else DENSE_BLOCK for layer in range(n)}
         return standard.own(reasons)
 
-    def after_head(self) -> str | None:
-        """What the model does after its head, from its text config, as `<key> <value>` (a softcap, a scale); None
-        where it does nothing."""
-        config = self.shell.config.get_text_config()
-        for key in ("final_logit_softcapping", "logit_scale", "logits_scaling"):
-            value = getattr(config, key, None)
-            if value not in (None, 0, 1):
-                return f"{key} {value}"
-        return None
-
     def rank(self, component: str, layer: int | None) -> tuple[int, int]:
-        """Where the component falls in the forward: nnterp's measured order on the transformers meta shell of the
-        checkpoint (StandardizedVLLM measures none)."""
-        return self.shell.rank(nnterp_name(component), layer)
+        """Where the component falls in the forward: nnterp's order, which it measures on a weightless transformers
+        model of the checkpoint for the values the engine serves."""
+        return self.model.rank(nnterp_name(component), layer)
 
     def requests(self, batch: dict[str, Tensor], bound: dict[str, Any]) -> tuple[list[list[int]], list[dict]]:
         """The batch as vLLM takes it: each row's own token ids, the padding left off, and each row's half of the
@@ -340,7 +323,7 @@ class VllmEngine:
         the first stop id, which `generate` pads the rows' ids with and pops. Refused by name: an option vLLM's
         sampling has no name for, and a config that sets a field transformers turns into a logits processor and
         vLLM's sampling has no name for (`UNMAPPED`), which the other engines would apply."""
-        config = self.shell.generation_config
+        config = self.model.generation_config
         for key in options:
             if key not in GENERATE:
                 raise ValueError(f"{key!r}: the vllm engine's generate maps {', '.join(GENERATE)} onto vLLM's "
@@ -392,8 +375,8 @@ def visit_request(row: dict, got: dict, call: int = 0, seen: list[Tensor] | None
     `stamped_at_call` from the inputs `seen` so far (`tokenizer` decodes them where a write is found online), as
     `NnterpEngine.visited` does, on nnterp's value for the request padded on the left to the batch's width in the
     prefill (`padded`), so that the records' indices hold, and set back unpadded where `visit_site` says to; the
-    head's one position is indexed as it is. `lm_head_output` is the logits (the engine serves it where the two are
-    one value)."""
+    head's one position is indexed as it is. `lm_head_output` is read and written as `logits`: nnterp serves it there
+    where the two are one value, and refuses it before any forward where they are not."""
     for site in row["sites"]:
         here = acting_at_call(site["records"], call)
         here = stamped_at_call(here, seen or [], tokenizer, call) if call > 0 else here

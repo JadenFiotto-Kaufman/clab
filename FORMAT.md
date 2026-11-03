@@ -1052,10 +1052,10 @@ kernels (`invariant`) a row's numbers depend on neither its batch companions nor
 
 What vLLM makes different, each refused by name before anything runs, or recorded:
 
-- The head is computed at the last position alone: `logits` (and `lm_head_output`, which this engine serves as the
-  logits where the model does nothing after the head, no `final_logit_softcapping`, `logit_scale` or `logits_scaling`
-  in its config, the two being one value then) is read or written at the prompt's last position only (`last_only`;
-  preflight refuses any other, once the schedule says where each record is done).
+- The head is computed at the last position alone: `logits` (and `lm_head_output`, which nnterp serves as the logits
+  where the model does nothing after the head, and refuses naming the softcap or scale where it does) is read or
+  written at the prompt's last position only (`last_only`; preflight refuses any other, once the schedule says where
+  each record is done).
 - The attention pattern and the scores are recomputed from the queries and keys: a read is served, a write is
   refused (`execute`); a read of them beyond the prefill, which compile refuses on every engine, a decode call could
   not serve here either.
