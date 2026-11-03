@@ -182,7 +182,7 @@ def value_rows(value: Tensor | list[Any] | dict[str, Any], dims: list[str], plac
     return out
 
 
-def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None = None) -> dict[str, Any]:
+def token(place: dict[str, Any], row: int, axis: str, k: int, at: int | None) -> dict[str, Any]:
     """Index `k` on a token axis as the token it is: on `pos` through the read's resolved positions, on `key`
     through its `select` or, unselected, the row's own key `k`, each a position of the row as `pos` counts them, and
     a key relative to the query at its offset from the position `at` the row is labelled with (its `offset` alone
