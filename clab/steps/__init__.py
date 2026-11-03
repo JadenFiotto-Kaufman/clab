@@ -67,7 +67,7 @@ def start_run(engine: Engine, plan: Plan, batch_size: int, padding: str = "datas
     return time.time()
 
 
-def check_run_options(batch_size: int, padding: str = "dataset") -> int:
+def check_run_options(batch_size: int, padding: str) -> None:
     """`batch_size` and `padding` as every run takes them: one row or more per batch, and a padding
     `data.PADDINGS` names, each refused by name otherwise (`clab.run` asks before the model loads, `start_run` for an
     engine's `execute` called on its own)."""
@@ -75,7 +75,6 @@ def check_run_options(batch_size: int, padding: str = "dataset") -> int:
         raise ValueError(f"batch_size {batch_size}: a batch holds one row or more (--batch-size N, N at least 1)")
     if padding not in data.PADDINGS:
         raise ValueError(f"padding {padding!r}: one of {', '.join(map(repr, data.PADDINGS))} (--padding)")
-    return batch_size
 
 
 def run(engine: Engine, plan: Plan, batch_size: int) -> None:
