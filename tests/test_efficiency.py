@@ -29,7 +29,7 @@ from clab.cli import main
 from clab.compile.state import Findings
 from clab.format.sweeps import coordinate_text, points, put
 from clab.plan import entries, runnable
-from clab.steps.batches import bind_ops
+from clab.steps.batches import bind_ops, op_binding
 
 COST = {"seconds", "memory", "forwards", "tokens", "real"}
 
@@ -487,7 +487,7 @@ def test_binding_a_write_leaves_nothing_for_the_collector():
     def bound() -> None:
         state: ChainMap = ChainMap()
         put(state, "counterfactual.v_cf", {}, torch.zeros(4, 1, 16))
-        bind_ops(plan, record, state, {}, [0, 1], Findings(), 0, {})
+        bind_ops(plan, op_binding(plan, record, {}, 0, {}), state, [0, 1], Findings())
     gc.collect()
     gc.disable()
     gc.set_debug(gc.DEBUG_SAVEALL)
