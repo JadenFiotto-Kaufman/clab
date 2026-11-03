@@ -32,7 +32,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
-from pydantic_core import ErrorDetails, core_schema
+from pydantic_core import core_schema
 from torch import Tensor
 
 from clab import featurizers, ops
@@ -1149,7 +1149,20 @@ class Plan(Record):
         try:
             super().__init__(**fields)
         except ValidationError as e:
-            raise PlanError("\n".join(message(error) for error in e.errors())) from None
+            said = []
+            for error in e.errors():                # each as `<document path>: <what>`
+                path = ""
+                for part in error["loc"]:
+                    if isinstance(part, int):
+                        path += f"[{part}]"
+                    elif not part.startswith("~"):
+                        path += f".{part}" if path else part
+                text = error["msg"].removeprefix("Value error, ")
+                if error["type"] == "kind":
+                    given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
+                    text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
+                said.append(f"{path}: {text}" if path else text)
+            raise PlanError("\n".join(said)) from None
 
     @model_validator(mode="before")
     @classmethod
@@ -1271,21 +1284,6 @@ def corpus_root(plan: Plan) -> str:
 def name(plan: Plan) -> str:
     """The plan's name: its document's file name, without the extension."""
     return os.path.splitext(os.path.basename(plan.document))[0] if plan.document else "plan"
-
-
-def message(error: ErrorDetails) -> str:
-    """A validation error as `<document path>: <what>`."""
-    path = ""
-    for part in error["loc"]:
-        if isinstance(part, int):
-            path += f"[{part}]"
-        elif not part.startswith("~"):
-            path += f".{part}" if path else part
-    text = error["msg"].removeprefix("Value error, ")
-    if error["type"] == "kind":
-        given = error["input"].get("kind") if isinstance(error["input"], dict) else error["input"]
-        text = f"unknown step kind {given!r}; valid: {', '.join(KINDS)}"
-    return f"{path}: {text}" if path else text
 
 
 def produced(steps: dict[str, Entry], declared: dict[str, FeaturizerEntry]) -> list[str]:
