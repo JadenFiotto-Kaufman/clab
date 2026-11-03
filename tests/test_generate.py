@@ -1206,3 +1206,123 @@ def test_a_kl_against_a_read_of_its_own_generation_is_refused_at_an_earlier_site
                                         r"an entry of this generation; an operand from an entry of its own step is "
                                         r"served in a forward, not inside a generate$"):
         edited("generated_steer", change).compile()
+
+
+def until(d):
+    """generated_answer.json reading the head through each row's `said` word (`substr` is generated token 1 on every
+    row, `energcalc` tokens 2 and 3; rows 2 and 3 never say theirs), through a literal every row says, through the
+    calls that chose those tokens, and the prompt through its first and last ` is` and through a word it never
+    says; with `count` of the first, thinking length's spelling."""
+    d["steps"]["answer"]["interventions"] = {
+        "said": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "until": True}}},
+        "lit": {"site": "head", "pos": {"frame": "1:", "scope": {"text": "substr", "until": True}}},
+        "chose": {"site": "head", "pos": {"frame": "1:", "scope": {"column": "prompts.said", "until": True,
+                                                                    "before": True}}},
+        "first": {"site": "l0", "pos": {"scope": {"text": " is", "until": True}}},
+        "last": {"site": "l0", "pos": {"scope": {"text": " is", "until": True, "occurrence": -1}}},
+        "never": {"site": "l0", "pos": {"scope": {"text": " Monday", "until": True}}},
+        "every": {"site": "head", "pos": {"frame": "1:"}}}
+    d["sites"]["l0"] = {"component": "layer_output", "layers": 0}
+    d["steps"] = {"answer": d["steps"]["answer"], "n": {"kind": "op", "op": "count", "of": "answer.said"}}
+    d["saves"] = ["n", *(f"answer.{k}" for k in d["steps"]["answer"]["interventions"])]
+
+
+def test_an_until_scope_is_the_frames_tokens_through_its_occurrence(engines):
+    """`until` is every token the frame holds up to and including the occurrence, and the whole frame on a row that
+    never says it, in the prefill too (nothing refused): the record says so per row, `count` is each row's number of
+    them, and each position holds the frame's own value there, on both engines and under `remote="local"`, which
+    agree to the bit."""
+    plan = edited("generated_answer", until).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("generated_answer", until).compile(),
+                                                                batch_size=BATCH_SIZE)
+            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    at = placed(runs["nnterp"])
+    inputs = [list(range(p, p + 5)) for p in PROMPT]                    # the five generated inputs of each row
+    assert at["answer.said"] == [inputs[0][:2], inputs[1][:4], inputs[2], inputs[3]]
+    assert at["answer.lit"] == [row[:2] for row in inputs]
+    assert at["answer.chose"] == [[p - 1 for p in at["answer.said"][0]], [p - 1 for p in at["answer.said"][1]],
+                                  list(range(PROMPT[2] - 1, PROMPT[2] + 5)), list(range(PROMPT[3] - 1, PROMPT[3] + 5))]
+    assert at["answer.first"] == [[0, 1, 2, 3]] * 4                       # `<s> ▁If ▁today ▁is`
+    assert at["answer.last"] == at["answer.never"] == [list(range(p)) for p in PROMPT]
+    v = runs["nnterp"].results
+    assert v["n"].tolist() == [2.0, 4.0, 5.0, 5.0]
+    for r, where in enumerate(at["answer.said"]):
+        assert torch.equal(v["answer.said"][r, :len(where)], v["answer.every"][r, :len(where)])
+        assert v["answer.said"][r, len(where):].isnan().all()
+    for kind, filled in runs.items():
+        assert placed(filled) == at and same(filled.results, v), kind
+
+
+L0 = {"component": "layer_output", "layers": 0}
+BEFORE = r"pos\.scope\.before: frame {} holds the prompt, and until with before starts before the frame's first token, {}, " \
+    r"so it names no position on any row; with before, until's frame is decode calls \('1:'\)$"
+
+
+@pytest.mark.parametrize("site, pos, ops, message", [
+    (L0, {"frame": "1:", "scope": {"text": "substr", "until": True}, "index": -1}, [{"op": "scale", "factor": 0.5}],
+     r"pos\.scope\.until: a write's positions beyond the prefill are decided call by call, as each runs, and until "
+     r"names positions up to an occurrence not yet seen then; until is a read's there, or a write's in the prefill$"),
+    (L0, {"frame": ":", "scope": {"text": "Handler", "until": True, "before": True}}, [],
+     BEFORE.format("':'", "position 0, which none comes before")),
+    (L0, {"scope": {"text": " is", "until": True, "before": True}}, [{"op": "scale", "factor": 0.5}],
+     BEFORE.format("0", "position 0, which none comes before")),
+    ({"component": "lm_head_output"}, {"frame": ":", "scope": {"text": "Handler", "until": True, "before": True}}, [],
+     BEFORE.format("':'", "at a generation's head the prompt's last, before which its prefill computes no head")),
+])
+def test_an_until_scope_is_a_reads_beyond_the_prefill_and_takes_before_over_decode_calls(site, pos, ops, message):
+    """A write beyond the prefill takes no `until`, its positions there decided call by call before the occurrence
+    is seen; and `until` with `before` over a frame that holds the prompt would start before the frame's first
+    token, which no row has (position 0, or at a generation's head the position before the prompt's last, where
+    its prefill computes no head): each is refused at compile by name, a read as a write, where over `":"` every
+    row came back `alignment_missing` and its `count` 0."""
+    def change(d):
+        d["steps"]["answer"]["interventions"] = {"w": {"site": site, "pos": pos, "ops": ops}}
+        d["steps"] = {"answer": d["steps"]["answer"]}
+        d["saves"] = ["answer"]
+    with pytest.raises(PlanError, match=message):
+        edited("generated_answer", change).compile()
+
+
+def cut(d):
+    """generated_contains.json's text after each row's `said` word (rows 0 and 1 say theirs, `substr` and
+    `energcalc`; rows 2 and 3 never do), after a literal every row says, after the first of a set compared
+    lowercased, and `contains` of the word in what follows it."""
+    d["steps"].update({
+        "after_said": {"kind": "op", "op": "detokenize", "of": "answer", "after": "prompts.said"},
+        "after_lit": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": "energ"}},
+        "after_set": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": ["TOSS", "CALC"], "lower": True}},
+        "after_none": {"kind": "op", "op": "detokenize", "of": "answer", "after": {"text": " Tuesday", "strip": True}},
+        "again": {"kind": "op", "op": "contains", "of": "after_said", "text": "prompts.said"}})
+    d["saves"] = ["text", "after_said", "after_lit", "after_set", "after_none", "said", "again"]
+
+
+def test_detokenize_after_keeps_each_rows_text_after_the_first_occurrence(engines):
+    """`detokenize` with `after` is each row's text after the first occurrence of the column's text or a literal (of
+    a set, the occurrence that ends first), the whole text on a row that never says it; so `contains` scores what
+    follows alone. Both engines and `remote="local"` give the same texts."""
+    plan = edited("generated_contains", cut).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("generated_contains", cut).compile(),
+                                                                batch_size=BATCH_SIZE).results
+            for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"}))}
+    v = runs["nnterp"]
+    said = [row["said"] for row in plan.data["prompts"].rows or []]
+    assert v["text"] == ["Handler substr energcalc tossorter"] * 4
+    assert v["after_said"] == [t.partition(w)[2] if w in t else t for t, w in zip(v["text"], said)] == \
+        [" energcalc tossorter", " tossorter", v["text"][2], v["text"][3]]
+    assert v["after_lit"] == ["calc tossorter"] * 4 and v["after_set"] == [" tossorter"] * 4
+    assert v["after_none"] == v["text"]
+    assert v["said"].tolist() == [1.0, 1.0, 0.0, 0.0] and v["again"].tolist() == [0.0, 0.0, 0.0, 0.0]
+    for kind, results in runs.items():
+        assert same(results, v), kind
+
+
+@pytest.mark.parametrize("step, message", [
+    ({"tokens": True, "after": {"text": "substr"}}, r"steps\.cut: after keeps each row's text after an occurrence, "
+                                                    r"and with tokens a row is its token strings"),
+    ({"after": "pairs.said"}, r"steps\.cut\.after: 'pairs\.said' is not <dataset>\.<column> over a dataset"),
+    ({"after": {"text": "substr", "before": True}}, r"steps\.cut\.after: a literal takes no 'before'"),
+])
+def test_detokenize_after_is_a_text_of_the_rows_and_cuts_text_alone(step, message):
+    with pytest.raises(PlanError, match=message):
+        edited("generated_contains", lambda d: d["steps"].update(
+            cut={"kind": "op", "op": "detokenize", "of": "answer", **step})).compile()

@@ -194,7 +194,7 @@ def widths(engine: Engine, plan: Plan) -> None:
                                      "over, so every site it is used at selects the same ones")
             last = address.dims(site.component)[-1]
             width = math.prod(map(len, laid[name].values())) if over is not None else \
-                len(kept[last]) if last in kept else sizes.get(last)
+                selectors.width_of(kept[last]) if last in kept else sizes.get(last)
             if width is None:
                 raise ValueError(f"{where}: {site.component}'s last axis is {last}, which grows with the input; "
                                  f"featurizer {name!r} needs a feature axis")

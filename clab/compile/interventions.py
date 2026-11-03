@@ -125,6 +125,9 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
     if write and len(site.select or {}) > 1:
         fail(f"{path}.site.select", f"an entry that writes selects on one axis; this one selects "
              f"{', '.join(site.select or {})}")
+    if write and selectors.offset((site.select or {}).get("key")) is not None:
+        fail(f"{path}.site.select.key", "keys relative to the query are a read's: a write selects keys counted "
+             "from the start, the same at every query (0, [0, 2], \"0:3\")")
     pos = positions.parse(spec.pos)
     frame, scope = pos["frame"], pos["scope"] or {}
     if step.kind != "generate" and selectors.select(frame, 1) != [0]:
@@ -132,6 +135,12 @@ def entry(cx: Compiling, path: str, spec: Intervention, plan: Plan, step: Forwar
              "call (0, or ':', the whole timeline, which in a forward is that call)")
     if frame != 0 and "key" in address.COMPONENTS[site.component]["dims"]:
         fail(f"{path}.site", f"{site.component}'s key axis grows with every decode call; read it in the prefill")
+    if scope.get("until") and scope.get("before") and not selectors.from_end(frame) and 0 in selectors.select(frame, 1):
+        first = "at a generation's head the prompt's last, before which its prefill computes no head" \
+            if step.kind == "generate" and site.component in positions.HEAD else "position 0, which none comes before"
+        fail(f"{path}.pos.scope.before", f"frame {frame!r} holds the prompt, and until with before starts before the "
+             f"frame's first token, {first}, so it names no position on any row; with before, until's frame is decode "
+             "calls ('1:')")
     if write and scope.get("before") and not positions.prefill(pos):
         fail(f"{path}.pos.scope.before", "a write beyond the prefill lands as its call runs, before the token it "
              "would predict is chosen; a scope that is before is a read's there, or a write's in the prefill")
@@ -253,11 +262,13 @@ def layers_of(layers: Selector | None) -> list[int] | None:
     return list(picks) if picks is not None and all(i >= 0 for i in picks) else []
 
 
-def kept_of(select: dict[str, Selector] | None) -> dict[str, list[int]]:
+def kept_of(select: dict[str, Selector] | None) -> dict[str, selectors.Kept]:
     """A site's `select` as the indices it keeps on each axis, as far as the document decides them: those of a
     selector counted from the start (`keyed`: a non-negative int or picks, a front-bounded slice, every `key`
-    selector), else `[]` until preflight resolves it among the model's."""
-    return {axis: keys(s) if keyed(s) else [] for axis, s in (select or {}).items()}
+    selector), a key relative to the query's offsets (`selectors.relative`), else `[]` until preflight resolves it
+    among the model's."""
+    return {axis: selectors.relative(s) if selectors.offset(s) is not None else keys(s) if keyed(s) else []
+            for axis, s in (select or {}).items()}
 
 
 def resolved(steps: dict, read: str, at: dict[str, int], swap: dict[str, str]) -> list | None:
@@ -308,7 +319,8 @@ def check_operands(engine: Engine, plan: Plan, where: str, o: Op, step: Forward 
         theirs_site = cast(Site, read.site)
         same = value.partition(".")[0] == where.partition(".")[0]
         if adapter and key == "with":
-            per, own = (math.prod(len(kept[a]) if a in kept else sizes[a] for a in address.dims(s.component)[2:])
+            per, own = (math.prod(selectors.width_of(kept[a]) if a in kept else sizes[a]
+                                  for a in address.dims(s.component)[2:])
                         for s, kept in ((theirs_site, theirs.kept), (site, record.kept)))
             if per != own:
                 raise ValueError(f"{where}: operand {value!r} is {per} wide per position, its axes after the "

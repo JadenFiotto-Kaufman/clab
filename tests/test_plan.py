@@ -8,7 +8,7 @@ import pickle
 from typing import Any
 
 import pytest
-from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, plan_of, snapshot
+from conftest import BATCH_SIZE, NAMES, REAL, ROOT, document, edited, placed, plan_of, same, snapshot
 from huggingface_hub import try_to_load_from_cache
 
 from clab import Plan, ops
@@ -572,6 +572,22 @@ def test_columns_renames_and_keeps_every_other_column():
     ({"path": "weekdays/data", "columns": {"answer": "cf_answer"}},
      r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this rename would overwrite; "
      r"name the new column otherwise$"),
+    ({"path": "weekdays/data", "columns": {"gold": {"from": "answer", "after": {"text": "####"}}}},
+     r"^data\.pairs\.columns\.gold\.after: row 0: '####' is not in its 'answer', ' Friday'$"),
+    ({"path": "weekdays/data", "columns": {"gold": {"from": "input", "after": {"text": "today is "},
+                                                    "before": {"text": "?"}}}},
+     r"^data\.pairs\.columns\.gold\.before: row 0: '\?' is not in its 'input' after the first 'today is ', "),
+    ({"path": "weekdays/data", "columns": {"gold": {"from": "counterfactual_inputs", "strip": True}}},
+     r"^data\.pairs\.columns\.gold\.from: row 0: 'counterfactual_inputs' is list, \['If today is "),
+    ({"path": "weekdays/data", "columns": {"gold": {"from": "gold", "strip": True}}},
+     r"^data\.pairs\.columns\.gold\.from: 'gold' is not a column of row 0; its columns: answer, "),
+    ({"path": "weekdays/data", "columns": {"answer": {"from": "input", "strip": True}}},
+     r"^data\.pairs\.columns\.answer: 'answer' is a column the rows keep, which this derived column would "
+     r"overwrite; name the new column otherwise$"),
+    ({"path": "weekdays/data", "columns": {"gold": {"from": "answer", "after": "#### "}}},
+     r"^data\.pairs\.columns\.gold\.after: '#### ' is a string; text written as it is is \{'text': '#### '\}"),
+    ({"path": "weekdays/data", "columns": {"gold": {"of": "answer"}}},
+     r"^data\.pairs\.columns\.gold: unknown field 'of'; valid: from, after, before, strip$"),
     ({"path": "weekdays/data", "template": {"add_generation_prompt": True}},
      r"^data\.pairs\.template: no step reads a chat column of 'pairs', and a template renders a chat \(a column "
      r"of \{'role', 'content'\} messages\) only$"),
@@ -581,6 +597,47 @@ def test_columns_renames_and_keeps_every_other_column():
 def test_a_dataset_option_that_cannot_apply_is_refused_by_name(d, message):
     with pytest.raises(PlanError, match=message):
         with_data(d).compile()
+
+
+# GSM8K-style rows, whose answer ends in `#### <the number>`, and the same rows with the derived columns written in
+# by hand.
+WORKED = [{"input": "If today is Thursday, tomorrow is", "answer": "Thursday and one day #### Friday\n"},
+          {"input": "If today is Saturday, tomorrow is", "answer": "Saturday and one day #### Sunday"}]
+CUT = {"gold": {"from": "answer", "after": {"text": "#### "}, "strip": True},
+       "day": {"from": "answer", "before": {"text": " and"}},
+       "middle": {"from": "answer", "after": {"text": "and "}, "before": {"text": " ####"}},
+       "raw": {"from": "answer", "after": {"text": "#### "}}}
+BY_HAND = [{**WORKED[0], "gold": "Friday", "day": "Thursday", "middle": "one day", "raw": "Friday\n"},
+           {**WORKED[1], "gold": "Sunday", "day": "Saturday", "middle": "one day", "raw": "Sunday"}]
+SCORED = {"read": {"kind": "forward", "input": "pairs.input", "interventions": {
+    "x": {"site": {"component": "logits"}, "pos": -1},
+    "at": {"site": {"component": "layer_output", "layers": 0}, "pos": {"scope": {"column": "pairs.day"}}}}},
+    "p": {"kind": "op", "op": "token_prob", "of": "read.x", "token": {"column": "pairs.gold", "strip": True}}}
+
+
+def test_a_derived_column_is_the_text_cut_from_its_source_and_joins_the_digest():
+    """A derived column is its source's text after `after`'s literal, then before `before`'s, then stripped under
+    `strip`, its source kept: the rows equal the rows with those columns written by hand, and so does their digest;
+    the compiled plan spells it as the document does."""
+    derived = with_data({"rows": WORKED, "columns": CUT}, steps=SCORED, saves=["p"]).compile()
+    by_hand = with_data({"rows": BY_HAND}, steps=SCORED, saves=["p"]).compile()
+    assert derived.data["pairs"].rows == BY_HAND and dataset("", "pairs", Data.model_validate({"rows": WORKED, "columns": CUT})) == BY_HAND
+    assert derived.data["pairs"].sha256 == by_hand.data["pairs"].sha256 == data.digest(BY_HAND)
+    assert compiled_form(derived)["data"]["pairs"]["columns"] == CUT
+
+
+def test_a_derived_column_scores_and_scopes_as_the_hand_built_one_does(engines):
+    """A metric's answer and a scope's column read from a derived column give the bits the hand-built column gives,
+    on both engines and under `remote="local"`, which agree."""
+    runs = {}
+    for name, d in (("derived", {"rows": WORKED, "columns": CUT}), ("by_hand", {"rows": BY_HAND})):
+        for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})):
+            plan = with_data(d, steps=SCORED, saves=["p", "read.at"]).compile()
+            runs[name, kind] = engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE)
+    want = runs["by_hand", "nnterp"]
+    assert placed(want)["read.at"] == [[4, 5, 6], [4]] and not want.results["p"].isnan().any()   # `▁Th urs day`, `▁Saturday`
+    for key, filled in runs.items():
+        assert same(filled.results, want.results) and placed(filled) == placed(want), key
 
 
 # A tiny Llama-3.2, whose chat template calls `strftime_now` to write today's date into the system header it adds.

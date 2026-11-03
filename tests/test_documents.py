@@ -19,6 +19,7 @@ from conftest import (BATCH_SIZE, FORWARD, GEMMA2, INSIDE, THREADS, close, docum
 from clab import Plan
 from clab.cli import main
 from clab.format.sweeps import points
+from clab import ops
 from clab.ops import edits
 from clab.plan import PlanError
 
@@ -559,3 +560,90 @@ def test_select_on_key_counts_each_rows_own_tokens(engines):
     for r, n in enumerate(lengths):
         own = [(t["key"], t["key_token"]) for t in table if t["row"] == r]
         assert own == [(k, tokens[r][k]) for k in range(n)]
+
+
+def offsets(d):
+    """attention_knockout.json's patterns at every layer and query, whole and at keys relative to each query (the
+    previous token, the query's own, two back, and one ahead, which the causal mask zeroes), and the mean over
+    queries 2 to 8 of the stripe two back, the induction score's spelling; at `{"index": "2:9"}` too."""
+    pattern = {"component": "attention_probabilities", "layers": ":"}
+    d["steps"] = {"clean": {"kind": "forward", "input": "pairs.input", "interventions": {
+        "whole": {"site": pattern, "pos": {"index": ":"}},
+        "near": {"site": {**pattern, "select": {"key": {"offset": [-1, 0, -2, 1]}}}, "pos": {"index": ":"}},
+        "stripe": {"site": {**pattern, "select": {"key": {"offset": -2}}}, "pos": {"index": "2:9"},
+                   "ops": [{"op": "mean", "over": ["pos"]}]},
+        "window": {"site": pattern, "pos": {"index": "2:9"}}}}}
+    d["saves"] = ["clean.whole", "clean.near", "clean.stripe", "clean.window"]
+
+
+@pytest.mark.parametrize("padding", ["dataset", "sorted"])
+def test_a_key_relative_to_the_query_is_the_block_read_sliced_at_each_query(engines, padding):
+    """`select: {"key": {"offset": k}}` is, at each query position p a read holds, the row's key p + k: the whole
+    pattern read at every query and sliced in Python at each row's own p + k, to the bit, NaN where p + k is no key
+    of the row (before its first, or past its last on a shorter row); a list of offsets is one key per offset, in
+    the order written; the stripe's mean over queries equals the mean of the block's diagonal taken in Python. The
+    same under `sorted` padding, and under `remote="local"`. A table labels each entry with its key p + k."""
+    plan = edited("attention_knockout", offsets).compile()
+    runs = {kind: engines(kind, plan.model, **options).execute(edited("attention_knockout", offsets).compile(),
+                                                                batch_size=BATCH_SIZE, padding=padding)
+            for kind, options in (("nnterp", {}), ("ndif", {"remote": "local"}))}
+    filled = runs["nnterp"]
+    v, at = filled.results, placed(filled)
+    whole, near = v["clean.whole"], v["clean.near"]
+    assert whole.shape == (2, 4, 11, 4, 11) and near.shape == (2, 4, 11, 4, 4)       # layers, rows, pos, heads, key
+    want = torch.full_like(near, float("nan"))
+    for r, where in enumerate(at["clean.near"]):
+        for j, p in enumerate(where):
+            for m, k in enumerate([-1, 0, -2, 1]):
+                if 0 <= p + k < len(where):
+                    want[:, r, j, :, m] = whole[:, r, j, :, p + k]
+    assert same(near, want)
+    assert near[..., 3].nan_to_num().eq(0).all() and near[:, :, 0, :, 0].isnan().all()     # ahead masked; none back
+    window, queries = v["clean.window"], at["clean.window"]
+    assert queries == [list(range(2, 9))] * 4
+    diagonal = torch.stack([window[:, :, j, :, p - 2] for j, p in enumerate(queries[0])], 2)[..., None]
+    layout = ["layers", "rows", "pos", "num_heads", "key"]
+    assert same(v["clean.stripe"], ops.call("mean", diagonal, {"over": ["pos"]}, dims=layout))
+    assert same(runs["ndif"].results, v) and placed(runs["ndif"]) == at
+    labelled = [t for t in filled.table("clean.near") if t["layer"] == 0 and t["row"] == 1 and t["pos"] == 4]
+    tokens = filled.run.tokens["pairs.input"][1]
+    assert [(t["key"], t["key_token"]) for t in labelled] == [(k, tokens[k]) for k in (3, 4, 2, 5)]
+
+
+def test_a_key_relative_to_the_query_is_labelled_by_its_offset_once_the_queries_are_reduced(engines):
+    """The stripe reduced over its queries has no position to count a key from: a table labels it with its offset."""
+    filled = engines("nnterp", plan_of("attention_knockout").model).execute(
+        edited("attention_knockout", offsets).compile(), batch_size=BATCH_SIZE)
+    table = filled.table("clean.stripe")
+    assert len(table) == 2 * 4 * 1 and all(t["offset"] == -2 and "key" not in t for t in table)
+
+
+@pytest.mark.parametrize("entry, message", [
+    ({"site": {"component": "attention_probabilities", "layers": 0, "select": {"key": {"offset": -1}}}, "pos": -1,
+      "ops": [{"op": "scale", "factor": 0.0}]},
+     r"interventions\.e\.site\.select\.key: keys relative to the query are a read's: a write selects keys counted "
+     r"from the start"),
+    ({"site": {"component": "attention_probabilities", "layers": 0, "select": {"num_heads": {"offset": -1}}}},
+     r"select num_heads \{'offset': -1\}: an offset is relative to the query position, on an attention pattern's "
+     r"key axis alone"),
+    ({"site": {"component": "attention_probabilities", "layers": 0, "select": {"key": {"offset": [-1, -1]}}}},
+     r"offsets \[-1, -1\] name at least one, each once"),
+    ({"site": {"component": "attention_probabilities", "layers": 0, "select": {"key": {"offset": -1}}}, "pos": -1,
+      "ops": [{"op": "sub", "with": "base.whole"}]},
+     r"keys relative to the query are a read's"),
+    ({"site": {"component": "attention_probabilities", "layers": 0}, "pos": -1,
+      "ops": [{"op": "add", "with": "base.prev"}]},
+     r"interventions\.e\.ops\[0\]\.with: 'base\.prev' holds the keys at offsets \[-1\] from each query, and this "
+     r"write's selection holds every key; a key relative to the query pairs with the same offsets alone"),
+])
+def test_a_key_relative_to_the_query_is_a_reads_on_the_key_axis(entry, message):
+    def change(d):
+        pattern = {"component": "attention_probabilities", "layers": 0}
+        d["steps"] = {
+            "base": {"kind": "forward", "input": "pairs.input", "interventions": {
+                "whole": {"site": pattern, "pos": -1},
+                "prev": {"site": {**pattern, "select": {"key": {"offset": -1}}}, "pos": -1}}},
+            "patched": {"kind": "forward", "input": "pairs.input", "interventions": {"e": entry}}}
+        d["saves"] = ["base.whole"]
+    with pytest.raises(PlanError, match=message):
+        edited("attention_knockout", change).compile()

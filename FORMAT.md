@@ -40,7 +40,7 @@ the model runs (`device`) is a run option, not the document's. The attention int
 - `split: str or null = null`
 - `shuffle: bool = false`
 - `take: int or null = null`
-- `columns: object of str or null = null`
+- `columns: object of str or derived column or null = null`
 - `template: object of Any or null = null`
 
 A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
@@ -54,7 +54,9 @@ dataset, the hub dataset's split (left out: its only one) or the rows of a file 
 `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
 N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
 it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
+fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
 `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
 "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
 checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
@@ -65,20 +67,48 @@ JSON. Refused by name: a second source, an `hf` that is not `<owner>/<name>`, `h
 than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
 several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
 rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
-a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
+keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
+`template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
+template without `date_string`. `sha256` and `n_rows` describe the rows these leave.
+
+### A derived column
+
+- `from: str`
+- `after: text or null = null`
+- `before: text or null = null`
+- `strip: bool = false`
+
+`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
+bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
+computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
+before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
+one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+"answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
+name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
+occur, naming the row.
 
 ### `sites.<name>`, or a `site` inline
 
 - `component: str`
 - `layers: selector or a sweep or null = null`
-- `select: object of selector or a sweep or null = null`
+- `select: object of selector or key offset or a sweep or null = null`
 
 A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
 layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
 it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-(`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+(`{<axis>: <selector>}`, which Components describes; on `key`, a selector of keys counted from the start, or
+keys relative to each query, `{"offset": k}`, a key offset). A read and a write take `layers` alike: an entry is
 made at each layer they pick, in one forward.
+
+### A key relative to the query
+
+- `offset: int or list of int or a sweep`
+
+`{"offset": k}` or `{"offset": [k, ...]}`: on an attention pattern's `key` axis, at each query position p the
+entry reads, key p + k of the row's own keys, one per offset in the order written (`{"offset": -1}` the previous
+token, `[-1, -2]` the two before it): the axis is as wide as the offsets are many, and an entry is missing (NaN)
+where p + k is not one of the row's keys (before its first or past its last). A read's alone: a write selects
+keys counted from the start.
 
 ### A column read as text
 
@@ -91,6 +121,12 @@ A column read as text, where a scope searches for it or a metric scores it: `"<d
 whole: `pairs.counterfactual_inputs_variables[0].entity`). A row's value may be a list of strings: a set, any
 of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
 lowercased, and `strip` makes its surrounding whitespace optional.
+
+Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
+column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
+same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
+(tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
+list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
 
 A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
 whitespace, its positions the original's.
@@ -105,11 +141,13 @@ the last without trailing, a one-token answer's without either (` Yes`, ` yes`, 
 flags), and one between them keeps its whitespace, a whitespace-only one itself alone (`" New York "` is
 `▁New ▁York`, `▁New` standing for `New` too).
 
-### A literal in a list `input`
+### A text
 
 - `text: str`
 
-`{"text": "<literal>"}`: literal text in a list `input`.
+`{"text": "<text>"}`: a text, written as it is, in a list `input` and as a derived column's `after` or
+`before`: one string, its only field (no `strip` or `lower`, and no list, which a literal in an op's argument
+takes).
 
 ### An entry of `interventions`
 
@@ -189,9 +227,10 @@ refusal's token counts.
 pos      := int                                # shorthand: {"frame": 0, "index": int}
           | {"frame"?: frame, "scope"?: scope, "index"?: swept}        # index default ":"
 frame    := swept                                                     # default 0
-scope    := {"column": column or a list, "occurrence"?: swept, "before"?: bool}
-          | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "before"?: bool}
-          | {"turn": "<role>", "occurrence"?: swept, "before"?: bool}      # occurrence default 0
+scope    := {"column": column or a list, "occurrence"?: swept, "until"?: bool, "before"?: bool}
+          | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "until"?: bool,
+             "before"?: bool}
+          | {"turn": "<role>", "occurrence"?: swept, "until"?: bool, "before"?: bool}   # occurrence default 0
 column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
 selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
 swept    := selector | {"sweep": [selector, ...]}                     # a point per selector
@@ -241,6 +280,20 @@ token is never an input to any call, so a word ending on it is `alignment_missin
 "user", "occurrence": 1}` is the second user message, `":"` every one of them); a role the row has no
 message of is refused by name.
 
+**until** (default false): the scope is every token the frame selected up to and including the last token of
+the occurrences `occurrence` picks, rather than those occurrences' tokens; on a row that has fewer of them than
+it picks (the text never occurs), every token the frame selected, in the prefill too, so nothing is refused
+and the record says per row where it ended. So `{"frame": "1:", "scope": {"text": "</think>", "until": true}}`
+is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
+length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
+holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
+until is the whole frame, as on a row that never says it. An until scope holds a different number of positions
+on each row. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
+computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
+prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
+then, so a write there takes no until.
+
 **before** (default false): the positions that predict the scope's tokens, each the position just
 before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
 the frame names the row's last call, the token that call chose (the row's last generated token, which
@@ -260,12 +313,12 @@ A record has a static width (the same number of positions on every row, `(rows, 
 names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
 index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
 `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
-row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
-that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
-row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
-name, since it has no token to write.
+the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide
+as the widest row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a
+static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a
+result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a
+shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused
+by name, since it has no token to write.
 
 ## Step kinds
 
@@ -273,12 +326,12 @@ Each entry of `steps` is `{"kind": <kind>, ...fields}`.
 
 ### `forward`
 
-- `input: str or list of str or literal`
+- `input: str or list of str or text`
 - `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
-literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+`<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
+of one dataset, joined per row as they are, with nothing between (`["days.input",
 "days.answer"]` appends each row's answer to its prompt: teacher forcing); `interventions` (a bundle's
 name, a dict of entries, or a list of either) are what it reads and writes, each entry binding
 `<step>.<name>`, in the order written.
@@ -307,7 +360,7 @@ batch size, padding and thread count.
 
 ### `generate`
 
-- `input: str or list of str or literal`
+- `input: str or list of str or text`
 - `interventions: a bundle's name, an object of entry, or a list of them = {}`
 
 Generation from every row of a dataset input. It owns `input` and `interventions`, as a forward does;
@@ -429,7 +482,7 @@ scored on the training rows after each epoch.
 
 Fields a document leaves out, which compile (or, for `run`, the engine) fills. Compile writes what the document decides; preflight, with the model in hand, completes the same records in place (a `layers` or `kept` a slice or a negative selector leaves to the model, every read's and write's `positions`), so the manifest holds the records as the run completed them.
 
-- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
+- A value's record (`Intervention`, `OpStep`, and a `Generate`'s own value): `dims` (the layout of the value: its axes, in order), `dataset` (the dataset whose rows the step's values are aligned to), `layers` (the model layers the value is from, in the order its site picks them: the labels of its `layers` axis where it has one, the one layer it was read at where not; null for a value from no layer (a model's own, or one reduced over its layers); `[]` until preflight resolves a slice or a layer counted from the last), `read` (the entry whose value this is, or descends from through op steps, whose positions it holds where it has a `pos` axis; null for a value no read made), `width` (how many positions the value holds on every row, where it has a `pos` axis and that is one number: the static width its read's `pos` names, confirmed from the positions preflight resolves; null where rows hold different numbers of positions, or there is no `pos` axis), `kept` (the indices a site's `select` keeps on each axis it selects, in their order (`key`: the keys it picks, or `{"offset": [...]}`, those relative to each query), an op step's those of the value it is over on the axes its own still has; an unselected axis is whole, and `[]` stands until preflight resolves a slice or a negative pick), `space` (the coordinates the value is in: the encodes left open around it, outermost first, each its `featurizer` and `select`; none for the site's own layout), `axes` (the sweep axes the value depends on, in axis order: the sweeps on its own entry (its site, its positions, an op's literal argument), those of every value or featurizer its ops name, and, for an entry of a forward, the forward's (`schedule`); an op step's are its `of`'s and its operands'; a fit member's are the fit's. The value is one per distinct point on these axes, and its result is keyed by them)
 - `Plan`: `document` (the document file the plan was read from; written relative to its corpus root, where data paths and bundles resolve), `compiled` (whether this is the compiled plan), `sweeps` (each sweep axis by label, in axis order, with its values), `results` (each saved value by name; a swept one is a dict keyed by coordinate), `run` (how the plan ran, set by `execute`)
 - `Data`: `sha256` (the digest of the rows, which a re-materialization must match), `n_rows` (how many rows the dataset has)
 - `Intervention`: `gathered` (whether the run takes the entry's value off the model: `saves` names it, a later entry or step uses it, or a gathered `grad` entry is its gradient), `per_call` (how many of the ops after the entry's last edit a generation runs at each call it reads the entry beyond its prefill, on that call's own value, the rest running once the calls are arranged by position: the leading ones that are positionwise (Ops), keep the `pos` axis and take no operand that has one, up to the first that scores an answer of several tokens, which preflight finds; 0 in a forward and in the prefill), `positions` (the positions the entry resolved to, per row (as `pos` counts them: an index into the row's prompt tokens, BOS first, then its generated ones; `alignment_missing` for a row it does not reach), under the dataset whose rows they are (a fit body's entry has them under each dataset an eval reads it over); the prefill's set by preflight, a generation's decode calls' by the run)
@@ -539,9 +592,11 @@ features are the adapter's width; a gate `apply`'s `with`, the value it interpol
 An argument is filled by a document as its type says: `Value` is a named value or a number; `Tokens` a column (a
 `Column` reference: the string, or the object with `strip` and `lower`) resolved through the value's own
 vocabulary, the tokenizer's against logits or a probe's classes against its scores (a metric scores a
-`vocab_size` or a `classes` axis); `Text` a column read as text; `Featurizer` a featurizer's name; anything else
-is a literal. `renormalize`'s reference is the value at the site before the step's writes (inside an `encode`,
-its coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
+`vocab_size` or a `classes` axis); `Text` a column read as text; either one may be a literal in the column's place,
+`{"text": "</think>"}` (with `strip` and `lower` as a column's reference has them, a list a set), read as a column
+holding that text on every row is; `Featurizer` a featurizer's name; anything else is the value as written.
+`renormalize`'s reference is the value at the site before the step's writes (inside an `encode`, its
+coordinates). An operand may name an earlier entry of the same forward, at this entry's site or at one the
 forward reaches before it (`patched.premix` in `patched`): it is that entry's value in this batch, at its
 positions.
 
@@ -616,7 +671,7 @@ stays missing: NaN.
 | `grad` | `of: str` | keeps the layout | The gradient, at the entry's selection, of the sum of `of`'s value over every axis it has (a missing row adds nothing) with respect to the value at this entry's site as the forward goes on with it there, after the writes listed before this entry at that site: `of` names, bare, an entry of the same forward at a site the forward reaches after this one, whose ops a gradient passes through. The first op of an entry of a `forward` (see above); what it meets is that gradient already, which it gives back as it is. |
 | `top_k` | `k: int`, `over: str = "vocab_size"` | removes the axis `over` names, which it ranks (by default `vocab_size`), and adds `k` | The `k` largest along the axis `over` names, the largest first: `ids`, their indices along it, and over a vocabulary (`vocab_size`, a probe's `classes`) `probs`, their float32 softmax over it, over another axis `values`, the ranked values as the value has them. By default the most likely tokens, ranked by their logits (as a step, its value also holds their `tokens`, decoded); over `features`, a featurizer's coordinates after an `encode`. Along a ragged axis (a pattern's `key`) the entries that are there are ranked, and a pick past them is id -1. An exact tie goes to the lower index (`ranked`), so `top_k`'s first is `argmax`'s. |
 | `argmax` | `over: str = "vocab_size"` | removes the axis `over` names, which it ranks: by default `vocab_size` | The index of the largest along the axis `over` names: by default the id of the most likely token, ranked by its logit. Along a ragged axis the largest of the entries that are there; -1 where none is (a missing value). An exact tie goes to the lower index, as in `top_k`. |
-| `detokenize` | `tokens: bool = false` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. |
+| `detokenize` | `tokens: bool = false`, `after: Text = null` | needs new; removes new | Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on); with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text": "</think>"}`) keeps each row's text after its first occurrence there (`following`), the whole text where it does not occur, so `contains` scores what follows it alone. |
 | `abs` | — | keeps the layout | `|of|`, each entry's absolute value, in float32. |
 | `exp` | — | keeps the layout | `e ** of`, each entry's exponential, in float32 (`inf` past about 88.7). |
 | `log` | — | keeps the layout | `ln(of)`, each entry's natural logarithm, in float32: `-inf` at 0 and NaN below it. |
@@ -648,8 +703,9 @@ in their order, and the axis stays in the layout, so that a site has one layout 
 keeps one index, an axis of size 1 (`{"num_heads": 3}` is head 3 alone, the same value as `[3]`), where an
 int `layers` drops its axis. `key` is each row's own keys, its positions as `pos` counts them (key 0 is BOS
 where there is one), so a selector there picks a fixed number of keys counted from the start (`0`, `[0, 2]`,
-`"0:3"`); unselected, the axis is as wide as the input's longest row, key j the row's token j, and past a
-shorter row's own keys a read is NaN and a write changes nothing (its padding's keys stay as they are).
+`"0:3"`), or, in a read, keys relative to each query position, `{"offset": -1}`; unselected, the axis is as
+wide as the input's longest row, key j the row's token j, and past a shorter row's own keys a read is NaN and a
+write changes nothing (its padding's keys stay as they are).
 `stream` marks the residual-stream values `readout` may project. `ids` names the size an integer component's
 entries are ids under (`expert_indices`' are experts, under `num_experts`): a write there is a `swap` of ids, each a
 whole number from 0 below that size, since the model indexes with them.

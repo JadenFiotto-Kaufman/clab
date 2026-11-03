@@ -20,8 +20,9 @@ WHAT = ("records", "steps", "ops", "components", "featurizers", "pos", "engines"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "`sites.<name>`, or a `site` inline": plan.Site,
-           "A column read as text": plan.Column, "A literal in a list `input`": plan.TextPart,
+RECORDS = {"`model`": plan.Model, "`data.<name>`": plan.Data, "A derived column": plan.Derived,
+           "`sites.<name>`, or a `site` inline": plan.Site, "A key relative to the query": plan.Offset,
+           "A column read as text": plan.Column, "A text": plan.TextPart,
            "An entry of `interventions`": plan.Intervention, "An op in an entry": plan.Op, "`pos`": plan.Pos}
 
 
@@ -30,7 +31,8 @@ FIT = {"optimizer": plan.Optimizer, "early_stop": plan.EarlyStop}
 
 NAMES = {plan.Sweep: "a sweep", plan.Site: "site", plan.Pos: "pos", plan.Scope: "scope", plan.Op: "op",
          plan.Intervention: "entry", plan.Optimizer: "optimizer", plan.EarlyStop: "early_stop",
-         plan.Entry: "step", plan.Column: "column", plan.TextPart: "literal",
+         plan.Entry: "step", plan.Column: "column", plan.TextPart: "text", plan.Derived: "derived column",
+         plan.Offset: "key offset",
          get_args(plan.Interventions)[0]: "a bundle's name, an object of entry, or a list of them"}
 
 
@@ -63,7 +65,7 @@ def fields(model: type[BaseModel]) -> list[str]:
         if name == "kind":
             continue
         field = model.model_fields[name]
-        text = f"{name}: {spell(field.annotation)}"
+        text = f"{field.alias or name}: {spell(field.annotation)}"
         out.append(text if field.is_required() else f"{text} = {as_json(field.default)}")
     return out
 

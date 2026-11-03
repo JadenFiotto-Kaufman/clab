@@ -2,9 +2,13 @@
 say, a set is any of its members, a scope that is `before` is the positions that predict its tokens, and a list
 `input` joins columns per row."""
 
+import json
+import os
+import re
+
 import pytest
 import torch
-from conftest import BATCH_SIZE, placed, plan_of
+from conftest import BATCH_SIZE, ROOT, edited, placed, plan_of, same
 
 from clab import Plan, ops
 from clab.compile import answers
@@ -394,3 +398,118 @@ def test_a_metric_against_a_probes_classes_scores_every_class():
              steps={"f": {"kind": "forward", "input": "days.input", "interventions": {
                  "h": {"site": {"component": "layer_output", "layers": 0}, "pos": -1, "ops": ops}}}},
              saves=["f.h"]).compile()
+
+
+# The same text on every row, as a column the rows carry and as a literal: what T3 built a constant column for.
+CONSTANT = [{**row, "end": " Friday", "sun": " Sunday", "yes": [" Yes", " True"], "pair": " New York"} for row in DAYS]
+
+
+def scored(literal: bool) -> dict:
+    """Every metric that takes `Tokens`, inside an entry and as a step, against a literal (`literal`) or the
+    constant column that holds the same text: one token, a set, the flags, an answer of several tokens lined up
+    with a `before` scope."""
+    def ref(column: str, text: str | list[str], **flags: bool) -> str | dict:
+        if literal:
+            return {"text": text, **flags}
+        return {"column": f"days.{column}", **flags} if flags else f"days.{column}"
+    return {
+        "ask": {"kind": "forward", "input": "days.input", "interventions": {
+            "p": {"site": HEAD, "pos": -1, "ops": [{"op": "token_prob", "token": ref("end", " Friday")}]},
+            "logits": {"site": HEAD, "pos": -1}}},
+        "p_set": {"kind": "op", "op": "token_prob", "of": "ask.logits", "token": ref("yes", [" Yes", " True"])},
+        "p_flags": {"kind": "op", "op": "token_prob", "of": "ask.logits",
+                    "token": ref("end", " Friday", strip=True, lower=True)},
+        "ld": {"kind": "op", "op": "logit_diff", "of": "ask.logits", "a": ref("end", " Friday"), "b": ref("sun", " Sunday")},
+        "logit": {"kind": "op", "op": "token_logit", "of": "ask.logits", "token": ref("sun", " Sunday")},
+        "hit": {"kind": "op", "op": "match", "of": "ask.logits", "expected": ref("yes", [" Yes", " True"])},
+        "forced": {"kind": "forward", "input": ["days.input", "days.pair"], "interventions": {"l": {
+            "site": HEAD, "pos": {"scope": {"column": "days.pair", "occurrence": -1, "before": True}},
+            "ops": [{"op": "cross_entropy", "target": ref("pair", " New York")}]}}},
+        "nll": {"kind": "op", "op": "cross_entropy", "of": "ask.logits", "target": ref("end", " Friday", strip=True)}}
+
+
+def test_a_literal_scores_as_the_constant_column_of_its_text_does(engines):
+    """A literal `{"text": ...}` where a metric takes `Tokens` is tokenized as a column's value is, flags and sets
+    alike, and lines up with a read as a column of several tokens does: every metric equals the same metric of the
+    constant column that holds its text, to the bit, on both engines and under `remote="local"`, which agree."""
+    saves = ["ask.p", "p_set", "p_flags", "ld", "logit", "hit", "forced.l", "nll"]
+    runs = {}
+    for literal in (True, False):
+        for kind, options in (("nnterp", {}), ("hooks", {}), ("ndif", {"remote": "local"})):
+            plan = doc(scored(literal), saves, rows=CONSTANT)
+            runs[literal, kind] = engines(kind, plan.model, **options).execute(plan, batch_size=BATCH_SIZE).results
+    first = runs[False, "nnterp"]
+    assert first["forced.l"].shape == (2, 2) and not first["forced.l"].isnan().any()     # ` New York`, two tokens
+    for key, results in runs.items():
+        assert same(results, first), key
+
+
+def test_contains_takes_a_literal_as_the_constant_column_of_its_text(engines):
+    """`contains` of a literal equals `contains` of the constant column holding its text, to the bit: 1 on every
+    row, since the tiny Llama says `substr` after every prompt, and 0 where the literal is a word none says."""
+    rows = [{**row, "word": "substr", "none": " Tuesday"} for row in json.load(open(os.path.join(ROOT, "data",
+                                                                                                   "weekdays", "said.json")))]
+
+    def change(literal: bool):
+        def edit(d):
+            d["data"] = {"prompts": {"rows": rows}}
+            d["steps"]["said"]["text"] = {"text": "substr"} if literal else "prompts.word"
+            d["steps"]["none"] = {"kind": "op", "op": "contains", "of": "text",
+                                  "text": {"text": " Tuesday", "strip": True} if literal else
+                                  {"column": "prompts.none", "strip": True}}
+            d["saves"].append("none")
+        return edit
+    got = {literal: run(engines, edited("generated_contains", change(literal)).compile()).results
+           for literal in (True, False)}
+    assert got[True]["said"].tolist() == [1.0] * 4 and got[True]["none"].tolist() == [0.0] * 4
+    assert same(got[True], got[False])
+
+
+@pytest.mark.parametrize("token, message", [
+    ("</think>", r"token: '</think>' is not <dataset>\.<column> over a dataset; datasets: days; text written as it "
+                 r"is, the same on every row, is \{'text': '</think>'\}"),
+    ({"text": " Friday", "column": "days.end"}, r"token: Value error, unknown field 'text'; valid: column, strip, lower"),
+    ({"text": " Friday", "upper": True}, r"token: a literal takes no 'upper'"),
+    ({"text": []}, r"token\.text: \[\] is not a literal's text"),
+    ({"text": " Friday", "strip": "yes"}, r"token\.strip: 'yes' is not a boolean"),
+])
+def test_a_literal_is_a_text_and_its_flags(token, message):
+    steps = {"ask": {"kind": "forward", "input": "days.input", "interventions": {"logits": {"site": HEAD, "pos": -1}}},
+             "p": {"kind": "op", "op": "token_prob", "of": "ask.logits", "token": token}}
+    with pytest.raises(PlanError, match=message):
+        doc(steps, ["p"], rows=CONSTANT)
+
+
+def test_a_literal_names_a_probes_class_as_a_constant_column_does(engines):
+    """Past a probe's `encode`, a literal names one of its classes, as the constant column holding it does, to the
+    bit; a literal that is no class is refused by name before any forward."""
+    def probed(expected) -> Plan:
+        return Plan(model=TINY, data={"days": {"rows": CONSTANT}},
+                    featurizers={"probe": {"kind": "linear", "classes": "days.answer"}},
+                    steps={"f": {"kind": "forward", "input": "days.input", "interventions": {
+                        "h": {"site": {"component": "layer_output", "layers": 0}, "pos": -1,
+                              "ops": [{"op": "encode", "featurizer": "probe"}, {"op": "token_prob", "token": expected}]}}}},
+                    saves=["f.h"]).compile()
+    got, want = (run(engines, probed(e)).results["f.h"] for e in ({"text": " Friday"}, "days.end"))
+    assert same(got, want) and not got.isnan().any()
+    with pytest.raises(ValueError, match=r"token is the literal ' Monday', not one of the classes of probe 'probe'"):
+        run(engines, probed({"text": " Monday"}))
+
+
+@pytest.mark.parametrize("token, written", [("days.end", "days.end"), ({"text": " Friday"}, '{"text": " Friday"}')])
+@pytest.mark.parametrize("probe", [False, True])
+def test_an_answer_is_laid_against_rows_so_a_value_without_them_is_refused_it(token, written, probe):
+    """A metric's answer, a column's or a literal's alike, is laid against the rows of the value it scores, so over a
+    value reduced over its rows (logits, or a probe's scores) both are refused at compile by the one rule an operand
+    keeps, where a literal compiled and failed after the forward on the missing `rows` axis."""
+    probed = {"featurizers": {"probe": {"kind": "linear", "classes": "days.answer"}}} if probe else {}
+    site = {"component": "layer_output", "layers": 0} if probe else HEAD
+    steps = {"f": {"kind": "forward", "input": "days.input", "interventions": {"x": {"site": site, "pos": -1}}},
+             **({"z": {"kind": "op", "op": "encode", "of": "f.x", "featurizer": "probe"}} if probe else {}),
+             "avg": {"kind": "op", "op": "mean", "of": "z" if probe else "f.x", "over": ["rows"]},
+             "p": {"kind": "op", "op": "token_prob", "of": "avg", "token": token}}
+    axis = "classes" if probe else "vocab_size"
+    with pytest.raises(PlanError, match=rf"^steps\.p\.token: '{re.escape(written)}' is laid out \['rows'\]; 'token_prob' "
+                                        rf"scores a value laid out \['pos', '{axis}'\], and an operand's axes are among "
+                                        r"the value's, in its order \(those it leaves out it broadcasts over\)$"):
+        Plan(model=TINY, data={"days": {"rows": CONSTANT}}, steps=steps, saves=["p"], **probed).compile()

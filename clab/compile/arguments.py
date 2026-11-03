@@ -2,13 +2,14 @@
 featurizer), the layout of its result, and the one rule an operand keeps against the value it meets (`mismatch`)."""
 
 import inspect
+import json
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from clab import featurizers, ops
-from clab.compile.answers import column_ref, text_ref
+from clab.compile.answers import column_ref, literal, text_ref
 from clab.compile.state import Compiling
-from clab.format import address, data, registry
+from clab.format import address, data, registry, selectors
 from clab.format.sweeps import points
 from clab.plan import Labelled, Op, OpStep, Plan, arguments, fail, kind_of, produced, record_of
 
@@ -71,7 +72,8 @@ def references(name: str, args: dict, resolve: Callable[[str, Any, inspect.Param
         record = resolve(key, value, p) if named and value is not None else None
         if record is not None:
             ref = data.column_of(value) if p.annotation != ops.Value else None
-            found[key] = (ref[0] if ref else str(value), record)
+            found[key] = (ref[0] if ref else json.dumps(value, ensure_ascii=False) if data.literal_of(value)
+                          else str(value), record)
     return found
 
 
@@ -80,7 +82,9 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
     """How compile resolves an op's named arguments (`references`) at `path`, at the consumer's point `at`: a value
     to its record (`value_of`, an entry of the forward being compiled among `live`), a column to a row per example
     of its dataset once it is checked to hold text on every row, or, scored against a probe's `classes`, its
-    labels, whatever they are (`classes`), and a featurizer to nothing, once it is checked to exist."""
+    labels, whatever they are (`classes`), a literal to a row per example of whatever dataset the value it goes with
+    has rows of, the same text on each, once it is checked to be one (`literal`), and a featurizer to nothing, once it
+    is checked to exist."""
     def resolve(key: str, value: Any, p: inspect.Parameter) -> Labelled | None:
         where = f"{path}.{key}"
         if p.annotation == ops.Value:
@@ -88,6 +92,8 @@ def resolver(cx: Compiling, path: str, classes: bool, at: dict[str, int],
         if p.annotation == ops.Featurizer:
             featurizer_ref(cx, value, where)
             return None
+        if literal(value, where):
+            return Labelled(dims=["rows"])          # an answer is laid against rows, a column's and a literal's alike
         ref = data.column_of(value)
         dataset = column_ref(cx, ref[0] if ref else value, where, None) if classes and p.annotation == ops.Tokens \
             else text_ref(cx, value, where, None)
@@ -114,7 +120,7 @@ def layout(path: str, name: str, args: dict, dims: list[str], where: str, kind: 
     return out
 
 
-def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, list[int]], int | None]:
+def carried(of: Labelled, dims: list[str]) -> tuple[list[int] | None, dict[str, selectors.Kept], int | None]:
     """What an op's value keeps of the labels of the value it is over: its layers, unless the op removed a
     `layers` axis (then it is from no layer), the indices kept on each selected axis it still has, and its width
     where it still has a `pos` axis."""
@@ -184,11 +190,11 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
     """Why the value `written` names, laid out `theirs`, cannot be operand `key` of op `name` on the value `mine`
     names, laid out `ours`, at one point; None where it can. The rule is Ops' one rule (`ops.ABOUT`): an operand
     may leave out any axis of the value it meets, which it then broadcasts over; every axis it has is the value's,
-    in the value's order, with the same label (`layers` by model layer, `rows` by dataset, `pos` by the read whose
-    positions both hold or by `width`, a selected axis by the indices kept in order, `features` by the encodes it is
-    in); a `layers` axis it has covers the layers the op acts at and is aligned by id. A number broadcasts in any
-    coordinates; an adapter's `with` (`adapter`: the op is an `apply` of one, `plan.adapts`) is compared on its rows
-    and positions alone. `write` says the op is one of an
+    in the value's order, with the same label (`layers` by model layer, `rows` by dataset, a literal's, which names
+    none, by any one, `pos` by the read whose positions both hold or by `width`, a selected axis by the indices kept
+    in order, `features` by the encodes it is in); a `layers` axis it has covers the layers the op acts at and is
+    aligned by id. A number broadcasts in any coordinates; an adapter's `with` (`adapter`: the op is an `apply` of
+    one, `plan.adapts`) is compared on its rows and positions alone. `write` says the op is one of an
     entry's up to its last edit (what the messages call the value), `forward` that the operand is an entry of the
     value's own forward (a ragged pair there is compared row by row by `check_operands`, once preflight has the
     rows). A label preflight has yet to resolve (`[]`) is compared then. The coordinates are compared first, since
@@ -223,7 +229,7 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
             return (f"{written!r} holds layers {theirs.layers}, and this op acts at layers {ours.layers}; at each "
                     f"layer it takes the operand's slice of that layer, and it holds none of {missing}: read it at "
                     "those layers too")
-    if "rows" in their_axes and theirs.dataset != ours.dataset:
+    if "rows" in their_axes and theirs.dataset is not None and theirs.dataset != ours.dataset:
         return (f"{mine} has a row per example of {ours.dataset!r} and {written!r} of {theirs.dataset!r}; an op "
                 "takes one dataset's rows")
     if "pos" in their_axes and theirs.read != ours.read:
@@ -240,6 +246,12 @@ def mismatch(ours: Labelled, theirs: Labelled, name: str, key: str, written: str
         own, held = ours.kept.get(axis), theirs.kept.get(axis)
         if axis in address.EXAMPLE_AXES or adapts or own == [] or held == [] or own == held:
             continue                                        # not a selected axis, pending, or the same
+        if isinstance(own, dict) or isinstance(held, dict):
+            def keyed(k: selectors.Kept | None) -> str:
+                return "every key" if k is None else f"the keys at offsets {k['offset']} from each query" \
+                    if isinstance(k, dict) else f"keys {k}"
+            return (f"{written!r} holds {keyed(held)}, and {whose} holds {keyed(own)}; a key relative to the query "
+                    "pairs with the same offsets alone: select one key offset at both reads")
         if own is not None and held is not None and sorted(own) == sorted(held):
             why = "a select list is positional, so they would trade places"
         elif held is not None and len(held) == 1:

@@ -62,8 +62,9 @@ class Record(BaseModel):
     def _known(cls, given: Any) -> Any:
         if isinstance(given, dict) and cls.model_config.get("extra") == "forbid":
             for key in given:
-                if key not in cls.model_fields:
-                    raise ValueError(f"unknown field {key!r}; valid: {', '.join(documented(cls))}")
+                if key not in {f.alias or k for k, f in cls.model_fields.items()}:
+                    raise ValueError(f"unknown field {key!r}; valid: "
+                                     f"{', '.join(cls.model_fields[k].alias or k for k in documented(cls))}")
         return given
 
     @model_serializer(mode="wrap")
@@ -173,6 +174,38 @@ class Model(Record):
         return QUANTIZED.get(self.dtype, self.dtype)
 
 
+class TextPart(Record):
+    """`{"text": "<text>"}`: a text, written as it is, in a list `input` and as a derived column's `after` or
+    `before`: one string, its only field (no `strip` or `lower`, and no list, which a literal in an op's argument
+    takes)."""
+    text: str
+
+
+class Derived(Record):
+    """`{"from": "<column as the source has it>", "after"?: {"text": ...}, "before"?: {"text": ...}, "strip"?:
+    bool}`: a column whose text on each row is cut from another's, text on text, decided at compile, never a
+    computation on its values: the text of column `from` after the first occurrence of `after`'s text, then
+    before the first occurrence of `before`'s in what is left (each optional, and each a text, `{"text": ...}`,
+    one string alone, compared exactly), then, under `strip`, without its surrounding whitespace. `{"from":
+    "answer", "after": {"text": "#### "}, "strip": true}` is a GSM8K answer's number. `from` stays under its own
+    name. Refused by name: a row whose `from` is not text, and one on which `after`'s or `before`'s text does not
+    occur, naming the row."""
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True, use_attribute_docstrings=True,
+                              serialize_by_alias=True)
+    source: str = Field(alias="from")
+    after: TextPart | None = None
+    before: TextPart | None = None
+    strip: bool = False
+
+    @field_validator("after", "before", mode="before")
+    @classmethod
+    def _text(cls, given: Any) -> Any:
+        """A text is the object, as it is in a list `input`: a bare string is refused with it."""
+        if isinstance(given, str):
+            raise ValueError(f"{given!r} is a string; text written as it is is {{'text': {given!r}}}")
+        return given
+
+
 class Data(Record):
     """A dataset: where its rows come from and how its text renders, never a computation on its values. Its rows
     come from one of three sources: `path` is `data/<path>.json` under the corpus root, `rows` are inline, and
@@ -185,7 +218,9 @@ class Data(Record):
     `shuffle` puts the rows in one fixed random order, the same on every machine (seed 0); `take` keeps the first
     N (after `shuffle`, a random sample of N); and `columns` renames them, `{"<name>": "<column as the source has
     it>"}`, each name that column and no longer under its own, every other column as it is (so one file serves a
-    fit's `eval` substitution under the body's column names). `template` is passed to the checkpoint's
+    fit's `eval` substitution under the body's column names), or derives one, `{"<name>": {"from": "<column as the
+    source has it>", "after"?: ..., "before"?: ..., "strip"?: bool}}`, text cut from another column's (`Derived`),
+    which joins the rows and their digest as a column the source has does. `template` is passed to the checkpoint's
     `apply_chat_template` wherever a chat column of the dataset renders (`{"add_generation_prompt": true,
     "enable_thinking": false}`), so a chat can end in the generation prompt and keep its `turn` scopes; a
     checkpoint whose template reads the clock (`strftime_now`: Llama-3.2's writes today's date into the system
@@ -196,8 +231,9 @@ class Data(Record):
     than the one its cache holds (offline, a branch reads as the cache holds it), a split it does not have (or, of
     several, none named), and a column of it whose values are not JSON (images, audio, bytes); `take` beyond the
     rows, a `columns` source the rows lack or a name that is a column they keep (a swap, `{"a": "b", "b": "a"}`,
-    keeps neither), a `template` on a dataset no step reads a chat column of, and, before any forward, a chat of
-    a clock-reading template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
+    keeps neither), a derived column's source that is not text on a row or that lacks its text there, a
+    `template` on a dataset no step reads a chat column of, and, before any forward, a chat of a clock-reading
+    template without `date_string`. `sha256` and `n_rows` describe the rows these leave."""
     path: str | None = None
     rows: list[dict] | None = None
     hf: str | None = None
@@ -206,7 +242,7 @@ class Data(Record):
     split: str | None = None
     shuffle: bool = False
     take: int | None = None
-    columns: dict[str, str] | None = None
+    columns: dict[str, Annotated[Union[str, Derived], ByShape()]] | None = None
     template: dict[str, Any] | None = None
     sha256: str | None = derived(None, "the digest of the rows, which a re-materialization must match")
     n_rows: int | None = derived(None, "how many rows the dataset has")
@@ -235,15 +271,32 @@ class Data(Record):
         return self
 
 
+class Offset(Record):
+    """`{"offset": k}` or `{"offset": [k, ...]}`: on an attention pattern's `key` axis, at each query position p the
+    entry reads, key p + k of the row's own keys, one per offset in the order written (`{"offset": -1}` the previous
+    token, `[-1, -2]` the two before it): the axis is as wide as the offsets are many, and an entry is missing (NaN)
+    where p + k is not one of the row's keys (before its first or past its last). A read's alone: a write selects
+    keys counted from the start."""
+    offset: Swept[int | list[int]]
+
+    @field_validator("offset")
+    @classmethod
+    def _distinct(cls, given: Any) -> Any:
+        if isinstance(given, list) and (not given or len(set(given)) < len(given)):
+            raise ValueError(f"offsets {given} name at least one, each once")
+        return given
+
+
 class Site(Record):
     """A component, narrowed: `layers` (a selector, as `pos` has them, of the model's layers: an int is that
     layer's value; a slice or a list of picks is one value, a `layers` axis first, labelled with the layers
     it picks: `[0, 3, 7]` is three, `"-2:"` the last two) on a block's component, and `select`
-    (`{<axis>: <selector>}`, which Components describes). A read and a write take `layers` alike: an entry is
+    (`{<axis>: <selector>}`, which Components describes; on `key`, a selector of keys counted from the start, or
+    keys relative to each query, `{"offset": k}`, a key offset). A read and a write take `layers` alike: an entry is
     made at each layer they pick, in one forward."""
     component: str
     layers: Swept[Selector] | None = None
-    select: dict[str, Swept[Selector]] | None = None
+    select: dict[str, Swept[Annotated[Union[Selector, Offset], ByShape()]]] | None = None
 
     @model_validator(mode="after")
     def _narrowing(self) -> "Site":
@@ -258,9 +311,13 @@ class Site(Record):
         for axis, index in (self.select or {}).items():
             if axis not in valid:
                 raise ValueError(f"{self.component} has no axis {axis!r} to select; its axes: {', '.join(valid)}")
-            if axis == "key" and not isinstance(index, Sweep) and not selectors.keyed(index):
+            if isinstance(index, Offset) and axis != "key":
+                raise ValueError(f"select {axis} {index.model_dump()}: an offset is relative to the query position, "
+                                 "on an attention pattern's key axis alone")
+            if axis == "key" and not isinstance(index, (Sweep, Offset)) and not selectors.keyed(index):
                 raise ValueError(f"select key {index!r}: the key axis is as long as each row, so a selector there "
-                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\")")
+                                 "picks a fixed number of keys counted from the start (0, [0, 2], \"0:3\"), or keys "
+                                 "relative to each query ({'offset': -1})")
         return self
 
 
@@ -270,6 +327,12 @@ class Column(Record):
     whole: `pairs.counterfactual_inputs_variables[0].entity`). A row's value may be a list of strings: a set, any
     of which is the answer. The flags say how its text compares and never rewrite the data: `lower` compares it
     lowercased, and `strip` makes its surrounding whitespace optional.
+
+    Where an op takes `Tokens` or `Text` (a metric's answer, `contains`'s text), a literal may stand in place of the
+    column: `{"text": "</think>", "strip"?: bool, "lower"?: bool}`, its text a string or a list of them (a set), the
+    same on every row of whatever value it goes with, and read exactly as a column holding it on every row is
+    (tokenized as written, the flags as here). It takes the flags and a set, where a text (`{"text": ...}` in a
+    list `input` or a derived column) is one string alone; a scope names its text in its own `text` field.
 
     A scope searches the input for the text as the flags compare it, under `strip` without its surrounding
     whitespace, its positions the original's.
@@ -303,7 +366,9 @@ class Scope(Record):
     listed (a string is the one-element list), their occurrences together, ordered by where each ends. Every
     scope takes `occurrence`, which of its occurrences it is (a selector; default 0, the first): a text's
     occurrence lies on token and word boundaries, as `pos` says (a token's own surrounding whitespace on either
-    side, and no letter or digit adjoining a word it cuts); and `before`,
+    side, and no letter or digit adjoining a word it cuts); `until`, whether it is every token of the frame up to
+    and including the occurrences it picks rather than their tokens alone (every token of the frame on a row
+    without them); and `before`,
     whether it is the positions that predict its tokens rather than the tokens themselves. A `text` takes
     `strip` and `lower`, as a column's reference does (a turn's contents are located as the template rendered
     them)."""
@@ -314,6 +379,7 @@ class Scope(Record):
     occurrence: Swept[Selector] = 0
     strip: bool = False
     lower: bool = False
+    until: bool = False
     before: bool = False
 
     @field_validator("column", mode="before")
@@ -380,9 +446,10 @@ class Pos(Record):
     pos      := int                                # shorthand: {"frame": 0, "index": int}
               | {"frame"?: frame, "scope"?: scope, "index"?: swept}        # index default ":"
     frame    := swept                                                     # default 0
-    scope    := {"column": column or a list, "occurrence"?: swept, "before"?: bool}
-              | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "before"?: bool}
-              | {"turn": "<role>", "occurrence"?: swept, "before"?: bool}      # occurrence default 0
+    scope    := {"column": column or a list, "occurrence"?: swept, "until"?: bool, "before"?: bool}
+              | {"text": one or a list, "occurrence"?: swept, "strip"?: bool, "lower"?: bool, "until"?: bool,
+                 "before"?: bool}
+              | {"turn": "<role>", "occurrence"?: swept, "until"?: bool, "before"?: bool}   # occurrence default 0
     column   := "<dataset>.<column>" | {"column": "<dataset>.<column>", "strip"?: bool, "lower"?: bool}
     selector := int | "<start>:<stop>:<step>" | [int, ...]                # one, a slice, picks
     swept    := selector | {"sweep": [selector, ...]}                     # a point per selector
@@ -432,6 +499,20 @@ class Pos(Record):
     "user", "occurrence": 1}` is the second user message, `":"` every one of them); a role the row has no
     message of is refused by name.
 
+    **until** (default false): the scope is every token the frame selected up to and including the last token of
+    the occurrences `occurrence` picks, rather than those occurrences' tokens; on a row that has fewer of them than
+    it picks (the text never occurs), every token the frame selected, in the prefill too, so nothing is refused
+    and the record says per row where it ended. So `{"frame": "1:", "scope": {"text": "</think>", "until": true}}`
+    is each row's generated inputs through its first `</think>`, and `count` of a read there is the thinking's
+    length in tokens (all its inputs on a row that never closes it). The scope is the frame's: an occurrence that
+    holds none of the frame's tokens is not one of its own, so over `"2:"` a text said at call 1 is not found and
+    until is the whole frame, as on a row that never says it. An until scope holds a different number of positions
+    on each row. With `before` its frame is decode calls: over a frame that holds the prompt it would start before
+    the frame's first token (position 0, or at a generation's head the prompt's last, before which its prefill
+    computes no head) and name no position on any row, so compile refuses it. A write's positions beyond the
+    prefill are decided call by call, as each runs, and until names positions up to an occurrence not yet seen
+    then, so a write there takes no until.
+
     **before** (default false): the positions that predict the scope's tokens, each the position just
     before one, the same width. The scope is searched among the tokens the frame's calls hold and, where
     the frame names the row's last call, the token that call chose (the row's last generated token, which
@@ -451,12 +532,12 @@ class Pos(Record):
     names a static number of calls (an int, picks, or a slice with a static width, not `":"` or `"1:"`), its
     index has a static width (an int, picks, or a slice whose two ends count from the same side: `"-4:-1"`,
     `"-3:"`, `"2:5"`; see `selectors.fixed`), and a `column`/`text` scope, if it has one, is one occurrence in
-    the prefill; otherwise its rows hold different numbers of positions, and the value is as wide as the widest
-    row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a static index
-    that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a result, as
-    is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a shorter
-    row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused by
-    name, since it has no token to write.
+    the prefill and not `until`; otherwise its rows hold different numbers of positions, and the value is as wide
+    as the widest row, NaN past a row's own. In the prefill (`frame: 0`) an occurrence a row does not have, or a
+    static index that does not fit, is refused by name before any forward: the data decided. Anywhere else it is a
+    result, as is a call the row never reached, and as is an index that picks none of a row's tokens (`"5:"` on a
+    shorter row), in the prefill too: the row is `alignment_missing`, NaN all the way, and a write there is refused
+    by name, since it has no token to write.
     """
     frame: Swept[Selector] = 0
     scope: Scope | None = None
@@ -519,10 +600,12 @@ class Labelled(Record):
                                       "and that is one number: the static width its read's `pos` names, confirmed "
                                       "from the positions preflight resolves; null where rows hold different numbers "
                                       "of positions, or there is no `pos` axis")
-    kept: dict[str, list[int]] = derived({}, "the indices a site's `select` keeps on each axis it selects, in their "
-                                             "order (`key`: the keys it picks), an op step's those of the value it is "
-                                             "over on the axes its own still has; an unselected axis is whole, and "
-                                             "`[]` stands until preflight resolves a slice or a negative pick")
+    kept: dict[str, selectors.Kept] = derived({}, "the indices a site's `select` keeps on each axis it selects, in "
+                                                  "their order (`key`: the keys it picks, or `{\"offset\": [...]}`, "
+                                                  "those relative to each query), an op step's those of the value it "
+                                                  "is over on the axes its own still has; an unselected axis is "
+                                                  "whole, and `[]` stands until preflight resolves a slice or a "
+                                                  "negative pick")
     space: list[dict] = derived([], "the coordinates the value is in: the encodes left open around it, outermost "
                                     "first, each its `featurizer` and `select`; none for the site's own layout")
     axes: list[str] = derived([], "the sweep axes the value depends on, in axis order: the sweeps on its own entry "
@@ -659,15 +742,10 @@ def gathers(entry: Intervention) -> list[Op]:
     return entry.ops[last + 1:]
 
 
-class TextPart(Record):
-    """`{"text": "<literal>"}`: literal text in a list `input`."""
-    text: str
-
-
 class Forward(Record):
     """One forward over every row of a dataset input. `input` is `<dataset>.<column>` or
-    `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and `{"text": "<literal>"}`
-    literals of one dataset, joined per row as they are, with nothing between (`["days.input",
+    `<dataset>.<column>[i]`, a text or a chat, or a list of text columns and texts, `{"text": "<text>"}`,
+    of one dataset, joined per row as they are, with nothing between (`["days.input",
     "days.answer"]` appends each row's answer to its prompt: teacher forcing); `interventions` (a bundle's
     name, a dict of entries, or a list of either) are what it reads and writes, each entry binding
     `<step>.<name>`, in the order written.

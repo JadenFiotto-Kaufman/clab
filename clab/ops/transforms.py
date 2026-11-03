@@ -14,8 +14,8 @@ import torch
 from torch import Tensor
 
 from clab import featurizers
-from clab.format import address, selectors
-from clab.format.registry import Featurizer, Value
+from clab.format import address, data, selectors
+from clab.format.registry import Featurizer, Text, Value
 from clab.ops import VOCABULARY, op
 from clab.ops.metrics import ranked
 from clab.ops.reductions import floated
@@ -73,16 +73,40 @@ def encode(of: Tensor, featurizer: Featurizer, select: Annotated[dict, "{feature
     return z.index_select(-1, torch.tensor(selectors.select(select["features"], z.shape[-1]), device=z.device))
 
 
-@op("transforms", needs=("new",), removes=("new",))
-def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = False) -> list[str] | list[list[str]]:
+def cut(args: dict) -> None:
+    """`detokenize`'s `after` cuts a row's text, which its token strings (`tokens`) are not."""
+    if args.get("tokens") and args.get("after") is not None:
+        raise ValueError("after keeps each row's text after an occurrence, and with tokens a row is its token "
+                         "strings, which after does not cut; detokenize without tokens")
+
+
+@op("transforms", needs=("new",), removes=("new",), check=cut)
+def detokenize(of: Tensor, engine: "Engine", eos: list[int], tokens: bool = False,
+               after: Text | None = None) -> list[str] | list[list[str]]:
     """Each row's generated ids as text, stopped before the row's first EOS (the id its generation stops on);
-    with `tokens`, as its token strings."""
+    with `tokens`, as its token strings. `after` (a column, each row's own text, or a literal, `{"text":
+    "</think>"}`) keeps each row's text after its first occurrence there (`following`), the whole text where it
+    does not occur, so `contains` scores what follows it alone."""
     tokenizer, stops = engine.tokenizer, set(eos)
     out = []
-    for ids in of.tolist():
+    for r, ids in enumerate(of.tolist()):
         ids = next((ids[:i] for i, t in enumerate(ids) if t in stops), ids)
-        out.append(tokenizer.convert_ids_to_tokens(ids) if tokens else tokenizer.decode(ids))
+        if tokens:
+            out.append(tokenizer.convert_ids_to_tokens(ids))
+            continue
+        text = tokenizer.decode(ids)
+        out.append(text if after is None else following(text, *after[r]))
     return out
+
+
+def following(text: str, texts: list[str], strip: bool, lower: bool) -> str:
+    """`text` after the first occurrence in it of any of `texts` (a set's members, each compared as the flags say,
+    `data.compared`, `text` lowercased too under `lower`, its characters its own): the occurrence that ends first,
+    as a scope orders them; all of `text` where none occurs. Text on text, as `contains` compares, so an occurrence
+    may cut a word."""
+    words = data.compared(text, False, lower)
+    ends = [words.find(t) + len(t) for t in (data.compared(x, strip, lower) for x in texts) if t in words]
+    return text[min(ends):] if ends else text
 
 
 @op("transforms")

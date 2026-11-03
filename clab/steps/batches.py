@@ -12,7 +12,7 @@ from torch import Tensor
 
 from clab import featurizers, ops
 from clab.compile import positions
-from clab.compile.answers import answered, column_texts, indexed, refkey
+from clab.compile.answers import answered, indexed, refkey, texts_of
 from clab.compile.positions import head, texts
 from clab.compile.state import Found
 from clab.format import address, data, selectors
@@ -47,8 +47,9 @@ def site(record: Intervention, picks: dict, rows: list, pads: list[int], width: 
     tok = [row + [-1] * (n - len(row)) for row in rows]
     index = [[-1] * n for _ in rows] if last_only else index
     ragged = any(len(row) < n for row in rows)
+    queries = [row + [row[-1] if row else 0] * (n - len(row)) for row in rows]
     return {"component": cast(Site, record.site).component, "positions": placed(index, device),
-            "select": selection(record, picks, device), **keys(record, pads, width, device, span),
+            "select": selection(record, picks, device), **keys(record, pads, width, device, span, queries),
             **({"keep": placed([[j < len(row) for j in range(n)] for row in rows], device)} if ragged else {}),
             "tok": torch.tensor(tok)}
 
@@ -62,16 +63,27 @@ def decoding(record: Intervention, picks: dict, prompts: list[int], device: str 
             "select": selection(record, picks, device), "tok": torch.tensor([[p - 1] for p in prompts])}
 
 
-def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None) -> dict:
+def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu", span: int | None = None,
+         queries: list[list[int]] | None = None) -> dict:
     """A `key` axis as each row's own keys, its positions (`positions.prompted`), which a key selector counts:
     `dim` is the axis's dimension in the selection's layout, `index` (`[rows, span]`) each row's keys in the
     padded batch, `width` tokens wide, in order, then its padding's, then up to `span` (the input's longest row;
     None: `width`) the first key again, and `own` which of those are the row's (`owned`), both on `device`. So a
-    key axis is as wide as the input's longest row whatever the batch's width. Nothing on a component with no key
-    axis."""
+    key axis is as wide as the input's longest row whatever the batch's width. Keys relative to the query (`kept`'s
+    `{"offset": [...]}`) are `[rows, n, offsets]` instead: at each row's position p among its `queries` (`[rows,
+    n]`, as the selection's positions are), key p + k in the padded batch, `own` where that is one of the row's keys
+    (its key 0 in the index where not). Nothing on a component with no key axis."""
     layout = address.dims(cast(Site, record.site).component)
     if "key" not in layout:
         return {}
+    relative = record.kept.get("key")
+    if isinstance(relative, dict):
+        assert queries is not None, "a read's selection is bound with its positions"
+        valid = [[[0 <= p + k < width - pad for k in relative["offset"]] for p in row]
+                 for row, pad in zip(queries, pads)]
+        index = [[[p + k + pad if ok else 0 for k, ok in zip(relative["offset"], oks)] for p, oks in zip(row, okay)]
+                 for row, pad, okay in zip(queries, pads, valid)]
+        return {"keys": {"dim": layout.index("key"), "index": placed(index, device), "own": placed(valid, device)}}
     span = width if span is None else span
     index = [[p + pad for p in positions.prompted(width - pad)] + list(range(pad)) + [0] * (span - width)
              for pad in pads]
@@ -81,9 +93,10 @@ def keys(record: Intervention, pads: list[int], width: int, device: str = "cpu",
 
 def selection(record: Intervention, picks: dict, device: str = "cpu") -> dict[int, Tensor]:
     """A record's `select` as dimension indices of its selection's layout, each with the indices it keeps
-    (`picks`, by axis), on `device`: on `key`, among the row's own keys, which `keys` puts first, in order."""
+    (`picks`, by axis), on `device`: on `key`, among the row's own keys, which `keys` puts first, in order; keys
+    relative to the query `keys` takes itself, so they are not among these."""
     layout = address.dims(cast(Site, record.site).component)
-    return {layout.index(axis): placed(v, device) for axis, v in picks.items()}
+    return {layout.index(axis): placed(v, device) for axis, v in picks.items() if not isinstance(v, dict)}
 
 
 def placed(values: Any, device: str | torch.device) -> Tensor:
@@ -361,12 +374,13 @@ def bound(plan: Plan, name: str, args: dict, state: ChainMap, at: dict, ids: lis
                 if dims is not None and axes and isinstance(value, Tensor) and not (key == "with" and adapter):
                     value = value.reshape([value.shape[axes.index(a)] if a in axes else 1 for a in dims])
         elif annotation == ops.Tokens:
-            value = (indexed(plan, value, vocabulary, ids)[:, None] if vocabulary is not None else
-                     answered(found.answers[refkey(value)], of, dims or [], ids))
+            value = (indexed(plan, value, vocabulary, ids, of, dims or [])[:, None]
+                     if vocabulary is not None else answered(found.answers[refkey(value)], of, dims or [], ids))
             value = placed(value, of.device) if isinstance(of, Tensor) else value
         elif annotation == ops.Text:
-            column, strip, lower = data.column_of(value) or ("", False, False)
-            value = [(v if isinstance(v, list) else [v], strip, lower) for v in column_texts(plan, column, ids)]
+            strip, lower = data.flags_of(value)
+            value = [(v if isinstance(v, list) else [v], strip, lower)
+                     for v in texts_of(plan, value, ids, of, dims or [])]
         elif annotation == ops.Featurizer:
             value = lookup(state, value, resolved[value]["at"] if value in resolved else at)
         out[key] = value
@@ -424,11 +438,14 @@ def take(x: Tensor, dim: int, index: Tensor) -> Tensor:
 
 
 def per_row(x: Tensor, dim: int, index: Tensor) -> Tensor:
-    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter."""
+    """Each row's `[rows, n]` indices expanded to `x`'s shape with `n` along `dim`, for gather and scatter; each row's
+    and position's, `[rows, pos, n]` (keys relative to the query), with `pos` along `x`'s token axis, 1."""
     shape = [1] * x.dim()
-    shape[0], shape[dim] = index.shape
+    shape[0], shape[dim] = index.shape[0], index.shape[-1]
+    if index.dim() == 3:
+        shape[1] = index.shape[1]
     size = list(x.shape)
-    size[dim] = index.shape[1]
+    size[dim] = index.shape[-1]
     return index.reshape(shape).expand(size)
 
 

@@ -77,12 +77,28 @@ def shuffled(rows: list[dict]) -> list[dict]:
     return [rows[i] for i in sorted(range(len(rows)), key=key)]
 
 
-def renamed(rows: list[dict], columns: dict[str, str]) -> list[dict]:
-    """Each row with each name `columns` maps the column it maps to, that column no longer under its own name,
-    and every other column as it is."""
-    sources = set(columns.values())
-    return [{**{k: v for k, v in row.items() if k not in sources}, **{name: row[c] for name, c in columns.items()}}
+def renamed(rows: list[dict], columns: dict[str, Any]) -> list[dict]:
+    """Each row with each name `columns` maps the column it maps to, that column no longer under its own name, or
+    the text a derived column (`plan.Derived`) cuts from its source's (`cut`), and every other column as it is."""
+    sources = {c for c in columns.values() if isinstance(c, str)}
+    return [{**{k: v for k, v in row.items() if k not in sources},
+             **{name: row[c] if isinstance(c, str) else cut(row[c.source], c) for name, c in columns.items()}}
             for row in rows]
+
+
+def cut(text: str, derived: Any) -> str | None:
+    """A derived column's text on one row (`plan.Derived`): `text` after the first occurrence of its `after`'s
+    text, then before the first occurrence of its `before`'s in what is left, then stripped under its `strip`;
+    None where either does not occur."""
+    for side in ("after", "before"):
+        part = getattr(derived, side)
+        if part is None:
+            continue
+        at = text.find(part.text)
+        if at < 0:
+            return None
+        text = text[at + len(part.text):] if side == "after" else text[:at]
+    return text.strip() if derived.strip else text
 
 
 def digest(rows: list[dict]) -> str:
@@ -121,12 +137,12 @@ def by_id(table: Any, ids: list[int] | None, among: list[int] | None = None, axi
 
 
 def input_columns(input: str | list[str | TextPart]) -> list[str]:
-    """The columns an input names: itself, or a list's that are not `{"text": ...}` literals."""
+    """The columns an input names: itself, or a list's that are not `{"text": ...}` texts."""
     return [input] if isinstance(input, str) else [part for part in input if isinstance(part, str)]
 
 
 def input_name(input: str | list[str | TextPart], swap: dict[str, str] | None = None) -> str:
-    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a literal as JSON),
+    """An input as the run record names it: the column, or a list's parts joined by ` + ` (a text as JSON),
     each column's dataset as `swap` renames it."""
     parts = [input] if isinstance(input, str) else input
     swap = swap or {}
@@ -142,6 +158,20 @@ def column_of(ref: object) -> tuple[str, bool, bool] | None:
     if not isinstance(ref, dict) or "column" not in ref:
         return None
     return ref["column"], bool(ref.get("strip")), bool(ref.get("lower"))
+
+
+def literal_of(ref: object) -> tuple[str | list[str], bool, bool] | None:
+    """A literal where a column is read as text, as a document writes it, `(text, strip, lower)`: `{"text", "strip"?,
+    "lower"?}`, its text a string or a list of them (a set), the same on every row; None for anything else."""
+    if not isinstance(ref, dict) or "text" not in ref or "column" in ref:
+        return None
+    return ref["text"], bool(ref.get("strip")), bool(ref.get("lower"))
+
+
+def flags_of(ref: object) -> tuple[bool, bool]:
+    """How a column reference's or a literal's text compares, `(strip, lower)`; neither for anything else."""
+    given = column_of(ref) or literal_of(ref)
+    return (given[1], given[2]) if given else (False, False)
 
 
 def field(row: dict, input: str | list[str | TextPart]) -> str | list[dict]:
