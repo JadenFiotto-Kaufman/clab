@@ -300,7 +300,3 @@ def command(args: argparse.Namespace) -> int:
         print("  " + line)
     print(f"  {os.path.join(out, 'manifest.json')}")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
