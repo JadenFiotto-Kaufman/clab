@@ -302,7 +302,7 @@ def forward(engine: Engine, plan: Plan, name: str, step: Forward, state: ChainMa
             parts[k].append(stack_layers(record, [
                 value_in_prefill(engine, plan, record, got[binds[k + (layer,)][0]["name"]], binds[k + (layer,)][0], ids,
                                  state, point.at, findings, layer)
-                for layer in layers_made_at(engine, record)]))
+                for layer in layers_made_at(record)]))
     for k, (record, own, _) in values_read.items():
         join_batches(state, f"{name}.{k[0]}", record, own, parts[k], batched_ids)
 

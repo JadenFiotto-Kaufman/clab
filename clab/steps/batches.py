@@ -289,7 +289,7 @@ def bind_schedule(engine: Engine, plan: Plan, name: str, step: Forward, state: C
             "online": schedule.get("online", False)}, binds
 
 
-def layers_made_at(engine: Engine, record: Intervention) -> list[int] | list[None]:
+def layers_made_at(record: Intervention) -> list[int] | list[None]:
     """The layers a record is made at, a read's and a write's alike, as its record says: those its site's
     `layers` pick among the model's, in order (an int's one; None for a model's own value)."""
     return cast("list[int] | list[None]", record.layers if record.layers is not None else [None])
