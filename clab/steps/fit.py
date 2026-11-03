@@ -13,8 +13,8 @@ from clab.compile.schedule import values_read_by
 from clab.compile.state import Findings
 from clab.compile.uses import instance
 from clab.featurizers import Kind
-from clab.format.sweeps import lookup, put
-from clab.plan import Fit, Forward, OpStep, Plan, Step, agreeing_point, body_view, held_rows, open_encodes
+from clab.format.sweeps import agreeing_point, lookup, put
+from clab.plan import Fit, Forward, OpStep, Plan, Step, body_view, held_rows, open_encodes
 from clab.steps.batches import ROWS, model_device
 
 if TYPE_CHECKING:

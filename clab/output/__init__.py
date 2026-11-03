@@ -40,9 +40,9 @@ from clab import featurizers, ops
 from clab.compile import dataset_rows
 from clab.compile.uses import uses
 from clab.featurizers import bundles, labels
-from clab.format.sweeps import coordinate, coordinate_text
-from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, agreeing_point, arguments, entry_of, kind_of,
-                       made_by, points, projections, record_of, scope)
+from clab.format.sweeps import agreeing_point, coordinate, coordinate_text, points
+from clab.plan import (Intervention, Labelled, Plan, Run, Site, Step, arguments, entry_of, kind_of, made_by, projections,
+                       record_of, scope)
 from clab.plan import name as named
 
 # The labels a result's manifest record carries beside `dims`, each where the value has one.

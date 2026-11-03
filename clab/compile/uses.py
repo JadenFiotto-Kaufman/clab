@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, cast
 from clab.featurizers import KINDS, Kind, bundles, labels, make
 from clab.format import address, selectors
 from clab.format.selectors import selected
-from clab.format.sweeps import points
+from clab.format.sweeps import agreeing_point, points
 from clab.plan import (
     Featurizer,
     Intervention,
@@ -19,7 +19,6 @@ from clab.plan import (
     OpStep,
     Plan,
     Site,
-    agreeing_point,
     arguments,
     bracketed,
     declared,
