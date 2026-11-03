@@ -304,27 +304,21 @@ def join_batches(state: ChainMap, name: str, record: Intervention, at: dict[str,
     """A gathered entry's per-batch `values` joined along rows, on the first batch's device, as `stack_layers`
     joins layers (a batch whose rows all stopped before the calls a read names made its blank on the CPU, and
     under a device map batches can come back apart); a batch narrower than the widest along `pos` is padded
-    to it first (`pad_with_missing`). The batches' rows are dataset row `ids` in the order they ran, put back in the
-    run's order (`in_run_order`). The value is put under `name` (`<step>.<entry>`) at `at`, its coordinates on its own
-    axes."""
+    to it first with what marks a missing position, NaN, or -1 in ids. The batches' rows are dataset row `ids` in the
+    order they ran, put back in the run's order (`in_run_order`). The value is put under `name` (`<step>.<entry>`) at
+    `at`, its coordinates on its own axes."""
     dims = record.dims or []
 
     def cat(parts: list[Tensor]) -> Tensor:
         if "pos" in dims:
-            parts = [pad_with_missing(v, dims.index("pos"), max(v.shape[dims.index("pos")] for v in parts))
-                     for v in parts]
+            pos = dims.index("pos")
+            n = max(v.shape[pos] for v in parts)
+            parts = [v if v.shape[pos] == n else torch.cat([v, torch.full(
+                [*v.shape[:pos], n - v.shape[pos], *v.shape[pos + 1:]], float("nan") if v.is_floating_point() else -1,
+                dtype=v.dtype, device=v.device)], pos) for v in parts]
         return torch.cat([v.to(parts[0].device) for v in parts], dims.index("rows"))
     value = cat(values) if isinstance(values[0], Tensor) else {k: cat([v[k] for v in values]) for k in values[0]}
     put(state, name, at, value if ids is None else in_run_order(state, value, ids, dims.index("rows")))
-
-
-def pad_with_missing(value: Tensor, dim: int, n: int) -> Tensor:
-    """`value` padded along `dim` to `n` with what marks a missing position: NaN, or -1 in ids."""
-    shape = list(value.shape)
-    shape[dim] = n - shape[dim]
-    missing = float("nan") if value.is_floating_point() else -1
-    return value if shape[dim] == 0 else torch.cat([value, torch.full(shape, missing, dtype=value.dtype,
-                                                                       device=value.device)], dim)
 
 
 def value_in_prefill(engine: Engine, plan: Plan, record: Intervention, value: Tensor, bound_record: dict,
