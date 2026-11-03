@@ -137,3 +137,22 @@ def test_a_value_with_no_rows_axis_and_several_tensors_says_so(engines):
     with pytest.raises(ValueError, match=r"^'b' has no rows to table: it is a bundle \(a pca's value\); read it from "
                                          r"plan\.results$"):
         filled.table("b")
+
+
+def test_a_swept_fits_history_tables_each_points_own_epochs(engines):
+    """T8's repro: a fit swept over `epochs` [0, 2] keeps a history per point, of no epochs and of two, and its table
+    is a row per epoch of each point, labelled with the point, where it ended in a bare StopIteration."""
+    filled = run(engines, plan(
+        sites={"target": {"component": "layer_output", "layers": 0}},
+        featurizers={"lora": {"kind": "lora", "rank": 1, "alpha": 1}},
+        steps={"fit": {"kind": "fit", "train": ["lora"], "objective": {"ce": 1.0}, "epochs": {"sweep": [0, 2]},
+                       "batch_size": 2, "seed": 0, "optimizer": {"name": "adam", "lr": 0.01}, "steps": {
+                           "adapted": {"kind": "forward", "input": "pairs.input", "interventions": {
+                               "adapt": {"site": "target", "pos": -1, "ops": [{"op": "apply", "featurizer": "fit.lora"}]},
+                               "logits": logits()}},
+                           "ce": {"kind": "op", "op": "cross_entropy", "of": "adapted.logits",
+                                  "target": "pairs.cf_answer"}}}},
+        saves=["fit.history.ce"]))
+    history = filled.results["fit.history.ce"]
+    assert filled.table("fit.history.ce") == [{"at": {"epochs": 2}, "epochs": epoch, "value": history[2][epoch].item()}
+                                              for epoch in (0, 1)]

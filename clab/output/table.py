@@ -128,15 +128,16 @@ def by_point(plan: Plan, name: str) -> list[tuple[dict[str, Any], Any]]:
 def rows_of(plan: Plan, name: str, columns: list[str] | None) -> list[dict[str, Any]]:
     thing, _, member = name.partition(".")
     step = points(plan.steps[thing])[0]
-    if step.kind == "fit" and member.partition(".")[0] in ("history", *step.train):
-        dims = record_of(plan.steps, name, {}).dims or []
-        if member in step.train:
-            raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
-                             "from plan.results")
-        return [{"at": at, **row} if at else row for at, value in by_point(plan, name)
-                for row in value_rows(value, dims, None)]
+    fitted = step.kind == "fit" and member.partition(".")[0] in ("history", *step.train)
+    if fitted and member in step.train:
+        raise ValueError(f"{name!r} is a trained featurizer's bundle, which has no rows to table; read it "
+                         "from plan.results")
     out = []
     for (_, p), (at, value) in zip(projections(plan, name), by_point(plan, name)):
+        if fitted:              # a fit's history, over each point's own epochs
+            out += [{"at": at, **row} if at else row
+                    for row in value_rows(value, record_of(plan.steps, name, p.at).dims or [], None)]
+            continue
         record = record_of(plan.steps, name, p.at)
         dims = record.dims or []
         if isinstance(value, dict) and "rows" not in dims:
