@@ -142,7 +142,7 @@ clab: data.pairs: data/weekdays/train.json is not what the run read (its rows' d
 | `dtype`, `devices` | the distinct dtypes and devices of the model's parameters where it ran |
 | `versions` | clab with its commit, nnsight, nnterp, torch, transformers and python, on the machine that ran the model |
 | `threads` | torch's intra-op thread count on that machine at the run's start (`torch.get_num_threads()`), which with the batch size sets a CPU run's last bits; null in a manifest written before it was recorded |
-| `started`, `seconds` | when the run began and how long it took, the nnterp engine's weight load included in the first run that calls the model |
+| `started`, `seconds` | when the run began and how long it took; a shell's weight load (the nnterp engine's, at its first run that calls the model) happens before the clock starts |
 | `sizes` | the model's sizes (`num_layers`, `hidden_size`, `num_heads`, ...), which a site's `layers` and `select` count among |
 | `tokens` | each input's token strings per row, under the input's name (`pairs.input`); each `generate` step's generated tokens per row, under the step's name (an eval's generation under its eval step's, `fit.<eval>.<gen>`); written to `tokens.json`, not the manifest |
 | `costs` | each step's runs by name, a fit's eval steps' under `<fit>.<eval>.<step>` after the fit's: `seconds`, the peak `memory` on each CUDA device in bytes (null off CUDA and on a server), the model calls in `forwards`, the input `tokens` they fed, padding included, and of those the rows' own, `real`; a swept step's keyed by the coordinate of the point that ran, with the points it served in `serves` |

@@ -109,8 +109,11 @@ class NnterpEngine:
         # Decided here, since the session's body names no function a server lacks; under a device map the weights
         # load whatever the plan calls, since only they say where the map puts the run's tensors (`model_device`).
         calls = calls_model(plan.steps) or self.device in standard.COMPUTED
+        if calls and self.remote is not True:     # here, before the clock: `seconds` is the run, not the weight load
+            self.ready()
+            started = steps.start_run(self, plan, batch_size, padding)
         with self.model.session(remote=self.remote):
-            if calls:
+            if calls and self.remote is True:     # the server's model: its instrumentation and order, no weights
                 self.ready()
             steps.run(self, plan, batch_size)
             home = nnsight.save({"results": plan.results, "run": plan.run, "steps": {
