@@ -97,8 +97,8 @@ def test_a_root_featurizer_is_not_a_save():
                                         ("lora_train", ("fit", "steps", "adapted"))])
 def test_a_derived_field_a_step_sets_is_refused_by_name(name, path, field, value):
     """A field compile derives, on a forward or a generate (a fit body's too), is refused by name where a document
-    sets it, which compile would write over: `batch_size` (which it writes for a fit's eval steps alone, so a
-    document's ran at its own size whatever the run's `--batch-size`), `at` and `schedule`."""
+    sets it, which compile would write over: `batch_size` (which it writes for a fit's eval steps alone; set by a
+    document, it ran the step at that size whatever the run's `--batch-size`), `at` and `schedule`."""
     def change(d):
         step = d["steps"][path[0]]
         for key in path[1:]:
@@ -108,6 +108,19 @@ def test_a_derived_field_a_step_sets_is_refused_by_name(name, path, field, value
     with pytest.raises(PlanError, match=rf"^{where}: '{field}' is a derived field, which compile writes; a step sets "
                                         r"none$"):
         edited(name, change).compile()
+
+
+@pytest.mark.parametrize("field, value, where", [("positions", {"pairs": [[0]]}, ""), ("gathered", True, ""),
+                                                 ("width", 3, ""), ("dims", ["rows"], ".ops[0]")])
+def test_a_derived_field_an_entry_or_its_op_sets_is_refused_by_name(field, value, where):
+    """An entry's derived fields (`positions`, `gathered`, `width`) and its ops' (`dims`) are compile's, as a step's
+    are, so a document's is refused by name at its path."""
+    def change(d):
+        patch = d["steps"]["patched"]["interventions"]["patch"]
+        (patch["ops"][0] if where else patch)[field] = value
+    with pytest.raises(PlanError, match=rf"^steps\.patched\.interventions\.patch{re.escape(where)}\.{field}: "
+                                        rf"'{field}' is a derived field, which compile writes; an entry sets none$"):
+        edited("patching", change).compile()
 
 
 def test_a_fits_minibatch_holds_at_least_one_row():
